@@ -36,3 +36,27 @@ class InstrumentId:
 
     def __str__(self) -> str:
         return f"{self.venue}:{self.symbol}"
+
+
+@dataclass(frozen=True, slots=True)
+class AccountId:
+    value: str
+
+    def __post_init__(self) -> None:
+        if not self.value.strip():
+            raise ValueError("account id must not be empty")
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True, slots=True)
+class BrokerConnectionId:
+    value: str
+
+    def __post_init__(self) -> None:
+        if not self.value.strip():
+            raise ValueError("broker connection id must not be empty")
+
+    def __str__(self) -> str:
+        return self.value
