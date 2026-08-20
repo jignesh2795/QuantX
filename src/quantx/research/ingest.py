@@ -1,7 +1,8 @@
 """Canonical historical-data ingestion boundary.
 
 Adapters normalize raw CSV/JSON/vendor payloads into QuantX historical
-observations without fabricating missing values or market metadata.
+observations without fabricating missing values or market metadata. Optional
+market-calendar classification is preserved with each observation.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Iterable, Mapping, Protocol
 
+from .calendar import MarketCalendar, SessionClassification
 from .data import HistoricalDataSeries, HistoricalObservation
 
 
@@ -40,8 +42,12 @@ class CanonicalOHLCVNormalizer:
 
     dataset_id: str
     dataset_version: str
+    calendar: MarketCalendar | None = None
 
     def normalize(self, record: RawMarketRecord) -> HistoricalObservation:
+        if record.timestamp.tzinfo is None or record.timestamp.utcoffset() is None:
+            raise ValueError("historical timestamp must be timezone-aware")
+
         required = ("open", "high", "low", "close")
         missing = [name for name in required if name not in record.fields]
         if missing:
@@ -52,11 +58,26 @@ class CanonicalOHLCVNormalizer:
         if "volume" in record.fields and record.fields["volume"] is not None:
             volume = Decimal(str(record.fields["volume"]))
 
+        session: SessionClassification | None = None
+        if self.calendar is not None:
+            session = self.calendar.classify(record.timestamp)
+
+        data: dict[str, object] = {**values, "volume": volume}
+        if session is not None:
+            data.update(
+                {
+                    "session_status": session.status.value,
+                    "session_timezone": session.timezone,
+                    "calendar_version": session.calendar_version,
+                    "session_reason": session.reason,
+                }
+            )
+
         return HistoricalObservation(
             timestamp=record.timestamp,
             instrument=record.instrument,
             sequence=record.sequence,
-            data={**values, "volume": volume},
+            data=data,
             source_id=self.dataset_id,
             dataset_version=self.dataset_version,
         )
