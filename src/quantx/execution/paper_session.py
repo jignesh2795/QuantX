@@ -12,8 +12,8 @@ from decimal import Decimal
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument
-from quantx.domain.money import Money
 from quantx.domain.positions import Position
+from quantx.domain.value_objects import Money
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.paper import PaperExecutionEngine, QuoteSnapshot
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
