@@ -1,5 +1,5 @@
-"""Execution receipt models and persistence contracts."""
+"""Canonical execution receipt contracts."""
 
-from .models import ReceiptState, ExecutionReceiptRecord
+from .models import ExecutionReceipt, ExecutionReceiptRecord, ReceiptOutcome, ReceiptState
 
-__all__ = ["ExecutionReceiptRecord", "ReceiptState"]
+__all__ = ["ExecutionReceipt", "ExecutionReceiptRecord", "ReceiptOutcome", "ReceiptState"]
