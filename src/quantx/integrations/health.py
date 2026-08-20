@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import StrEnum
 
-from .brokers import BrokerConnectionRef, Capability
+from .brokers import BrokerCapability, BrokerConnectionRef
 
 
 class ConnectionHealth(StrEnum):
@@ -19,7 +19,7 @@ class ConnectionHealth(StrEnum):
 @dataclass(frozen=True, slots=True)
 class CapabilitySnapshot:
     connection: BrokerConnectionRef
-    capabilities: frozenset[Capability]
+    capabilities: frozenset[BrokerCapability]
     observed_at: datetime
     source_version: str
 
@@ -46,20 +46,20 @@ class ConnectionHealthSnapshot:
 
 
 class ConnectionHealthRegistry:
-    """Mutable operational state kept outside immutable account identity."""
+    """Operational connection evidence kept outside immutable account identity."""
 
     def __init__(self) -> None:
         self._health: dict[str, ConnectionHealthSnapshot] = {}
         self._capabilities: dict[str, CapabilitySnapshot] = {}
 
     def set_health(self, snapshot: ConnectionHealthSnapshot) -> None:
-        self._health[snapshot.connection.connection_id] = snapshot
+        self._health[str(snapshot.connection.connection_id)] = snapshot
 
     def health(self, connection: BrokerConnectionRef) -> ConnectionHealthSnapshot | None:
-        return self._health.get(connection.connection_id)
+        return self._health.get(str(connection.connection_id))
 
     def set_capabilities(self, snapshot: CapabilitySnapshot) -> None:
-        self._capabilities[snapshot.connection.connection_id] = snapshot
+        self._capabilities[str(snapshot.connection.connection_id)] = snapshot
 
     def capabilities(self, connection: BrokerConnectionRef) -> CapabilitySnapshot | None:
-        return self._capabilities.get(connection.connection_id)
+        return self._capabilities.get(str(connection.connection_id))
