@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 from enum import StrEnum
-from typing import FrozenSet, Optional
+from typing import FrozenSet
 
 from .instruments import MarketContext
-from .value_objects import Money
 
 
 class AccountOwnerType(StrEnum):
@@ -33,11 +31,6 @@ class ConnectionStatus(StrEnum):
     DISCONNECTED = "disconnected"
     RECONNECTING = "reconnecting"
     DISABLED = "disabled"
-
-
-class CapitalSourceType(StrEnum):
-    LIVE_BROKER = "live_broker"
-    PAPER_CONFIGURED = "paper_configured"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,36 +99,13 @@ class AccountMarketProfile:
 
 
 @dataclass(frozen=True, slots=True)
-class CapitalSource:
-    """Declares where current capital is obtained at runtime.
-
-    No minimum or default live capital is stored here. Live capital must be
-    fetched from the connected broker; paper capital must be explicitly set by
-    the paper environment.
-    """
-
-    source_type: CapitalSourceType
-    connection_id: Optional[BrokerConnectionId] = None
-    configured_balance: Optional[Money] = None
-
-    def __post_init__(self) -> None:
-        if self.source_type is CapitalSourceType.LIVE_BROKER:
-            if self.connection_id is None:
-                raise ValueError("LIVE_BROKER requires connection_id")
-            if self.configured_balance is not None:
-                raise ValueError("LIVE_BROKER cannot include configured_balance")
-        elif self.source_type is CapitalSourceType.PAPER_CONFIGURED:
-            if self.configured_balance is None:
-                raise ValueError("PAPER_CONFIGURED requires configured_balance")
-            if self.configured_balance.amount < Decimal("0"):
-                raise ValueError("configured_balance cannot be negative")
-            if self.connection_id is not None:
-                raise ValueError("PAPER_CONFIGURED cannot include connection_id")
-
-
-@dataclass(frozen=True, slots=True)
 class BrokerConnection:
-    """A distinct broker session/configuration for an account."""
+    """A distinct broker session/configuration for an account.
+
+    Multiple connections may exist simultaneously for an account, including
+    different brokers or different market contexts. Credentials are referenced
+    indirectly and are never stored in this domain object.
+    """
 
     connection_id: BrokerConnectionId
     account_id: AccountId
