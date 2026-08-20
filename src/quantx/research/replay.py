@@ -1,12 +1,12 @@
-"""Deterministic chronological replay over historical observations."""
+"""Deterministic chronological replay over quality-validated historical observations."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Callable, Iterable
+from typing import Callable
 
 from .data import HistoricalObservation, HistoricalDataSeries
+from .quality import DataQualityStatus, HistoricalDataQualityValidator
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,14 +15,46 @@ class ReplayFrame:
     index: int
 
 
-class HistoricalReplay:
-    """Replay observations in timestamp/sequence order without look-ahead."""
+class ReplayBlockedError(ValueError):
+    """Raised when replay is attempted with structurally blocked data."""
 
-    def __init__(self, series: HistoricalDataSeries) -> None:
+
+class HistoricalReplay:
+    """Replay observations only after enforcing the historical data-quality gate."""
+
+    def __init__(
+        self,
+        series: HistoricalDataSeries,
+        *,
+        validator: HistoricalDataQualityValidator | None = None,
+        allow_incomplete: bool = False,
+    ) -> None:
         self._series = series
+        self._validator = validator or HistoricalDataQualityValidator()
+        self._allow_incomplete = allow_incomplete
+        self._quality = None
+
+    @property
+    def quality(self):
+        if self._quality is None:
+            self._quality = self._validator.validate(self._series)
+        return self._quality
+
+    def _ensure_replayable(self) -> None:
+        quality = self.quality
+        if quality.status is DataQualityStatus.BLOCKED:
+            raise ReplayBlockedError("historical dataset is blocked by the data-quality gate")
+        if quality.status is DataQualityStatus.INCOMPLETE and not self._allow_incomplete:
+            raise ReplayBlockedError(
+                "historical dataset is incomplete; set allow_incomplete=True to run degraded-fidelity replay"
+            )
 
     def frames(self) -> tuple[ReplayFrame, ...]:
-        return tuple(ReplayFrame(observation=item, index=index) for index, item in enumerate(self._series))
+        self._ensure_replayable()
+        return tuple(
+            ReplayFrame(observation=item, index=index)
+            for index, item in enumerate(self._series)
+        )
 
     def run(self, callback: Callable[[ReplayFrame], None]) -> int:
         count = 0
