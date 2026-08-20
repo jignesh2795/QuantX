@@ -11,8 +11,9 @@ from decimal import Decimal
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.positions import Position
-from quantx.domain.value_objects import InstrumentId, Money
+from quantx.domain.value_objects import Money
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.paper import PaperExecutionEngine
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
@@ -35,10 +36,12 @@ class PaperSession:
         self,
         *,
         executor: PaperExecutionEngine,
+        instrument_registry: InstrumentRegistry,
         accounting: FillAccounting | None = None,
         valuator: PortfolioValuator | None = None,
     ) -> None:
         self._executor = executor
+        self._instrument_registry = instrument_registry
         self._accounting = accounting or FillAccounting()
         self._valuator = valuator or PortfolioValuator()
 
@@ -59,6 +62,14 @@ class PaperSession:
         if fee < 0:
             raise ValueError("fee cannot be negative")
 
+        instrument = self._instrument_registry.resolve(snapshot.instrument)
+        if instrument is None:
+            raise ValueError(f"instrument metadata unavailable for {snapshot.instrument}")
+        if instrument.instrument_id != request.order.instrument:
+            raise ValueError("resolved instrument does not match the execution request")
+        if instrument.market != request.execution_context.market:
+            raise ValueError("resolved instrument market does not match the execution request")
+
         receipt = self._executor.execute(request, snapshot=snapshot)
         if not receipt.fills:
             raise ValueError("execution produced no fill")
@@ -69,7 +80,7 @@ class PaperSession:
             last_entry = self._accounting.apply(fill, fee=per_fill_fee)
 
         assert last_entry is not None
-        mark_price = valuation_price or snapshot.last
+        mark_price = valuation_price if valuation_price is not None else snapshot.last
         if mark_price is None and snapshot.bid is not None and snapshot.ask is not None:
             mark_price = (snapshot.bid + snapshot.ask) / Decimal("2")
 
@@ -82,7 +93,7 @@ class PaperSession:
         )
 
         position = Position(
-            instrument=resolve_instrument(request, snapshot.instrument),
+            instrument=instrument,
             quantity=last_entry.quantity,
             average_price=last_entry.average_price,
             realized_pnl=last_entry.realized_pnl,
@@ -97,25 +108,3 @@ class PaperSession:
             realized_pnl=realized_pnl_before + last_entry.realized_pnl - last_entry.fees,
         )
         return PaperSessionResult(receipt, last_entry, valuation)
-
-
-def resolve_instrument(request: ApprovedExecutionRequest, instrument_id: InstrumentId):
-    """Resolve instrument metadata only where the request already supplies it.
-
-    The execution request currently carries an InstrumentId rather than the
-    full registry object. Until the instrument registry is wired here, this
-    compatibility helper retains the existing domain boundary; it should not
-    become a source of market-specific metadata or assumed contract rules.
-    """
-    from quantx.domain.instruments import AssetClass, Instrument
-
-    market = request.execution_context.market
-    return Instrument(
-        instrument_id=instrument_id,
-        asset_class=AssetClass.EQUITY,
-        market=market,
-        currency="INR" if market.region.value == "IN" else "USD",
-        tick_size=Decimal("0.01"),
-        lot_size=Decimal("1"),
-        multiplier=Decimal("1"),
-    )
