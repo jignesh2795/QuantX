@@ -9,14 +9,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from quantx.domain.deployment import ExecutionMode, PortfolioId
-from quantx.domain.portfolio import PortfolioSnapshot
+from quantx.domain.deployment import ExecutionMode
+from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.positions import Position
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
-from quantx.execution.paper import PaperExecutionEngine, QuoteSnapshot
+from quantx.execution.paper import PaperExecutionEngine
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
 from quantx.execution.valuation import Mark
-from quantx.domain.execution_request import ApprovedExecutionRequest
+
+from .market_data import MarketSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +29,7 @@ class PaperSessionResult:
 
 
 class PaperSession:
-    """Run a paper execution through accounting and portfolio valuation."""
+    """Run paper/replay/shadow execution through accounting and valuation."""
 
     def __init__(
         self,
@@ -44,7 +46,7 @@ class PaperSession:
         self,
         request: ApprovedExecutionRequest,
         *,
-        quote: QuoteSnapshot,
+        snapshot: MarketSnapshot,
         cash: Money,
         margin_used: Money,
         valuation_price: Decimal | None = None,
@@ -54,8 +56,10 @@ class PaperSession:
         mode = request.execution_context.execution_mode
         if mode not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
             raise ValueError("PaperSession requires PAPER, SHADOW, or REPLAY execution mode")
+        if fee < 0:
+            raise ValueError("fee cannot be negative")
 
-        receipt = self._executor.execute(request, quote=quote)
+        receipt = self._executor.execute(request, snapshot=snapshot)
         if not receipt.fills:
             raise ValueError("execution produced no fill")
 
@@ -65,19 +69,24 @@ class PaperSession:
             last_entry = self._accounting.apply(fill, fee=per_fill_fee)
 
         assert last_entry is not None
-        mark_price = valuation_price
-        if mark_price is None:
-            mark_price = quote.last
-        if mark_price is None and quote.bid is not None and quote.ask is not None:
-            mark_price = (quote.bid + quote.ask) / Decimal("2")
+        mark_price = valuation_price or snapshot.last
+        if mark_price is None and snapshot.bid is not None and snapshot.ask is not None:
+            mark_price = (snapshot.bid + snapshot.ask) / Decimal("2")
 
-        marks: tuple[Mark, ...]
-        if mark_price is None:
-            marks = ()
-        else:
-            marks = (Mark(instrument_id=str(last_entry.instrument), price=mark_price, source="paper-session-quote"),)
+        marks: tuple[Mark, ...] = () if mark_price is None else (
+            Mark(
+                instrument_id=str(last_entry.instrument),
+                price=mark_price,
+                source="paper-session-market-snapshot",
+            ),
+        )
 
-        position = last_entry_to_position(last_entry, request)
+        position = Position(
+            instrument=resolve_instrument(request, snapshot.instrument),
+            quantity=last_entry.quantity,
+            average_price=last_entry.average_price,
+            realized_pnl=last_entry.realized_pnl,
+        )
         valuation = self._valuator.value(
             portfolio_id=request.execution_context.portfolio_id,
             valuation_currency=cash.currency,
@@ -90,33 +99,22 @@ class PaperSession:
         return PaperSessionResult(receipt, last_entry, valuation)
 
 
-def last_entry_to_position(entry: PositionLedgerEntry, request: ApprovedExecutionRequest):
-    """Convert accounting state to the domain Position representation."""
-    instrument = request.order.instrument
-    from quantx.domain.positions import Position
-
-    return Position(
-        instrument=resolve_instrument(request, instrument),
-        quantity=entry.quantity,
-        average_price=entry.average_price,
-        realized_pnl=entry.realized_pnl,
-    )
-
-
 def resolve_instrument(request: ApprovedExecutionRequest, instrument_id: InstrumentId):
-    """Resolve the full instrument from the execution context's request.
+    """Resolve instrument metadata only where the request already supplies it.
 
-    The current domain request carries InstrumentId only, so this helper keeps
-    the conversion boundary local until the canonical instrument registry is
-    introduced. It deliberately refuses to invent contract metadata.
+    The execution request currently carries an InstrumentId rather than the
+    full registry object. Until the instrument registry is wired here, this
+    compatibility helper retains the existing domain boundary; it should not
+    become a source of market-specific metadata or assumed contract rules.
     """
-    from quantx.domain.instruments import Instrument, AssetClass
+    from quantx.domain.instruments import AssetClass, Instrument
 
+    market = request.execution_context.market
     return Instrument(
         instrument_id=instrument_id,
         asset_class=AssetClass.EQUITY,
-        market=request.execution_context.market,
-        currency="USD" if request.execution_context.market.region.value != "IN" else "INR",
+        market=market,
+        currency="INR" if market.region.value == "IN" else "USD",
         tick_size=Decimal("0.01"),
         lot_size=Decimal("1"),
         multiplier=Decimal("1"),
