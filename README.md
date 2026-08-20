@@ -4,7 +4,7 @@ Open-source, modular, event-driven trading infrastructure and platform for India
 
 ## Status
 
-Architecture and research phase. No production trading implementation has been committed yet.
+v0.1 implementation has started. The first slice establishes dependency-free domain primitives and contracts; broker integrations, UI, AI, and distributed services remain outside this initial slice.
 
 ## Design direction
 
@@ -35,4 +35,4 @@ The initial product focus is Indian markets, including equities, futures and opt
 
 ## Roadmap
 
-The project is following a research → compare → decide → document → build process. Detailed architecture and roadmap documents will be added on the architecture branch before implementation begins.
+The project follows research → compare → decide → document → build. Architecture and implementation decisions are versioned in `docs/architecture-roadmap/` and `docs/implementation/`.
