@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .data import HistoricalObservation, HistoricalDataSeries
+from .point_in_time import PointInTimeContext, PointInTimeContextResolver
 from .quality import DataQualityStatus, HistoricalDataQualityValidator
 
 
@@ -13,6 +14,11 @@ from .quality import DataQualityStatus, HistoricalDataQualityValidator
 class ReplayFrame:
     observation: HistoricalObservation
     index: int
+    point_in_time: PointInTimeContext | None = None
+
+    @property
+    def executable(self) -> bool | None:
+        return None if self.point_in_time is None else self.point_in_time.executable
 
 
 class ReplayBlockedError(ValueError):
@@ -20,7 +26,7 @@ class ReplayBlockedError(ValueError):
 
 
 class HistoricalReplay:
-    """Replay observations only after enforcing the historical data-quality gate."""
+    """Replay observations only after enforcing data quality and optional point-in-time rules."""
 
     def __init__(
         self,
@@ -28,10 +34,12 @@ class HistoricalReplay:
         *,
         validator: HistoricalDataQualityValidator | None = None,
         allow_incomplete: bool = False,
+        point_in_time_resolver: PointInTimeContextResolver | None = None,
     ) -> None:
         self._series = series
         self._validator = validator or HistoricalDataQualityValidator()
         self._allow_incomplete = allow_incomplete
+        self._point_in_time_resolver = point_in_time_resolver
         self._quality = None
 
     @property
@@ -51,10 +59,16 @@ class HistoricalReplay:
 
     def frames(self) -> tuple[ReplayFrame, ...]:
         self._ensure_replayable()
-        return tuple(
-            ReplayFrame(observation=item, index=index)
-            for index, item in enumerate(self._series)
-        )
+        frames: list[ReplayFrame] = []
+        for index, item in enumerate(self._series):
+            context = None
+            if self._point_in_time_resolver is not None:
+                context = self._point_in_time_resolver.resolve(
+                    str(item.snapshot.instrument),
+                    item.snapshot.timestamp,
+                )
+            frames.append(ReplayFrame(observation=item, index=index, point_in_time=context))
+        return tuple(frames)
 
     def run(self, callback: Callable[[ReplayFrame], None]) -> int:
         count = 0
