@@ -39,6 +39,7 @@ class ExperimentComparison:
     metric_deltas: tuple[tuple[str, Decimal], ...]
     same_dataset: bool
     same_strategy_version: bool
+    same_provenance: bool
     comparable: bool
     reasons: tuple[str, ...] = ()
 
@@ -67,12 +68,21 @@ class ExperimentManager:
 
     def compare(self, left: ResearchResult, right: ResearchResult) -> ExperimentComparison:
         reasons: list[str] = []
-        same_dataset = left.provenance.dataset_id == right.provenance.dataset_id
-        same_strategy = left.provenance.strategy_version == right.provenance.strategy_version
+        same_dataset = (
+            left.provenance.dataset_id == right.provenance.dataset_id
+            and left.provenance.dataset_version == right.provenance.dataset_version
+        )
+        same_strategy = (
+            left.spec.run_id.split(":", 1)[0]
+            == right.spec.run_id.split(":", 1)[0]
+        )
+        same_provenance = left.fingerprint == right.fingerprint
         if not same_dataset:
-            reasons.append("dataset differs")
+            reasons.append("dataset or dataset version differs")
         if not same_strategy:
-            reasons.append("strategy version differs")
+            reasons.append("strategy/run family differs")
+        if not same_provenance:
+            reasons.append("research provenance fingerprint differs")
         comparable = not left.is_blocked and not right.is_blocked
         if not comparable:
             reasons.append("one or more results are BLOCKED")
@@ -86,6 +96,7 @@ class ExperimentManager:
             deltas,
             same_dataset,
             same_strategy,
+            same_provenance,
             comparable,
             tuple(reasons),
         )
