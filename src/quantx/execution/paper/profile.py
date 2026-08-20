@@ -27,11 +27,7 @@ class PartialFillPolicy(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ExecutionProfile:
-    """Versioned, explicit assumptions used by a simulated venue.
-
-    No profile silently invents broker rules. Venue-specific constraints must
-    arrive separately as observed/configured integration evidence.
-    """
+    """Versioned assumptions used by a simulated venue."""
 
     profile_id: str
     version: str
@@ -53,3 +49,28 @@ class ExecutionProfile:
             raise ValueError("fee_rate cannot be negative")
         if self.latency_ms < 0:
             raise ValueError("latency_ms cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class OrderBookLevel:
+    price: Decimal
+    quantity: Decimal
+
+    def __post_init__(self) -> None:
+        if self.price <= 0 or self.quantity <= 0:
+            raise ValueError("order-book levels must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class OrderBookSnapshot:
+    bids: tuple[OrderBookLevel, ...]
+    asks: tuple[OrderBookLevel, ...]
+    observed_at_ns: int
+
+    def __post_init__(self) -> None:
+        if self.observed_at_ns < 0:
+            raise ValueError("observed_at_ns cannot be negative")
+
+    def available_quantity(self, side: str) -> Decimal:
+        levels = self.asks if side.upper() == "BUY" else self.bids if side.upper() == "SELL" else ()
+        return sum((level.quantity for level in levels), Decimal("0"))
