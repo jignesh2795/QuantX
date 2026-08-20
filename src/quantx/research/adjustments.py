@@ -7,6 +7,7 @@ explicit transformations with a versioned policy and source event identity.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -21,7 +22,7 @@ class AdjustmentPolicy(StrEnum):
 class AdjustmentEvent:
     event_id: str
     event_type: str
-    effective_at: str
+    effective_at: datetime
     factor: Decimal = Decimal("1")
     source_id: str = ""
 
@@ -30,6 +31,8 @@ class AdjustmentEvent:
             raise ValueError("event_id must not be empty")
         if not self.event_type.strip():
             raise ValueError("event_type must not be empty")
+        if self.effective_at.tzinfo is None or self.effective_at.utcoffset() is None:
+            raise ValueError("effective_at must be timezone-aware")
         if self.factor <= 0:
             raise ValueError("factor must be positive")
 
@@ -45,16 +48,23 @@ class AdjustmentProvenance:
 class HistoricalAdjuster:
     """Apply only explicitly supplied adjustments; never infer missing events."""
 
-    def apply(self, value: Decimal, events: tuple[AdjustmentEvent, ...], *, policy: AdjustmentPolicy) -> tuple[Decimal, AdjustmentProvenance]:
+    def apply(
+        self,
+        value: Decimal,
+        events: tuple[AdjustmentEvent, ...],
+        *,
+        policy: AdjustmentPolicy,
+    ) -> tuple[Decimal, AdjustmentProvenance]:
         if policy is AdjustmentPolicy.RAW:
             return value, AdjustmentProvenance(policy, "raw-v1")
         adjusted = value
-        for event in sorted(events, key=lambda item: item.effective_at):
+        ordered_events = tuple(sorted(events, key=lambda item: (item.effective_at, item.event_id)))
+        for event in ordered_events:
             adjusted *= event.factor
         version = "adjusted-v1" if policy is AdjustmentPolicy.ADJUSTED else "event-reconstructed-v1"
         return adjusted, AdjustmentProvenance(
             policy,
             version,
-            tuple(event.event_id for event in events),
-            tuple(event.source_id for event in events if event.source_id),
+            tuple(event.event_id for event in ordered_events),
+            tuple(event.source_id for event in ordered_events if event.source_id),
         )
