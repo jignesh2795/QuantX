@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
+from uuid import UUID, uuid4
+
+from .provenance import ResearchProvenance
 
 
 class ResultQuality(StrEnum):
@@ -28,6 +31,20 @@ class ResearchRunSpec:
     configuration_revision: str
     random_seed: int | None = None
 
+    def to_provenance(self) -> ResearchProvenance:
+        return ResearchProvenance(
+            dataset_id=self.dataset_id,
+            dataset_version=self.dataset_version,
+            instrument_master_version=self.instrument_master_version,
+            market_rule_version=self.market_rule_version,
+            execution_model_version=self.execution_model_version,
+            simulation_profile=self.simulation_profile,
+            code_revision=self.code_revision,
+            configuration_revision=self.configuration_revision,
+            random_seed=self.random_seed,
+            extra={"run_id": self.run_id},
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ResearchResult:
@@ -40,6 +57,21 @@ class ResearchResult:
     metrics: tuple[tuple[str, Decimal], ...] = ()
     assumptions: tuple[str, ...] = ()
     limitations: tuple[str, ...] = ()
+    result_id: UUID = field(default_factory=uuid4)
+    provenance: ResearchProvenance | None = None
+
+    def __post_init__(self) -> None:
+        expected = self.spec.to_provenance()
+        if self.provenance is not None and self.provenance.fingerprint() != expected.fingerprint():
+            raise ValueError("provenance does not match research run spec")
+        if self.quality is ResultQuality.BLOCKED and not self.limitations:
+            raise ValueError("BLOCKED results must include limitations")
+        if self.provenance is None:
+            object.__setattr__(self, "provenance", expected)
+
+    @property
+    def is_blocked(self) -> bool:
+        return self.quality is ResultQuality.BLOCKED
 
     def metric(self, name: str) -> Decimal | None:
         for key, value in self.metrics:
@@ -50,13 +82,17 @@ class ResearchResult:
     @property
     def reproducibility_key(self) -> tuple[str, ...]:
         return (
-            self.spec.dataset_id,
-            self.spec.dataset_version,
-            self.spec.instrument_master_version,
-            self.spec.market_rule_version,
-            self.spec.execution_model_version,
-            self.spec.simulation_profile,
-            self.spec.code_revision,
-            self.spec.configuration_revision,
-            str(self.spec.random_seed),
+            self.provenance.dataset_id,
+            self.provenance.dataset_version,
+            self.provenance.instrument_master_version,
+            self.provenance.market_rule_version,
+            self.provenance.execution_model_version,
+            self.provenance.simulation_profile,
+            self.provenance.code_revision,
+            self.provenance.configuration_revision,
+            str(self.provenance.random_seed),
         )
+
+    @property
+    def fingerprint(self) -> str:
+        return self.provenance.fingerprint()
