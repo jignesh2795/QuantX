@@ -6,7 +6,7 @@ from Order, which represents an execution-approved instruction.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -29,7 +29,7 @@ class TradeIntent:
     required_capabilities: frozenset[str] = frozenset()
     approval_required: bool = False
     execution_context: ExecutionContext | None = None
-    intent_id: UUID = uuid4()
+    intent_id: UUID = field(default_factory=uuid4)
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:
