@@ -7,10 +7,12 @@ from .domain import (
     OptionContractSpec,
     ProductType,
 )
+from .historical import IndianHistoricalOHLCVNormalizer
 from .instrument_catalog import IndianInstrumentCatalog
 
 __all__ = [
     "IndianExchange",
+    "IndianHistoricalOHLCVNormalizer",
     "IndianInstrumentCatalog",
     "IndianInstrumentSpec",
     "IndianSegment",
