@@ -1,16 +1,29 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
-from quantx.application.backtest import BacktestDisposition, DeterministicBacktestService
+from quantx.application.backtest import (
+    BacktestDisposition,
+    DeterministicBacktestService,
+)
 from quantx.domain.accounts import AccountId
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import AssetClass, OrderSide
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.market_data import Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyContext
-from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
+from quantx.domain.strategy import (
+    SignalAction,
+    StrategyId,
+    StrategyResult,
+    StrategySignal,
+)
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.india import IndianExchange, IndianInstrumentSpec, IndianSegment
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
@@ -35,7 +48,7 @@ def test_indian_nse_spec_flows_through_registry_and_deterministic_backtest() -> 
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
     )
-    timestamp = datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     series = HistoricalDataSeries(
         (
             HistoricalObservation(
