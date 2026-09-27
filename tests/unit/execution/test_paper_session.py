@@ -6,6 +6,7 @@ from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
 from quantx.domain.enums import AssetClass, OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import RiskDecision, RiskResult
@@ -54,11 +55,15 @@ def test_execute_account_and_value_uses_observed_mark() -> None:
     engine = PaperExecutionEngine(
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
     )
-    session = PaperSession(executor=engine)
+    instrument = _instrument()
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+    )
     result = session.execute_and_value(
         _request(),
-        instrument=_instrument(),
-        quote=QuoteSnapshot(
+        snapshot=QuoteSnapshot(
+            instrument=instrument.instrument_id,
             timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
             bid=Decimal("99"),
             ask=Decimal("100"),
@@ -76,11 +81,15 @@ def test_missing_mark_produces_incomplete_valuation() -> None:
     engine = PaperExecutionEngine(
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
     )
-    session = PaperSession(executor=engine)
+    instrument = _instrument()
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+    )
     result = session.execute_and_value(
         _request(),
-        instrument=_instrument(),
-        quote=QuoteSnapshot(
+        snapshot=QuoteSnapshot(
+            instrument=instrument.instrument_id,
             timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
             ask=Decimal("100"),
         ),
