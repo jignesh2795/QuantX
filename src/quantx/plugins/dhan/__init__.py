@@ -27,7 +27,9 @@ DHAN_PLUGIN_DESCRIPTOR = PluginDescriptor(
     capabilities=frozenset(
         capability.value for capability in DHAN_CAPABILITIES.values
     ),
-    market_contexts=frozenset({"NSE_EQ", "BSE_EQ", "NSE_FNO", "BSE_FNO", "MCX_COMM"}),
+    market_contexts=frozenset(
+        {"NSE_EQ", "BSE_EQ", "NSE_FNO", "BSE_FNO", "MCX_COMM"}
+    ),
 )
 
 
