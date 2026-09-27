@@ -125,3 +125,13 @@ def test_dhan_registration_hook() -> None:
 
     registration = registry.get(DHAN_PLUGIN_DESCRIPTOR.plugin_id)
     assert registration.descriptor.name == "Dhan"
+
+
+def test_dhan_credentials_do_not_expose_access_token_in_repr() -> None:
+    from quantx.plugins.dhan import DhanCredentials
+
+    credentials = DhanCredentials("1000000001", "secret-token")
+    rendered = repr(credentials)
+
+    assert "1000000001" in rendered
+    assert "secret-token" not in rendered
