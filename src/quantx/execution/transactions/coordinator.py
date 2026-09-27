@@ -9,8 +9,8 @@ from uuid import UUID
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
-from quantx.execution.preconditions import PreconditionsResult, PreconditionsStatus
 from quantx.execution.ports import ExecutionReceipt
+from quantx.execution.preconditions import PreconditionsResult, PreconditionsStatus
 
 
 @dataclass(frozen=True, slots=True)
