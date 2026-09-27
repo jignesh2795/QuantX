@@ -57,7 +57,7 @@ class DhanSDKTransport:
     _client: _DhanClient = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        from dhanhq import DhanContext, dhanhq  # type: ignore[import-not-found]
+        from dhanhq import DhanContext, dhanhq  # type: ignore[import-untyped]
 
         self._client = dhanhq(
             DhanContext(
