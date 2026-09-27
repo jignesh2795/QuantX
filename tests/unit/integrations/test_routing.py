@@ -129,3 +129,29 @@ def test_failover_can_be_disabled():
 
     assert decision.disposition is RoutingDisposition.FAILOVER_BLOCKED
     assert decision.reason is FailoverReason.HEALTH_UNAVAILABLE
+
+
+def test_disabled_preferred_connection_cannot_be_routed() -> None:
+    registry = AccountConnectionRegistry()
+    account = AccountId("acct-1")
+    preferred = register(registry, account, "NSE")
+    disabled = RegisteredConnection(
+        preferred.ref,
+        preferred.adapter,
+        enabled=False,
+    )
+    registry = AccountConnectionRegistry()
+    registry.register(disabled)
+
+    decision = AccountAwareRouter(registry).route(
+        RoutingRequest(
+            account,
+            "NSE",
+            frozenset({BrokerCapability.ORDER_SUBMISSION}),
+            preferred_connection_id=preferred.ref.connection_id,
+            allow_failover=False,
+        )
+    )
+
+    assert decision.disposition is RoutingDisposition.FAILOVER_BLOCKED
+    assert decision.reason is FailoverReason.CONNECTION_DISABLED
