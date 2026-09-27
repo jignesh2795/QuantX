@@ -41,9 +41,7 @@ class OrderObservation:
         if filled > requested:
             raise ValueError("filled quantity cannot exceed requested quantity")
         if self.status is OrderLifecycleStatus.FILLED and filled != requested:
-            raise ValueError(
-                "filled status requires filled quantity to equal requested quantity"
-            )
+            raise ValueError("filled status requires filled quantity to equal requested quantity")
         if (
             self.status is OrderLifecycleStatus.PARTIALLY_FILLED
             and not (0 < filled < requested)
