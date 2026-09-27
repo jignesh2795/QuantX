@@ -24,7 +24,12 @@ def test_health_and_capabilities_are_tracked_per_connection() -> None:
     registry = ConnectionHealthRegistry()
 
     registry.set_health(
-        ConnectionHealthSnapshot(connection, ConnectionHealth.HEALTHY, now, 12)
+        ConnectionHealthSnapshot(
+            connection,
+            ConnectionHealth.HEALTHY,
+            now,
+            12,
+        )
     )
     registry.set_capabilities(
         CapabilitySnapshot(
