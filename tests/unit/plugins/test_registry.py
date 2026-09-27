@@ -124,3 +124,18 @@ def test_registry_does_not_create_disabled_plugin() -> None:
         registry.create(plugin_id)
 
     registry.disable(plugin_id)
+
+
+def test_reference_broker_registration_hook() -> None:
+    from quantx.plugins.reference_broker import (
+        REFERENCE_BROKER_DESCRIPTOR,
+        register_reference_broker,
+    )
+
+    registry = PluginRegistry()
+    register_reference_broker(registry, lambda: FakePlugin("reference"))
+
+    registration = registry.get(REFERENCE_BROKER_DESCRIPTOR.plugin_id)
+    assert registration.descriptor.name == "QuantX Reference Broker"
+    assert registration.descriptor.kind is PluginKind.BROKER
+    assert "ORDER_SUBMISSION" in registration.descriptor.capabilities
