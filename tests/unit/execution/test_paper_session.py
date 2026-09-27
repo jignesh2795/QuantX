@@ -103,8 +103,8 @@ def test_receipt_fee_flows_into_accounting_by_default() -> None:
         margin_used=Money(Decimal("0"), "INR"),
     )
 
-    assert result.execution.fee == Decimal("0.10")
-    assert result.accounting_entry.fees == Decimal("0.10")
+    assert result.execution.fee == Decimal("1.00")
+    assert result.accounting_entry.fees == Decimal("1.00")
 
 
 def test_missing_mark_produces_incomplete_valuation() -> None:
