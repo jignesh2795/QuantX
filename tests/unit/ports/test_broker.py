@@ -110,6 +110,7 @@ def test_reference_broker_conforms_to_broker_port_behavior() -> None:
     adapter: BrokerPort = ReferenceBroker(instrument)
 
     assert adapter.health()
+    assert adapter.connection == adapter._connection
     assert adapter.capabilities().supports(BrokerCapability.ORDER_SUBMISSION)
     assert adapter.instrument(instrument.instrument_id) == instrument
 
