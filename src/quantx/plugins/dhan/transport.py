@@ -22,31 +22,23 @@ from .models import (
 
 @runtime_checkable
 class DhanTransport(Protocol):
-    def health(self) -> bool:
-        ...
+    def health(self) -> bool: ...
 
-    def submit(self, request: DhanOrderRequest) -> DhanOrderResponse:
-        ...
+    def submit(self, request: DhanOrderRequest) -> DhanOrderResponse: ...
 
-    def cancel(self, correlation_id: str) -> DhanOrderResponse:
-        ...
+    def cancel(self, correlation_id: str) -> DhanOrderResponse: ...
 
-    def reconcile(self, correlation_id: str) -> DhanOrderDetail:
-        ...
+    def reconcile(self, correlation_id: str) -> DhanOrderDetail: ...
 
 
 class _DhanClient(Protocol):
-    def get_fund_limits(self) -> object:
-        ...
+    def get_fund_limits(self) -> object: ...
 
-    def place_order(self, **kwargs: object) -> object:
-        ...
+    def place_order(self, **kwargs: object) -> object: ...
 
-    def cancel_order(self, order_id: str) -> object:
-        ...
+    def cancel_order(self, order_id: str) -> object: ...
 
-    def get_order_by_correlationID(self, correlation_id: str) -> object:
-        ...
+    def get_order_by_correlationID(self, correlation_id: str) -> object: ...
 
 
 @dataclass(slots=True)
@@ -195,16 +187,14 @@ def _order_detail(response: object) -> DhanOrderDetail:
     correlation_id = payload.get("correlationId")
     return DhanOrderDetail(
         order_id=str(order_id) if order_id is not None else None,
-        correlation_id=str(correlation_id) if correlation_id is not None else None,
+        correlation_id=(
+            str(correlation_id) if correlation_id is not None else None
+        ),
         order_status=str(payload.get("orderStatus", "UNKNOWN")),
         average_traded_price=decimal_field(payload, "averageTradedPrice"),
         filled_quantity=extract_filled_quantity(payload),
-        exchange_time=(
-            str(payload["exchangeTime"]) if payload.get("exchangeTime") else None
-        ),
-        update_time=(
-            str(payload["updateTime"]) if payload.get("updateTime") else None
-        ),
+        exchange_time=(str(payload["exchangeTime"]) if payload.get("exchangeTime") else None),
+        update_time=(str(payload["updateTime"]) if payload.get("updateTime") else None),
         message=str(payload.get("omsErrorDescription", "")),
         raw={"status": status, "remarks": remarks, "data": payload},
     )
