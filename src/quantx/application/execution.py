@@ -104,6 +104,12 @@ class ExecutionOrchestrator:
                 reason="broker connection is not healthy",
             )
 
+        if broker.instrument(request.order.instrument) is None:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="broker does not expose the requested canonical instrument",
+            )
+
         required_capabilities = request.order.required_capabilities
         if required_capabilities and not broker.capabilities().require(required_capabilities):
             return ExecutionResult(
