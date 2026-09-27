@@ -1,14 +1,13 @@
-"""Run execution-focused tests locally."""
+"""Run execution-focused tests with uv."""
 
 from __future__ import annotations
 
 import subprocess
-import sys
 
 
 if __name__ == "__main__":
     raise SystemExit(
         subprocess.call(
-            [sys.executable, "-m", "pytest", "tests/unit/execution", "-q"]
+            ["uv", "run", "pytest", "tests/unit/execution", "-q"]
         )
     )
