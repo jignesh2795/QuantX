@@ -23,7 +23,15 @@ REFERENCE_BROKER_DESCRIPTOR = PluginDescriptor(
     name="QuantX Reference Broker",
     version="0.1",
     kind=PluginKind.BROKER,
-    capabilities=frozenset(capability.value for capability in BrokerCapability),
+    capabilities=frozenset(
+        capability.value
+        for capability in (
+            BrokerCapability.MARKET_DATA,
+            BrokerCapability.ORDER_SUBMISSION,
+            BrokerCapability.ORDER_CANCELLATION,
+            BrokerCapability.PAPER_TRADING,
+        )
+    ),
 )
 
 
