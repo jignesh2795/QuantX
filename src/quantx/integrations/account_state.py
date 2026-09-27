@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from uuid import UUID
+
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 
 
 class StateSource(StrEnum):
@@ -23,8 +24,8 @@ class StateSource(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class AccountFinancialState:
-    account_id: UUID
-    connection_id: UUID
+    account_id: AccountId
+    connection_id: BrokerConnectionId
     observed_at: datetime
     source: StateSource
     currency: str
@@ -46,13 +47,19 @@ class AccountFinancialState:
 
 @dataclass(frozen=True, slots=True)
 class PositionState:
-    account_id: UUID
-    connection_id: UUID
+    account_id: AccountId
+    connection_id: BrokerConnectionId
     instrument_id: str
     quantity: Decimal
     average_price: Decimal | None
     observed_at: datetime
     source: StateSource
+
+    def __post_init__(self) -> None:
+        if not self.instrument_id.strip():
+            raise ValueError("instrument_id must not be empty")
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
 
 
 class ReconciliationStatus(StrEnum):
@@ -72,8 +79,8 @@ class ReconciliationFinding:
 
 @dataclass(frozen=True, slots=True)
 class ReconciliationReport:
-    account_id: UUID
-    connection_id: UUID
+    account_id: AccountId
+    connection_id: BrokerConnectionId
     status: ReconciliationStatus
     findings: tuple[ReconciliationFinding, ...] = ()
 
@@ -98,7 +105,14 @@ class AccountReconciler:
                 local.account_id,
                 local.connection_id,
                 ReconciliationStatus.MISMATCH,
-                (ReconciliationFinding("identity", str(local.connection_id), str(observed.connection_id), "account/connection identity mismatch"),),
+                (
+                    ReconciliationFinding(
+                        "identity",
+                        str(local.connection_id),
+                        str(observed.connection_id),
+                        "account/connection identity mismatch",
+                    ),
+                ),
             )
 
         findings: list[ReconciliationFinding] = []
