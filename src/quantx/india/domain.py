@@ -93,6 +93,20 @@ class IndianInstrumentSpec:
     def to_contract(self) -> Contract | None:
         if self.asset_class not in {AssetClass.FUTURE, AssetClass.OPTION}:
             return None
+        if self.expiry is None:
+            raise ValueError("derivative expiry must be supplied")
+        if self.expiry.tzinfo is None or self.expiry.utcoffset() is None:
+            raise ValueError("derivative expiry must be timezone-aware")
+
+        if self.asset_class is AssetClass.FUTURE:
+            if self.strike is not None or self.option_type is not None:
+                raise ValueError("futures must not define strike or option_type")
+        else:
+            if self.strike is None:
+                raise ValueError("option strike must be supplied")
+            if self.option_type is None:
+                raise ValueError("option_type must be supplied")
+
         return Contract(
             instrument=self.to_instrument(),
             underlying=None,
