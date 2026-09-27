@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Mapping
+from collections.abc import Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,7 +17,7 @@ class ResearchArtifact:
     content_hash: str
     uri: str
     size_bytes: int | None = None
-    metadata: Mapping[str, str] = None
+    metadata: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         if not self.artifact_id.strip():
@@ -65,7 +65,7 @@ class ResearchArtifactManifest:
                     "content_hash": item.content_hash,
                     "uri": item.uri,
                     "size_bytes": item.size_bytes,
-                    "metadata": dict(sorted(item.metadata.items())),
+                    "metadata": dict(sorted((item.metadata or {}).items())),
                 }
                 for item in ordered
             ],
