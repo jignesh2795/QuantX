@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from quantx.plugins.dhan.mapping import dhan_correlation_id
 from quantx.plugins.dhan.models import DhanOrderRequest
-from quantx.plugins.dhan.transport import InMemoryDhanTransport, DhanTransport
+from quantx.plugins.dhan.transport import DhanTransport, InMemoryDhanTransport
 
 
 def _request() -> DhanOrderRequest:
