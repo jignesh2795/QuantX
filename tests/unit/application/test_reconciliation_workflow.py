@@ -49,9 +49,10 @@ def _observation(
     status: OrderLifecycleStatus = OrderLifecycleStatus.FILLED,
     *,
     filled: str = "2",
+    requested: str = "2",
     broker_order_id: str | None = "dhan-1",
 ) -> OrderObservation:
-    return OrderObservation(order_id, status, "2", filled, broker_order_id)
+    return OrderObservation(order_id, status, requested, filled, broker_order_id)
 
 
 def _position(
@@ -154,8 +155,18 @@ def test_quantity_mismatch_is_mismatch() -> None:
 
     result = _workflow().reconcile(
         _receipt(order_id),
-        local_order=_observation(order_id, filled="2"),
-        broker_order=_observation(order_id, filled="1"),
+        local_order=_observation(
+            order_id,
+            status=OrderLifecycleStatus.PARTIALLY_FILLED,
+            filled="2",
+            requested="3",
+        ),
+        broker_order=_observation(
+            order_id,
+            status=OrderLifecycleStatus.PARTIALLY_FILLED,
+            filled="1",
+            requested="3",
+        ),
         checked_at=CHECKED_AT,
     )
 
