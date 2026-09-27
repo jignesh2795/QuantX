@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -15,7 +15,7 @@ from quantx.integrations.reconciliation import (
 def test_reconciliation_matches_explicit_observed_state() -> None:
     account_id = AccountId("acct-1")
     connection_id = BrokerConnectionId("conn-1")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     state = AccountFinancialState(
         account_id=account_id,
         connection_id=connection_id,
@@ -38,7 +38,7 @@ def test_reconciliation_never_invents_missing_observed_state() -> None:
     state = AccountFinancialState(
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(UTC),
         source=StateSource.PAPER,
         currency="USD",
         available_cash=Decimal("100"),
@@ -53,7 +53,7 @@ def test_reconciliation_never_invents_missing_observed_state() -> None:
 
 
 def test_future_observed_account_state_is_stale() -> None:
-    checked_at = datetime.now(timezone.utc)
+    checked_at = datetime.now(UTC)
     observed = AccountFinancialState(
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
@@ -87,7 +87,7 @@ def test_negative_financial_values_are_rejected() -> None:
         AccountFinancialState(
             account_id=AccountId("acct-1"),
             connection_id=BrokerConnectionId("conn-1"),
-            observed_at=datetime.now(timezone.utc),
+            observed_at=datetime.now(UTC),
             source=StateSource.BROKER,
             currency="USD",
             equity=Decimal("-1"),
