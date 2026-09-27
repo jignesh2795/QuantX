@@ -30,6 +30,9 @@ The architecture is implemented in coherent batches rather than one-file-at-a-ti
 - Failover constraints
 - Actual/paper account state
 - Broker reconciliation
+- Reconciliation evidence refresh and resolution policy
+- Conservative definitive-evidence aggregation
+- Explicit refresh budgets for UNKNOWN/STALE/INCOMPLETE/UNAVAILABLE evidence
 
 ## Batch D — Package organization
 - Keep domain, application, execution, portfolio, risk, research, integrations, plugins, AI and infrastructure separate.

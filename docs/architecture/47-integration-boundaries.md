@@ -42,6 +42,23 @@ broker/account/health/reconciliation
 
 Missing evidence remains `UNKNOWN` and cannot be treated as approval.
 
+## Refresh ownership
+
+```text
+Application layer:
+- orchestrates reconciliation refresh;
+- owns refresh policy and definitive-evidence policy;
+- does not compare broker/local state itself.
+
+Integration reconciliation:
+- owns canonical evidence comparison;
+- does not retry or refresh;
+- does not decide execution readiness.
+
+Execution preconditions:
+- remain the owner of READY/BLOCKED/UNKNOWN execution decisions.
+```
+
 ## Account isolation
 
 Every broker connection is scoped by:

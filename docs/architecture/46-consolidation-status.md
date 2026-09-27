@@ -118,6 +118,38 @@ raise instead of returning empty state, and unknown evidence never produces an
 execution-ready result. No live Dhan account connectivity was tested; all
 verification uses the deterministic in-memory transport.
 
+### Batch-C.6: reconciliation evidence refresh
+
+`application/reconciliation.py` remains the canonical orchestration workflow
+for one reconciliation evaluation. `application/evidence_refresh.py` is the
+application-layer refresh coordinator. Canonical reconcilers remain pure
+comparison components under `integrations/reconciliation/`.
+
+Unresolved evidence can be refreshed only through an explicit provider
+boundary. Definitive reconciliation requires the explicitly configured
+evidence scope; the default scope requires order + position + account to all
+be `MATCHED`. `UNKNOWN`, `STALE`, `INCOMPLETE`, and `UNAVAILABLE` remain
+non-definitive until authoritative refreshed evidence resolves them.
+Definitive `MISMATCH` is not automatically retried. Refresh attempts are
+bounded by explicit policy. No broker-specific implementation is required by
+the refresh coordinator, and no network/live broker behavior was added by C.6.
+
+```text
+Current reconciliation result
+            ↓
+Unresolved evidence
+            ↓
+ReconciliationEvidenceProvider
+            ↓
+Refreshed broker observation
+            ↓
+OrderStateReconciliationWorkflow
+            ↓
+Canonical reconciliation result
+            ↓
+Definitive only when required evidence is MATCHED
+```
+
 ## Current migration policy
 
 Existing flat modules are not automatically wrong. A module remains until its callers can be migrated safely. Compatibility wrappers are temporary and must not become permanent duplicate implementations.
