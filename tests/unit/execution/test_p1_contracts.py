@@ -60,12 +60,17 @@ def test_market_data_is_framework_independent() -> None:
     assert series.latest_at_or_before(datetime(2026, 1, 1, 0, 3, tzinfo=timezone.utc)) is not None
 
 
-def test_transaction_coordinator_stores_receipt_id_for_idempotency() -> None:
+def test_transaction_coordinator_stores_receipt_id_for_idempotency(monkeypatch) -> None:
     from uuid import uuid4
 
     from quantx.execution.idempotency import InMemoryIdempotencyStore
-    from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
-    from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
+    from quantx.execution.preconditions.models import (
+        PreconditionsResult,
+        PreconditionsStatus,
+    )
+    from quantx.execution.transactions.coordinator import (
+        ExecutionTransactionCoordinator,
+    )
 
     request_id = uuid4()
     client_order_id = uuid4()
@@ -74,10 +79,16 @@ def test_transaction_coordinator_stores_receipt_id_for_idempotency() -> None:
     request = type("Request", (), {})()
     request.order = type("Order", (), {"client_order_id": client_order_id})()
 
-    receipt = type("Receipt", (), {
-        "request_id": request_id,
-        "receipt_id": receipt_id,
-    })()
+    receipt = type(
+        "Receipt",
+        (),
+        {"request_id": request_id, "receipt_id": receipt_id},
+    )()
+
+    monkeypatch.setattr(
+        "quantx.execution.transactions.coordinator.request_fingerprint",
+        lambda _: "fingerprint-a",
+    )
 
     store = InMemoryIdempotencyStore()
     coordinator = ExecutionTransactionCoordinator(
@@ -89,4 +100,5 @@ def test_transaction_coordinator_stores_receipt_id_for_idempotency() -> None:
     result = coordinator.execute(request)
 
     assert result.receipt is receipt
-    assert store._receipts[client_order_id] == receipt_id
+    decision = store.check(client_order_id, "fingerprint-a")
+    assert decision.existing_receipt_id == receipt_id
