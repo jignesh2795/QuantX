@@ -1,4 +1,5 @@
 from decimal import Decimal
+from pathlib import Path
 from uuid import uuid4
 
 from quantx.research.artifacts import ResearchArtifact, ResearchArtifactManifest
@@ -48,7 +49,7 @@ def test_store_rejects_duplicate_result() -> None:
         raise AssertionError("duplicate result was accepted")
 
 
-def test_local_filesystem_store_round_trips_result(tmp_path) -> None:
+def test_local_filesystem_store_round_trips_result(tmp_path: Path) -> None:
     store = LocalFilesystemResearchStore(tmp_path)
     result = _result()
 
@@ -57,7 +58,7 @@ def test_local_filesystem_store_round_trips_result(tmp_path) -> None:
     assert store.get_result(result.result_id) == result
 
 
-def test_local_filesystem_store_rejects_duplicate_result(tmp_path) -> None:
+def test_local_filesystem_store_rejects_duplicate_result(tmp_path: Path) -> None:
     store = LocalFilesystemResearchStore(tmp_path)
     result = _result()
     store.save_result(result)
@@ -70,7 +71,7 @@ def test_local_filesystem_store_rejects_duplicate_result(tmp_path) -> None:
         raise AssertionError("duplicate result was accepted")
 
 
-def test_local_filesystem_store_round_trips_manifest(tmp_path) -> None:
+def test_local_filesystem_store_round_trips_manifest(tmp_path: Path) -> None:
     store = LocalFilesystemResearchStore(tmp_path)
     manifest = ResearchArtifactManifest(
         run_fingerprint="run-fingerprint",
