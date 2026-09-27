@@ -26,6 +26,7 @@ class Order:
     intent_id: UUID | None = None
     strategy_id: str | None = None
     strategy_version: str | None = None
+    required_capabilities: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:
@@ -34,6 +35,8 @@ class Order:
             raise ValueError("limit_price is required for limit orders")
         if self.order_type in {OrderType.STOP, OrderType.STOP_LIMIT} and self.stop_price is None:
             raise ValueError("stop_price is required for stop orders")
+        if any(not capability.strip() for capability in self.required_capabilities):
+            raise ValueError("required capabilities must not contain empty values")
         if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
             raise ValueError("created_at must be timezone-aware")
 
