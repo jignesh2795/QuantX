@@ -139,6 +139,7 @@ class ReconciliationEvidenceRefresher:
         broker_account: AccountFinancialState | None = None,
         checked_at: datetime,
         position_policy: ReconciliationPolicy | None = None,
+        instrument_id: str | None = None,
         provider: ReconciliationEvidenceProvider,
     ) -> EvidenceRefreshOutcome:
         policy = position_policy or ReconciliationPolicy(timedelta(seconds=30))
@@ -217,14 +218,17 @@ class ReconciliationEvidenceRefresher:
                     if fetched is not None:
                         current_broker_order = fetched
                 elif domain == "position":
-                    instrument_id = self._position_instrument(
-                        local_position, current_broker_position
+                    instrument_id_for_refresh = self._position_instrument(
+                        instrument_id,
+                        local_position,
+                        current_broker_position,
+                        receipt,
                     )
-                    if instrument_id is not None:
+                    if instrument_id_for_refresh is not None:
                         fetched_position = provider.fetch_broker_position(
                             account_id=receipt.account_id,
                             connection_id=receipt.connection_id,
-                            instrument_id=instrument_id,
+                            instrument_id=instrument_id_for_refresh,
                         )
                         fetched_any = True
                         if fetched_position is not None:
@@ -274,11 +278,18 @@ class ReconciliationEvidenceRefresher:
 
     @staticmethod
     def _position_instrument(
+        explicit_instrument_id: str | None,
         local_position: PositionState | None,
         broker_position: PositionState | None,
+        receipt: ExecutionReceipt,
     ) -> str | None:
+        if explicit_instrument_id is not None and explicit_instrument_id.strip():
+            return explicit_instrument_id
         if local_position is not None:
             return local_position.instrument_id
         if broker_position is not None:
             return broker_position.instrument_id
+        instruments = {str(fill.instrument) for fill in receipt.fills}
+        if len(instruments) == 1:
+            return next(iter(instruments))
         return None

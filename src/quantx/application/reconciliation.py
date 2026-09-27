@@ -186,6 +186,21 @@ class OrderStateReconciliationWorkflow:
                 return "evidence connection does not match execution receipt connection"
         if (
             local_order is not None
+            and receipt.broker_order_id is not None
+            and local_order.broker_order_id is not None
+            and local_order.broker_order_id != receipt.broker_order_id
+        ):
+            return "local order broker identity does not match execution receipt"
+        if (
+            local_order is not None
+            and broker_order is not None
+            and local_order.broker_order_id is not None
+            and broker_order.broker_order_id is not None
+            and local_order.broker_order_id != broker_order.broker_order_id
+        ):
+            return "local and broker broker-order identity does not match"
+        if (
+            local_order is not None
             and broker_order is not None
             and local_order.order_id != broker_order.order_id
         ):
