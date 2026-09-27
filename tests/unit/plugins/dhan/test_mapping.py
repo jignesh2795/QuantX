@@ -1,7 +1,7 @@
-from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime
 from decimal import Decimal
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 
