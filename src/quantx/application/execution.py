@@ -104,10 +104,16 @@ class ExecutionOrchestrator:
                 reason="broker connection is not healthy",
             )
 
-        if broker.instrument(request.order.instrument) is None:
+        broker_instrument = broker.instrument(request.order.instrument)
+        if broker_instrument is None:
             return ExecutionResult(
                 ExecutionDispatchStatus.BLOCKED,
                 reason="broker does not expose the requested canonical instrument",
+            )
+        if broker_instrument.market != request.execution_context.market:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="broker instrument market does not match execution request market",
             )
 
         required_capabilities = request.order.required_capabilities
