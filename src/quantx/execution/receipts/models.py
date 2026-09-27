@@ -31,6 +31,7 @@ class ExecutionReceipt:
     fills: tuple[Fill, ...] = ()
     message: str = ""
     simulated: bool = False
+    source: str = ""
     model_profile: str = ""
     model_version: str = ""
     assumptions: tuple[str, ...] = ()
@@ -58,5 +59,7 @@ class ExecutionReceipt:
             raise ValueError("partial receipt must have PARTIALLY_FILLED order status")
 
 
+# Backward-compatible names used by early execution consumers.
+ExecutionReceiptRecord = ExecutionReceipt
 ReceiptState = ExecutionOutcome
 ReceiptOutcome = ExecutionOutcome
