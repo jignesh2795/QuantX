@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from decimal import Decimal
+from enum import StrEnum
 
 from quantx.domain.value_objects import InstrumentId
 
@@ -74,22 +74,39 @@ class ExplicitRollSchedule:
     """Historical roll schedule with no inference from missing data."""
 
     def __init__(self, events: tuple[ContractRollEvent, ...]) -> None:
-        self._events = tuple(sorted(events, key=lambda event: event.timestamp))
+        ordered = tuple(sorted(events, key=lambda event: event.timestamp))
+        seen: set[tuple[datetime, InstrumentId]] = set()
+        for event in ordered:
+            key = (event.timestamp, event.from_instrument)
+            if key in seen:
+                raise ValueError(
+                    f"duplicate roll events for {event.from_instrument} at "
+                    f"{event.timestamp.isoformat()}"
+                )
+            seen.add(key)
+        self._events = ordered
 
-    def decision_at(self, timestamp: datetime, active_instrument: InstrumentId) -> RollDecision:
+    def decision_at(
+        self, timestamp: datetime, active_instrument: InstrumentId
+    ) -> RollDecision:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
-        for event in self._events:
-            if event.timestamp <= timestamp and event.from_instrument == active_instrument:
-                return RollDecision(
-                    timestamp=timestamp,
-                    active_instrument=active_instrument,
-                    next_instrument=event.to_instrument,
-                    should_roll=True,
-                    rule_id=event.rule_id,
-                    rule_version=event.rule_version,
-                    reason="explicit historical roll event",
-                )
+        candidates = [
+            event
+            for event in self._events
+            if event.timestamp <= timestamp and event.from_instrument == active_instrument
+        ]
+        if candidates:
+            event = candidates[-1]
+            return RollDecision(
+                timestamp=timestamp,
+                active_instrument=active_instrument,
+                next_instrument=event.to_instrument,
+                should_roll=True,
+                rule_id=event.rule_id,
+                rule_version=event.rule_version,
+                reason="explicit historical roll event",
+            )
         return RollDecision(
             timestamp=timestamp,
             active_instrument=active_instrument,
