@@ -1,10 +1,9 @@
-"""Run the complete QuantX test suite locally."""
+"""Run the complete QuantX test suite with uv."""
 
 from __future__ import annotations
 
 import subprocess
-import sys
 
 
 if __name__ == "__main__":
-    raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", "-q"]))
+    raise SystemExit(subprocess.call(["uv", "run", "pytest", "-q"]))
