@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from quantx.domain.enums import OrderStatus
 from quantx.domain.orders import Fill
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 
 
 class ExecutionOutcome(StrEnum):
@@ -41,8 +42,8 @@ class ExecutionReceipt:
     correlation_id: str | None = None
     receipt_id: UUID = field(default_factory=uuid4)
     order_id: UUID | None = None
-    account_id: UUID | None = None
-    connection_id: UUID | None = None
+    account_id: AccountId | None = None
+    connection_id: BrokerConnectionId | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.client_order_id, str) and not self.client_order_id.strip():
