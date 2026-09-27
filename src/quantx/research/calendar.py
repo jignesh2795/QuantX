@@ -47,6 +47,16 @@ class FixedDailySessionCalendar(MarketCalendar):
     close_time: time
     version: str = "fixed-daily-v1"
 
+    def __post_init__(self) -> None:
+        if not self.timezone.strip():
+            raise ValueError("timezone must not be empty")
+        try:
+            ZoneInfo(self.timezone)
+        except KeyError as exc:
+            raise ValueError(f"unknown timezone: {self.timezone}") from exc
+        if self.open_time >= self.close_time:
+            raise ValueError("open_time must be before close_time")
+
     def classify(self, timestamp: datetime) -> SessionClassification:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
@@ -56,8 +66,16 @@ class FixedDailySessionCalendar(MarketCalendar):
             status = SessionStatus.CLOSED
             reason = "outside configured session: weekend"
         else:
-            status = SessionStatus.OPEN if self.open_time <= current < self.close_time else SessionStatus.CLOSED
-            reason = "within configured session" if status is SessionStatus.OPEN else "outside configured session"
+            status = (
+                SessionStatus.OPEN
+                if self.open_time <= current < self.close_time
+                else SessionStatus.CLOSED
+            )
+            reason = (
+                "within configured session"
+                if status is SessionStatus.OPEN
+                else "outside configured session"
+            )
         return SessionClassification(
             timestamp=timestamp,
             status=status,
