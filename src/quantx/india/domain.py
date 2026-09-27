@@ -105,9 +105,6 @@ class IndianInstrumentSpec:
         if self.expiry.tzinfo is None or self.expiry.utcoffset() is None:
             raise ValueError("derivative expiry must be timezone-aware")
 
-        if self.underlying is None:
-            raise ValueError("derivative underlying must be supplied")
-
         if self.asset_class is AssetClass.FUTURE:
             if self.strike is not None or self.option_type is not None:
                 raise ValueError("futures must not define strike or option_type")
@@ -116,6 +113,9 @@ class IndianInstrumentSpec:
                 raise ValueError("option strike must be supplied")
             if self.option_type is None:
                 raise ValueError("option_type must be supplied")
+
+        if self.underlying is None:
+            raise ValueError("derivative underlying must be supplied")
 
         return Contract(
             instrument=self.to_instrument(),
