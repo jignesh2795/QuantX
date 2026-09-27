@@ -179,6 +179,21 @@ class DeterministicBacktestService:
                 )
                 continue
 
+            if strategy_result.signal.instrument != frame.observation.instrument:
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        "strategy signal instrument does not match replay frame",
+                    )
+                )
+                continue
+
             if intent.instrument != frame.observation.instrument:
                 steps.append(
                     BacktestStep(
