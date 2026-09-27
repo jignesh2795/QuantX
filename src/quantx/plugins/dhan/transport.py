@@ -165,7 +165,6 @@ def _order_response(response: object) -> DhanOrderResponse:
             message=remarks,
             raw={"status": status, "remarks": remarks, "data": payload},
         )
-    payload = payload
     status = str(payload.get("orderStatus", "UNKNOWN"))
     order_id = payload.get("orderId")
     return DhanOrderResponse(
@@ -173,7 +172,7 @@ def _order_response(response: object) -> DhanOrderResponse:
         order_status=status,
         observed_at=datetime.now(timezone.utc),
         message=str(payload.get("message", "")),
-        raw=envelope,
+        raw={"status": status, "remarks": remarks, "data": payload},
     )
 
 
@@ -191,7 +190,6 @@ def _order_detail(response: object) -> DhanOrderDetail:
             message=remarks,
             raw={"status": status, "remarks": remarks, "data": payload},
         )
-    payload = payload
     order_id = payload.get("orderId")
     correlation_id = payload.get("correlationId")
     return DhanOrderDetail(
@@ -203,7 +201,7 @@ def _order_detail(response: object) -> DhanOrderDetail:
         exchange_time=str(payload["exchangeTime"]) if payload.get("exchangeTime") else None,
         update_time=str(payload["updateTime"]) if payload.get("updateTime") else None,
         message=str(payload.get("omsErrorDescription", "")),
-        raw=envelope,
+        raw={"status": status, "remarks": remarks, "data": payload},
     )
 
 
