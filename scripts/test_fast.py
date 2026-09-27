@@ -1,10 +1,9 @@
-"""Run the fast unit-test layer locally."""
+"""Run the fast unit-test layer with uv."""
 
 from __future__ import annotations
 
 import subprocess
-import sys
 
 
 if __name__ == "__main__":
-    raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", "tests/unit", "-q"]))
+    raise SystemExit(subprocess.call(["uv", "run", "pytest", "tests/unit", "-q"]))
