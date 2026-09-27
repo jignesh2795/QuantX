@@ -6,7 +6,7 @@ Only this module may import the third-party DhanHQ SDK.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
@@ -95,7 +95,7 @@ class DhanSDKTransport:
             return DhanOrderResponse(
                 order_id=None,
                 order_status="UNKNOWN",
-                observed_at=datetime.now(timezone.utc),
+                observed_at=datetime.now(UTC),
                 message="Dhan order could not be resolved by correlation id",
             )
         response = self._client.cancel_order(detail.order_id)
@@ -133,7 +133,7 @@ class InMemoryDhanTransport:
         return DhanOrderResponse(
             order_id=self.order_id,
             order_status=self.response_status,
-            observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
     def cancel(self, correlation_id: str) -> DhanOrderResponse:
