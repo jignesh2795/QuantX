@@ -68,7 +68,6 @@ class StaticVenueRuleProvider:
         candidates.sort(key=lambda rule: (rule.effective_from, rule.version), reverse=True)
         return candidates[0]
 
-
     @staticmethod
     def _overlaps(a: VenueRuleSnapshot, b: VenueRuleSnapshot) -> bool:
         a_end = a.effective_to or datetime.max.replace(tzinfo=a.effective_from.tzinfo)
