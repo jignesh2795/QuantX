@@ -66,11 +66,18 @@ class IndianInstrumentSpec:
     option_type: str | None = None
 
     def to_instrument(self) -> Instrument:
-        family = (
-            MarketFamily.DERIVATIVES
-            if self.asset_class in {AssetClass.FUTURE, AssetClass.OPTION}
-            else MarketFamily.EQUITY
-        )
+        if self.asset_class in {AssetClass.FUTURE, AssetClass.OPTION}:
+            family = MarketFamily.DERIVATIVES
+        elif self.asset_class is AssetClass.FX:
+            family = MarketFamily.FX
+        elif self.asset_class is AssetClass.COMMODITY:
+            family = MarketFamily.COMMODITIES
+        elif self.asset_class is AssetClass.DIGITAL_ASSET:
+            family = MarketFamily.DIGITAL_ASSETS
+        elif self.asset_class is AssetClass.FUND:
+            family = MarketFamily.FUND
+        else:
+            family = MarketFamily.EQUITY
         market = MarketContext(MarketRegion.INDIA, family, self.exchange.value, "IN")
         return Instrument(
             instrument_id=self.instrument_id,
