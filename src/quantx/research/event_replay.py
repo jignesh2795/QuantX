@@ -58,13 +58,9 @@ class EventReplayCatalog:
             if event.event_id in seen_ids:
                 raise ValueError(f"duplicate replay event_id: {event.event_id}")
             seen_ids.add(event.event_id)
-        self._events = tuple(
-            sorted(values, key=lambda item: (item.timestamp, item.event_id))
-        )
+        self._events = tuple(sorted(values, key=lambda item: (item.timestamp, item.event_id)))
 
-    def as_of(
-        self, timestamp: datetime, instrument_id: str
-    ) -> tuple[ReplayEvent, ...]:
+    def as_of(self, timestamp: datetime, instrument_id: str) -> tuple[ReplayEvent, ...]:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
         return tuple(
