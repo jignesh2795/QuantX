@@ -85,6 +85,7 @@ def test_future_spec_derives_canonical_contract() -> None:
         exchange=IndianExchange.NSE,
         segment=IndianSegment.DERIVATIVES,
         lot_size=Decimal("65"),
+        underlying=InstrumentId("NSE", "NIFTY"),
         expiry=expiry,
     )
 
@@ -94,6 +95,7 @@ def test_future_spec_derives_canonical_contract() -> None:
     assert contract.instrument.instrument_id == spec.instrument_id
     assert contract.instrument.market.family is MarketFamily.DERIVATIVES
     assert contract.expiry == expiry
+    assert contract.underlying == InstrumentId("NSE", "NIFTY")
     assert contract.strike is None
     assert contract.option_type is None
 
@@ -107,6 +109,7 @@ def test_option_spec_derives_canonical_contract() -> None:
         exchange=IndianExchange.NSE,
         segment=IndianSegment.DERIVATIVES,
         lot_size=Decimal("65"),
+        underlying=InstrumentId("NSE", "NIFTY"),
         expiry=expiry,
         strike=Decimal("23000"),
         option_type="CALL",
@@ -117,6 +120,7 @@ def test_option_spec_derives_canonical_contract() -> None:
     assert contract is not None
     assert contract.instrument.instrument_id == spec.instrument_id
     assert contract.expiry == expiry
+    assert contract.underlying == InstrumentId("NSE", "NIFTY")
     assert contract.strike == Decimal("23000")
     assert contract.option_type == "CALL"
 
@@ -188,6 +192,16 @@ def test_derivative_contract_metadata_is_fail_closed() -> None:
         ).to_contract()
 
     expiry = datetime(2026, 12, 31, tzinfo=UTC)
+    with pytest.raises(ValueError, match="derivative underlying must be supplied"):
+        IndianInstrumentSpec(
+            instrument_id=InstrumentId("NSE", "NIFTY26DEC"),
+            symbol="NIFTY26DEC",
+            asset_class=AssetClass.FUTURE,
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.DERIVATIVES,
+            expiry=expiry,
+        ).to_contract()
+
     with pytest.raises(ValueError, match="option strike must be supplied"):
         IndianInstrumentSpec(
             instrument_id=InstrumentId("NSE", "NIFTYCE"),
@@ -195,6 +209,7 @@ def test_derivative_contract_metadata_is_fail_closed() -> None:
             asset_class=AssetClass.OPTION,
             exchange=IndianExchange.NSE,
             segment=IndianSegment.DERIVATIVES,
+            underlying=InstrumentId("NSE", "NIFTY"),
             expiry=expiry,
             option_type="CALL",
         ).to_contract()
@@ -206,6 +221,7 @@ def test_derivative_contract_metadata_is_fail_closed() -> None:
             asset_class=AssetClass.OPTION,
             exchange=IndianExchange.NSE,
             segment=IndianSegment.DERIVATIVES,
+            underlying=InstrumentId("NSE", "NIFTY"),
             expiry=expiry,
             strike=Decimal("23000"),
         ).to_contract()
