@@ -65,6 +65,15 @@ class OrderReconciler:
                 OrderReconciliationStatus.STATE_MISMATCH,
                 f"local={local.status}, broker={broker.status}",
             )
+        if local.requested_quantity != broker.requested_quantity:
+            return OrderReconciliationResult(
+                local.order_id,
+                OrderReconciliationStatus.QUANTITY_MISMATCH,
+                (
+                    "local requested="
+                    f"{local.requested_quantity}, broker requested={broker.requested_quantity}"
+                ),
+            )
         if local.filled_quantity != broker.filled_quantity:
             return OrderReconciliationResult(
                 local.order_id,
