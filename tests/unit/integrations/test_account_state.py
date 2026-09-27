@@ -4,10 +4,10 @@ from decimal import Decimal
 import pytest
 
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
-from quantx.integrations.account_state import (
+from quantx.integrations.reconciliation import (
     AccountFinancialState,
     AccountReconciler,
-    ReconciliationStatus,
+    AccountReconciliationStatus,
     StateSource,
 )
 
@@ -26,7 +26,7 @@ def test_reconciliation_matches_explicit_observed_state() -> None:
         equity=Decimal("100"),
     )
     report = AccountReconciler().compare(state, state)
-    assert report.status is ReconciliationStatus.MATCHED
+    assert report.status is AccountReconciliationStatus.MATCHED
 
 
 def test_reconciliation_never_invents_missing_observed_state() -> None:
@@ -39,7 +39,7 @@ def test_reconciliation_never_invents_missing_observed_state() -> None:
         available_cash=Decimal("100"),
     )
     report = AccountReconciler().compare(state, None)
-    assert report.status is ReconciliationStatus.UNAVAILABLE
+    assert report.status is AccountReconciliationStatus.UNAVAILABLE
 
 
 def test_negative_financial_values_are_rejected() -> None:

@@ -1,8 +1,7 @@
-"""Account-state reconciliation implementation.
+"""Account financial-state reconciliation contracts.
 
-This module owns account-scoped financial reconciliation. It intentionally
-accepts only explicitly observed broker/paper/replay state and never creates
-synthetic capital or minimum-balance assumptions.
+The integration layer records explicitly observed broker, paper, or replay
+state. It never invents balances, minimum capital, or other broker constraints.
 """
 
 from __future__ import annotations
@@ -11,7 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from uuid import UUID
+
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 
 
 class StateSource(StrEnum):
@@ -23,8 +23,8 @@ class StateSource(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class AccountFinancialState:
-    account_id: UUID
-    connection_id: UUID
+    account_id: AccountId
+    connection_id: BrokerConnectionId
     observed_at: datetime
     source: StateSource
     currency: str
@@ -61,14 +61,14 @@ class ReconciliationFinding:
 
 @dataclass(frozen=True, slots=True)
 class ReconciliationReport:
-    account_id: UUID
-    connection_id: UUID
+    account_id: AccountId
+    connection_id: BrokerConnectionId
     status: ReconciliationStatus
     findings: tuple[ReconciliationFinding, ...] = ()
 
 
 class AccountReconciler:
-    """Compare local state with explicitly observed account state."""
+    """Compare locally tracked state with explicitly observed account state."""
 
     def compare(
         self,
@@ -80,29 +80,68 @@ class AccountReconciler:
                 local.account_id,
                 local.connection_id,
                 ReconciliationStatus.UNAVAILABLE,
-                (ReconciliationFinding("state", None, None, "observed account state unavailable"),),
+                (
+                    ReconciliationFinding(
+                        "state",
+                        None,
+                        None,
+                        "observed account state unavailable",
+                    ),
+                ),
             )
         if observed.account_id != local.account_id or observed.connection_id != local.connection_id:
             return ReconciliationReport(
                 local.account_id,
                 local.connection_id,
                 ReconciliationStatus.MISMATCH,
-                (ReconciliationFinding("identity", str(local.connection_id), str(observed.connection_id), "account/connection identity mismatch"),),
+                (
+                    ReconciliationFinding(
+                        "identity",
+                        str(local.connection_id),
+                        str(observed.connection_id),
+                        "account/connection identity mismatch",
+                    ),
+                ),
             )
 
         findings: list[ReconciliationFinding] = []
-        for field in ("available_cash", "equity", "margin_used", "margin_available", "currency"):
+        for field in (
+            "available_cash",
+            "equity",
+            "margin_used",
+            "margin_available",
+            "currency",
+        ):
             expected = getattr(local, field)
             actual = getattr(observed, field)
             if expected is not None and actual is not None and expected != actual:
-                findings.append(ReconciliationFinding(field, str(expected), str(actual), f"{field} differs"))
+                findings.append(
+                    ReconciliationFinding(
+                        field,
+                        str(expected),
+                        str(actual),
+                        f"{field} differs",
+                    )
+                )
             elif expected is not None and actual is None:
-                findings.append(ReconciliationFinding(field, str(expected), None, f"{field} unavailable in observed state"))
+                findings.append(
+                    ReconciliationFinding(
+                        field,
+                        str(expected),
+                        None,
+                        f"{field} unavailable in observed state",
+                    )
+                )
 
         status = ReconciliationStatus.MATCHED if not findings else ReconciliationStatus.MISMATCH
         if any(item.observed is None for item in findings):
             status = ReconciliationStatus.INCOMPLETE
-        return ReconciliationReport(local.account_id, local.connection_id, status, tuple(findings))
+        return ReconciliationReport(
+            local.account_id,
+            local.connection_id,
+            status,
+            tuple(findings),
+        )
 
 
 __all__ = [

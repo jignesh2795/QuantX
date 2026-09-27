@@ -31,18 +31,6 @@ src/quantx/
 
 These are the current implemented areas. Additional top-level packages such as `application`, `portfolio`, `risk`, `plugins`, `ai`, and `infrastructure` should be introduced when their implementation is actually ready, not merely to satisfy a diagram.
 
-## Consolidation rule
-
-For every responsibility, classify the existing implementation as:
-
-1. KEEP - already in the correct canonical location.
-2. MOVE - implementation belongs in another package.
-3. MERGE - two implementations represent the same contract.
-4. DELETE - redundant or superseded.
-5. COMPATIBILITY - temporary wrapper required while callers migrate.
-
-Do not create a second implementation merely because a cleaner package has been designed.
-
 ## Completed consolidation examples
 
 ### Idempotency
@@ -69,6 +57,27 @@ execution/receipts/
 ```
 
 The earlier flat `execution/receipts.py` was removed after its fields and compatibility names were consolidated into the package model.
+
+### Integration reconciliation
+
+The reconciliation package is now canonical:
+
+```text
+integrations/reconciliation/
+├── __init__.py
+├── account.py
+├── orders.py
+└── positions.py
+```
+
+The redundant flat implementations were removed:
+
+- `integrations/account_state.py`
+- `integrations/reconciliation.py`
+- `integrations/order_reconciliation.py`
+- `integrations/execution_preconditions.py`
+
+Account and position state now use the domain's `AccountId` and `BrokerConnectionId` value objects. Execution readiness remains owned by `execution/preconditions/`; integrations supply observed account, position, broker, and health evidence.
 
 ## Current migration policy
 

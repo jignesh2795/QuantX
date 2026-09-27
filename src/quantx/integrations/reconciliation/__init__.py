@@ -1,53 +1,46 @@
-"""Canonical account, position, and broker reconciliation components."""
+"""Canonical integration reconciliation components."""
 
 from .account import (
     AccountFinancialState,
     AccountReconciler,
-    ReconciliationReport,
-    StateSource,
-)
-from .account import (
     ReconciliationFinding as AccountReconciliationFinding,
-)
-from .account import (
+    ReconciliationReport,
     ReconciliationStatus as AccountReconciliationStatus,
+    StateSource,
 )
 from .orders import (
     OrderObservation,
-    OrderReconciler,
     OrderReconciliationResult,
     OrderReconciliationStatus,
+    OrderReconciler,
 )
 from .positions import (
-    ExecutionPreconditionGate,
-    ExecutionPreconditionResult,
-    PositionReconciler,
     PositionReconciliation,
+    PositionReconciler,
     PositionState,
     ReconciliationPolicy,
-    ReconciliationStatus,
-)
-from .positions import (
     ReconciliationStatus as PositionReconciliationStatus,
 )
+
+# Keep the unqualified name as the position-reconciliation alias for existing
+# callers while exposing explicit account/position names for new code.
+ReconciliationStatus = PositionReconciliationStatus
 
 __all__ = [
     "AccountFinancialState",
     "AccountReconciler",
     "AccountReconciliationFinding",
     "AccountReconciliationStatus",
-    "ExecutionPreconditionGate",
-    "ExecutionPreconditionResult",
     "OrderObservation",
-    "OrderReconciler",
     "OrderReconciliationResult",
     "OrderReconciliationStatus",
+    "OrderReconciler",
     "PositionReconciliation",
     "PositionReconciler",
     "PositionState",
-    "ReconciliationPolicy",
-    "ReconciliationReport",
-    "ReconciliationStatus",
-    "StateSource",
     "PositionReconciliationStatus",
+    "ReconciliationPolicy",
+    "ReconciliationStatus",
+    "ReconciliationReport",
+    "StateSource",
 ]
