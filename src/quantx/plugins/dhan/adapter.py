@@ -67,7 +67,6 @@ class DhanBrokerAdapter:
         broker_instrument = self._resolve(request.order.instrument)
         self._validate_market(broker_instrument[0], broker_instrument[1])
         wire = build_order_request(
-            instrument_id=request.order.instrument,
             instrument_ref=broker_instrument[1],
             side=request.order.side,
             order_type=request.order.order_type,
