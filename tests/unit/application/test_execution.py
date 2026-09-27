@@ -5,7 +5,12 @@ from uuid import uuid4
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.domain.accounts import AccountId, BrokerConnectionId
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import (
@@ -15,11 +20,11 @@ from quantx.domain.instruments import (
     MarketFamily,
     MarketRegion,
 )
+from quantx.domain.market_data import Quote
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.domain.market_data import Quote
-from quantx.domain.orders import Fill
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.brokers import (
     BrokerCapability,
@@ -42,9 +47,12 @@ def _instrument() -> Instrument:
     )
 
 
-def _request(mode: ExecutionMode, *, account_id: AccountId | None = None,
-             connection_id: BrokerConnectionId | None = None,
-             required_capabilities: frozenset[str] = frozenset(),
+def _request(
+    mode: ExecutionMode,
+    *,
+    account_id: AccountId | None = None,
+    connection_id: BrokerConnectionId | None = None,
+    required_capabilities: frozenset[str] = frozenset(),
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
     context = ExecutionContext(
