@@ -47,6 +47,12 @@ class VenueRuleProvider(Protocol):
 class StaticVenueRuleProvider:
     rules: tuple[VenueRuleSnapshot, ...]
 
+    def __post_init__(self) -> None:
+        for index, rule in enumerate(self.rules):
+            for other in self.rules[index + 1 :]:
+                if rule.venue == other.venue and self._overlaps(rule, other):
+                    raise ValueError(f"overlapping venue rules for {rule.venue}")
+
     def resolve(self, venue: str, timestamp: datetime) -> VenueRuleSnapshot | None:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
@@ -61,6 +67,13 @@ class StaticVenueRuleProvider:
             return None
         candidates.sort(key=lambda rule: (rule.effective_from, rule.version), reverse=True)
         return candidates[0]
+
+
+    @staticmethod
+    def _overlaps(a: VenueRuleSnapshot, b: VenueRuleSnapshot) -> bool:
+        a_end = a.effective_to or datetime.max.replace(tzinfo=a.effective_from.tzinfo)
+        b_end = b.effective_to or datetime.max.replace(tzinfo=b.effective_from.tzinfo)
+        return a.effective_from < b_end and b.effective_from < a_end
 
 
 def evaluate_order_constraints(
