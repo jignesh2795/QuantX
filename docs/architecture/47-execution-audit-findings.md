@@ -37,22 +37,16 @@ These are also intentionally different responsibilities.
 
 Do not merge them into one large module.
 
-## Important correctness finding
+## Correctness finding: simulation timing and fees — resolved
 
-`PaperSimulationProfile` currently declares latency and fee parameters, but the current paper engine records those values in the receipt assumptions without applying latency or fees to the resulting execution/accounting path. This must be corrected before describing the simulator as high-fidelity.
+`PaperSimulationProfile` latency is now applied to the simulated fill and execution-receipt timestamps. The engine does not shift the observed market price into the future because doing so would require unavailable future market data.
 
-## Important correctness finding: instrument metadata
+Simulation fees are calculated on the executed fill and carried on `ExecutionReceipt`. `PaperSession` now consumes that receipt fee by default when applying fills to accounting; an explicit `fee` argument remains available as an override.
 
-`paper_session.py` currently contains a compatibility `resolve_instrument()` helper that constructs an `Instrument` with defaults including:
+## Correctness finding: instrument metadata — resolved
 
-- equity asset class;
-- INR/USD currency based on region;
-- tick size `0.01`;
-- lot size `1`;
-- multiplier `1`.
-
-Those are implementation defaults and must not become the universal instrument model. They violate the project's rule that market/broker constraints and instrument metadata must come from explicit registry/venue evidence. This helper should be replaced with an instrument-registry lookup before broad paper/live use.
+`PaperSession` resolves the canonical `Instrument` through `InstrumentRegistry` and rejects execution when authoritative metadata is unavailable or inconsistent with the request. It does not manufacture fallback asset class, currency, tick size, lot size, or multiplier values.
 
 ## Next action
 
-Do not restructure these modules further. Fix the two correctness issues above, then continue the integration audit.
+Do not restructure these modules further. Continue the integration audit.
