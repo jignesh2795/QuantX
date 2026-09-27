@@ -39,16 +39,16 @@ def test_filled_receipt_requires_a_fill() -> None:
             client_order_id=uuid4(),
             outcome=ExecutionOutcome.FILLED,
             order_status=OrderStatus.FILLED,
-            executed_at=datetime.now(timezone.utc),
+            executed_at=datetime.now(UTC),
         )
 
 
-def test_partial_receipt_requires_a_fill():
+def test_partial_receipt_requires_a_fill() -> None:
     with pytest.raises(ValueError, match="at least one fill"):
         ExecutionReceipt(
             request_id=uuid4(),
             client_order_id=uuid4(),
             outcome=ExecutionOutcome.PARTIALLY_FILLED,
             order_status=OrderStatus.PARTIALLY_FILLED,
-            executed_at=datetime.now(timezone.utc),
+            executed_at=datetime.now(UTC),
         )
