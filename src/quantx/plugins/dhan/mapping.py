@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-import hashlib
 from zoneinfo import ZoneInfo
 
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
@@ -55,7 +55,6 @@ def dhan_correlation_id(correlation_id: str) -> str:
 
 def build_order_request(
     *,
-    instrument_id: InstrumentId,
     instrument_ref: DhanInstrumentRef,
     side: OrderSide,
     order_type: OrderType,
