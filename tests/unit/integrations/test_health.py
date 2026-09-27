@@ -56,10 +56,20 @@ def test_health_and_capabilities_are_isolated_by_full_connection_ref() -> None:
     registry = ConnectionHealthRegistry()
 
     registry.set_health(
-        ConnectionHealthSnapshot(connection_a, ConnectionHealth.HEALTHY, now, 10)
+        ConnectionHealthSnapshot(
+            connection_a,
+            ConnectionHealth.HEALTHY,
+            now,
+            10,
+        )
     )
     registry.set_health(
-        ConnectionHealthSnapshot(connection_b, ConnectionHealth.UNAVAILABLE, now, 20)
+        ConnectionHealthSnapshot(
+            connection_b,
+            ConnectionHealth.UNAVAILABLE,
+            now,
+            20,
+        )
     )
     registry.set_capabilities(
         CapabilitySnapshot(
