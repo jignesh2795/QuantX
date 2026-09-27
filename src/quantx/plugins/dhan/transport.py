@@ -65,12 +65,12 @@ class DhanSDKTransport:
             )
         )
 
-    def health(self) -> bool:
+        def health(self) -> bool:
         try:
-            self._client.get_fund_limits()
+            response = self._client.get_fund_limits()
         except Exception:
             return False
-        return True
+        return isinstance(response, dict) and response.get("status") == "success"
 
     def submit(self, request: DhanOrderRequest) -> DhanOrderResponse:
         response = self._client.place_order(
@@ -155,7 +155,16 @@ class InMemoryDhanTransport:
 
 
 def _order_response(response: object) -> DhanOrderResponse:
-    payload = _payload(response)
+    envelope = _envelope(response)
+    if envelope["status"] != "success":
+        return DhanOrderResponse(
+            order_id=None,
+            order_status="UNKNOWN",
+            observed_at=datetime.now(timezone.utc),
+            message=str(envelope["remarks"]),
+            raw=envelope,
+        )
+    payload = envelope["data"]
     status = str(payload.get("orderStatus", "UNKNOWN"))
     order_id = payload.get("orderId")
     return DhanOrderResponse(
@@ -163,12 +172,25 @@ def _order_response(response: object) -> DhanOrderResponse:
         order_status=status,
         observed_at=datetime.now(timezone.utc),
         message=str(payload.get("message", "")),
-        raw=payload,
+        raw=envelope,
     )
 
 
 def _order_detail(response: object) -> DhanOrderDetail:
-    payload = _payload(response)
+    envelope = _envelope(response)
+    if envelope["status"] != "success":
+        return DhanOrderDetail(
+            order_id=None,
+            correlation_id=None,
+            order_status="UNKNOWN",
+            average_traded_price=None,
+            filled_quantity=Decimal("0"),
+            exchange_time=None,
+            update_time=None,
+            message=str(envelope["remarks"]),
+            raw=envelope,
+        )
+    payload = envelope["data"]
     order_id = payload.get("orderId")
     correlation_id = payload.get("correlationId")
     return DhanOrderDetail(
@@ -180,11 +202,20 @@ def _order_detail(response: object) -> DhanOrderDetail:
         exchange_time=str(payload["exchangeTime"]) if payload.get("exchangeTime") else None,
         update_time=str(payload["updateTime"]) if payload.get("updateTime") else None,
         message=str(payload.get("omsErrorDescription", "")),
-        raw=payload,
+        raw=envelope,
     )
 
 
-def _payload(response: object) -> DhanPayload:
+def _envelope(response: object) -> dict[str, object]:
     if not isinstance(response, dict):
         raise TypeError("Dhan SDK response must be a mapping")
-    return response
+    status = str(response.get("status", "failure"))
+    remarks = response.get("remarks", "")
+    data = response.get("data")
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "status": status,
+        "remarks": remarks,
+        "data": data,
+    }
