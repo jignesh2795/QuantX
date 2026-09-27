@@ -76,9 +76,7 @@ def _request(
         order_type=order_type,
         time_in_force=time_in_force,
         limit_price=Decimal("100") if order_type is OrderType.LIMIT else None,
-        stop_price=Decimal("99")
-        if order_type in {OrderType.STOP, OrderType.STOP_LIMIT}
-        else None,
+        stop_price=Decimal("99") if order_type in {OrderType.STOP, OrderType.STOP_LIMIT} else None,
         required_capabilities=frozenset({"ORDER_SUBMISSION"}),
         execution_context=context,
     )
@@ -130,9 +128,7 @@ def test_submit_translates_to_dhan_and_returns_normalized_receipt() -> None:
     assert transport.submitted[0].security_id == "1333"
     assert transport.submitted[0].exchange_segment == "NSE_EQ"
     assert transport.submitted[0].product_type == "CNC"
-    assert transport.submitted[0].correlation_id == dhan_correlation_id(
-        request.correlation_id
-    )
+    assert transport.submitted[0].correlation_id == dhan_correlation_id(request.correlation_id)
 
 
 def test_submit_rejects_unsupported_dhan_validity_before_transport() -> None:
@@ -196,9 +192,7 @@ def test_unknown_transport_failure_fails_closed() -> None:
 
 
 def test_unknown_broker_status_maps_to_unknown() -> None:
-    receipt = _adapter(InMemoryDhanTransport(response_status="NEW_STATUS")).submit(
-        _request()
-    )
+    receipt = _adapter(InMemoryDhanTransport(response_status="NEW_STATUS")).submit(_request())
 
     assert receipt.outcome is ExecutionOutcome.UNKNOWN
     assert receipt.order_status is OrderStatus.UNKNOWN
