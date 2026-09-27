@@ -87,7 +87,9 @@ class ExplicitRollSchedule:
         self._events = ordered
 
     def decision_at(
-        self, timestamp: datetime, active_instrument: InstrumentId
+        self,
+        timestamp: datetime,
+        active_instrument: InstrumentId,
     ) -> RollDecision:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
