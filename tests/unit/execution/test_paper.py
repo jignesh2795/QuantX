@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -64,6 +65,19 @@ def test_repeated_client_order_is_idempotent() -> None:
     second = engine.execute(request, snapshot=snapshot)
     assert first == second
     assert len(engine.events()) == 2
+
+
+def test_reusing_client_order_id_for_changed_request_is_blocked() -> None:
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    )
+    request = _request()
+    engine.execute(request, snapshot=_snapshot(ask=Decimal("100")))
+    changed_order = replace(request.order, quantity=Decimal("11"))
+    changed_request = replace(request, order=changed_order)
+
+    with pytest.raises(ValueError, match="different request"):
+        engine.execute(changed_request, snapshot=_snapshot(ask=Decimal("100")))
 
 
 def test_missing_required_price_does_not_create_a_fill() -> None:
