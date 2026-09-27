@@ -32,7 +32,7 @@ def test_execution_receipt_accepts_fill_outcome() -> None:
     assert receipt.outcome is ExecutionOutcome.FILLED
 
 
-def test_filled_receipt_requires_a_fill() ->
+def test_filled_receipt_requires_a_fill() -> None:
     with pytest.raises(ValueError, match="at least one fill"):
         ExecutionReceipt(
             request_id=uuid4(),
