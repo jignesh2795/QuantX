@@ -118,7 +118,9 @@ class PositionReconciler:
                 checked_at,
                 "instrument identity mismatch",
             )
-        if observed.observed_at > checked_at or checked_at - observed.observed_at > policy.max_state_age:
+        future_dated = observed.observed_at > checked_at
+        stale = checked_at - observed.observed_at > policy.max_state_age
+        if future_dated or stale:
             return PositionReconciliation(
                 local.account_id,
                 local.connection_id,
