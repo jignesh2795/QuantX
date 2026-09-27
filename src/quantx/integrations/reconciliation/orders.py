@@ -16,6 +16,7 @@ class OrderReconciliationStatus(StrEnum):
     MISSING_LOCAL_ORDER = "MISSING_LOCAL_ORDER"
     STATE_MISMATCH = "STATE_MISMATCH"
     QUANTITY_MISMATCH = "QUANTITY_MISMATCH"
+    BROKER_ID_MISMATCH = "BROKER_ID_MISMATCH"
     UNKNOWN = "UNKNOWN"
 
 
@@ -81,6 +82,19 @@ class OrderReconciler:
             raise ValueError("at least one order observation is required")
         if local.order_id != broker.order_id:
             raise ValueError("order identity mismatch")
+        if (
+            local.broker_order_id is not None
+            and broker.broker_order_id is not None
+            and local.broker_order_id != broker.broker_order_id
+        ):
+            return OrderReconciliationResult(
+                local.order_id,
+                OrderReconciliationStatus.BROKER_ID_MISMATCH,
+                (
+                    "local broker_order_id="
+                    f"{local.broker_order_id}, broker broker_order_id={broker.broker_order_id}"
+                ),
+            )
         if local.status != broker.status:
             return OrderReconciliationResult(
                 local.order_id,
