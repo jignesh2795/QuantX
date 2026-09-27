@@ -141,7 +141,7 @@ class InMemoryDhanTransport:
         return DhanOrderResponse(
             order_id=self.order_id,
             order_status="CANCELLED",
-            observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
     def reconcile(self, correlation_id: str) -> DhanOrderDetail:
@@ -162,9 +162,9 @@ def _order_response(response: object) -> DhanOrderResponse:
         return DhanOrderResponse(
             order_id=None,
             order_status="UNKNOWN",
-            observed_at=datetime.now(timezone.utc),
+            observed_at=datetime.now(UTC),
             message=remarks,
-            raw={"status": status, "remarks": remarks, "data": payload},
+            raw={"status": envelope_status, "remarks": remarks, "data": payload},
         )
     status = str(payload.get("orderStatus", "UNKNOWN"))
     order_id = payload.get("orderId")
