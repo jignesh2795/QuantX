@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
+from uuid import UUID
 
 from quantx.domain.clock import Clock, FixedClock
-from uuid import UUID
 
 
 class ReferenceOrderOutcome(StrEnum):
