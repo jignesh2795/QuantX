@@ -225,7 +225,7 @@ class DhanBrokerAdapter:
             client_order_id=request.order.client_order_id,
             outcome=ExecutionOutcome.UNKNOWN,
             order_status=OrderStatus.UNKNOWN,
-            executed_at=datetime.now(timezone.utc),
+            executed_at=datetime.now(UTC),
             message=message,
             source="dhan",
             simulated=False,
