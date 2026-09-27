@@ -43,8 +43,6 @@ class DhanBrokerAdapter:
     def __post_init__(self) -> None:
         if self._connection.broker_id != "dhan":
             raise ValueError("Dhan adapter requires a Dhan broker connection")
-        for instrument, instrument_ref in self._instruments.values():
-            self._validate_market(instrument, instrument_ref)
 
     @property
     def descriptor(self) -> BrokerDescriptor:
