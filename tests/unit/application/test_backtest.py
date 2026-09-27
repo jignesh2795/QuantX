@@ -10,6 +10,7 @@ from quantx.domain.enums import AssetClass, OrderSide
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.market_data import Quote
+from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyContext
 from quantx.domain.strategy import SignalAction, StrategyResult, StrategySignal, StrategyId
@@ -112,7 +113,7 @@ def test_backtest_composes_replay_strategy_risk_policy_and_paper_execution() -> 
         return StrategyResult(signal, None)
 
     result = DeterministicBacktestService(
-        instrument_registry=__import__("quantx.domain.instrument_registry", fromlist=["InMemoryInstrumentRegistry"]).InMemoryInstrumentRegistry((instrument,))
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
     ).run(
         series=_series(),
         strategy=strategy,
