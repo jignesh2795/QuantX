@@ -8,7 +8,13 @@ from decimal import Decimal
 from enum import StrEnum
 
 from quantx.domain.enums import AssetClass
-from quantx.domain.instruments import Contract, Instrument, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Contract,
+    Instrument,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.value_objects import InstrumentId
 
 
