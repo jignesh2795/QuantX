@@ -80,3 +80,26 @@ def test_dhan_adapter_conforms_to_broker_port() -> None:
     assert adapter.descriptor.display_name == "Dhan"
     assert adapter.connection.broker_id == "dhan"
     assert adapter.capabilities().supports(BrokerCapability.ORDER_SUBMISSION)
+
+
+def test_dhan_plugin_descriptor_exposes_only_implemented_capabilities() -> None:
+    from quantx.plugins.dhan import DHAN_CAPABILITIES, DHAN_PLUGIN_DESCRIPTOR
+
+    assert set(DHAN_PLUGIN_DESCRIPTOR.capabilities) == {
+        capability.value for capability in DHAN_CAPABILITIES.values
+    }
+    assert BrokerCapability.POSITIONS not in DHAN_CAPABILITIES.values
+    assert BrokerCapability.BALANCES not in DHAN_CAPABILITIES.values
+
+
+def test_only_dhan_transport_contains_vendor_sdk_import() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[4] / "src" / "quantx"
+    forbidden = []
+    for path in root.rglob("*.py"):
+        if "plugins" in path.parts and "dhan" in path.parts:
+            continue
+        if "dhanhq" in path.read_text(encoding="utf-8"):
+            forbidden.append(str(path))
+    assert forbidden == []
