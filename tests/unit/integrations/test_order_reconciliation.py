@@ -75,8 +75,20 @@ def test_invalid_order_quantities_are_rejected():
 
 def test_conflicting_broker_order_identity_is_explicit():
     oid = uuid4()
-    local = OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "10", "0", "broker-1")
-    broker = OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "10", "0", "broker-2")
+    local = OrderObservation(
+        oid,
+        OrderLifecycleStatus.SUBMITTED,
+        "10",
+        "0",
+        "broker-1",
+    )
+    broker = OrderObservation(
+        oid,
+        OrderLifecycleStatus.SUBMITTED,
+        "10",
+        "0",
+        "broker-2",
+    )
     result = OrderReconciler().reconcile(local=local, broker=broker)
     assert result.status is OrderReconciliationStatus.BROKER_ID_MISMATCH
     assert "broker_order_id" in result.message
