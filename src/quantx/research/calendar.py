@@ -52,11 +52,16 @@ class FixedDailySessionCalendar(MarketCalendar):
             raise ValueError("timestamp must be timezone-aware")
         local = timestamp.astimezone(ZoneInfo(self.timezone))
         current = local.timetz().replace(tzinfo=None)
-        status = SessionStatus.OPEN if self.open_time <= current < self.close_time else SessionStatus.CLOSED
+        if local.weekday() >= 5:
+            status = SessionStatus.CLOSED
+            reason = "outside configured session: weekend"
+        else:
+            status = SessionStatus.OPEN if self.open_time <= current < self.close_time else SessionStatus.CLOSED
+            reason = "within configured session" if status is SessionStatus.OPEN else "outside configured session"
         return SessionClassification(
             timestamp=timestamp,
             status=status,
             timezone=self.timezone,
             calendar_version=self.version,
-            reason="within configured session" if status is SessionStatus.OPEN else "outside configured session",
+            reason=reason,
         )

@@ -38,7 +38,7 @@ def test_market_open_and_instrument_tradable_is_executable():
         calendar=calendar,
         instrument_registry=make_registry(),
     )
-    context = resolver.resolve("TEST", datetime(2026, 2, 1, 10, tzinfo=timezone.utc))
+    context = resolver.resolve("TEST", datetime(2026, 2, 2, 10, tzinfo=timezone.utc))
     assert context.session.status is SessionStatus.OPEN
     assert context.executable is True
     assert context.execution_block_reason is None
@@ -69,7 +69,7 @@ def test_suspended_instrument_is_not_executable_during_open_session():
         calendar=calendar,
         instrument_registry=make_registry(TradabilityStatus.SUSPENDED),
     )
-    context = resolver.resolve("TEST", datetime(2026, 2, 1, 10, tzinfo=timezone.utc))
+    context = resolver.resolve("TEST", datetime(2026, 2, 2, 10, tzinfo=timezone.utc))
     assert context.session.status is SessionStatus.OPEN
     assert context.executable is False
     assert "instrument status" in context.execution_block_reason
