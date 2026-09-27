@@ -29,3 +29,12 @@ def test_quantity_mismatch_is_explicit():
     broker = OrderObservation(oid, OrderLifecycleStatus.PARTIALLY_FILLED, "10", "6")
     result = OrderReconciler().reconcile(local=local, broker=broker)
     assert result.status is OrderReconciliationStatus.QUANTITY_MISMATCH
+
+
+def test_requested_quantity_mismatch_is_explicit():
+    oid = uuid4()
+    local = OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "10", "0")
+    broker = OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "12", "0")
+    result = OrderReconciler().reconcile(local=local, broker=broker)
+    assert result.status is OrderReconciliationStatus.QUANTITY_MISMATCH
+    assert "requested" in result.message
