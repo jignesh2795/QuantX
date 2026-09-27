@@ -32,3 +32,21 @@ def test_explicit_constraints_are_evaluated() -> None:
     status, issues = evaluate_order_constraints(rule, order_value=Decimal("90"), quantity=Decimal("1"))
     assert status is RuleStatus.INVALID
     assert len(issues) == 2
+
+
+def test_overlapping_rules_are_rejected() -> None:
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    t1 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    t2 = datetime(2026, 7, 1, tzinfo=timezone.utc)
+
+    try:
+        StaticVenueRuleProvider(
+            (
+                VenueRuleSnapshot("TEST", "v1", t0, t2),
+                VenueRuleSnapshot("TEST", "v2", t1),
+            )
+        )
+    except ValueError as exc:
+        assert str(exc) == "overlapping venue rules for TEST"
+    else:
+        raise AssertionError("expected overlapping venue rules to be rejected")
