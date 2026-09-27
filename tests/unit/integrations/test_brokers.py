@@ -1,5 +1,4 @@
-from uuid import uuid4
-
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.integrations.brokers import (
     BrokerCapability,
     BrokerConnectionRef,
@@ -21,13 +20,13 @@ def test_capability_set_supports_required_subset() -> None:
 
 def test_connection_is_account_scoped() -> None:
     connection = BrokerConnectionRef(
-        account_id=uuid4(),
-        connection_id=uuid4(),
+        account_id=AccountId("acct-1"),
+        connection_id=BrokerConnectionId("conn-1"),
         broker_id="example",
         market_context_id="india-equity",
     )
-    assert connection.account_id is not None
-    assert connection.connection_id is not None
+    assert connection.account_id == AccountId("acct-1")
+    assert connection.connection_id == BrokerConnectionId("conn-1")
 
 
 def test_descriptor_keeps_capabilities_and_version_explicit() -> None:
