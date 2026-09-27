@@ -67,6 +67,7 @@ class IndianInstrumentSpec:
     tick_size: Decimal = Decimal("0.05")
     lot_size: Decimal = Decimal("1")
     multiplier: Decimal = Decimal("1")
+    underlying: InstrumentId | None = None
     expiry: datetime | None = None
     strike: Decimal | None = None
     option_type: str | None = None
@@ -104,6 +105,9 @@ class IndianInstrumentSpec:
         if self.expiry.tzinfo is None or self.expiry.utcoffset() is None:
             raise ValueError("derivative expiry must be timezone-aware")
 
+        if self.underlying is None:
+            raise ValueError("derivative underlying must be supplied")
+
         if self.asset_class is AssetClass.FUTURE:
             if self.strike is not None or self.option_type is not None:
                 raise ValueError("futures must not define strike or option_type")
@@ -115,7 +119,7 @@ class IndianInstrumentSpec:
 
         return Contract(
             instrument=self.to_instrument(),
-            underlying=None,
+            underlying=self.underlying,
             expiry=self.expiry,
             strike=self.strike,
             option_type=self.option_type,
