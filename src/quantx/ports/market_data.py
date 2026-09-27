@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Iterable, Protocol
+from typing import Iterable, Protocol, runtime_checkable
 
 from quantx.domain.market_data import Candle, Quote
 from quantx.domain.value_objects import InstrumentId
 
 
+@runtime_checkable
 class MarketDataPort(Protocol):
     """Broker/vendor-neutral market-data interface."""
 
