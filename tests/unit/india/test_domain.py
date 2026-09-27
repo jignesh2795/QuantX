@@ -165,3 +165,57 @@ def test_non_derivative_spec_has_no_contract() -> None:
 
 def test_product_type_contract_is_exported() -> None:
     assert ProductType.MIS.value == "MIS"
+
+def test_derivative_contract_metadata_is_fail_closed() -> None:
+    with pytest.raises(ValueError, match="derivative expiry must be supplied"):
+        IndianInstrumentSpec(
+            instrument_id=InstrumentId("NSE", "NIFTY"),
+            symbol="NIFTY",
+            asset_class=AssetClass.FUTURE,
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.DERIVATIVES,
+        ).to_contract()
+
+    with pytest.raises(ValueError, match="derivative expiry must be timezone-aware"):
+        IndianInstrumentSpec(
+            instrument_id=InstrumentId("NSE", "NIFTY"),
+            symbol="NIFTY",
+            asset_class=AssetClass.FUTURE,
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.DERIVATIVES,
+            expiry=datetime(2026, 12, 31),
+        ).to_contract()
+
+    expiry = datetime(2026, 12, 31, tzinfo=UTC)
+    with pytest.raises(ValueError, match="option strike must be supplied"):
+        IndianInstrumentSpec(
+            instrument_id=InstrumentId("NSE", "NIFTYCE"),
+            symbol="NIFTYCE",
+            asset_class=AssetClass.OPTION,
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.DERIVATIVES,
+            expiry=expiry,
+            option_type="CALL",
+        ).to_contract()
+
+    with pytest.raises(ValueError, match="option_type must be supplied"):
+        IndianInstrumentSpec(
+            instrument_id=InstrumentId("NSE", "NIFTY23000"),
+            symbol="NIFTY23000",
+            asset_class=AssetClass.OPTION,
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.DERIVATIVES,
+            expiry=expiry,
+            strike=Decimal("23000"),
+        ).to_contract()
+
+    with pytest.raises(ValueError, match="futures must not define"):
+        IndianInstrumentSpec(
+            instrument_id=InstrumentId("NSE", "NIFTY26DEC"),
+            symbol="NIFTY26DEC",
+            asset_class=AssetClass.FUTURE,
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.DERIVATIVES,
+            expiry=expiry,
+            strike=Decimal("23000"),
+        ).to_contract()
