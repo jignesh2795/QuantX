@@ -15,10 +15,7 @@ class IndianInstrumentCatalog(InstrumentRegistry):
     """Resolve canonical instruments from explicitly supplied Indian metadata."""
 
     def __init__(self, specs: Iterable[IndianInstrumentSpec] = ()) -> None:
-        self._instruments = {
-            spec.instrument_id: spec.to_instrument()
-            for spec in specs
-        }
+        self._instruments = {spec.instrument_id: spec.to_instrument() for spec in specs}
 
     def resolve(self, instrument_id: InstrumentId) -> Instrument | None:
         return self._instruments.get(instrument_id)
