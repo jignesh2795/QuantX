@@ -1,0 +1,287 @@
+"""Deterministic backtest application service.
+
+The application layer composes market-data replay, strategy output, pre-trade
+risk, execution policy, paper execution, and fill accounting. It contains no
+broker SDK or network dependency.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+from enum import StrEnum
+from typing import Callable
+
+from quantx.domain.finance import AccountFinancialState, BrokerConstraint
+from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
+from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskResult
+from quantx.domain.strategy import SignalAction, StrategyResult
+from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
+from quantx.execution.market_data import MarketSnapshot
+from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
+from quantx.execution.ports import ExecutionReceipt
+from quantx.domain.instrument_registry import InstrumentRegistry
+from quantx.research.data import HistoricalDataSeries
+from quantx.research.replay import HistoricalReplay, ReplayFrame
+from quantx.research.quality import DataQualityStatus
+
+
+class BacktestDisposition(StrEnum):
+    NO_ACTION = "NO_ACTION"
+    EXECUTED = "EXECUTED"
+    RISK_REJECTED = "RISK_REJECTED"
+    POLICY_REJECTED = "POLICY_REJECTED"
+    BLOCKED = "BLOCKED"
+
+
+@dataclass(frozen=True, slots=True)
+class BacktestStep:
+    frame_index: int
+    timestamp: str
+    strategy_result: StrategyResult
+    risk_result: RiskResult | None
+    policy_result: PolicyResult | None
+    receipt: ExecutionReceipt | None
+    disposition: BacktestDisposition
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class BacktestResult:
+    data_quality: DataQualityStatus
+    steps: tuple[BacktestStep, ...]
+    receipts: tuple[ExecutionReceipt, ...]
+    ledger: tuple[PositionLedgerEntry, ...]
+
+    @property
+    def executed_count(self) -> int:
+        return sum(step.disposition is BacktestDisposition.EXECUTED for step in self.steps)
+
+    @property
+    def rejected_count(self) -> int:
+        return sum(
+            step.disposition in {
+                BacktestDisposition.RISK_REJECTED,
+                BacktestDisposition.POLICY_REJECTED,
+                BacktestDisposition.BLOCKED,
+            }
+            for step in self.steps
+        )
+
+
+StrategyRunner = Callable[[ReplayFrame], StrategyResult]
+
+
+def _reference_price(snapshot: MarketSnapshot) -> Decimal | None:
+    if snapshot.last is not None:
+        return snapshot.last
+    if snapshot.bid is not None and snapshot.ask is not None:
+        return (snapshot.bid + snapshot.ask) / Decimal("2")
+    return snapshot.ask if snapshot.ask is not None else snapshot.bid
+
+
+class DeterministicBacktestService:
+    """Run a strategy over historical observations without vendor dependencies."""
+
+    def __init__(
+        self,
+        *,
+        instrument_registry: InstrumentRegistry,
+        risk_engine: PreTradeRiskEngine | None = None,
+        policy_engine: ExecutionPolicyEngine | None = None,
+        execution_engine: PaperExecutionEngine | None = None,
+        accounting: FillAccounting | None = None,
+    ) -> None:
+        self._instrument_registry = instrument_registry
+        self._risk_engine = risk_engine or PreTradeRiskEngine()
+        self._policy_engine = policy_engine or ExecutionPolicyEngine()
+        self._execution_engine = execution_engine
+        self._accounting = accounting or FillAccounting()
+
+    def run(
+        self,
+        *,
+        series: HistoricalDataSeries,
+        strategy: StrategyRunner,
+        financial_state: AccountFinancialState,
+        policy_context: PolicyContext | None = None,
+        broker_constraints: tuple[BrokerConstraint, ...] = (),
+        allow_incomplete: bool = False,
+        execution_profile: PaperSimulationProfile | None = None,
+    ) -> BacktestResult:
+        replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
+        frames = replay.frames()
+        execution_engine = self._execution_engine
+        if execution_engine is None:
+            from quantx.domain.clock import FixedClock
+
+            first_timestamp = frames[0].observation.timestamp
+            execution_engine = PaperExecutionEngine(
+                clock=FixedClock(first_timestamp),
+                profile=execution_profile,
+            )
+
+        effective_policy = policy_context or PolicyContext()
+        steps: list[BacktestStep] = []
+        receipts: list[ExecutionReceipt] = []
+
+        for frame in frames:
+            strategy_result = strategy(frame)
+            intent = strategy_result.intent
+            timestamp = frame.observation.timestamp.isoformat()
+
+            if intent is None or strategy_result.signal.action in {SignalAction.HOLD}:
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.NO_ACTION,
+                        "strategy produced no executable intent",
+                    )
+                )
+                continue
+
+            instrument = self._instrument_registry.resolve(frame.observation.instrument)
+            if instrument is None:
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        f"instrument metadata unavailable for {frame.observation.instrument}",
+                    )
+                )
+                continue
+
+            if intent.execution_context is None:
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        "execution context is required",
+                    )
+                )
+                continue
+
+            if intent.instrument != frame.observation.instrument:
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        "strategy intent instrument does not match replay frame",
+                    )
+                )
+                continue
+
+            if intent.execution_context.market != instrument.market:
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        "strategy intent market does not match canonical instrument",
+                    )
+                )
+                continue
+
+            risk = self._risk_engine.evaluate(
+                intent,
+                RiskContext(
+                    instrument=instrument,
+                    financial_state=financial_state,
+                    broker_constraints=broker_constraints,
+                    reference_price=_reference_price(frame.observation.snapshot),
+                ),
+            )
+            if risk.decision.name != "APPROVE":
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        risk,
+                        None,
+                        None,
+                        BacktestDisposition.RISK_REJECTED,
+                        risk.reason,
+                    )
+                )
+                continue
+
+            policy = self._policy_engine.evaluate(intent, effective_policy)
+            if not policy.approved:
+                disposition = (
+                    BacktestDisposition.POLICY_REJECTED
+                    if policy.decision.name != "APPROVAL_REQUIRED"
+                    else BacktestDisposition.POLICY_REJECTED
+                )
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        risk,
+                        policy,
+                        None,
+                        disposition,
+                        policy.reason,
+                    )
+                )
+                continue
+
+            request: ApprovedExecutionRequest = ApprovedExecutionRequest(
+                order=build_order_from_intent(intent),
+                execution_context=intent.execution_context,
+                risk_result=risk,
+                policy_result=policy,
+            )
+            receipt = execution_engine.execute(
+                request,
+                snapshot=frame.observation.snapshot,
+            )
+            receipts.append(receipt)
+            for fill in receipt.fills:
+                self._accounting.apply(fill, fee=receipt.fee / Decimal(len(receipt.fills)))
+
+            steps.append(
+                BacktestStep(
+                    frame.index,
+                    timestamp,
+                    strategy_result,
+                    risk,
+                    policy,
+                    receipt,
+                    BacktestDisposition.EXECUTED,
+                    receipt.message or receipt.outcome.value,
+                )
+            )
+
+        return BacktestResult(
+            data_quality=replay.quality.status,
+            steps=tuple(steps),
+            receipts=tuple(receipts),
+            ledger=self._accounting.snapshot(),
+        )
