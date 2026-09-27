@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from quantx.domain.enums import OrderStatus
-from quantx.domain.orders import Fill
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.orders import Fill
 from quantx.domain.instruments import Instrument
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
