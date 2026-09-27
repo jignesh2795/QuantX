@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -118,14 +119,15 @@ class PaperExecutionEngine:
         price = self._slippage_model.apply(request.order.side, proposal.price)
         status = OrderStatus.FILLED if fill_quantity == request.order.quantity else OrderStatus.PARTIALLY_FILLED
         outcome = ExecutionOutcome.FILLED if status is OrderStatus.FILLED else ExecutionOutcome.PARTIALLY_FILLED
-        now = self._clock.now()
+        submitted_at = self._clock.now()
+        executed_at = submitted_at + timedelta(milliseconds=self._profile.latency_ms)
         fill = Fill(
             client_order_id=request.order.client_order_id,
             instrument=request.order.instrument,
             side=request.order.side,
             quantity=fill_quantity,
             price=price,
-            filled_at=now,
+            filled_at=executed_at,
         )
         fee = (fill.quantity * fill.price * self._profile.fee_bps) / Decimal("10000")
         receipt = ExecutionReceipt(
@@ -133,7 +135,7 @@ class PaperExecutionEngine:
             client_order_id=request.order.client_order_id,
             outcome=outcome,
             order_status=status,
-            executed_at=now,
+            executed_at=executed_at,
             fills=(fill,),
             message=proposal.reason,
             simulated=True,
@@ -158,7 +160,7 @@ class PaperExecutionEngine:
         self._events.append(
             OrderSubmitted(
                 event_id=str(uuid4()),
-                occurred_at=now,
+                occurred_at=submitted_at,
                 correlation_id=str(request.order.client_order_id),
                 order_id=str(request.order.client_order_id),
                 venue=request.execution_context.market.venue,
@@ -167,7 +169,7 @@ class PaperExecutionEngine:
         self._events.append(
             OrderFilled(
                 event_id=str(uuid4()),
-                occurred_at=now,
+                occurred_at=executed_at,
                 correlation_id=str(request.order.client_order_id),
                 order_id=str(request.order.client_order_id),
                 fill_id=str(fill.execution_id),
