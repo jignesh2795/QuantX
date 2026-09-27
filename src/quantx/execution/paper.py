@@ -14,6 +14,7 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Fill, OrderStatus
 
 from .market_data import MarketSnapshot
+from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
 from .models import FillModel, QuoteFillModel, SlippageModel
 from .ports import ExecutionOutcome, ExecutionReceipt
 
@@ -50,11 +51,13 @@ class PaperExecutionEngine:
         profile: PaperSimulationProfile | None = None,
         fill_model: FillModel | None = None,
         slippage_model: SlippageModel | None = None,
+        idempotency_store: IdempotencyStore | None = None,
     ) -> None:
         self._clock = clock
         self._profile = profile or PaperSimulationProfile()
         self._fill_model = fill_model or QuoteFillModel()
         self._slippage_model = slippage_model or SlippageModel(self._profile.slippage_bps)
+        self._idempotency = idempotency_store or InMemoryIdempotencyStore()
         self._receipts: dict[UUID, ExecutionReceipt] = {}
         self._events: list[object] = []
 
@@ -65,9 +68,17 @@ class PaperExecutionEngine:
         if snapshot.instrument != request.order.instrument:
             raise PaperExecutionError("market snapshot instrument does not match the order")
 
-        existing = self._receipts.get(request.order.client_order_id)
-        if existing is not None:
+        client_order_id = request.order.client_order_id
+        fingerprint = request_fingerprint(request)
+        decision = self._idempotency.check(client_order_id, fingerprint)
+        if decision.existing_receipt_id is not None:
+            existing = self._receipts.get(client_order_id)
+            if existing is None:
+                raise PaperExecutionError(
+                    "idempotency store references a completed receipt that is not available"
+                )
             return existing
+        self._idempotency.reserve(client_order_id, fingerprint)
 
         proposal = self._fill_model.propose_fill(request, snapshot)
         if proposal is None:
@@ -91,7 +102,8 @@ class PaperExecutionEngine:
                     "missing_required_liquidity_or_quote_does_not_create_a_fill",
                 ),
             )
-            self._receipts[request.order.client_order_id] = receipt
+            self._receipts[client_order_id] = receipt
+            self._idempotency.complete(client_order_id, receipt.receipt_id)
             return receipt
 
         fill_quantity = proposal.quantity * self._profile.partial_fill_ratio
@@ -134,7 +146,8 @@ class PaperExecutionEngine:
             ),
             fee=fee,
         )
-        self._receipts[request.order.client_order_id] = receipt
+        self._receipts[client_order_id] = receipt
+        self._idempotency.complete(client_order_id, receipt.receipt_id)
         self._events.append(
             OrderSubmitted(
                 event_id=str(uuid4()),
