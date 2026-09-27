@@ -8,7 +8,6 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
-from quantx.domain.value_objects import InstrumentId
 
 from .models import DhanInstrumentRef, DhanOrderRequest, DhanPayload
 
