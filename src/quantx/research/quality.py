@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Iterable
 
 from .data import HistoricalObservation
 
@@ -46,7 +47,7 @@ class HistoricalDataQualityGate:
 
     def validate(
         self,
-        observations: tuple[HistoricalObservation, ...],
+        observations: Iterable[HistoricalObservation],
         *,
         expected_instrument=None,
         expected_interval_seconds: int | None = None,
