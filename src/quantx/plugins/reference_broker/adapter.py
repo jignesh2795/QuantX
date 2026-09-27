@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from quantx.domain.enums import OrderStatus
+from quantx.domain.orders import Fill
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument
 from quantx.domain.value_objects import InstrumentId
@@ -144,9 +145,7 @@ class ReferenceBrokerAdapter:
     def _to_fill(
         request: ApprovedExecutionRequest,
         fill: ReferenceOrderFill,
-    ):
-        from quantx.domain.orders import Fill
-
+    ) -> Fill:
         return Fill(
             client_order_id=request.order.client_order_id,
             instrument=request.order.instrument,
