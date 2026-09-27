@@ -5,21 +5,18 @@ Only this module may import the third-party DhanHQ SDK.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Protocol
+from decimal import Decimal
+from typing import Any, Protocol
 
+from .mapping import decimal_field, extract_filled_quantity
 from .models import (
     DhanCredentials,
     DhanOrderDetail,
     DhanOrderRequest,
     DhanOrderResponse,
     DhanPayload,
-)
-from .mapping import (
-    decimal_field,
-    extract_filled_quantity,
-    parse_dhan_timestamp,
 )
 
 
@@ -37,14 +34,29 @@ class DhanTransport(Protocol):
         ...
 
 
+class _DhanClient(Protocol):
+    def get_fund_limits(self) -> object:
+        ...
+
+    def place_order(self, **kwargs: object) -> object:
+        ...
+
+    def cancel_order(self, order_id: str) -> object:
+        ...
+
+    def get_order_by_correlationID(self, correlation_id: str) -> object:
+        ...
+
+
 @dataclass(slots=True)
 class DhanSDKTransport:
     """Official DhanHQ SDK wrapper; vendor types never leave this class."""
 
     credentials: DhanCredentials
+    _client: _DhanClient = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        from dhanhq import DhanContext, dhanhq
+        from dhanhq import DhanContext, dhanhq  # type: ignore[import-not-found]
 
         self._client = dhanhq(
             DhanContext(
@@ -100,16 +112,22 @@ class InMemoryDhanTransport:
     order_id: str = "dhan-test-order"
     filled_quantity: Decimal = Decimal("0")
     average_traded_price: Decimal | None = None
+    _submitted: list[DhanOrderRequest] = field(init=False, default_factory=list)
+    _cancelled: list[str] = field(init=False, default_factory=list)
 
-    def __post_init__(self) -> None:
-        self.submitted: list[DhanOrderRequest] = []
-        self.cancelled: list[str] = []
+    @property
+    def submitted(self) -> tuple[DhanOrderRequest, ...]:
+        return tuple(self._submitted)
+
+    @property
+    def cancelled(self) -> tuple[str, ...]:
+        return tuple(self._cancelled)
 
     def health(self) -> bool:
         return True
 
     def submit(self, request: DhanOrderRequest) -> DhanOrderResponse:
-        self.submitted.append(request)
+        self._submitted.append(request)
         return DhanOrderResponse(
             order_id=self.order_id,
             order_status=self.response_status,
@@ -117,7 +135,7 @@ class InMemoryDhanTransport:
         )
 
     def cancel(self, correlation_id: str) -> DhanOrderResponse:
-        self.cancelled.append(correlation_id)
+        self._cancelled.append(correlation_id)
         return DhanOrderResponse(
             order_id=self.order_id,
             order_status="CANCELLED",
