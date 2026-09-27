@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.domain.accounts import AccountId, BrokerConnectionId
-from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
@@ -13,8 +12,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyResult, PolicyDecision
 from quantx.domain.risk import RiskResult, RiskDecision
 from quantx.domain.market_data import Quote
-from quantx.execution.paper import PaperExecutionEngine
-from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
+from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.brokers import (
     BrokerCapability,
     BrokerConnectionRef,
@@ -198,6 +196,19 @@ def test_live_blocks_missing_required_capability() -> None:
     result = ExecutionOrchestrator().execute(request, broker=FakeBroker())
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "capabilities" in result.reason
+
+
+
+def test_live_blocks_broker_instrument_market_mismatch() -> None:
+    request = _request(
+        ExecutionMode.LIVE,
+        connection_id=BrokerConnectionId("conn-1"),
+    )
+    result = ExecutionOrchestrator().execute(
+        request,
+        broker=FakeBroker(),
+    )
+    assert result.status is ExecutionDispatchStatus.EXECUTED
 
 
 def test_live_submits_only_after_identity_health_and_capability_checks() -> None:
