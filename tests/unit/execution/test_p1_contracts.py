@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from quantx.domain.enums import AssetClass
-from quantx.domain.market_data import Candle, Quote
+from quantx.domain.market_data import Quote
 from quantx.domain.value_objects import InstrumentId
 from quantx.india.domain import IndianExchange, IndianInstrumentSpec, IndianSegment
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
@@ -37,27 +37,32 @@ def test_market_data_is_framework_independent() -> None:
         low=Decimal("99"),
         close=Decimal("100.5"),
     )
-    series = HistoricalDataSeries((
-        HistoricalObservation(
-            snapshot=quote,
-            source_id="test",
-            dataset_version="1",
-            sequence=1,
-        ),
-        HistoricalObservation(
-            snapshot=Quote(
-                instrument=InstrumentId("NSE", "TCS"),
-                timestamp=datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc),
-                bid=Decimal("100"),
-                ask=Decimal("101"),
+    series = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                snapshot=quote,
+                source_id="test",
+                dataset_version="1",
+                sequence=1,
             ),
-            source_id="test",
-            dataset_version="1",
-            sequence=2,
-        ),
-    ))
+            HistoricalObservation(
+                snapshot=Quote(
+                    instrument=InstrumentId("NSE", "TCS"),
+                    timestamp=datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc),
+                    bid=Decimal("100"),
+                    ask=Decimal("101"),
+                ),
+                source_id="test",
+                dataset_version="1",
+                sequence=2,
+            ),
+        )
+    )
     assert len(series) == 2
-    assert series.latest_at_or_before(datetime(2026, 1, 1, 0, 3, tzinfo=timezone.utc)) is not None
+    assert (
+        series.latest_at_or_before(datetime(2026, 1, 1, 0, 3, tzinfo=timezone.utc))
+        is not None
+    )
 
 
 def test_transaction_coordinator_stores_receipt_id_for_idempotency(monkeypatch) -> None:
@@ -68,9 +73,7 @@ def test_transaction_coordinator_stores_receipt_id_for_idempotency(monkeypatch) 
         PreconditionsResult,
         PreconditionsStatus,
     )
-    from quantx.execution.transactions.coordinator import (
-        ExecutionTransactionCoordinator,
-    )
+    from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
 
     request_id = uuid4()
     client_order_id = uuid4()
