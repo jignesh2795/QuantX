@@ -35,7 +35,9 @@ def test_explicit_constraints_are_evaluated() -> None:
         minimum_order_value=Decimal("100"),
         minimum_quantity=Decimal("2"),
     )
-    status, issues = evaluate_order_constraints(rule, order_value=Decimal("90"), quantity=Decimal("1"))
+    status, issues = evaluate_order_constraints(
+        rule, order_value=Decimal("90"), quantity=Decimal("1")
+    )
     assert status is RuleStatus.INVALID
     assert len(issues) == 2
 
