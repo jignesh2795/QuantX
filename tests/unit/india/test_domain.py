@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -77,7 +77,7 @@ def test_indian_asset_and_segment_map_to_canonical_market_family(
 
 
 def test_future_spec_derives_canonical_contract() -> None:
-    expiry = datetime(2026, 12, 31, 15, 30, tzinfo=timezone.utc)
+    expiry = datetime(2026, 12, 31, 15, 30, tzinfo=UTC)
     spec = IndianInstrumentSpec(
         instrument_id=InstrumentId("NSE", "NIFTY26DEC"),
         symbol="NIFTY26DEC",
@@ -99,7 +99,7 @@ def test_future_spec_derives_canonical_contract() -> None:
 
 
 def test_option_spec_derives_canonical_contract() -> None:
-    expiry = datetime(2026, 12, 31, 15, 30, tzinfo=timezone.utc)
+    expiry = datetime(2026, 12, 31, 15, 30, tzinfo=UTC)
     spec = IndianInstrumentSpec(
         instrument_id=InstrumentId("NSE", "NIFTY26123000CE"),
         symbol="NIFTY26123000CE",
@@ -124,7 +124,7 @@ def test_option_spec_derives_canonical_contract() -> None:
 def test_option_contract_spec_validates_contract_metadata() -> None:
     spec = OptionContractSpec(
         underlying=InstrumentId("NSE", "NIFTY"),
-        expiry=datetime(2026, 12, 31, tzinfo=timezone.utc),
+        expiry=datetime(2026, 12, 31, tzinfo=UTC),
         strike=Decimal("23000"),
         option_type="put",
         lot_size=Decimal("65"),
