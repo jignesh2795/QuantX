@@ -66,13 +66,21 @@ def _request(mode: ExecutionMode, *, account_id: AccountId | None = None,
 
 class FakePaperExecutor:
     def execute(self, request: ApprovedExecutionRequest, *, snapshot):
+        fill = Fill(
+            client_order_id=request.order.client_order_id,
+            instrument=request.order.instrument,
+            side=request.order.side,
+            quantity=request.order.quantity,
+            price=Decimal("100"),
+            filled_at=snapshot.timestamp,
+        )
         return ExecutionReceipt(
             request_id=uuid4(),
             client_order_id=request.order.client_order_id,
             outcome=ExecutionOutcome.FILLED,
             order_status=OrderStatus.FILLED,
             executed_at=snapshot.timestamp,
-            fills=(),
+            fills=(fill,),
             simulated=True,
             source="fake-paper",
         )
