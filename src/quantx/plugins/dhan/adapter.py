@@ -40,6 +40,12 @@ class DhanBrokerAdapter:
     _capabilities: CapabilitySet = DHAN_CAPABILITIES
     _adapter_version: str = "dhan-0.1"
 
+    def __post_init__(self) -> None:
+        if self._connection.broker_id != "dhan":
+            raise ValueError("Dhan adapter requires a Dhan broker connection")
+        for instrument, instrument_ref in self._instruments.values():
+            self._validate_market(instrument, instrument_ref)
+
     @property
     def descriptor(self) -> BrokerDescriptor:
         return BrokerDescriptor(
@@ -176,6 +182,15 @@ class DhanBrokerAdapter:
         if instrument.market.venue.upper() != segment_venue:
             raise ValueError(
                 "Dhan instrument exchange segment does not match request market venue"
+            )
+        if instrument_ref.product_type.upper() not in {
+            "CNC",
+            "INTRADAY",
+            "MARGIN",
+            "MTF",
+        }:
+            raise ValueError(
+                f"unsupported Dhan regular-order product type: {instrument_ref.product_type}"
             )
 
     @staticmethod
