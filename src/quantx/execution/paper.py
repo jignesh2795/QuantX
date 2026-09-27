@@ -92,6 +92,10 @@ class PaperExecutionEngine:
                 message="order accepted but no fill was available from supplied market data",
                 simulated=True,
                 source="paper",
+                account_id=request.execution_context.account_id,
+                connection_id=request.execution_context.broker_connection_id,
+                correlation_id=str(request.order.client_order_id),
+                order_id=request.order.client_order_id,
                 model_profile=self._profile.name,
                 model_version="paper-core-v0.3",
                 assumptions=(
@@ -135,6 +139,10 @@ class PaperExecutionEngine:
             message=proposal.reason,
             simulated=True,
             source="paper",
+            account_id=request.execution_context.account_id,
+            connection_id=request.execution_context.broker_connection_id,
+            correlation_id=str(request.order.client_order_id),
+            order_id=request.order.client_order_id,
             model_profile=self._profile.name,
             model_version="paper-core-v0.3",
             assumptions=(
