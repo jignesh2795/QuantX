@@ -14,7 +14,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from quantx.domain.clock import Clock, FixedClock
-from uuid import UUID, uuid4
+from uuid import UUID
 
 
 class ReferenceOrderOutcome(StrEnum):
@@ -107,13 +107,13 @@ class InMemoryReferenceBrokerTransport:
         if self._fill_price is None:
             return ReferenceOrderResponse(
                 ReferenceOrderOutcome.ACCEPTED,
-                f"ref-{uuid4()}",
+                f"ref-{request.client_order_id}",
                 now,
                 message="reference transport accepted the request",
             )
         return ReferenceOrderResponse(
             ReferenceOrderOutcome.FILLED,
-            f"ref-{uuid4()}",
+            f"ref-{request.client_order_id}",
             now,
             fills=(
                 ReferenceOrderFill(
