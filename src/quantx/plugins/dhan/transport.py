@@ -171,7 +171,7 @@ def _order_response(response: object) -> DhanOrderResponse:
     return DhanOrderResponse(
         order_id=str(order_id) if order_id is not None else None,
         order_status=status,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(UTC),
         message=str(payload.get("message", "")),
         raw={"status": envelope_status, "remarks": remarks, "data": payload},
     )
