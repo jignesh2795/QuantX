@@ -54,13 +54,11 @@ class PaperSession:
         margin_used: Money,
         valuation_price: Decimal | None = None,
         realized_pnl_before: Decimal = Decimal("0"),
-        fee: Decimal = Decimal("0"),
+        fee: Decimal | None = None,
     ) -> PaperSessionResult:
         mode = request.execution_context.execution_mode
         if mode not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
             raise ValueError("PaperSession requires PAPER, SHADOW, or REPLAY execution mode")
-        if fee < 0:
-            raise ValueError("fee cannot be negative")
 
         instrument = self._instrument_registry.resolve(snapshot.instrument)
         if instrument is None:
@@ -74,8 +72,12 @@ class PaperSession:
         if not receipt.fills:
             raise ValueError("execution produced no fill")
 
+        applied_fee = receipt.fee if fee is None else fee
+        if applied_fee < 0:
+            raise ValueError("fee cannot be negative")
+
         last_entry: PositionLedgerEntry | None = None
-        per_fill_fee = fee / Decimal(len(receipt.fills))
+        per_fill_fee = applied_fee / Decimal(len(receipt.fills))
         for fill in receipt.fills:
             last_entry = self._accounting.apply(fill, fee=per_fill_fee)
 
