@@ -44,9 +44,13 @@ class OrderObservation:
             raise ValueError(
                 "filled status requires filled quantity to equal requested quantity"
             )
-        if self.status is OrderLifecycleStatus.PARTIALLY_FILLED and not (0 < filled < requested):
+        if (
+            self.status is OrderLifecycleStatus.PARTIALLY_FILLED
+            and not (0 < filled < requested)
+        ):
             raise ValueError(
-                "partially filled status requires filled quantity between zero and requested quantity"
+                "partially filled status requires filled quantity between "
+                "zero and requested quantity"
             )
 
 
