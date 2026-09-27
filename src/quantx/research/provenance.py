@@ -23,6 +23,21 @@ class ResearchProvenance:
     random_seed: int | None = None
     extra: Mapping[str, str] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        required = (
+            ("dataset_id", self.dataset_id),
+            ("dataset_version", self.dataset_version),
+            ("instrument_master_version", self.instrument_master_version),
+            ("market_rule_version", self.market_rule_version),
+            ("execution_model_version", self.execution_model_version),
+            ("simulation_profile", self.simulation_profile),
+            ("code_revision", self.code_revision),
+            ("configuration_revision", self.configuration_revision),
+        )
+        for name, value in required:
+            if not value.strip():
+                raise ValueError(f"{name} must not be empty")
+
     def canonical_payload(self) -> dict[str, object]:
         return {
             "dataset_id": self.dataset_id,
