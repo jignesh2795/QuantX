@@ -1,8 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
-import pytest
-
 from quantx.application.backtest import BacktestDisposition, DeterministicBacktestService
 from quantx.domain.accounts import AccountId
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
@@ -154,7 +152,7 @@ def test_backtest_blocks_risk_rejected_intent_without_execution() -> None:
         return StrategyResult(signal, intent)
 
     result = DeterministicBacktestService(
-        instrument_registry=__import__("quantx.domain.instrument_registry", fromlist=["InMemoryInstrumentRegistry"]).InMemoryInstrumentRegistry((instrument,))
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
     ).run(
         series=_series(),
         strategy=strategy,
