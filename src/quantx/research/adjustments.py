@@ -54,11 +54,20 @@ class HistoricalAdjuster:
         events: tuple[AdjustmentEvent, ...],
         *,
         policy: AdjustmentPolicy,
+        as_of: datetime | None = None,
     ) -> tuple[Decimal, AdjustmentProvenance]:
         if policy is AdjustmentPolicy.RAW:
             return value, AdjustmentProvenance(policy, "raw-v1")
+        if as_of is None:
+            raise ValueError("as_of is required for adjusted historical values")
+        if as_of.tzinfo is None or as_of.utcoffset() is None:
+            raise ValueError("as_of must be timezone-aware")
         adjusted = value
-        ordered_events = tuple(sorted(events, key=lambda item: (item.effective_at, item.event_id)))
+        ordered_events = tuple(
+            event
+            for event in sorted(events, key=lambda item: (item.effective_at, item.event_id))
+            if event.effective_at <= as_of
+        )
         for event in ordered_events:
             adjusted *= event.factor
         version = "adjusted-v1" if policy is AdjustmentPolicy.ADJUSTED else "event-reconstructed-v1"
