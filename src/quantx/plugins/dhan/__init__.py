@@ -1,6 +1,5 @@
 """Dhan broker plugin with isolated SDK transport."""
 
-from quantx.integrations.brokers import BrokerCapability
 from quantx.plugins import (
     PluginDescriptor,
     PluginFactory,
@@ -12,7 +11,12 @@ from quantx.plugins import (
 
 from .adapter import DhanBrokerAdapter
 from .capabilities import DHAN_CAPABILITIES
-from .models import DhanCredentials, DhanInstrumentRef, DhanOrderRequest, DhanOrderResponse
+from .models import (
+    DhanCredentials,
+    DhanInstrumentRef,
+    DhanOrderRequest,
+    DhanOrderResponse,
+)
 from .transport import DhanSDKTransport, DhanTransport, InMemoryDhanTransport
 
 DHAN_PLUGIN_DESCRIPTOR = PluginDescriptor(
