@@ -22,6 +22,7 @@ from quantx.ports.broker import BrokerPort
 from .capabilities import DHAN_CAPABILITIES
 from .mapping import (
     build_order_request,
+    dhan_correlation_id,
     normalize_status,
     parse_dhan_timestamp,
 )
@@ -64,6 +65,7 @@ class DhanBrokerAdapter:
 
     def submit(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
         broker_instrument = self._resolve(request.order.instrument)
+        self._validate_market(broker_instrument[0], broker_instrument[1])
         wire = build_order_request(
             instrument_id=request.order.instrument,
             instrument_ref=broker_instrument[1],
@@ -98,7 +100,7 @@ class DhanBrokerAdapter:
 
     def cancel(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
         try:
-            response = self._transport.cancel(request.correlation_id)
+            response = self._transport.cancel(dhan_correlation_id(request.correlation_id))
         except Exception as exc:
             return self._unknown_receipt(request, f"Dhan cancel transport failure: {exc}")
         outcome, status = normalize_status(response.order_status)
@@ -120,7 +122,7 @@ class DhanBrokerAdapter:
 
     def reconcile(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
         try:
-            detail = self._transport.reconcile(request.correlation_id)
+            detail = self._transport.reconcile(dhan_correlation_id(request.correlation_id))
         except Exception as exc:
             return self._unknown_receipt(request, f"Dhan reconciliation failure: {exc}")
         outcome_value, status = normalize_status(detail.order_status)
@@ -155,6 +157,27 @@ class DhanBrokerAdapter:
             return self._instruments[instrument_id]
         except KeyError as exc:
             raise ValueError(f"Dhan instrument mapping missing: {instrument_id}") from exc
+
+    @staticmethod
+    def _validate_market(
+        instrument: Instrument,
+        instrument_ref: DhanInstrumentRef,
+    ) -> None:
+        segment_venue = {
+            "NSE_EQ": "NSE",
+            "NSE_FNO": "NSE",
+            "BSE_EQ": "BSE",
+            "BSE_FNO": "BSE",
+            "MCX_COMM": "MCX",
+        }.get(instrument_ref.exchange_segment)
+        if segment_venue is None:
+            raise ValueError(
+                f"unsupported Dhan exchange segment: {instrument_ref.exchange_segment}"
+            )
+        if instrument.market.venue.upper() != segment_venue:
+            raise ValueError(
+                "Dhan instrument exchange segment does not match request market venue"
+            )
 
     @staticmethod
     def _fill_from_detail(
