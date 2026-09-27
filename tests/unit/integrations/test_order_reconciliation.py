@@ -56,6 +56,7 @@ def test_status_and_fill_quantity_must_be_consistent():
     with pytest.raises(ValueError, match="partially filled status"):
         OrderObservation(oid, OrderLifecycleStatus.PARTIALLY_FILLED, "10", "10")
 
+
 def test_invalid_order_quantities_are_rejected():
     oid = uuid4()
 
