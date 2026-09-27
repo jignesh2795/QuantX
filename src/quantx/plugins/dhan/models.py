@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Mapping
@@ -14,7 +14,7 @@ DhanPayload = Mapping[str, Any]
 @dataclass(frozen=True, slots=True)
 class DhanCredentials:
     client_id: str
-    access_token: str
+    access_token: str = field(repr=False)
 
     def __post_init__(self) -> None:
         if not self.client_id.strip():
