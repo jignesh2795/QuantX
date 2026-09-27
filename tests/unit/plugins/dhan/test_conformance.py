@@ -103,3 +103,14 @@ def test_only_dhan_transport_contains_vendor_sdk_import() -> None:
         if "dhanhq" in path.read_text(encoding="utf-8"):
             forbidden.append(str(path))
     assert forbidden == []
+
+
+def test_dhan_registration_hook() -> None:
+    from quantx.plugins import PluginRegistry
+    from quantx.plugins.dhan import DHAN_PLUGIN_DESCRIPTOR, register_dhan_broker
+
+    registry = PluginRegistry()
+    register_dhan_broker(registry, lambda: object())
+
+    registration = registry.get(DHAN_PLUGIN_DESCRIPTOR.plugin_id)
+    assert registration.descriptor.name == "Dhan"
