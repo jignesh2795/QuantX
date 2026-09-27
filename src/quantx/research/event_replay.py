@@ -62,7 +62,9 @@ class EventReplayCatalog:
             sorted(values, key=lambda item: (item.timestamp, item.event_id))
         )
 
-    def as_of(self, timestamp: datetime, instrument_id: str) -> tuple[ReplayEvent, ...]:
+    def as_of(
+        self, timestamp: datetime, instrument_id: str
+    ) -> tuple[ReplayEvent, ...]:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
         return tuple(
