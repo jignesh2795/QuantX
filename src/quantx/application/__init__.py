@@ -6,10 +6,14 @@ from .backtest import (
     BacktestStep,
     DeterministicBacktestService,
 )
+from .execution import ExecutionDispatchStatus, ExecutionOrchestrator, ExecutionResult
 
 __all__ = [
     "BacktestDisposition",
     "BacktestResult",
     "BacktestStep",
     "DeterministicBacktestService",
+    "ExecutionDispatchStatus",
+    "ExecutionOrchestrator",
+    "ExecutionResult",
 ]
