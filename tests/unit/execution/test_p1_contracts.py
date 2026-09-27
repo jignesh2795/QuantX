@@ -60,10 +60,7 @@ def test_market_data_is_framework_independent() -> None:
         )
     )
     assert len(series) == 2
-    assert (
-        series.latest_at_or_before(datetime(2026, 1, 1, 0, 3, tzinfo=UTC))
-        is not None
-    )
+    assert series.latest_at_or_before(datetime(2026, 1, 1, 0, 3, tzinfo=UTC)) is not None
 
 
 def test_transaction_coordinator_stores_receipt_id_for_idempotency(monkeypatch) -> None:
@@ -83,11 +80,7 @@ def test_transaction_coordinator_stores_receipt_id_for_idempotency(monkeypatch) 
     request = type("Request", (), {})()
     request.order = type("Order", (), {"client_order_id": client_order_id})()
 
-    receipt = type(
-        "Receipt",
-        (),
-        {"request_id": request_id, "receipt_id": receipt_id},
-    )()
+    receipt = type("Receipt", (), {"request_id": request_id, "receipt_id": receipt_id})()
 
     monkeypatch.setattr(
         "quantx.execution.transactions.coordinator.request_fingerprint",
