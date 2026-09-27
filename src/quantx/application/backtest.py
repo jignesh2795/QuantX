@@ -14,8 +14,8 @@ from typing import Callable
 
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
-from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
-from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskResult
+from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
+from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.market_data import MarketSnapshot
@@ -114,11 +114,12 @@ class DeterministicBacktestService:
         frames = replay.frames()
         execution_engine = self._execution_engine
         if execution_engine is None:
-            from quantx.domain.clock import FixedClock
+            from quantx.domain.clock import SimulatedClock
 
             first_timestamp = frames[0].observation.timestamp
+            simulation_clock = SimulatedClock(first_timestamp)
             execution_engine = PaperExecutionEngine(
-                clock=FixedClock(first_timestamp),
+                clock=simulation_clock,
                 profile=execution_profile,
             )
 
@@ -216,7 +217,7 @@ class DeterministicBacktestService:
                     reference_price=_reference_price(frame.observation.snapshot),
                 ),
             )
-            if risk.decision.name != "APPROVE":
+            if risk.decision is not RiskDecision.APPROVE:
                 steps.append(
                     BacktestStep(
                         frame.index,
@@ -233,11 +234,7 @@ class DeterministicBacktestService:
 
             policy = self._policy_engine.evaluate(intent, effective_policy)
             if not policy.approved:
-                disposition = (
-                    BacktestDisposition.POLICY_REJECTED
-                    if policy.decision.name != "APPROVAL_REQUIRED"
-                    else BacktestDisposition.POLICY_REJECTED
-                )
+                disposition = BacktestDisposition.POLICY_REJECTED
                 steps.append(
                     BacktestStep(
                         frame.index,
@@ -252,6 +249,8 @@ class DeterministicBacktestService:
                 )
                 continue
 
+            if hasattr(execution_engine, "_clock") and hasattr(execution_engine._clock, "set_time"):
+                execution_engine._clock.set_time(frame.observation.timestamp)
             request: ApprovedExecutionRequest = ApprovedExecutionRequest(
                 order=build_order_from_intent(intent),
                 execution_context=intent.execution_context,
