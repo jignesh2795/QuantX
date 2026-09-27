@@ -42,8 +42,23 @@ class ResearchArtifactManifest:
     artifacts: tuple[ResearchArtifact, ...] = ()
     manifest_version: str = "1"
 
+    def __post_init__(self) -> None:
+        if not self.run_fingerprint.strip():
+            raise ValueError("run_fingerprint must not be empty")
+        if not self.manifest_version.strip():
+            raise ValueError("manifest_version must not be empty")
+        seen_ids: set[str] = set()
+        for artifact in self.artifacts:
+            if artifact.artifact_id in seen_ids:
+                raise ValueError(
+                    f"duplicate artifact_id in manifest: {artifact.artifact_id}"
+                )
+            seen_ids.add(artifact.artifact_id)
+
     def canonical_payload(self) -> dict[str, object]:
-        ordered = sorted(self.artifacts, key=lambda item: (item.artifact_type, item.artifact_id))
+        ordered = sorted(
+            self.artifacts, key=lambda item: (item.artifact_type, item.artifact_id)
+        )
         return {
             "manifest_version": self.manifest_version,
             "run_fingerprint": self.run_fingerprint,
