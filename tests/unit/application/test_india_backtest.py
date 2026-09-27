@@ -14,7 +14,6 @@ from quantx.domain.deployment import (
 )
 from quantx.domain.enums import AssetClass, OrderSide
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
-from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.market_data import Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyContext
@@ -25,7 +24,12 @@ from quantx.domain.strategy import (
     StrategySignal,
 )
 from quantx.domain.value_objects import InstrumentId, Money
-from quantx.india import IndianExchange, IndianInstrumentSpec, IndianSegment
+from quantx.india import (
+    IndianExchange,
+    IndianInstrumentCatalog,
+    IndianInstrumentSpec,
+    IndianSegment,
+)
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 
 
@@ -38,7 +42,7 @@ def test_indian_nse_spec_flows_through_registry_and_deterministic_backtest() -> 
         segment=IndianSegment.EQUITY,
     )
     instrument = spec.to_instrument()
-    registry = InMemoryInstrumentRegistry((instrument,))
+    registry = IndianInstrumentCatalog((spec,))
 
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
