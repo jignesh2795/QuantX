@@ -36,3 +36,32 @@ The initial product focus is Indian markets, including equities, futures and opt
 ## Roadmap
 
 The project follows research → compare → decide → document → build. Architecture and implementation decisions are versioned in `docs/architecture-roadmap/` and `docs/implementation/`.
+
+## Windows development with uv
+
+QuantX uses **uv** as its canonical Python environment and dependency manager. The project is pinned to Python 3.12 via `.python-version`; uv can install the pinned interpreter when it is not already available. uv supports Windows and project environments directly. citeturn521197search1turn663812search4
+
+Install uv on Windows, for example with WinGet:
+
+```powershell
+winget install --id=astral-sh.uv -e
+```
+
+From the repository root:
+
+```powershell
+uv python install
+uv sync --dev
+uv run pytest -q
+```
+
+Useful local checks:
+
+```powershell
+uv run pytest tests/unit/execution/paper -q
+python scripts/test_execution.py
+python scripts/test_fast.py
+python scripts/test_all.py
+```
+
+After dependency changes, regenerate the lockfile with `uv lock` and commit `uv.lock` so the environment is reproducible. uv's project workflow uses `uv sync` and `uv run`, with development dependencies defined in the `dev` dependency group. citeturn521197search0turn521197search3
