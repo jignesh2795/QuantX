@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from uuid import UUID
 
@@ -25,6 +26,19 @@ class OrderObservation:
     requested_quantity: str
     filled_quantity: str
     broker_order_id: str | None = None
+
+    def __post_init__(self) -> None:
+        try:
+            requested = Decimal(self.requested_quantity)
+            filled = Decimal(self.filled_quantity)
+        except (InvalidOperation, ValueError) as exc:
+            raise ValueError("order quantities must be valid decimals") from exc
+        if requested <= 0:
+            raise ValueError("requested quantity must be positive")
+        if filled < 0:
+            raise ValueError("filled quantity cannot be negative")
+        if filled > requested:
+            raise ValueError("filled quantity cannot exceed requested quantity")
 
 
 @dataclass(frozen=True, slots=True)
