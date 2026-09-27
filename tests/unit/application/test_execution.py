@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -61,16 +62,6 @@ def _request(mode: ExecutionMode, *, account_id: AccountId | None = None,
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
-    )
-
-
-def _quote() -> Quote:
-    return Quote(
-        instrument=_instrument().instrument_id,
-        timestamp=FixedClock.now(FixedClock.__new__(FixedClock)) if False else __import__("datetime").datetime(2026, 1, 1, tzinfo=__import__("datetime").timezone.utc),
-        bid=Decimal("99"),
-        ask=Decimal("100"),
-        last=Decimal("100"),
     )
 
 
@@ -140,7 +131,7 @@ def test_paper_rejects_snapshot_for_wrong_instrument() -> None:
     orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
     wrong = Quote(
         instrument=InstrumentId("NSE", "INFY"),
-        timestamp=__import__("datetime").datetime(2026, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
         ask=Decimal("100"),
     )
     result = orchestrator.execute(_request(ExecutionMode.PAPER), snapshot=wrong)
