@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -17,7 +17,7 @@ def test_execution_receipt_accepts_fill_outcome() -> None:
         client_order_id=client_id,
         outcome=ExecutionOutcome.FILLED,
         order_status=OrderStatus.FILLED,
-        executed_at=datetime.now(timezone.utc),
+        executed_at=datetime.now(UTC),
         fills=(
             Fill(
                 client_order_id=client_id,
@@ -32,8 +32,7 @@ def test_execution_receipt_accepts_fill_outcome() -> None:
     assert receipt.outcome is ExecutionOutcome.FILLED
 
 
-
-def test_filled_receipt_requires_a_fill():
+def test_filled_receipt_requires_a_fill() ->
     with pytest.raises(ValueError, match="at least one fill"):
         ExecutionReceipt(
             request_id=uuid4(),
