@@ -71,3 +71,12 @@ def test_invalid_order_quantities_are_rejected():
 
     with pytest.raises(ValueError, match="exceed"):
         OrderObservation(oid, OrderLifecycleStatus.FILLED, "10", "11")
+
+
+def test_conflicting_broker_order_identity_is_explicit():
+    oid = uuid4()
+    local = OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "10", "0", "broker-1")
+    broker = OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "10", "0", "broker-2")
+    result = OrderReconciler().reconcile(local=local, broker=broker)
+    assert result.status is OrderReconciliationStatus.BROKER_ID_MISMATCH
+    assert "broker_order_id" in result.message
