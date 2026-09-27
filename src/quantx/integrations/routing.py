@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Callable
-from uuid import UUID
+
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 
 from .account_registry import AccountConnectionRegistry, RegisteredConnection
 from .brokers import BrokerCapability
@@ -27,10 +28,10 @@ class FailoverReason(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class RoutingRequest:
-    account_id: UUID
+    account_id: AccountId
     market_context_id: str
     required_capabilities: frozenset[BrokerCapability]
-    preferred_connection_id: UUID | None = None
+    preferred_connection_id: BrokerConnectionId | None = None
     allow_failover: bool = True
 
     def __post_init__(self) -> None:
@@ -43,7 +44,7 @@ class RoutingDecision:
     disposition: RoutingDisposition
     connection: RegisteredConnection | None
     reason: FailoverReason = FailoverReason.NONE
-    considered_connection_ids: tuple[UUID, ...] = ()
+    considered_connection_ids: tuple[BrokerConnectionId, ...] = ()
 
 
 class AccountAwareRouter:
@@ -59,7 +60,7 @@ class AccountAwareRouter:
 
     def route(self, request: RoutingRequest) -> RoutingDecision:
         connections = self._registry.for_account(request.account_id)
-        considered: list[UUID] = []
+        considered: list[BrokerConnectionId] = []
 
         if request.preferred_connection_id is not None:
             preferred = self._registry.get(request.preferred_connection_id)
@@ -93,7 +94,11 @@ class AccountAwareRouter:
                     tuple(considered),
                 )
             if self._health_check(preferred):
-                return RoutingDecision(RoutingDisposition.ROUTED, preferred, considered_connection_ids=tuple(considered))
+                return RoutingDecision(
+                    RoutingDisposition.ROUTED,
+                    preferred,
+                    considered_connection_ids=tuple(considered),
+                )
             if not request.allow_failover:
                 return RoutingDecision(
                     RoutingDisposition.FAILOVER_BLOCKED,
