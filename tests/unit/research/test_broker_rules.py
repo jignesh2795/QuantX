@@ -83,7 +83,9 @@ def test_non_positive_orders_are_invalid(
 ) -> None:
     rule = VenueRuleSnapshot("TEST", "v1", datetime(2026, 1, 1, tzinfo=UTC))
     status, issues = evaluate_order_constraints(
-        rule, order_value=order_value, quantity=quantity
+        rule,
+        order_value=order_value,
+        quantity=quantity,
     )
     assert status is RuleStatus.INVALID
     assert message in issues
