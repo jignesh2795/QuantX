@@ -51,10 +51,7 @@ def test_adjustment_does_not_infer_missing_events() -> None:
 def test_adjustment_event_requires_positive_factor() -> None:
     with pytest.raises(ValueError):
         AdjustmentEvent(
-            "evt-1",
-            "SPLIT",
-            datetime(2025, 1, 1, tzinfo=UTC),
-            Decimal("0"),
+            "evt-1", "SPLIT", datetime(2025, 1, 1, tzinfo=UTC), Decimal("0")
         )
 
 
