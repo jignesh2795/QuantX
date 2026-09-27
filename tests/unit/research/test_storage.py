@@ -1,8 +1,9 @@
 from decimal import Decimal
 from uuid import uuid4
 
+from quantx.research.artifacts import ResearchArtifact, ResearchArtifactManifest
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
-from quantx.research.storage import InMemoryResearchStore
+from quantx.research.storage import InMemoryResearchStore, LocalFilesystemResearchStore
 
 
 def _result() -> ResearchResult:
@@ -45,3 +46,46 @@ def test_store_rejects_duplicate_result() -> None:
         assert "already exists" in str(exc)
     else:
         raise AssertionError("duplicate result was accepted")
+
+
+def test_local_filesystem_store_round_trips_result(tmp_path) -> None:
+    store = LocalFilesystemResearchStore(tmp_path)
+    result = _result()
+
+    store.save_result(result)
+
+    assert store.get_result(result.result_id) == result
+
+
+def test_local_filesystem_store_rejects_duplicate_result(tmp_path) -> None:
+    store = LocalFilesystemResearchStore(tmp_path)
+    result = _result()
+    store.save_result(result)
+
+    try:
+        store.save_result(result)
+    except ValueError as exc:
+        assert "already exists" in str(exc)
+    else:
+        raise AssertionError("duplicate result was accepted")
+
+
+def test_local_filesystem_store_round_trips_manifest(tmp_path) -> None:
+    store = LocalFilesystemResearchStore(tmp_path)
+    manifest = ResearchArtifactManifest(
+        run_fingerprint="run-fingerprint",
+        artifacts=(
+            ResearchArtifact(
+                artifact_id="dataset-1",
+                artifact_type="dataset",
+                content_hash="abc123",
+                uri="data.bin",
+                size_bytes=7,
+                metadata={"source": "fixture"},
+            ),
+        ),
+    )
+
+    store.save_manifest(manifest)
+
+    assert store.get_manifest(manifest.fingerprint()) == manifest
