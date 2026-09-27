@@ -20,6 +20,7 @@ class ExecutionOutcome(StrEnum):
     FILLED = "FILLED"
     CANCELLED = "CANCELLED"
     UNKNOWN = "UNKNOWN"
+    EXPIRED = "EXPIRED"
 
 
 @dataclass(frozen=True, slots=True)
