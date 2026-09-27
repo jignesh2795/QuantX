@@ -79,6 +79,4 @@ def test_dhan_adapter_conforms_to_broker_port() -> None:
     assert adapter.descriptor.broker_id == "dhan"
     assert adapter.descriptor.display_name == "Dhan"
     assert adapter.connection.broker_id == "dhan"
-    assert adapter.capabilities().supports(
-        __import__("quantx.integrations.brokers", fromlist=["BrokerCapability"]).BrokerCapability.ORDER_SUBMISSION
-    )
+    assert adapter.capabilities().supports(BrokerCapability.ORDER_SUBMISSION)
