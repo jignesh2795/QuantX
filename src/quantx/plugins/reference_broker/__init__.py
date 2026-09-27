@@ -4,6 +4,7 @@ from quantx.integrations.brokers import BrokerCapability
 from quantx.plugins import (
     PluginDescriptor,
     PluginFactory,
+    PluginId,
     PluginKind,
     PluginRegistry,
     PluginRegistration,
@@ -18,7 +19,7 @@ from .transport import (
 )
 
 REFERENCE_BROKER_DESCRIPTOR = PluginDescriptor(
-    plugin_id="reference-broker",
+    plugin_id=PluginId("reference-broker"),
     name="QuantX Reference Broker",
     version="0.1",
     kind=PluginKind.BROKER,
