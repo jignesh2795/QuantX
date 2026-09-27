@@ -7,7 +7,7 @@ name = "quantx"
 version = "0.1.0.dev0"
 description = "Modular, event-driven trading platform for Indian markets."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "QuantX Contributors" }]
 dependencies = []
@@ -29,12 +29,12 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 packages = ["quantx"]
