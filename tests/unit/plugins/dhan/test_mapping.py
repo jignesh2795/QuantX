@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from uuid import uuid4
 
@@ -110,5 +111,7 @@ def test_dhan_timestamp_defaults_to_ist_when_timezone_is_omitted() -> None:
     parsed = parse_dhan_timestamp("2026-01-01 10:00:00")
 
     assert parsed is not None
-    assert parsed.utcoffset() == datetime(2026, 1, 1, 10, tzinfo=timezone.utc).utcoffset()
+    assert parsed.utcoffset() == ZoneInfo("Asia/Kolkata").utcoffset(
+        datetime(2026, 1, 1, 10)
+    )
     assert parsed.isoformat().endswith("+05:30")
