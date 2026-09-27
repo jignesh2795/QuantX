@@ -7,7 +7,7 @@ state. It never invents balances, minimum capital, or other broker constraints.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
@@ -49,6 +49,7 @@ class ReconciliationStatus(StrEnum):
     MISMATCH = "MISMATCH"
     INCOMPLETE = "INCOMPLETE"
     UNAVAILABLE = "UNAVAILABLE"
+    STALE = "STALE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +75,9 @@ class AccountReconciler:
         self,
         local: AccountFinancialState,
         observed: AccountFinancialState | None,
+        *,
+        checked_at: datetime,
+        max_state_age: timedelta,
     ) -> ReconciliationReport:
         if observed is None:
             return ReconciliationReport(
@@ -86,6 +90,24 @@ class AccountReconciler:
                         None,
                         None,
                         "observed account state unavailable",
+                    ),
+                ),
+            )
+        if checked_at.tzinfo is None or checked_at.utcoffset() is None:
+            raise ValueError("checked_at must be timezone-aware")
+        if max_state_age.total_seconds() < 0:
+            raise ValueError("max_state_age cannot be negative")
+        if observed.observed_at > checked_at or checked_at - observed.observed_at > max_state_age:
+            return ReconciliationReport(
+                local.account_id,
+                local.connection_id,
+                ReconciliationStatus.STALE,
+                (
+                    ReconciliationFinding(
+                        "observed_at",
+                        str(checked_at),
+                        str(observed.observed_at),
+                        "observed account state is stale or future-dated",
                     ),
                 ),
             )
