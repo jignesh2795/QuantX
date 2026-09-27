@@ -42,8 +42,6 @@ def test_requested_quantity_mismatch_is_explicit():
     assert "requested" in result.message
 
 
-
-
 def test_status_and_fill_quantity_must_be_consistent():
     oid = uuid4()
 
