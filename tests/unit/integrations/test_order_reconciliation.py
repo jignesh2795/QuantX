@@ -1,4 +1,8 @@
+import pytest
+
 from uuid import uuid4
+
+import pytest
 
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.integrations.reconciliation import (
@@ -38,3 +42,19 @@ def test_requested_quantity_mismatch_is_explicit():
     result = OrderReconciler().reconcile(local=local, broker=broker)
     assert result.status is OrderReconciliationStatus.QUANTITY_MISMATCH
     assert "requested" in result.message
+
+
+def test_invalid_order_quantities_are_rejected():
+    oid = uuid4()
+
+    with pytest.raises(ValueError, match="valid decimals"):
+        OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "not-a-number", "0")
+
+    with pytest.raises(ValueError, match="positive"):
+        OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "0", "0")
+
+    with pytest.raises(ValueError, match="negative"):
+        OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "10", "-1")
+
+    with pytest.raises(ValueError, match="exceed"):
+        OrderObservation(oid, OrderLifecycleStatus.FILLED, "10", "11")
