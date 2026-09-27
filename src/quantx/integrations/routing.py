@@ -24,6 +24,7 @@ class FailoverReason(StrEnum):
     MARKET_MISMATCH = "MARKET_MISMATCH"
     CAPABILITY_MISMATCH = "CAPABILITY_MISMATCH"
     HEALTH_UNAVAILABLE = "HEALTH_UNAVAILABLE"
+    CONNECTION_DISABLED = "CONNECTION_DISABLED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +78,13 @@ class AccountAwareRouter:
                     RoutingDisposition.FAILOVER_BLOCKED,
                     None,
                     FailoverReason.ACCOUNT_MISMATCH,
+                    tuple(considered),
+                )
+            if not preferred.enabled:
+                return RoutingDecision(
+                    RoutingDisposition.FAILOVER_BLOCKED,
+                    None,
+                    FailoverReason.CONNECTION_DISABLED,
                     tuple(considered),
                 )
             if preferred.ref.market_context_id != request.market_context_id:
