@@ -20,8 +20,12 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
+from quantx.plugins.dhan import (
+    DhanBrokerAdapter,
+    DhanInstrumentRef,
+    InMemoryDhanTransport,
+)
 from quantx.ports.broker import BrokerPort
-from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
 
 
 def _request() -> ApprovedExecutionRequest:
