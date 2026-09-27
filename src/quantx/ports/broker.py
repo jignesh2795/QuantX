@@ -12,12 +12,18 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.ports import ExecutionReceipt
-from quantx.integrations.brokers import BrokerDescriptor, CapabilitySet
+from quantx.integrations.brokers import BrokerAdapter, BrokerDescriptor, BrokerConnectionRef, CapabilitySet
 
 
-class BrokerPort(Protocol):
+class BrokerPort(BrokerAdapter, Protocol):
+    """Canonical broker port consumed by application services."""
+
     @property
     def descriptor(self) -> BrokerDescriptor:
+        ...
+
+    @property
+    def connection(self) -> BrokerConnectionRef:
         ...
 
     def health(self) -> bool:
