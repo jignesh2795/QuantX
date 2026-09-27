@@ -180,6 +180,25 @@ def test_unknown_order_refreshes() -> None:
     assert provider.order_calls == 1
 
 
+def test_future_position_evidence_is_not_accepted_as_fresh() -> None:
+    order_id = uuid4()
+    future = _position(observed_at=CHECKED_AT + timedelta(minutes=1))
+    from quantx.integrations.reconciliation.positions import (
+        PositionReconciler,
+        ReconciliationStatus,
+    )
+
+    result = PositionReconciler().reconcile(
+        _local_position(),
+        future,
+        checked_at=CHECKED_AT,
+        policy=POSITION_POLICY,
+    )
+
+    assert result.status is ReconciliationStatus.STALE
+    assert "future-dated" in result.message
+
+
 def test_stale_position_refreshes() -> None:
     order_id = uuid4()
     stale = _position(observed_at=CHECKED_AT - timedelta(minutes=5))
