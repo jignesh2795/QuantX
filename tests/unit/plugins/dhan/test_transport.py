@@ -111,3 +111,120 @@ def test_transport_helpers_fail_closed_on_malformed_success_data() -> None:
     )
 
     assert response.order_status == "UNKNOWN"
+
+
+def test_fund_limits_success_parses_documented_spelling() -> None:
+    from quantx.plugins.dhan.transport import _funds_snapshot
+
+    snapshot = _funds_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {"availabelBalance": 5000.0, "utilizedAmount": "1200.50"},
+        }
+    )
+
+    assert snapshot.available is True
+    assert snapshot.available_balance == Decimal("5000")
+    assert snapshot.utilized_amount == Decimal("1200.50")
+
+
+def test_fund_limits_tolerates_alternate_balance_spelling() -> None:
+    from quantx.plugins.dhan.transport import _funds_snapshot
+
+    snapshot = _funds_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {"availableBalance": "250", "utilizedAmount": 0},
+        }
+    )
+
+    assert snapshot.available is True
+    assert snapshot.available_balance == Decimal("250")
+
+
+def test_fund_limits_failure_remains_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _funds_snapshot
+
+    snapshot = _funds_snapshot({"status": "failure", "remarks": "invalid access token", "data": ""})
+
+    assert snapshot.available is False
+    assert snapshot.available_balance is None
+    assert snapshot.utilized_amount is None
+
+
+def test_fund_limits_success_without_usable_fields_is_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _funds_snapshot
+
+    snapshot = _funds_snapshot({"status": "success", "remarks": "", "data": {}})
+
+    assert snapshot.available is False
+    assert snapshot.available_balance is None
+
+
+def test_positions_success_parses_multiple_positions() -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    snapshot = _positions_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "securityId": "1333",
+                    "exchangeSegment": "NSE_EQ",
+                    "netQty": 10,
+                    "costPrice": "100.50",
+                },
+                {
+                    "securityId": "11915",
+                    "exchangeSegment": "NSE_FNO",
+                    "netQty": -5,
+                    "costPrice": 200,
+                },
+            ],
+        }
+    )
+
+    assert snapshot.available is True
+    assert len(snapshot.positions) == 2
+    assert snapshot.positions[0].security_id == "1333"
+    assert snapshot.positions[0].net_quantity == Decimal("10")
+    assert snapshot.positions[0].average_price == Decimal("100.50")
+    assert snapshot.positions[1].net_quantity == Decimal("-5")
+
+
+def test_malformed_position_data_becomes_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    snapshot = _positions_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [{"securityId": "1333", "exchangeSegment": "NSE_EQ"}],
+        }
+    )
+
+    assert snapshot.available is False
+    assert snapshot.positions == ()
+
+
+def test_in_memory_transport_returns_configured_fund_and_position_observations() -> None:
+    from quantx.plugins.dhan.models import DhanPositionSnapshot
+
+    transport = InMemoryDhanTransport(
+        funds_available_balance=Decimal("5000"),
+        funds_utilized_amount=Decimal("1200"),
+        position_snapshots=(DhanPositionSnapshot("1333", "NSE_EQ", Decimal("10"), Decimal("100")),),
+    )
+
+    funds = transport.fund_limits()
+    positions = transport.positions()
+
+    assert funds.available is True
+    assert funds.available_balance == Decimal("5000")
+    assert funds.utilized_amount == Decimal("1200")
+    assert positions.available is True
+    assert len(positions.positions) == 1
+    assert positions.positions[0].security_id == "1333"

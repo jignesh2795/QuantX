@@ -17,6 +17,11 @@ from quantx.integrations.brokers import (
     BrokerDescriptor,
     CapabilitySet,
 )
+from quantx.integrations.reconciliation.account import (
+    AccountFinancialState,
+    StateSource,
+)
+from quantx.integrations.reconciliation.positions import PositionState
 
 from .capabilities import DHAN_CAPABILITIES
 from .mapping import (
@@ -159,6 +164,53 @@ class DhanBrokerAdapter:
             return self._instruments[instrument_id]
         except KeyError as exc:
             raise ValueError(f"Dhan instrument mapping missing: {instrument_id}") from exc
+
+    def account_state(self, *, currency: str = "INR") -> AccountFinancialState:
+        """Expose the observed broker balance without inventing missing values."""
+        snapshot = self._transport.fund_limits()
+        return AccountFinancialState(
+            account_id=self._connection.account_id,
+            connection_id=self._connection.connection_id,
+            observed_at=snapshot.observed_at,
+            source=StateSource.BROKER,
+            currency=currency,
+            available_cash=snapshot.available_balance,
+            margin_used=snapshot.utilized_amount,
+        )
+
+    def position_states(self) -> tuple[PositionState, ...]:
+        """Expose observed broker positions against canonical instruments.
+
+        Unknown instruments and unavailable observations fail closed; nothing
+        is inferred or silently dropped.
+        """
+        snapshot = self._transport.positions()
+        if not snapshot.available:
+            raise ValueError(f"Dhan position observation unavailable: {snapshot.message}")
+        reverse: dict[tuple[str, str], InstrumentId] = {
+            (ref.security_id, ref.exchange_segment): instrument_id
+            for instrument_id, (_, ref) in self._instruments.items()
+        }
+        states: list[PositionState] = []
+        for position in snapshot.positions:
+            instrument_id = reverse.get((position.security_id, position.exchange_segment))
+            if instrument_id is None:
+                raise ValueError(
+                    "Dhan position has no canonical instrument mapping: "
+                    f"{position.security_id}/{position.exchange_segment}"
+                )
+            states.append(
+                PositionState(
+                    account_id=self._connection.account_id,
+                    connection_id=self._connection.connection_id,
+                    instrument_id=str(instrument_id),
+                    quantity=position.net_quantity,
+                    average_price=position.average_price,
+                    observed_at=snapshot.observed_at,
+                    source=StateSource.BROKER,
+                )
+            )
+        return tuple(states)
 
     @staticmethod
     def _validate_market(

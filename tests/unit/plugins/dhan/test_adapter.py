@@ -242,3 +242,72 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator() -> None:
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is not None
     assert result.receipt.source == "dhan"
+
+
+def test_account_state_produces_canonical_broker_observation() -> None:
+    from quantx.integrations.reconciliation import StateSource
+
+    transport = InMemoryDhanTransport(
+        funds_available_balance=Decimal("5000"),
+        funds_utilized_amount=Decimal("1200"),
+    )
+    state = _adapter(transport).account_state()
+
+    assert state.account_id == AccountId("acct-1")
+    assert state.connection_id == BrokerConnectionId("conn-1")
+    assert state.source is StateSource.BROKER
+    assert state.currency == "INR"
+    assert state.available_cash == Decimal("5000")
+    assert state.margin_used == Decimal("1200")
+    assert state.equity is None
+    assert state.margin_available is None
+
+
+def test_account_state_missing_funds_remain_none_not_zero() -> None:
+    transport = InMemoryDhanTransport(
+        funds_available_balance=None,
+        funds_utilized_amount=None,
+    )
+    state = _adapter(transport).account_state()
+
+    assert state.available_cash is None
+    assert state.margin_used is None
+
+
+def test_position_states_map_known_broker_instruments() -> None:
+    from quantx.integrations.reconciliation import StateSource
+    from quantx.plugins.dhan.models import DhanPositionSnapshot
+
+    transport = InMemoryDhanTransport(
+        position_snapshots=(DhanPositionSnapshot("1333", "NSE_EQ", Decimal("10"), Decimal("100")),)
+    )
+    states = _adapter(transport).position_states()
+
+    assert len(states) == 1
+    assert states[0].account_id == AccountId("acct-1")
+    assert states[0].connection_id == BrokerConnectionId("conn-1")
+    assert states[0].instrument_id == "NSE:TCS"
+    assert states[0].quantity == Decimal("10")
+    assert states[0].average_price == Decimal("100")
+    assert states[0].source is StateSource.BROKER
+
+
+def test_position_states_with_unmapped_broker_position_fails_closed() -> None:
+    from quantx.plugins.dhan.models import DhanPositionSnapshot
+
+    transport = InMemoryDhanTransport(
+        position_snapshots=(DhanPositionSnapshot("9999", "BSE_EQ", Decimal("5"), None),)
+    )
+
+    with pytest.raises(ValueError, match="no canonical instrument mapping"):
+        _adapter(transport).position_states()
+
+
+def test_position_states_with_unavailable_observation_fails_closed() -> None:
+    transport = InMemoryDhanTransport(
+        positions_available=False,
+        positions_message="network unavailable",
+    )
+
+    with pytest.raises(ValueError, match="unavailable"):
+        _adapter(transport).position_states()

@@ -79,6 +79,45 @@ The redundant flat implementations were removed:
 
 Account and position state now use the domain's `AccountId` and `BrokerConnectionId` value objects. Execution readiness remains owned by `execution/preconditions/`; integrations supply observed account, position, broker, and health evidence.
 
+### Batch-C: Dhan account/position evidence bridge
+
+Reconciliation package consolidation is complete. The Dhan plugin now provides
+normalized account and position observations through the canonical contracts:
+
+- `DhanFundsSnapshot` / `DhanPositionsSnapshot` carry broker observations with
+  no domain or vendor types; only `transport.py` imports `dhanhq`;
+- `DhanBrokerAdapter.account_state()` maps observed balances to canonical
+  `AccountFinancialState` (missing values stay `None`, never zero);
+- `DhanBrokerAdapter.position_states()` reverse-resolves
+  `(security_id, exchange_segment)` to canonical `InstrumentId` and returns
+  canonical `PositionState` evidence;
+- the plugin advertises `BALANCES` and `POSITIONS` alongside
+  `ORDER_SUBMISSION` and `ORDER_CANCELLATION`.
+
+Evidence flow:
+
+```text
+Dhan API
+   ↓
+Dhan transport
+   ↓
+Dhan normalized snapshot
+   ↓
+QuantX AccountFinancialState / PositionState
+   ↓
+Reconciliation
+   ↓
+Execution Preconditions
+   ↓
+READY / BLOCKED / UNKNOWN
+```
+
+Integrations provide evidence; execution preconditions consume it.
+Missing or unmapped broker state remains fail-closed: unavailable observations
+raise instead of returning empty state, and unknown evidence never produces an
+execution-ready result. No live Dhan account connectivity was tested; all
+verification uses the deterministic in-memory transport.
+
 ## Current migration policy
 
 Existing flat modules are not automatically wrong. A module remains until its callers can be migrated safely. Compatibility wrappers are temporary and must not become permanent duplicate implementations.

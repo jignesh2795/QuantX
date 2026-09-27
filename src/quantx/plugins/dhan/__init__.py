@@ -13,9 +13,12 @@ from .adapter import DhanBrokerAdapter
 from .capabilities import DHAN_CAPABILITIES
 from .models import (
     DhanCredentials,
+    DhanFundsSnapshot,
     DhanInstrumentRef,
     DhanOrderRequest,
     DhanOrderResponse,
+    DhanPositionSnapshot,
+    DhanPositionsSnapshot,
 )
 from .transport import DhanSDKTransport, DhanTransport, InMemoryDhanTransport
 
@@ -39,9 +42,12 @@ def register_dhan_broker(
 __all__ = [
     "DhanBrokerAdapter",
     "DhanCredentials",
+    "DhanFundsSnapshot",
     "DhanInstrumentRef",
     "DhanOrderRequest",
     "DhanOrderResponse",
+    "DhanPositionSnapshot",
+    "DhanPositionsSnapshot",
     "DhanSDKTransport",
     "DhanTransport",
     "DHAN_CAPABILITIES",

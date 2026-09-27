@@ -104,8 +104,10 @@ def test_dhan_plugin_descriptor_exposes_only_implemented_capabilities() -> None:
     assert set(DHAN_PLUGIN_DESCRIPTOR.capabilities) == {
         capability.value for capability in DHAN_CAPABILITIES.values
     }
-    assert BrokerCapability.POSITIONS not in DHAN_CAPABILITIES.values
-    assert BrokerCapability.BALANCES not in DHAN_CAPABILITIES.values
+    assert BrokerCapability.POSITIONS in DHAN_CAPABILITIES.values
+    assert BrokerCapability.BALANCES in DHAN_CAPABILITIES.values
+    assert BrokerCapability.ORDER_SUBMISSION in DHAN_CAPABILITIES.values
+    assert BrokerCapability.ORDER_CANCELLATION in DHAN_CAPABILITIES.values
 
 
 def test_only_dhan_transport_contains_vendor_sdk_import() -> None:

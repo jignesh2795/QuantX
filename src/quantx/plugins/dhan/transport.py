@@ -7,16 +7,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Protocol, runtime_checkable
 
 from .mapping import decimal_field, extract_filled_quantity
 from .models import (
     DhanCredentials,
+    DhanFundsSnapshot,
     DhanOrderDetail,
     DhanOrderRequest,
     DhanOrderResponse,
     DhanPayload,
+    DhanPositionSnapshot,
+    DhanPositionsSnapshot,
 )
 
 
@@ -30,9 +33,15 @@ class DhanTransport(Protocol):
 
     def reconcile(self, correlation_id: str) -> DhanOrderDetail: ...
 
+    def fund_limits(self) -> DhanFundsSnapshot: ...
+
+    def positions(self) -> DhanPositionsSnapshot: ...
+
 
 class _DhanClient(Protocol):
     def get_fund_limits(self) -> object: ...
+
+    def get_positions(self) -> object: ...
 
     def place_order(self, **kwargs: object) -> object: ...
 
@@ -97,6 +106,28 @@ class DhanSDKTransport:
         response = self._client.get_order_by_correlationID(correlation_id)
         return _order_detail(response)
 
+    def fund_limits(self) -> DhanFundsSnapshot:
+        try:
+            response = self._client.get_fund_limits()
+        except Exception as exc:
+            return DhanFundsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan fund-limits transport failure: {exc}",
+            )
+        return _funds_snapshot(response)
+
+    def positions(self) -> DhanPositionsSnapshot:
+        try:
+            response = self._client.get_positions()
+        except Exception as exc:
+            return DhanPositionsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan positions transport failure: {exc}",
+            )
+        return _positions_snapshot(response)
+
 
 @dataclass(slots=True)
 class InMemoryDhanTransport:
@@ -106,6 +137,13 @@ class InMemoryDhanTransport:
     order_id: str = "dhan-test-order"
     filled_quantity: Decimal = Decimal("0")
     average_traded_price: Decimal | None = None
+    funds_available: bool = True
+    funds_available_balance: Decimal | None = Decimal("5000")
+    funds_utilized_amount: Decimal | None = Decimal("1200")
+    funds_message: str = ""
+    positions_available: bool = True
+    position_snapshots: tuple[DhanPositionSnapshot, ...] = ()
+    positions_message: str = ""
     _submitted: list[DhanOrderRequest] = field(init=False, default_factory=list)
     _cancelled: list[str] = field(init=False, default_factory=list)
 
@@ -145,6 +183,23 @@ class InMemoryDhanTransport:
             filled_quantity=self.filled_quantity,
             exchange_time="2026-01-01 10:00:00",
             update_time="2026-01-01 10:00:00",
+        )
+
+    def fund_limits(self) -> DhanFundsSnapshot:
+        return DhanFundsSnapshot(
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            available_balance=self.funds_available_balance,
+            utilized_amount=self.funds_utilized_amount,
+            available=self.funds_available,
+            message=self.funds_message,
+        )
+
+    def positions(self) -> DhanPositionsSnapshot:
+        return DhanPositionsSnapshot(
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            positions=self.position_snapshots,
+            available=self.positions_available,
+            message=self.positions_message,
         )
 
 
@@ -207,3 +262,124 @@ def _envelope(response: object) -> tuple[str, str, DhanPayload]:
     if not isinstance(data, dict):
         data = {}
     return status, remarks, data
+
+
+def _money_field(payload: DhanPayload, key: str) -> Decimal | None:
+    """Parse an optional broker money field; missing stays missing, never zero."""
+    value = payload.get(key)
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"invalid Dhan decimal field: {key}") from exc
+
+
+def _funds_snapshot(response: object) -> DhanFundsSnapshot:
+    """Normalize a fund-limits envelope; unusable data stays unavailable."""
+    try:
+        envelope_status, remarks, payload = _envelope(response)
+    except (TypeError, ValueError) as exc:
+        return DhanFundsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=f"unrecognized Dhan fund-limits response: {exc}",
+        )
+    if envelope_status != "success":
+        return DhanFundsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=remarks or "Dhan fund limits reported failure",
+        )
+    try:
+        available_balance = _money_field(payload, "availabelBalance")
+        if available_balance is None:
+            available_balance = _money_field(payload, "availableBalance")
+        utilized_amount = _money_field(payload, "utilizedAmount")
+    except ValueError as exc:
+        return DhanFundsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=str(exc),
+        )
+    if available_balance is None and utilized_amount is None:
+        return DhanFundsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan fund limits carry no usable balance fields",
+        )
+    return DhanFundsSnapshot(
+        observed_at=datetime.now(UTC),
+        available_balance=available_balance,
+        utilized_amount=utilized_amount,
+        available=True,
+        message=remarks,
+    )
+
+
+def _positions_snapshot(response: object) -> DhanPositionsSnapshot:
+    """Normalize a positions envelope; malformed data stays unavailable."""
+    if not isinstance(response, dict):
+        return DhanPositionsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan positions response must be a mapping",
+        )
+    envelope_status = str(response.get("status", "failure"))
+    remarks = str(response.get("remarks", ""))
+    if envelope_status != "success":
+        return DhanPositionsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=remarks or "Dhan positions reported failure",
+        )
+    entries = response.get("data")
+    if not isinstance(entries, list):
+        return DhanPositionsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan positions data must be a list",
+        )
+    positions: list[DhanPositionSnapshot] = []
+    for entry in entries:
+        position = _position_snapshot(entry)
+        if position is None:
+            return DhanPositionsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message="Dhan position entry is malformed",
+            )
+        positions.append(position)
+    return DhanPositionsSnapshot(
+        observed_at=datetime.now(UTC),
+        positions=tuple(positions),
+        available=True,
+        message=remarks,
+    )
+
+
+def _position_snapshot(entry: object) -> DhanPositionSnapshot | None:
+    if not isinstance(entry, dict):
+        return None
+    security_id = entry.get("securityId")
+    exchange_segment = entry.get("exchangeSegment")
+    if security_id is None or not str(security_id).strip():
+        return None
+    if exchange_segment is None or not str(exchange_segment).strip():
+        return None
+    try:
+        net_quantity = Decimal(str(entry.get("netQty")))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    try:
+        average_price = _money_field(entry, "costPrice")
+    except ValueError:
+        return None
+    return DhanPositionSnapshot(
+        security_id=str(security_id),
+        exchange_segment=str(exchange_segment),
+        net_quantity=net_quantity,
+        average_price=average_price,
+    )

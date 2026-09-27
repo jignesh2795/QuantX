@@ -85,3 +85,48 @@ class DhanOrderDetail:
     update_time: str | None
     message: str = ""
     raw: DhanPayload | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DhanFundsSnapshot:
+    """Normalized broker fund observation; no domain or vendor types."""
+
+    observed_at: datetime
+    available_balance: Decimal | None = None
+    utilized_amount: Decimal | None = None
+    available: bool = True
+    message: str = ""
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanPositionSnapshot:
+    """Normalized broker position observation; no domain or vendor types."""
+
+    security_id: str
+    exchange_segment: str
+    net_quantity: Decimal
+    average_price: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        if not self.security_id.strip():
+            raise ValueError("security_id must not be empty")
+        if not self.exchange_segment.strip():
+            raise ValueError("exchange_segment must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanPositionsSnapshot:
+    """Normalized broker position-book observation; no domain or vendor types."""
+
+    observed_at: datetime
+    positions: tuple[DhanPositionSnapshot, ...] = ()
+    available: bool = True
+    message: str = ""
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
