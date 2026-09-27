@@ -187,9 +187,7 @@ def _order_detail(response: object) -> DhanOrderDetail:
     correlation_id = payload.get("correlationId")
     return DhanOrderDetail(
         order_id=str(order_id) if order_id is not None else None,
-        correlation_id=(
-            str(correlation_id) if correlation_id is not None else None
-        ),
+        correlation_id=(str(correlation_id) if correlation_id is not None else None),
         order_status=str(payload.get("orderStatus", "UNKNOWN")),
         average_traded_price=decimal_field(payload, "averageTradedPrice"),
         filled_quantity=extract_filled_quantity(payload),
