@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Protocol
 
+from .artifacts import ResearchArtifactManifest
 from .data import HistoricalDataSeries
 from .preflight import PreflightStatus, ResearchPreflightGate
 from .quality import DataQualityStatus, HistoricalDataQualityGate
@@ -53,12 +55,14 @@ class ResearchOrchestrator:
         result_factory: Callable[[int], ResearchResult],
         frame_runner: FrameRunner | None = None,
         allow_incomplete: bool = False,
+        manifest: ResearchArtifactManifest | None = None,
     ) -> ResearchRunOutcome:
-        preflight = self._preflight.evaluate()
+        effective_manifest = manifest or ResearchArtifactManifest(run_fingerprint="no-manifest")
+        preflight = self._preflight.check(effective_manifest)
         if preflight.status is not PreflightStatus.READY:
             return ResearchRunOutcome(None, preflight.status, DataQualityStatus.BLOCKED, 0)
 
-        quality = self._quality_gate.validate(series)
+        quality = self._quality_gate.validate(tuple(series))
         if quality.status is DataQualityStatus.BLOCKED:
             return ResearchRunOutcome(None, preflight.status, quality.status, 0)
         if quality.status is DataQualityStatus.INCOMPLETE and not allow_incomplete:

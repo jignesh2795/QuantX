@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Iterable
 
 from .data import HistoricalObservation
+from quantx.domain.value_objects import InstrumentId
 
 
 class DataQualityStatus(StrEnum):
@@ -49,14 +50,15 @@ class HistoricalDataQualityGate:
         self,
         observations: Iterable[HistoricalObservation],
         *,
-        expected_instrument=None,
+        expected_instrument: InstrumentId | None = None,
         expected_interval_seconds: int | None = None,
     ) -> DataQualityReport:
+        values = tuple(observations)
         issues: list[DataIssue] = []
         previous: HistoricalObservation | None = None
         seen: set[tuple[datetime, int]] = set()
 
-        for observation in observations:
+        for observation in values:
             timestamp = observation.timestamp
             if timestamp.tzinfo is None or timestamp.utcoffset() is None:
                 issues.append(DataIssue(DataIssueType.INVALID_TIMESTAMP, "timestamp must be timezone-aware", timestamp))
@@ -86,4 +88,4 @@ class HistoricalDataQualityGate:
 
         blocking = any(issue.issue_type in {DataIssueType.INVALID_TIMESTAMP, DataIssueType.INSTRUMENT_MISMATCH} for issue in issues)
         status = DataQualityStatus.BLOCKED if blocking else DataQualityStatus.INCOMPLETE if issues else DataQualityStatus.COMPLETE
-        return DataQualityReport(status, len(observations), tuple(issues))
+        return DataQualityReport(status, len(values), tuple(issues))

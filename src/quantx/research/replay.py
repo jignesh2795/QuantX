@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
-from .data import HistoricalObservation, HistoricalDataSeries
+from .data import HistoricalDataSeries, HistoricalObservation
 from .point_in_time import PointInTimeContext, PointInTimeContextResolver
-from .quality import DataQualityStatus, HistoricalDataQualityValidator
+from .quality import DataQualityReport, DataQualityStatus, HistoricalDataQualityGate
+from quantx.domain.value_objects import InstrumentId
+
+HistoricalDataQualityValidator = HistoricalDataQualityGate
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,20 +35,30 @@ class HistoricalReplay:
         self,
         series: HistoricalDataSeries,
         *,
-        validator: HistoricalDataQualityValidator | None = None,
+        validator: HistoricalDataQualityGate | None = None,
+        quality_gate: HistoricalDataQualityGate | None = None,
         allow_incomplete: bool = False,
         point_in_time_resolver: PointInTimeContextResolver | None = None,
+        expected_instrument: InstrumentId | None = None,
+        expected_interval_seconds: int | None = None,
     ) -> None:
         self._series = series
-        self._validator = validator or HistoricalDataQualityValidator()
+        self._validator = validator or quality_gate or HistoricalDataQualityGate()
         self._allow_incomplete = allow_incomplete
         self._point_in_time_resolver = point_in_time_resolver
-        self._quality = None
+        self._expected_instrument = expected_instrument
+        self._expected_interval_seconds = expected_interval_seconds
+        self._quality: DataQualityReport | None = None
 
     @property
-    def quality(self):
+    def quality(self) -> DataQualityReport:
         if self._quality is None:
-            self._quality = self._validator.validate(self._series)
+            observations = tuple(self._series)
+            self._quality = self._validator.validate(
+                observations,
+                expected_instrument=self._expected_instrument,
+                expected_interval_seconds=self._expected_interval_seconds,
+            )
         return self._quality
 
     def _ensure_replayable(self) -> None:

@@ -9,11 +9,14 @@ from quantx.domain.value_objects import InstrumentId
 
 
 def instrument(asset_class: AssetClass = AssetClass.EQUITY) -> Instrument:
+    from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
+
+    market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
     return Instrument(
-        instrument_id=InstrumentId("NSE:RELIANCE"),
+        instrument_id=InstrumentId("NSE", "RELIANCE"),
         symbol="RELIANCE",
         asset_class=asset_class,
-        venue="NSE",
+        market=market,
         currency="INR",
         tick_size=Decimal("0.05"),
         lot_size=Decimal("1"),

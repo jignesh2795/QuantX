@@ -6,15 +6,16 @@ from quantx.integrations.health import (
     ConnectionHealthRegistry,
     ConnectionHealthSnapshot,
 )
-from quantx.integrations.brokers import BrokerConnectionRef, Capability
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
+from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
 
 
 def test_health_and_capabilities_are_tracked_per_connection() -> None:
     connection = BrokerConnectionRef(
-        connection_id="acct1-broker1",
-        account_id="acct1",
+        account_id=AccountId("acct1"),
+        connection_id=BrokerConnectionId("acct1-broker1"),
         broker_id="broker1",
-        environment="PAPER",
+        market_context_id="NSE-EQUITY",
     )
     now = datetime.now(timezone.utc)
     registry = ConnectionHealthRegistry()
@@ -23,11 +24,11 @@ def test_health_and_capabilities_are_tracked_per_connection() -> None:
     registry.set_capabilities(
         CapabilitySnapshot(
             connection,
-            frozenset({Capability.MARKET_DATA, Capability.ORDER_SUBMISSION}),
+            frozenset({BrokerCapability.MARKET_DATA, BrokerCapability.ORDER_SUBMISSION}),
             now,
             "caps-v1",
         )
     )
 
     assert registry.health(connection).status is ConnectionHealth.HEALTHY
-    assert Capability.ORDER_SUBMISSION in registry.capabilities(connection).capabilities
+    assert BrokerCapability.ORDER_SUBMISSION in registry.capabilities(connection).capabilities

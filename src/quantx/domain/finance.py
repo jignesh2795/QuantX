@@ -6,13 +6,44 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
-from .value_objects import Money
+from .value_objects import BrokerConnectionId, Money
 
 
 class CapitalSourceType(StrEnum):
     LIVE_BROKER = "live_broker"
     PAPER_CONFIGURED = "paper_configured"
     BACKTEST_CONFIGURED = "backtest_configured"
+
+
+@dataclass(frozen=True, slots=True)
+class CapitalSource:
+    """Declares where current capital is obtained at runtime.
+
+    No minimum or default live capital is stored here. Live capital must be
+    fetched from the connected broker; paper/backtest capital must be
+    explicitly configured.
+    """
+
+    source_type: CapitalSourceType
+    connection_id: BrokerConnectionId | None = None
+    configured_balance: Money | None = None
+
+    def __post_init__(self) -> None:
+        if self.source_type is CapitalSourceType.LIVE_BROKER:
+            if self.connection_id is None:
+                raise ValueError("LIVE_BROKER requires connection_id")
+            if self.configured_balance is not None:
+                raise ValueError("LIVE_BROKER cannot include configured_balance")
+        elif self.source_type in {
+            CapitalSourceType.PAPER_CONFIGURED,
+            CapitalSourceType.BACKTEST_CONFIGURED,
+        }:
+            if self.configured_balance is None:
+                raise ValueError(f"{self.source_type.value} requires configured_balance")
+            if self.configured_balance.amount < Decimal("0"):
+                raise ValueError("configured_balance cannot be negative")
+            if self.connection_id is not None:
+                raise ValueError(f"{self.source_type.value} cannot include connection_id")
 
 
 @dataclass(frozen=True, slots=True)

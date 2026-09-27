@@ -4,10 +4,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import FrozenSet
 
+from .finance import CapitalSource, CapitalSourceType
 from .instruments import MarketContext
 from .value_objects import AccountId, BrokerConnectionId
+
+__all__ = [
+    "Account",
+    "AccountMarketProfile",
+    "AccountOwnerType",
+    "AccountRole",
+    "BrokerConnection",
+    "CapitalSource",
+    "CapitalSourceType",
+    "ConnectionStatus",
+    "Owner",
+]
 
 
 class AccountOwnerType(StrEnum):
@@ -79,7 +91,7 @@ class BrokerConnection:
     profile_name: str
     market: MarketContext
     status: ConnectionStatus = ConnectionStatus.UNCONFIGURED
-    capabilities: FrozenSet[str] = frozenset()
+    capabilities: frozenset[str] = frozenset()
     enabled: bool = True
 
     def __post_init__(self) -> None:

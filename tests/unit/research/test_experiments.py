@@ -4,29 +4,39 @@ from uuid import UUID
 import pytest
 
 from quantx.research.experiments import Experiment, ExperimentManager
-from quantx.research.result import ResearchResult, ResultQuality, ResearchProvenance
+from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
 
 
-def _result(dataset: str, strategy: str, metrics: tuple[tuple[str, Decimal], ...]) -> ResearchResult:
-    provenance = ResearchProvenance(
+def _spec(run_id: str, dataset: str) -> ResearchRunSpec:
+    return ResearchRunSpec(
+        run_id=run_id,
         dataset_id=dataset,
         dataset_version="v1",
-        strategy_version=strategy,
         instrument_master_version="instruments-v1",
         market_rule_version="rules-v1",
         execution_model_version="paper-v1",
         simulation_profile="REALISTIC",
         code_revision="abc123",
         configuration_revision="cfg1",
-        random_seed=42,
+    )
+
+
+def _result(dataset: str, strategy: str, metrics: tuple[tuple[str, Decimal], ...]) -> ResearchResult:
+    run_id = f"{strategy}:{dataset}"
+    result_id = (
+        UUID("11111111-1111-1111-1111-111111111111")
+        if dataset == "a"
+        else UUID("22222222-2222-2222-2222-222222222222")
     )
     return ResearchResult(
-        result_id=UUID("11111111-1111-1111-1111-111111111111") if dataset == "a" else UUID("22222222-2222-2222-2222-222222222222"),
-        provenance=provenance,
+        spec=_spec(run_id, dataset),
         quality=ResultQuality.COMPLETE_OBSERVED,
+        started_at="2026-01-01T00:00:00+00:00",
+        completed_at="2026-01-01T00:01:00+00:00",
+        time_range_start="2026-01-01T00:00:00+00:00",
+        time_range_end="2026-01-01T00:01:00+00:00",
         metrics=metrics,
-        assumptions=(),
-        limitations=(),
+        result_id=result_id,
     )
 
 
@@ -52,4 +62,4 @@ def test_compare_flags_dataset_difference() -> None:
     comparison = manager.compare(left, right)
     assert comparison.comparable is True
     assert comparison.same_dataset is False
-    assert "dataset differs" in comparison.reasons
+    assert "dataset or dataset version differs" in comparison.reasons

@@ -13,11 +13,10 @@ from quantx.domain.events import OrderFilled, OrderSubmitted
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Fill, OrderStatus
 
-from .market_data import MarketSnapshot
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
+from .market_data import MarketSnapshot
 from .models import FillModel, QuoteFillModel, SlippageModel
 from .ports import ExecutionOutcome, ExecutionReceipt
-
 
 QuoteSnapshot = MarketSnapshot
 

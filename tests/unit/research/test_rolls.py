@@ -10,8 +10,8 @@ from quantx.research.rolls import (
 
 
 def test_explicit_roll_is_only_triggered_after_event_time() -> None:
-    old_id = InstrumentId("NIFTY-FUT-2026-09")
-    new_id = InstrumentId("NIFTY-FUT-2026-10")
+    old_id = InstrumentId("NSE", "NIFTY-FUT-2026-09")
+    new_id = InstrumentId("NSE", "NIFTY-FUT-2026-10")
     event = ContractRollEvent(
         timestamp=datetime(2026, 9, 20, tzinfo=timezone.utc),
         from_instrument=old_id,
@@ -33,7 +33,7 @@ def test_explicit_roll_is_only_triggered_after_event_time() -> None:
 
 
 def test_no_missing_data_inference_for_rolls() -> None:
-    active_id = InstrumentId("NIFTY-FUT-2026-09")
+    active_id = InstrumentId("NSE", "NIFTY-FUT-2026-09")
     schedule = ExplicitRollSchedule(())
     decision = schedule.decision_at(datetime(2026, 9, 20, tzinfo=timezone.utc), active_id)
 

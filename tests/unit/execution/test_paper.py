@@ -11,6 +11,7 @@ from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.market_data import MarketSnapshot
@@ -34,7 +35,14 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
         execution_context=context,
     )
     order = build_order_from_intent(intent)
-    return ApprovedExecutionRequest(order, context, RiskResult(RiskDecision.APPROVE, "approved"))
+    policy = (
+        PolicyResult(PolicyDecision.APPROVE, "approved")
+        if mode is ExecutionMode.LIVE
+        else None
+    )
+    return ApprovedExecutionRequest(
+        order, context, RiskResult(RiskDecision.APPROVE, "approved"), policy
+    )
 
 
 def _snapshot(*, bid=None, ask=None, last=None) -> MarketSnapshot:

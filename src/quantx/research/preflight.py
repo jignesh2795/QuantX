@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 
 from .artifacts import ResearchArtifactManifest
-from .integrity import ArtifactIntegrity, IntegrityStatus, verify_artifact
+from .integrity import ArtifactIntegrityVerifier
 
 
 class PreflightStatus(StrEnum):
@@ -18,7 +17,7 @@ class PreflightStatus(StrEnum):
 @dataclass(frozen=True, slots=True)
 class PreflightItem:
     artifact_id: str
-    status: IntegrityStatus
+    status: str
     message: str
 
 
@@ -35,26 +34,17 @@ class ResearchPreflightResult:
 class ResearchPreflightGate:
     """Block a research run when required local artifacts fail integrity checks."""
 
+    def __init__(self, verifier: ArtifactIntegrityVerifier | None = None) -> None:
+        self._verifier = verifier or ArtifactIntegrityVerifier()
+
     def check(self, manifest: ResearchArtifactManifest) -> ResearchPreflightResult:
         items: list[PreflightItem] = []
         blocked = False
         for artifact in manifest.artifacts:
-            if not artifact.uri.startswith("file://"):
-                items.append(
-                    PreflightItem(
-                        artifact.artifact_id,
-                        IntegrityStatus.UNSUPPORTED_URI,
-                        "artifact URI cannot be verified locally",
-                    )
-                )
-                blocked = True
-                continue
-            path = Path(artifact.uri.removeprefix("file://"))
-            result: ArtifactIntegrity = verify_artifact(path, artifact.content_hash)
-            items.append(
-                PreflightItem(artifact.artifact_id, result.status, result.message)
-            )
-            if result.status is not IntegrityStatus.VERIFIED:
+            result = self._verifier.verify(artifact)
+            status = "VERIFIED" if result.verified else "FAILED"
+            items.append(PreflightItem(artifact.artifact_id, status, result.reason))
+            if not result.verified:
                 blocked = True
 
         status = PreflightStatus.BLOCKED if blocked else PreflightStatus.READY

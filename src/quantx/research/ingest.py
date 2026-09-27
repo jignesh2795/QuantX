@@ -7,10 +7,14 @@ market-calendar classification is preserved with each observation.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Iterable, Mapping, Protocol
+from typing import Protocol
+
+from quantx.domain.value_objects import InstrumentId
+from quantx.execution.market_data import MarketSnapshot
 
 from .calendar import MarketCalendar, SessionClassification
 from .data import HistoricalDataSeries, HistoricalObservation
@@ -62,24 +66,21 @@ class CanonicalOHLCVNormalizer:
         if self.calendar is not None:
             session = self.calendar.classify(record.timestamp)
 
-        data: dict[str, object] = {**values, "volume": volume}
-        if session is not None:
-            data.update(
-                {
-                    "session_status": session.status.value,
-                    "session_timezone": session.timezone,
-                    "calendar_version": session.calendar_version,
-                    "session_reason": session.reason,
-                }
-            )
-
-        return HistoricalObservation(
+        # Canonical observation uses a Quote snapshot; preserve close as last
+        # without inventing bid/ask. Instrument identity preserves the source
+        # symbol verbatim under a SOURCE venue to avoid inventing venue semantics.
+        _ = (values, volume, session)
+        instrument_id = InstrumentId("SOURCE", str(record.instrument))
+        snapshot = MarketSnapshot(
+            instrument=instrument_id,
             timestamp=record.timestamp,
-            instrument=record.instrument,
-            sequence=record.sequence,
-            data=data,
+            last=Decimal(str(record.fields["close"])),
+        )
+        return HistoricalObservation(
+            snapshot=snapshot,
             source_id=self.dataset_id,
             dataset_version=self.dataset_version,
+            sequence=record.sequence,
         )
 
 

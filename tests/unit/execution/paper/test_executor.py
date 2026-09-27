@@ -3,8 +3,8 @@ from decimal import Decimal
 from uuid import uuid4
 
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType
-from quantx.domain.instruments import Instrument
 from quantx.domain.orders import Order
+from quantx.domain.value_objects import InstrumentId
 from quantx.execution.accounting import FillAccounting
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.paper.broker import PaperBroker
@@ -15,12 +15,16 @@ from quantx.execution.paper.profile import ExecutionProfile, SlippageModel
 
 
 def make_order(order_type=OrderType.MARKET, quantity=Decimal("2")) -> Order:
+    limit_price = Decimal("100") if order_type in {OrderType.LIMIT, OrderType.STOP_LIMIT} else None
+    stop_price = Decimal("100") if order_type in {OrderType.STOP, OrderType.STOP_LIMIT} else None
     return Order(
         client_order_id=uuid4(),
-        instrument=Instrument(symbol="BTCUSDT", venue="TEST"),
+        instrument=InstrumentId("TEST", "BTCUSDT"),
         side=OrderSide.BUY,
         order_type=order_type,
         quantity=quantity,
+        limit_price=limit_price,
+        stop_price=stop_price,
         status=OrderStatus.CREATED,
     )
 

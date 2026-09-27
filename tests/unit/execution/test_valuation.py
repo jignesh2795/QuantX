@@ -5,12 +5,21 @@ import pytest
 from quantx.domain.enums import AssetClass
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.positions import Position
+from quantx.domain.value_objects import InstrumentId
 from quantx.execution.valuation import MarkToMarketValuator, ValuationError
 
 
 def _position(quantity: str, average: str) -> Position:
     market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
-    instrument = Instrument("nse:tcs", "TCS", AssetClass.EQUITY, market, Decimal("0.01"), Decimal("1"), Decimal("1"))
+    instrument = Instrument(
+        instrument_id=InstrumentId("NSE", "TCS"),
+        symbol="TCS",
+        asset_class=AssetClass.EQUITY,
+        market=market,
+        currency="INR",
+        tick_size=Decimal("0.05"),
+        lot_size=Decimal("1"),
+    )
     return Position(instrument, Decimal(quantity), Decimal(average))
 
 

@@ -35,6 +35,18 @@ class Quote:
         if self.bid is not None and self.ask is not None and self.bid > self.ask:
             raise ValueError("bid cannot exceed ask")
 
+    @property
+    def mid(self) -> Decimal | None:
+        if self.bid is None or self.ask is None:
+            return None
+        return (self.bid + self.ask) / Decimal("2")
+
+    @property
+    def spread(self) -> Decimal | None:
+        if self.bid is None or self.ask is None:
+            return None
+        return self.ask - self.bid
+
 
 @dataclass(frozen=True, slots=True)
 class Candle:

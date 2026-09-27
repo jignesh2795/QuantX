@@ -1,17 +1,26 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
+from quantx.domain.value_objects import InstrumentId
+from quantx.execution.market_data import MarketSnapshot
 from quantx.research.data import HistoricalObservation
 from quantx.research.quality import DataQualityStatus, HistoricalDataQualityGate
 
 
-def _obs(ts, sequence=0, instrument="NSE:TCS"):
-    return HistoricalObservation(
-        instrument=instrument,
+def _obs(ts, sequence=0, instrument=None):
+    inst = instrument or InstrumentId("NSE", "TCS")
+    snapshot = MarketSnapshot(
+        instrument=inst,
         timestamp=ts,
-        sequence=sequence,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+    return HistoricalObservation(
+        snapshot=snapshot,
         source_id="test-source",
         dataset_version="v1",
-        market_snapshot={"last": "100"},
+        sequence=sequence,
     )
 
 
@@ -33,6 +42,8 @@ def test_gap_is_incomplete_not_repaired():
 
 def test_instrument_mismatch_blocks_replay():
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    observations = (_obs(start, instrument="NSE:INFY"),)
-    report = HistoricalDataQualityGate().validate(observations, expected_instrument="NSE:TCS")
+    observations = (_obs(start, instrument=InstrumentId("NSE", "INFY")),)
+    report = HistoricalDataQualityGate().validate(
+        observations, expected_instrument=InstrumentId("NSE", "TCS")
+    )
     assert report.status is DataQualityStatus.BLOCKED

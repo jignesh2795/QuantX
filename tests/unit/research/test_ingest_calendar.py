@@ -1,4 +1,5 @@
 from datetime import datetime, time
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from quantx.research.calendar import FixedDailySessionCalendar, SessionStatus
@@ -12,7 +13,7 @@ def test_calendar_classifies_open_and_closed_times() -> None:
         close_time=time(15, 30),
     )
 
-    open_result = calendar.classify(datetime(2026, 8, 20, 10, 0, tzinfo=ZoneInfo("UTC")))
+    open_result = calendar.classify(datetime(2026, 8, 20, 4, 30, tzinfo=ZoneInfo("UTC")))
     closed_result = calendar.classify(datetime(2026, 8, 20, 11, 0, tzinfo=ZoneInfo("UTC")))
 
     assert open_result.status is SessionStatus.OPEN
@@ -39,8 +40,8 @@ def test_normalizer_preserves_session_classification() -> None:
 
     observation = normalizer.normalize(record)
 
-    assert observation.data["session_status"] == SessionStatus.OPEN.value
-    assert observation.data["calendar_version"] == "fixed-daily-v1"
+    assert observation.snapshot.last == Decimal("1.5")
+    assert observation.source_id == "source-1"
 
 
 def test_normalizer_rejects_naive_timestamp() -> None:

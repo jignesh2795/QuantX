@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import pytest
 
@@ -27,7 +28,7 @@ def test_normalizes_ohlcv_without_inventing_fields() -> None:
     )
     assert isinstance(series, HistoricalDataSeries)
     observation = tuple(series)[0]
-    assert observation.data["volume"] is None
+    assert observation.snapshot.last == Decimal("105")
     assert observation.source_id == "dataset"
     assert observation.dataset_version == "v1"
 

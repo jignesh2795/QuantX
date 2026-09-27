@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from quantx.domain.deployment import PortfolioId
 from quantx.domain.portfolio import PortfolioSnapshot
+from quantx.domain.positions import Position
 from quantx.domain.value_objects import Money
 
 from .valuation import Mark, MarkToMarketValuator, ValuationResult
-from quantx.domain.positions import Position
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +32,7 @@ class PortfolioValuator:
     def value(
         self,
         *,
-        portfolio_id,
+        portfolio_id: PortfolioId,
         valuation_currency: str,
         cash: Money,
         margin_used: Money,
@@ -52,8 +53,8 @@ class PortfolioValuator:
                 continue
             result = self._mtm.value(position=position, mark=mark)
             results.append(result)
-            market_value += result.market_value.amount
-            unrealized += result.unrealized_pnl.amount
+            market_value += result.market_value
+            unrealized += result.unrealized_pnl
 
         snapshot = PortfolioSnapshot(
             portfolio_id=portfolio_id,

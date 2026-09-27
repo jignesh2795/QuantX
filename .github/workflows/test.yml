@@ -18,7 +18,7 @@ jobs:
       - name: Set up Python
         run: uv python install
       - name: Sync project environment
-        run: uv sync --dev
+        run: uv sync --locked --dev
       - name: Run paper execution tests
         run: uv run pytest tests/unit/execution/paper -q
       - name: Run full test suite

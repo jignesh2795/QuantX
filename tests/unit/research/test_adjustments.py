@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -18,7 +19,9 @@ def test_raw_policy_does_not_change_value() -> None:
 
 
 def test_explicit_adjustment_factor_is_applied_and_recorded() -> None:
-    event = AdjustmentEvent("evt-1", "SPLIT", "2025-01-01T00:00:00Z", Decimal("0.5"), "source-1")
+    event = AdjustmentEvent(
+        "evt-1", "SPLIT", datetime(2025, 1, 1, tzinfo=timezone.utc), Decimal("0.5"), "source-1"
+    )
     value, provenance = HistoricalAdjuster().apply(
         Decimal("100"), (event,), policy=AdjustmentPolicy.ADJUSTED
     )
@@ -37,4 +40,6 @@ def test_adjustment_does_not_infer_missing_events() -> None:
 
 def test_adjustment_event_requires_positive_factor() -> None:
     with pytest.raises(ValueError):
-        AdjustmentEvent("evt-1", "SPLIT", "2025-01-01T00:00:00Z", Decimal("0"))
+        AdjustmentEvent(
+            "evt-1", "SPLIT", datetime(2025, 1, 1, tzinfo=timezone.utc), Decimal("0")
+        )

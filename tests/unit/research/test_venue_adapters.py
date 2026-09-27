@@ -9,14 +9,14 @@ def test_resolves_rule_effective_at_timestamp():
         venue="TEST",
         effective_from=datetime(2025, 1, 1, tzinfo=timezone.utc),
         effective_to=datetime(2025, 6, 1, tzinfo=timezone.utc),
-        rule_version="v1",
+        version="v1",
         minimum_order_value=Decimal("10"),
     )
     newer = VenueRuleContext(
         venue="TEST",
         effective_from=datetime(2025, 6, 1, tzinfo=timezone.utc),
         effective_to=None,
-        rule_version="v2",
+        version="v2",
         minimum_order_value=Decimal("20"),
     )
     provider = StaticVenueRuleProvider((older, newer))
@@ -24,7 +24,7 @@ def test_resolves_rule_effective_at_timestamp():
     result = provider.resolve("TEST", datetime(2025, 7, 1, tzinfo=timezone.utc))
 
     assert result is newer
-    assert result.rule_version == "v2"
+    assert result.version == "v2"
 
 
 def test_unknown_historical_rule_returns_none():

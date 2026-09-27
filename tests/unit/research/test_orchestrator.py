@@ -24,7 +24,7 @@ def test_research_orchestrator_runs_without_quality_argument_mismatch() -> None:
     ))
     store = InMemoryResearchStore()
     orchestrator = ResearchOrchestrator(
-        preflight=ResearchPreflightGate(artifacts=()),
+        preflight=ResearchPreflightGate(),
         quality_gate=HistoricalDataQualityGate(),
         store=store,
     )

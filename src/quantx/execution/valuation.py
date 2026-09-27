@@ -26,6 +26,24 @@ class PositionValuation:
     valuation_source: str
 
 
+ValuationResult = PositionValuation
+
+
+@dataclass(frozen=True, slots=True)
+class Mark:
+    instrument_id: str
+    price: Decimal | None
+    source: str
+
+    def __post_init__(self) -> None:
+        if not self.instrument_id.strip():
+            raise ValueError("instrument_id must not be empty")
+        if not self.source.strip():
+            raise ValueError("source must not be empty")
+        if self.price is not None and self.price <= 0:
+            raise ValueError("mark price must be positive when supplied")
+
+
 class MarkToMarketValuator:
     """Value positions using explicitly supplied marks."""
 
@@ -58,4 +76,12 @@ class MarkToMarketValuator:
             market_value=market_value,
             unrealized_pnl=unrealized,
             valuation_source=valuation_source,
+        )
+
+    def value(self, position: Position, mark: Mark) -> PositionValuation:
+        """Value a position from an explicit Mark without inventing prices."""
+        return self.value_position(
+            position,
+            mark_price=mark.price,
+            valuation_source=mark.source,
         )
