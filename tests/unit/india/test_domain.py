@@ -166,6 +166,7 @@ def test_non_derivative_spec_has_no_contract() -> None:
 def test_product_type_contract_is_exported() -> None:
     assert ProductType.MIS.value == "MIS"
 
+
 def test_derivative_contract_metadata_is_fail_closed() -> None:
     with pytest.raises(ValueError, match="derivative expiry must be supplied"):
         IndianInstrumentSpec(
