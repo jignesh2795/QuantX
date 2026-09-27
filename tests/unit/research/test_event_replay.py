@@ -30,3 +30,12 @@ def test_event_lookup_filters_instrument() -> None:
     ]
     catalog = EventReplayCatalog(events)
     assert tuple(event.event_id for event in catalog.as_of(ts(2), "ABC")) == ("e1",)
+
+
+def test_event_catalog_rejects_duplicate_event_ids() -> None:
+    events = [
+        ReplayEvent("e1", ts(1), EventReplayKind.CORPORATE_ACTION, "ABC"),
+        ReplayEvent("e1", ts(2), EventReplayKind.CONTRACT_ROLL, "ABC"),
+    ]
+    with pytest.raises(ValueError, match="duplicate replay event_id"):
+        EventReplayCatalog(events)
