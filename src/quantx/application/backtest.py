@@ -14,7 +14,7 @@ from typing import Callable
 
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
-from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
+from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
@@ -113,6 +113,7 @@ class DeterministicBacktestService:
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
         execution_engine = self._execution_engine
+        simulation_clock = None
         if execution_engine is None:
             from quantx.domain.clock import SimulatedClock
 
@@ -249,8 +250,8 @@ class DeterministicBacktestService:
                 )
                 continue
 
-            if hasattr(execution_engine, "_clock") and hasattr(execution_engine._clock, "set_time"):
-                execution_engine._clock.set_time(frame.observation.timestamp)
+            if simulation_clock is not None:
+                simulation_clock.set_time(frame.observation.timestamp)
             request: ApprovedExecutionRequest = ApprovedExecutionRequest(
                 order=build_order_from_intent(intent),
                 execution_context=intent.execution_context,
