@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -79,7 +80,9 @@ class FakePaperExecutor:
 
 class FakeBroker:
     def __init__(self, *, account_id=AccountId("acct-1"), connection_id=BrokerConnectionId("conn-1"),
-                 healthy=True, capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION})):
+                 healthy=True, capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
+                 instrument=None):
+        self._instrument = instrument or _instrument()
         self._connection = BrokerConnectionRef(account_id, connection_id, "fake", "NSE")
         self._healthy = healthy
         self._capabilities = CapabilitySet(capabilities)
@@ -96,7 +99,7 @@ class FakeBroker:
         return self._capabilities
 
     def instrument(self, instrument_id):
-        return _instrument() if instrument_id == _instrument().instrument_id else None
+        return self._instrument if instrument_id == self._instrument.instrument_id else None
 
     def submit(self, request):
         return ExecutionReceipt(
@@ -204,11 +207,16 @@ def test_live_blocks_broker_instrument_market_mismatch() -> None:
         ExecutionMode.LIVE,
         connection_id=BrokerConnectionId("conn-1"),
     )
+    wrong_market_instrument = replace(
+        _instrument(),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"),
+    )
     result = ExecutionOrchestrator().execute(
         request,
-        broker=FakeBroker(),
+        broker=FakeBroker(instrument=wrong_market_instrument),
     )
-    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "market" in result.reason
 
 
 def test_live_submits_only_after_identity_health_and_capability_checks() -> None:
