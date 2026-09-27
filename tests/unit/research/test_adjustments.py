@@ -11,9 +11,7 @@ from quantx.research.adjustments import (
 
 
 def test_raw_policy_does_not_change_value() -> None:
-    value, provenance = HistoricalAdjuster().apply(
-        Decimal("100"), (), policy=AdjustmentPolicy.RAW
-    )
+    value, provenance = HistoricalAdjuster().apply(Decimal("100"), (), policy=AdjustmentPolicy.RAW)
     assert value == Decimal("100")
     assert provenance.policy is AdjustmentPolicy.RAW
 
@@ -56,12 +54,7 @@ def test_adjustment_event_requires_positive_factor() -> None:
 
 
 def test_future_adjustment_is_excluded_from_historical_value() -> None:
-    event = AdjustmentEvent(
-        "future",
-        "SPLIT",
-        datetime(2025, 2, 1, tzinfo=UTC),
-        Decimal("0.5"),
-    )
+    event = AdjustmentEvent("future", "SPLIT", datetime(2025, 2, 1, tzinfo=UTC), Decimal("0.5"))
     value, provenance = HistoricalAdjuster().apply(
         Decimal("100"),
         (event,),
@@ -73,13 +66,9 @@ def test_future_adjustment_is_excluded_from_historical_value() -> None:
 
 
 def test_adjusted_policy_requires_point_in_time_cutoff() -> None:
-    event = AdjustmentEvent(
-        "evt-1", "SPLIT", datetime(2025, 1, 1, tzinfo=UTC), Decimal("0.5")
-    )
+    event = AdjustmentEvent("evt-1", "SPLIT", datetime(2025, 1, 1, tzinfo=UTC), Decimal("0.5"))
     with pytest.raises(ValueError, match="as_of is required"):
-        HistoricalAdjuster().apply(
-            Decimal("100"), (event,), policy=AdjustmentPolicy.ADJUSTED
-        )
+        HistoricalAdjuster().apply(Decimal("100"), (event,), policy=AdjustmentPolicy.ADJUSTED)
 
 
 def test_adjusted_policy_requires_timezone_aware_cutoff() -> None:
