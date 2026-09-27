@@ -10,7 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import FrozenSet, Protocol
-from uuid import UUID
+
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 
 
 class BrokerCapability(StrEnum):
@@ -31,10 +32,16 @@ class BrokerCapability(StrEnum):
 class BrokerConnectionRef:
     """Account-scoped connection identity, not a reusable global credential."""
 
-    account_id: UUID
-    connection_id: UUID
+    account_id: AccountId
+    connection_id: BrokerConnectionId
     broker_id: str
     market_context_id: str
+
+    def __post_init__(self) -> None:
+        if not self.broker_id.strip():
+            raise ValueError("broker_id must not be empty")
+        if not self.market_context_id.strip():
+            raise ValueError("market_context_id must not be empty")
 
 
 @dataclass(frozen=True, slots=True)
