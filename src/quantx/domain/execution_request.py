@@ -44,4 +44,5 @@ def build_order_from_intent(intent: TradeIntent) -> Order:
         intent_id=intent.intent_id,
         strategy_id=intent.strategy_id,
         strategy_version=intent.strategy_version,
+        required_capabilities=intent.required_capabilities,
     )
