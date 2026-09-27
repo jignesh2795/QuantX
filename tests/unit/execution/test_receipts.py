@@ -30,3 +30,26 @@ def test_execution_receipt_accepts_fill_outcome() -> None:
         source="paper",
     )
     assert receipt.outcome is ExecutionOutcome.FILLED
+
+
+
+def test_filled_receipt_requires_a_fill():
+    with pytest.raises(ValueError, match="at least one fill"):
+        ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=uuid4(),
+            outcome=ExecutionOutcome.FILLED,
+            order_status=OrderStatus.FILLED,
+            executed_at=datetime.now(timezone.utc),
+        )
+
+
+def test_partial_receipt_requires_a_fill():
+    with pytest.raises(ValueError, match="at least one fill"):
+        ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=uuid4(),
+            outcome=ExecutionOutcome.PARTIALLY_FILLED,
+            order_status=OrderStatus.PARTIALLY_FILLED,
+            executed_at=datetime.now(timezone.utc),
+        )
