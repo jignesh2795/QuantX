@@ -1,6 +1,11 @@
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
-from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef, BrokerDescriptor, CapabilitySet
 from quantx.integrations.account_registry import AccountConnectionRegistry, RegisteredConnection
+from quantx.integrations.brokers import (
+    BrokerCapability,
+    BrokerConnectionRef,
+    BrokerDescriptor,
+    CapabilitySet,
+)
 from quantx.integrations.routing import (
     AccountAwareRouter,
     FailoverReason,
