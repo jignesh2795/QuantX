@@ -62,8 +62,6 @@ class ExecutionReceipt:
             ExecutionOutcome.PARTIALLY_FILLED,
         } and not self.fills:
             raise ValueError("filled receipt outcomes require at least one fill")
-        if self.outcome is ExecutionOutcome.FILLED and self.order_status is not OrderStatus.FILLED:
-            raise ValueError("filled receipt must have FILLED order status")
         if self.outcome is ExecutionOutcome.PARTIALLY_FILLED and self.order_status is not OrderStatus.PARTIALLY_FILLED:
             raise ValueError("partial receipt must have PARTIALLY_FILLED order status")
 
