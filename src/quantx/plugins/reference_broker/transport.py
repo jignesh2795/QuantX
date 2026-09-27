@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
+
+from quantx.domain.clock import Clock, FixedClock
 from uuid import UUID, uuid4
 
 
@@ -34,6 +36,12 @@ class ReferenceOrderRequest:
     limit_price: Decimal | None
     stop_price: Decimal | None
     time_in_force: str
+
+    def __post_init__(self) -> None:
+        if not self.symbol.strip():
+            raise ValueError("symbol must not be empty")
+        if self.quantity <= 0:
+            raise ValueError("quantity must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,9 +79,16 @@ class ReferenceBrokerTransport(Protocol):
 class InMemoryReferenceBrokerTransport:
     """Deterministic local transport with no network or external SDK."""
 
-    def __init__(self, *, accepted: bool = True, fill_price: Decimal | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        accepted: bool = True,
+        fill_price: Decimal | None = None,
+        clock: Clock | None = None,
+    ) -> None:
         self._accepted = accepted
         self._fill_price = fill_price
+        self._clock = clock or FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
         self.requests: list[ReferenceOrderRequest] = []
 
     def health(self) -> bool:
@@ -81,7 +96,7 @@ class InMemoryReferenceBrokerTransport:
 
     def _response(self, request: ReferenceOrderRequest) -> ReferenceOrderResponse:
         self.requests.append(request)
-        now = datetime.now(timezone.utc)
+        now = self._clock.now()
         if not self._accepted:
             return ReferenceOrderResponse(
                 ReferenceOrderOutcome.REJECTED,
@@ -115,7 +130,7 @@ class InMemoryReferenceBrokerTransport:
 
     def cancel(self, request: ReferenceOrderRequest) -> ReferenceOrderResponse:
         self.requests.append(request)
-        now = datetime.now(timezone.utc)
+        now = self._clock.now()
         return ReferenceOrderResponse(
             ReferenceOrderOutcome.CANCELLED,
             None,
