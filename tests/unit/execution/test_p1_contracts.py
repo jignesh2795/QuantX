@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from quantx.domain.enums import AssetClass
-from quantx.domain.market_data import Quote
+from quantx.domain.market_data import Candle, Quote
 from quantx.domain.value_objects import InstrumentId
 from quantx.india.domain import IndianExchange, IndianInstrumentSpec, IndianSegment
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
@@ -37,6 +37,7 @@ def test_market_data_is_framework_independent() -> None:
         low=Decimal("99"),
         close=Decimal("100.5"),
     )
+    assert candle.close == Decimal("100.5")
     series = HistoricalDataSeries(
         (
             HistoricalObservation(
