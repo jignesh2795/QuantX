@@ -77,6 +77,36 @@ def test_execute_account_and_value_uses_observed_mark() -> None:
     assert result.valuation.snapshot.unrealized_pnl.amount == Decimal("0")
 
 
+def test_receipt_fee_flows_into_accounting_by_default() -> None:
+    from quantx.execution.paper import PaperSimulationProfile
+
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        profile=PaperSimulationProfile(fee_bps=Decimal("10")),
+    )
+    instrument = _instrument()
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+    )
+
+    result = session.execute_and_value(
+        _request(),
+        snapshot=QuoteSnapshot(
+            instrument=instrument.instrument_id,
+            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            bid=Decimal("99"),
+            ask=Decimal("100"),
+            last=Decimal("100"),
+        ),
+        cash=Money(Decimal("5000"), "INR"),
+        margin_used=Money(Decimal("0"), "INR"),
+    )
+
+    assert result.execution.fee == Decimal("0.10")
+    assert result.accounting_entry.fees == Decimal("0.10")
+
+
 def test_missing_mark_produces_incomplete_valuation() -> None:
     engine = PaperExecutionEngine(
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
