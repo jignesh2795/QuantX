@@ -50,9 +50,7 @@ class ResearchArtifactManifest:
         seen_ids: set[str] = set()
         for artifact in self.artifacts:
             if artifact.artifact_id in seen_ids:
-                raise ValueError(
-                    f"duplicate artifact_id in manifest: {artifact.artifact_id}"
-                )
+                raise ValueError(f"duplicate artifact_id in manifest: {artifact.artifact_id}")
             seen_ids.add(artifact.artifact_id)
 
     def canonical_payload(self) -> dict[str, object]:
