@@ -49,17 +49,17 @@ class ConnectionHealthRegistry:
     """Operational connection evidence kept outside immutable account identity."""
 
     def __init__(self) -> None:
-        self._health: dict[str, ConnectionHealthSnapshot] = {}
-        self._capabilities: dict[str, CapabilitySnapshot] = {}
+        self._health: dict[BrokerConnectionRef, ConnectionHealthSnapshot] = {}
+        self._capabilities: dict[BrokerConnectionRef, CapabilitySnapshot] = {}
 
     def set_health(self, snapshot: ConnectionHealthSnapshot) -> None:
-        self._health[str(snapshot.connection.connection_id)] = snapshot
+        self._health[snapshot.connection] = snapshot
 
     def health(self, connection: BrokerConnectionRef) -> ConnectionHealthSnapshot | None:
-        return self._health.get(str(connection.connection_id))
+        return self._health.get(connection)
 
     def set_capabilities(self, snapshot: CapabilitySnapshot) -> None:
-        self._capabilities[str(snapshot.connection.connection_id)] = snapshot
+        self._capabilities[snapshot.connection] = snapshot
 
     def capabilities(self, connection: BrokerConnectionRef) -> CapabilitySnapshot | None:
-        return self._capabilities.get(str(connection.connection_id))
+        return self._capabilities.get(connection)
