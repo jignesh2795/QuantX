@@ -69,17 +69,23 @@ def _transport() -> InMemoryDhanTransport:
 
 def test_dhan_account_observation_reconciles_against_local_state() -> None:
     observed = _adapter(_transport()).account_state()
+    checked_at = observed.observed_at
     local = AccountFinancialState(
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
-        observed_at=datetime.now(UTC),
+        observed_at=checked_at,
         source=StateSource.PAPER,
         currency="INR",
         available_cash=Decimal("5000"),
         margin_used=Decimal("1200"),
     )
 
-    report = AccountReconciler().compare(local, observed)
+    report = AccountReconciler().compare(
+        local,
+        observed,
+        checked_at=checked_at,
+        max_state_age=timedelta(seconds=30),
+    )
 
     assert report.status is AccountReconciliationStatus.MATCHED
 
