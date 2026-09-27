@@ -96,11 +96,10 @@ def test_only_dhan_transport_contains_vendor_sdk_import() -> None:
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[4] / "src" / "quantx"
+    allowed = root / "plugins" / "dhan" / "transport.py"
     forbidden = []
     for path in root.rglob("*.py"):
-        if "plugins" in path.parts and "dhan" in path.parts:
-            continue
-        if "dhanhq" in path.read_text(encoding="utf-8"):
+        if "dhanhq" in path.read_text(encoding="utf-8") and path != allowed:
             forbidden.append(str(path))
     assert forbidden == []
 
