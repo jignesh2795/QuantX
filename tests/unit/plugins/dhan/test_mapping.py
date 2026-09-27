@@ -5,7 +5,6 @@ from uuid import uuid4
 import pytest
 
 from quantx.domain.enums import OrderSide, OrderType, TimeInForce
-from quantx.domain.value_objects import InstrumentId
 from quantx.plugins.dhan.mapping import (
     build_order_request,
     dhan_correlation_id,
