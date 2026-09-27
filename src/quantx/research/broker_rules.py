@@ -30,6 +30,8 @@ class VenueRuleSnapshot:
     capabilities: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if not self.venue.strip() or not self.version.strip():
+            raise ValueError("venue and version must not be empty")
         if self.effective_from.tzinfo is None or self.effective_from.utcoffset() is None:
             raise ValueError("effective_from must be timezone-aware")
         if self.effective_to is not None:
@@ -37,6 +39,10 @@ class VenueRuleSnapshot:
                 raise ValueError("effective_to must be timezone-aware")
             if self.effective_to <= self.effective_from:
                 raise ValueError("effective_to must be after effective_from")
+        if self.minimum_order_value is not None and self.minimum_order_value <= 0:
+            raise ValueError("minimum_order_value must be positive")
+        if self.minimum_quantity is not None and self.minimum_quantity <= 0:
+            raise ValueError("minimum_quantity must be positive")
 
 
 class VenueRuleProvider(Protocol):
@@ -82,6 +88,10 @@ def evaluate_order_constraints(
     quantity: Decimal,
 ) -> tuple[RuleStatus, tuple[str, ...]]:
     issues: list[str] = []
+    if order_value <= 0:
+        issues.append("order value must be positive")
+    if quantity <= 0:
+        issues.append("quantity must be positive")
     if rule.minimum_order_value is not None and order_value < rule.minimum_order_value:
         issues.append("order value is below venue minimum")
     if rule.minimum_quantity is not None and quantity < rule.minimum_quantity:
