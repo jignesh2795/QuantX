@@ -120,7 +120,12 @@ class OrderStateReconciliationWorkflow:
 
         order = self._reconcile_order(local_order, broker_order, order_id)
         position = self._reconcile_position(local_position, broker_position, checked_at, policy)
-        account = self._reconcile_account(local_account, broker_account)
+        account = self._reconcile_account(
+            local_account,
+            broker_account,
+            checked_at=checked_at,
+            max_state_age=policy.max_state_age,
+        )
 
         if identity_reason is not None:
             reasons.append(identity_reason)
@@ -253,6 +258,9 @@ class OrderStateReconciliationWorkflow:
         self,
         local_account: AccountFinancialState | None,
         broker_account: AccountFinancialState | None,
+        *,
+        checked_at: datetime,
+        max_state_age: timedelta,
     ) -> ReconciliationReport | None:
         if local_account is None and broker_account is None:
             return None
@@ -271,7 +279,12 @@ class OrderStateReconciliationWorkflow:
                     ),
                 ),
             )
-        return self._accounts.compare(local_account, broker_account)
+        return self._accounts.compare(
+            local_account,
+            broker_account,
+            checked_at=checked_at,
+            max_state_age=max_state_age,
+        )
 
     @staticmethod
     def _aggregate(
