@@ -15,6 +15,10 @@ class RegisteredConnection:
     adapter: BrokerAdapter
     enabled: bool = True
 
+    def __post_init__(self) -> None:
+        if self.adapter.connection != self.ref:
+            raise ValueError("adapter connection does not match registered connection")
+
 
 class AccountConnectionRegistry:
     """Keep broker connections isolated by account/connection identity."""
