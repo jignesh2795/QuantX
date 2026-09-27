@@ -42,6 +42,7 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
             if request.execution_context.broker_connection_id is not None else None
         ),
         "execution_mode": request.execution_context.execution_mode.value,
+        "required_capabilities": sorted(request.order.required_capabilities),
     }
     canonical = json.dumps(_json_value(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
