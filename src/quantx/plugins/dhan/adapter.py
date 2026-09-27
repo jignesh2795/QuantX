@@ -177,9 +177,7 @@ class DhanBrokerAdapter:
                 f"unsupported Dhan exchange segment: {instrument_ref.exchange_segment}"
             )
         if instrument.market.venue.upper() != segment_venue:
-            raise ValueError(
-                "Dhan instrument exchange segment does not match request market venue"
-            )
+            raise ValueError("Dhan instrument exchange segment does not match request market venue")
         if instrument_ref.product_type.upper() not in {
             "CNC",
             "INTRADAY",
@@ -197,9 +195,8 @@ class DhanBrokerAdapter:
     ) -> tuple[Fill, ...]:
         if detail.filled_quantity <= 0 or detail.average_traded_price is None:
             return ()
-        filled_at = (
-            parse_dhan_timestamp(detail.exchange_time)
-            or parse_dhan_timestamp(detail.update_time)
+        filled_at = parse_dhan_timestamp(detail.exchange_time) or parse_dhan_timestamp(
+            detail.update_time
         )
         if filled_at is None:
             return ()
