@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Protocol
 
 from .mapping import decimal_field, extract_filled_quantity
 from .models import (
@@ -65,12 +65,13 @@ class DhanSDKTransport:
             )
         )
 
-        def health(self) -> bool:
+    def health(self) -> bool:
         try:
             response = self._client.get_fund_limits()
         except Exception:
             return False
-        return isinstance(response, dict) and response.get("status") == "success"
+        status, _, _ = _envelope(response)
+        return status == "success"
 
     def submit(self, request: DhanOrderRequest) -> DhanOrderResponse:
         response = self._client.place_order(
@@ -155,16 +156,16 @@ class InMemoryDhanTransport:
 
 
 def _order_response(response: object) -> DhanOrderResponse:
-    envelope = _envelope(response)
-    if envelope["status"] != "success":
+    status, remarks, payload = _envelope(response)
+    if status != "success":
         return DhanOrderResponse(
             order_id=None,
             order_status="UNKNOWN",
             observed_at=datetime.now(timezone.utc),
-            message=str(envelope["remarks"]),
-            raw=envelope,
+            message=remarks,
+            raw={"status": status, "remarks": remarks, "data": payload},
         )
-    payload = envelope["data"]
+    payload = payload
     status = str(payload.get("orderStatus", "UNKNOWN"))
     order_id = payload.get("orderId")
     return DhanOrderResponse(
@@ -177,8 +178,8 @@ def _order_response(response: object) -> DhanOrderResponse:
 
 
 def _order_detail(response: object) -> DhanOrderDetail:
-    envelope = _envelope(response)
-    if envelope["status"] != "success":
+    status, remarks, payload = _envelope(response)
+    if status != "success":
         return DhanOrderDetail(
             order_id=None,
             correlation_id=None,
@@ -187,10 +188,10 @@ def _order_detail(response: object) -> DhanOrderDetail:
             filled_quantity=Decimal("0"),
             exchange_time=None,
             update_time=None,
-            message=str(envelope["remarks"]),
-            raw=envelope,
+            message=remarks,
+            raw={"status": status, "remarks": remarks, "data": payload},
         )
-    payload = envelope["data"]
+    payload = payload
     order_id = payload.get("orderId")
     correlation_id = payload.get("correlationId")
     return DhanOrderDetail(
@@ -206,16 +207,12 @@ def _order_detail(response: object) -> DhanOrderDetail:
     )
 
 
-def _envelope(response: object) -> dict[str, object]:
+def _envelope(response: object) -> tuple[str, str, DhanPayload]:
     if not isinstance(response, dict):
         raise TypeError("Dhan SDK response must be a mapping")
     status = str(response.get("status", "failure"))
-    remarks = response.get("remarks", "")
+    remarks = str(response.get("remarks", ""))
     data = response.get("data")
     if not isinstance(data, dict):
         data = {}
-    return {
-        "status": status,
-        "remarks": remarks,
-        "data": data,
-    }
+    return status, remarks, data
