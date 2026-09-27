@@ -14,7 +14,10 @@ def test_manifest_is_order_independent() -> None:
 def test_manifest_changes_when_artifact_hash_changes() -> None:
     first = ResearchArtifact("data", "dataset", "abc", "file:///data")
     changed = ResearchArtifact("data", "dataset", "xyz", "file:///data")
-    assert ResearchArtifactManifest("run-hash", (first,)).fingerprint() != ResearchArtifactManifest("run-hash", (changed,)).fingerprint()
+    assert (
+        ResearchArtifactManifest("run-hash", (first,)).fingerprint()
+        != ResearchArtifactManifest("run-hash", (changed,)).fingerprint()
+    )
 
 
 def test_manifest_rejects_duplicate_artifact_ids() -> None:
