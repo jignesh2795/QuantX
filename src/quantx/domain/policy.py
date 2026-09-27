@@ -1,10 +1,4 @@
-"""Deterministic execution policy gates.
-
-Policy is intentionally separate from strategy and pre-trade risk. A strategy
-can request an action, risk can determine whether it is financially acceptable,
-and policy decides whether the requested capabilities are permitted in the
-current execution context.
-"""
+"""Deterministic execution policy gates."""
 
 from __future__ import annotations
 
@@ -23,8 +17,6 @@ class PolicyDecision(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class PolicyContext:
-    """Runtime permissions supplied by the control plane."""
-
     granted_capabilities: frozenset[str] = frozenset()
     live_trading_enabled: bool = False
     manual_approval: bool = False
@@ -53,18 +45,17 @@ class ExecutionPolicyEngine:
     )
 
     def evaluate(self, intent: TradeIntent, context: PolicyContext) -> PolicyResult:
-        execution_context = intent.execution_context
-        if execution_context is None:
+        if intent.execution_context is None:
             return PolicyResult(PolicyDecision.REJECT, "execution context is required")
 
         requested = frozenset(intent.required_capabilities)
-        if execution_context.execution_mode.value == "live":
+        if intent.execution_context.execution_mode.value == "live":
             if not context.live_trading_enabled:
                 return PolicyResult(
                     PolicyDecision.REJECT,
                     "live trading is disabled by execution policy",
                 )
-            requested = requested | self._live_required
+            requested |= self._live_required
 
         missing = tuple(sorted(requested - context.granted_capabilities))
         if missing:

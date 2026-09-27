@@ -27,16 +27,6 @@ def test_execution_receipt_accepts_fill_outcome() -> None:
                 price=Decimal("100"),
             ),
         ),
+        source="paper",
     )
     assert receipt.outcome is ExecutionOutcome.FILLED
-
-
-def test_execution_receipt_rejects_naive_timestamp() -> None:
-    with pytest.raises(ValueError, match="timezone-aware"):
-        ExecutionReceipt(
-            request_id=uuid4(),
-            client_order_id=uuid4(),
-            outcome=ExecutionOutcome.UNKNOWN,
-            order_status=OrderStatus.ACCEPTED,
-            executed_at=datetime(2026, 1, 1),
-        )

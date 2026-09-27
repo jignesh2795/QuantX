@@ -26,14 +26,14 @@ def _intent(mode: ExecutionMode = ExecutionMode.PAPER, approval_required: bool =
         quantity=Decimal("1"),
         execution_context=context,
         approval_required=approval_required,
-        required_capabilities=frozenset({Capability.READ_MARKET_DATA}),
+        required_capabilities=frozenset({Capability.READ_MARKET_DATA.value}),
     )
 
 
 def test_paper_policy_allows_granted_capabilities() -> None:
     result = ExecutionPolicyEngine().evaluate(
         _intent(),
-        PolicyContext(granted_capabilities=frozenset({Capability.READ_MARKET_DATA})),
+        PolicyContext(granted_capabilities=frozenset({Capability.READ_MARKET_DATA.value})),
     )
     assert result.decision is PolicyDecision.APPROVE
 
@@ -43,9 +43,9 @@ def test_live_policy_fails_closed_when_live_trading_is_disabled() -> None:
         _intent(ExecutionMode.LIVE),
         PolicyContext(
             granted_capabilities=frozenset({
-                Capability.CREATE_LIVE_ORDER,
-                Capability.EXECUTE_LIVE,
-                Capability.ACCESS_BROKER,
+                Capability.CREATE_LIVE_ORDER.value,
+                Capability.EXECUTE_LIVE.value,
+                Capability.ACCESS_BROKER.value,
             }),
             live_trading_enabled=False,
         ),
@@ -57,7 +57,7 @@ def test_live_policy_requires_all_execution_capabilities() -> None:
     result = ExecutionPolicyEngine().evaluate(
         _intent(ExecutionMode.LIVE),
         PolicyContext(
-            granted_capabilities=frozenset({Capability.CREATE_LIVE_ORDER}),
+            granted_capabilities=frozenset({Capability.CREATE_LIVE_ORDER.value}),
             live_trading_enabled=True,
         ),
     )
@@ -68,6 +68,6 @@ def test_live_policy_requires_all_execution_capabilities() -> None:
 def test_policy_can_require_manual_approval() -> None:
     result = ExecutionPolicyEngine().evaluate(
         _intent(approval_required=True),
-        PolicyContext(granted_capabilities=frozenset({Capability.READ_MARKET_DATA})),
+        PolicyContext(granted_capabilities=frozenset({Capability.READ_MARKET_DATA.value})),
     )
     assert result.decision is PolicyDecision.APPROVAL_REQUIRED

@@ -1,4 +1,4 @@
-"""Core market-data contracts independent of a broker or UI."""
+"""Framework-independent market-data contracts."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Ownership, account, market-profile, and broker-connection primitives."""
+"""Account and broker-connection identity primitives."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import FrozenSet
 
 from .instruments import MarketContext
+from .value_objects import AccountId, BrokerConnectionId
 
 
 class AccountOwnerType(StrEnum):
@@ -34,30 +35,6 @@ class ConnectionStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class AccountId:
-    value: str
-
-    def __post_init__(self) -> None:
-        if not self.value.strip():
-            raise ValueError("account id must not be empty")
-
-    def __str__(self) -> str:
-        return self.value
-
-
-@dataclass(frozen=True, slots=True)
-class BrokerConnectionId:
-    value: str
-
-    def __post_init__(self) -> None:
-        if not self.value.strip():
-            raise ValueError("broker connection id must not be empty")
-
-    def __str__(self) -> str:
-        return self.value
-
-
-@dataclass(frozen=True, slots=True)
 class Owner:
     owner_id: str
     owner_type: AccountOwnerType
@@ -72,8 +49,6 @@ class Owner:
 
 @dataclass(frozen=True, slots=True)
 class Account:
-    """Logical trading account independent of broker implementation."""
-
     account_id: AccountId
     owner_id: str
     display_name: str
@@ -91,8 +66,6 @@ class Account:
 
 @dataclass(frozen=True, slots=True)
 class AccountMarketProfile:
-    """Market-specific capabilities/configuration for one logical account."""
-
     account_id: AccountId
     market: MarketContext
     enabled: bool = True
@@ -100,13 +73,6 @@ class AccountMarketProfile:
 
 @dataclass(frozen=True, slots=True)
 class BrokerConnection:
-    """A distinct broker session/configuration for an account.
-
-    Multiple connections may exist simultaneously for an account, including
-    different brokers or different market contexts. Credentials are referenced
-    indirectly and are never stored in this domain object.
-    """
-
     connection_id: BrokerConnectionId
     account_id: AccountId
     broker: str

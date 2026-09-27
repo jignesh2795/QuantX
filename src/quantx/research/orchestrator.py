@@ -1,8 +1,4 @@
-"""Controlled research-run orchestration.
-
-Coordinates artifact preflight, historical replay, and result persistence while
-keeping strategy/replay implementations behind narrow interfaces.
-"""
+"""Controlled research-run orchestration."""
 
 from __future__ import annotations
 
@@ -68,7 +64,7 @@ class ResearchOrchestrator:
         if quality.status is DataQualityStatus.INCOMPLETE and not allow_incomplete:
             return ResearchRunOutcome(None, preflight.status, quality.status, 0)
 
-        replay = HistoricalReplay(series, quality=quality, allow_incomplete=allow_incomplete)
+        replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         callback = frame_runner or (lambda _frame: None)
         replayed = replay.run(callback)
         result = result_factory(replayed)

@@ -1,8 +1,4 @@
-"""Market-neutral strategy contracts.
-
-Strategies produce observations/signals and trade intents. They do not submit
-broker-specific orders and do not receive broker credentials.
-"""
+"""Market-neutral strategy identity and signal contracts."""
 
 from __future__ import annotations
 

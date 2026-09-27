@@ -23,6 +23,9 @@ class Order:
     client_order_id: UUID = field(default_factory=uuid4)
     status: OrderStatus = OrderStatus.CREATED
     created_at: datetime = field(default_factory=utc_now)
+    intent_id: UUID | None = None
+    strategy_id: str | None = None
+    strategy_version: str | None = None
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:
@@ -31,6 +34,19 @@ class Order:
             raise ValueError("limit_price is required for limit orders")
         if self.order_type in {OrderType.STOP, OrderType.STOP_LIMIT} and self.stop_price is None:
             raise ValueError("stop_price is required for stop orders")
+        if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
+            raise ValueError("created_at must be timezone-aware")
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in {
+            OrderStatus.FILLED,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED,
+            OrderStatus.FAILED,
+            OrderStatus.UNKNOWN,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,3 +64,5 @@ class Fill:
             raise ValueError("fill quantity must be positive")
         if self.price <= 0:
             raise ValueError("fill price must be positive")
+        if self.filled_at.tzinfo is None or self.filled_at.utcoffset() is None:
+            raise ValueError("filled_at must be timezone-aware")

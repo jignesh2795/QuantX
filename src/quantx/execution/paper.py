@@ -1,4 +1,4 @@
-"""High-fidelity paper execution core with explicit simulation inputs."""
+"""Deterministic paper execution with explicit simulation inputs."""
 
 from __future__ import annotations
 
@@ -43,8 +43,6 @@ class PaperSimulationProfile:
 
 
 class PaperExecutionEngine:
-    """Deterministic, model-driven paper execution engine."""
-
     def __init__(
         self,
         *,
@@ -60,18 +58,10 @@ class PaperExecutionEngine:
         self._receipts: dict[UUID, ExecutionReceipt] = {}
         self._events: list[object] = []
 
-    def execute(
-        self,
-        request: ApprovedExecutionRequest,
-        *,
-        snapshot: MarketSnapshot,
-    ) -> ExecutionReceipt:
+    def execute(self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot) -> ExecutionReceipt:
         mode = request.execution_context.execution_mode
         if mode not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
-            raise PaperExecutionError(
-                "paper executor only accepts PAPER, SHADOW, or REPLAY requests"
-            )
-
+            raise PaperExecutionError("paper executor only accepts PAPER, SHADOW, or REPLAY requests")
         if snapshot.instrument != request.order.instrument:
             raise PaperExecutionError("market snapshot instrument does not match the order")
 
@@ -86,9 +76,9 @@ class PaperExecutionEngine:
                 client_order_id=request.order.client_order_id,
                 outcome=ExecutionOutcome.ACCEPTED,
                 order_status=OrderStatus.ACCEPTED,
+                executed_at=self._clock.now(),
                 fills=(),
                 message="order accepted but no fill was available from supplied market data",
-                executed_at=self._clock.now(),
                 simulated=True,
                 model_profile=self._profile.name,
                 model_version="paper-core-v0.3",
@@ -106,19 +96,12 @@ class PaperExecutionEngine:
         fill_quantity = proposal.quantity * self._profile.partial_fill_ratio
         if fill_quantity <= 0:
             raise PaperExecutionError("simulation produced a non-positive fill quantity")
+        if fill_quantity > request.order.quantity:
+            fill_quantity = request.order.quantity
 
         price = self._slippage_model.apply(request.order.side, proposal.price)
-        status = (
-            OrderStatus.FILLED
-            if fill_quantity == request.order.quantity
-            else OrderStatus.PARTIALLY_FILLED
-        )
-        outcome = (
-            ExecutionOutcome.FILLED
-            if status is OrderStatus.FILLED
-            else ExecutionOutcome.PARTIALLY_FILLED
-        )
-
+        status = OrderStatus.FILLED if fill_quantity == request.order.quantity else OrderStatus.PARTIALLY_FILLED
+        outcome = ExecutionOutcome.FILLED if status is OrderStatus.FILLED else ExecutionOutcome.PARTIALLY_FILLED
         now = self._clock.now()
         fill = Fill(
             client_order_id=request.order.client_order_id,
@@ -134,9 +117,9 @@ class PaperExecutionEngine:
             client_order_id=request.order.client_order_id,
             outcome=outcome,
             order_status=status,
+            executed_at=now,
             fills=(fill,),
             message=proposal.reason,
-            executed_at=now,
             simulated=True,
             model_profile=self._profile.name,
             model_version="paper-core-v0.3",
@@ -164,7 +147,7 @@ class PaperExecutionEngine:
                 event_id=str(uuid4()),
                 occurred_at=now,
                 correlation_id=str(request.order.client_order_id),
-                order_id=str(request.order.client_order_id),
+                order_id=str(request.client_order_id),
                 fill_id=str(fill.execution_id),
                 quantity=fill.quantity,
                 price=fill.price,
@@ -177,12 +160,3 @@ class PaperExecutionEngine:
 
     def receipt_for(self, client_order_id: UUID) -> ExecutionReceipt | None:
         return self._receipts.get(client_order_id)
-
-
-__all__ = [
-    "MarketSnapshot",
-    "PaperExecutionEngine",
-    "PaperExecutionError",
-    "PaperSimulationProfile",
-    "QuoteSnapshot",
-]

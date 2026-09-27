@@ -43,7 +43,6 @@ def test_contract_accepts_call_option_metadata() -> None:
         strike=Decimal("25000"),
         option_type="call",
     )
-
     assert contract.option_type == "call"
 
 

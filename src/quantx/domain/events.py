@@ -1,9 +1,4 @@
-"""Immutable domain events for QuantX.
-
-Events describe facts that have already happened. They are deliberately small
-and framework-independent so the same event model can serve in-memory tests,
-replay, persistence, WebSocket streaming, and future distributed transports.
-"""
+"""Immutable domain events for QuantX."""
 
 from __future__ import annotations
 
@@ -15,18 +10,26 @@ from typing import Any, Mapping
 
 @dataclass(frozen=True, slots=True)
 class DomainEvent:
-    """Base event carrying identity and causality metadata."""
-
     event_id: str
     occurred_at: datetime
     correlation_id: str
     causation_id: str | None = None
 
+    def __post_init__(self) -> None:
+        if not self.event_id.strip():
+            raise ValueError("event_id must not be empty")
+        if not self.correlation_id.strip():
+            raise ValueError("correlation_id must not be empty")
+        if self.occurred_at.tzinfo is None or self.occurred_at.utcoffset() is None:
+            raise ValueError("occurred_at must be timezone-aware")
+
+    @property
+    def event_type(self) -> str:
+        return type(self).__name__
+
 
 @dataclass(frozen=True, slots=True)
 class OrderCreated(DomainEvent):
-    """Fact emitted after an order enters the local order ledger."""
-
     order_id: str = ""
     instrument_id: str = ""
     side: str = ""
@@ -36,16 +39,12 @@ class OrderCreated(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class OrderSubmitted(DomainEvent):
-    """Fact emitted after an order is submitted to an execution venue."""
-
     order_id: str = ""
     venue: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class OrderFilled(DomainEvent):
-    """Fact emitted when an execution fill is recorded."""
-
     order_id: str = ""
     fill_id: str = ""
     quantity: Decimal = Decimal("0")
@@ -54,10 +53,46 @@ class OrderFilled(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class PositionUpdated(DomainEvent):
-    """Fact emitted after a position ledger update."""
-
     instrument_id: str = ""
     quantity: Decimal = Decimal("0")
+
+
+@dataclass(frozen=True, slots=True)
+class TradeIntentCreated(DomainEvent):
+    intent_id: str = ""
+    instrument_id: str = ""
+    side: str = ""
+    quantity: Decimal = Decimal("0")
+
+
+@dataclass(frozen=True, slots=True)
+class RiskDecisionRecorded(DomainEvent):
+    intent_id: str = ""
+    decision: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionRequestApproved(DomainEvent):
+    order_id: str = ""
+    broker_connection_id: str | None = None
+    execution_mode: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionReceiptRecorded(DomainEvent):
+    order_id: str = ""
+    receipt_id: str = ""
+    outcome: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class FillRecorded(DomainEvent):
+    order_id: str = ""
+    fill_id: str = ""
+    instrument_id: str = ""
+    quantity: Decimal = Decimal("0")
+    price: Decimal = Decimal("0")
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,8 +1,4 @@
-"""Strategy-level trade intent primitives.
-
-TradeIntent represents what a strategy requests. It is deliberately distinct
-from Order, which represents an execution-approved instruction.
-"""
+"""Strategy-level trade intent primitives."""
 
 from __future__ import annotations
 
@@ -28,6 +24,8 @@ class TradeIntent:
     estimated_order_value: Decimal | None = None
     required_capabilities: frozenset[str] = frozenset()
     approval_required: bool = False
+    strategy_id: str | None = None
+    strategy_version: str | None = None
     execution_context: ExecutionContext | None = None
     intent_id: UUID = field(default_factory=uuid4)
 
@@ -42,3 +40,5 @@ class TradeIntent:
             raise ValueError("limit_price is required for limit intents")
         if self.order_type in {OrderType.STOP, OrderType.STOP_LIMIT} and self.stop_price is None:
             raise ValueError("stop_price is required for stop intents")
+        if (self.strategy_id is None) != (self.strategy_version is None):
+            raise ValueError("strategy_id and strategy_version must be supplied together")

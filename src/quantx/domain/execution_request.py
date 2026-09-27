@@ -21,7 +21,6 @@ class ApprovedExecutionRequest:
     def __post_init__(self) -> None:
         if self.risk_result.decision is not RiskDecision.APPROVE:
             raise ValueError("execution request requires an approved risk result")
-
         if self.execution_context.execution_mode is ExecutionMode.LIVE:
             if self.execution_context.broker_connection_id is None:
                 raise ValueError("live execution requires a broker connection")

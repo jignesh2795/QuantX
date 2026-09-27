@@ -1,18 +1,14 @@
-"""Point-in-time historical market-data contracts.
-
-The research layer treats source observations as immutable evidence. Missing
-observations remain missing and are never synthesized by the data container.
-"""
+"""Point-in-time historical market-data contracts."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
 from typing import Iterable, Iterator
 
-from quantx.execution.market_data import MarketSnapshot
+from quantx.domain.market_data import Quote
 from quantx.domain.value_objects import InstrumentId
+from quantx.execution.market_data import MarketSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +17,14 @@ class HistoricalObservation:
     source_id: str
     dataset_version: str
     sequence: int
+
+    @property
+    def timestamp(self) -> datetime:
+        return self.snapshot.timestamp
+
+    @property
+    def instrument(self) -> InstrumentId:
+        return self.snapshot.instrument
 
     def __post_init__(self) -> None:
         if not self.source_id.strip():
@@ -32,8 +36,6 @@ class HistoricalObservation:
 
 
 class HistoricalDataSeries:
-    """Chronological, point-in-time observations for one instrument."""
-
     def __init__(self, observations: Iterable[HistoricalObservation]) -> None:
         values = tuple(observations)
         if not values:
@@ -41,15 +43,21 @@ class HistoricalDataSeries:
         instrument = values[0].snapshot.instrument
         if any(value.snapshot.instrument != instrument for value in values):
             raise ValueError("all observations must use the same instrument")
-        ordered = tuple(sorted(values, key=lambda item: (item.snapshot.timestamp, item.sequence)))
-        self._observations = ordered
+        self._observations = tuple(
+            sorted(values, key=lambda item: (item.snapshot.timestamp, item.sequence))
+        )
         self.instrument = instrument
 
     def __iter__(self) -> Iterator[HistoricalObservation]:
         return iter(self._observations)
 
+    def __len__(self) -> int:
+        return len(self._observations)
+
+    def as_tuple(self) -> tuple[HistoricalObservation, ...]:
+        return self._observations
+
     def as_of(self, timestamp: datetime) -> tuple[HistoricalObservation, ...]:
-        """Return only observations known by the requested timestamp."""
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
         return tuple(item for item in self._observations if item.snapshot.timestamp <= timestamp)
@@ -62,7 +70,8 @@ class HistoricalDataSeries:
         if end < start:
             raise ValueError("end must not precede start")
         return tuple(
-            item for item in self._observations
+            item
+            for item in self._observations
             if start <= item.snapshot.timestamp <= end
         )
 

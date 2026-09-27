@@ -30,6 +30,8 @@ class OrderStatus(StrEnum):
     CANCELLED = "CANCELLED"
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
 
 
 class AssetClass(StrEnum):
@@ -38,3 +40,9 @@ class AssetClass(StrEnum):
     INDEX = "INDEX"
     FUTURE = "FUTURE"
     OPTION = "OPTION"
+    FX = "FX"
+    COMMODITY = "COMMODITY"
+    DIGITAL_ASSET = "DIGITAL_ASSET"
+    FIXED_INCOME = "FIXED_INCOME"
+    FUND = "FUND"
+    OTHER = "OTHER"

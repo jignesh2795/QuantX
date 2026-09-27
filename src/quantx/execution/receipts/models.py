@@ -23,8 +23,6 @@ class ExecutionOutcome(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ExecutionReceipt:
-    """Canonical receipt returned by every execution environment."""
-
     request_id: UUID
     client_order_id: UUID | str
     outcome: ExecutionOutcome
