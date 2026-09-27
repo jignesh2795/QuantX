@@ -50,8 +50,16 @@ winget install --id=astral-sh.uv -e
 From the repository root:
 
 ```powershell
+.\scripts\setup.ps1
+uv run pytest -q
+```
+
+Or run the setup steps directly:
+
+```powershell
 uv python install
 uv sync --dev
+uv lock
 uv run pytest -q
 ```
 
