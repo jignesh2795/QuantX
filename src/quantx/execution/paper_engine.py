@@ -12,7 +12,8 @@ from quantx.domain.deployment import ExecutionMode
 from quantx.domain.errors import IntegrationError
 from quantx.domain.events import OrderFilled, OrderSubmitted
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.orders import Fill, OrderStatus
+from quantx.domain.enums import OrderStatus
+from quantx.domain.orders import Fill
 
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
 from .market_data import MarketSnapshot
