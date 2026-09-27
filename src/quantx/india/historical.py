@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.market_data import MarketSnapshot
 from quantx.research.calendar import MarketCalendar
