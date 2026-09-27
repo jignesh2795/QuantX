@@ -156,8 +156,8 @@ class InMemoryDhanTransport:
 
 
 def _order_response(response: object) -> DhanOrderResponse:
-    status, remarks, payload = _envelope(response)
-    if status != "success":
+    envelope_status, remarks, payload = _envelope(response)
+    if envelope_status != "success":
         return DhanOrderResponse(
             order_id=None,
             order_status="UNKNOWN",
@@ -172,7 +172,7 @@ def _order_response(response: object) -> DhanOrderResponse:
         order_status=status,
         observed_at=datetime.now(timezone.utc),
         message=str(payload.get("message", "")),
-        raw={"status": status, "remarks": remarks, "data": payload},
+        raw={"status": envelope_status, "remarks": remarks, "data": payload},
     )
 
 
