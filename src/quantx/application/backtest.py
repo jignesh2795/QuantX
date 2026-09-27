@@ -14,7 +14,7 @@ from typing import Callable
 
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
-from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
+from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
@@ -32,6 +32,7 @@ class BacktestDisposition(StrEnum):
     EXECUTED = "EXECUTED"
     RISK_REJECTED = "RISK_REJECTED"
     POLICY_REJECTED = "POLICY_REJECTED"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
     BLOCKED = "BLOCKED"
 
 
@@ -64,6 +65,7 @@ class BacktestResult:
             step.disposition in {
                 BacktestDisposition.RISK_REJECTED,
                 BacktestDisposition.POLICY_REJECTED,
+                BacktestDisposition.APPROVAL_REQUIRED,
                 BacktestDisposition.BLOCKED,
             }
             for step in self.steps
@@ -97,7 +99,7 @@ class DeterministicBacktestService:
         self._risk_engine = risk_engine or PreTradeRiskEngine()
         self._policy_engine = policy_engine or ExecutionPolicyEngine()
         self._execution_engine = execution_engine
-        self._accounting = accounting or FillAccounting()
+        self._accounting_override = accounting
 
     def run(
         self,
@@ -125,6 +127,7 @@ class DeterministicBacktestService:
             )
 
         effective_policy = policy_context or PolicyContext()
+        accounting = self._accounting_override or FillAccounting()
         steps: list[BacktestStep] = []
         receipts: list[ExecutionReceipt] = []
 
@@ -234,6 +237,11 @@ class DeterministicBacktestService:
                 ),
             )
             if risk.decision is not RiskDecision.APPROVE:
+                disposition = (
+                    BacktestDisposition.APPROVAL_REQUIRED
+                    if risk.decision is RiskDecision.APPROVAL_REQUIRED
+                    else BacktestDisposition.RISK_REJECTED
+                )
                 steps.append(
                     BacktestStep(
                         frame.index,
@@ -242,7 +250,7 @@ class DeterministicBacktestService:
                         risk,
                         None,
                         None,
-                        BacktestDisposition.RISK_REJECTED,
+                        disposition,
                         risk.reason,
                     )
                 )
@@ -250,7 +258,11 @@ class DeterministicBacktestService:
 
             policy = self._policy_engine.evaluate(intent, effective_policy)
             if not policy.approved:
-                disposition = BacktestDisposition.POLICY_REJECTED
+                disposition = (
+                    BacktestDisposition.APPROVAL_REQUIRED
+                    if policy.decision is PolicyDecision.APPROVAL_REQUIRED
+                    else BacktestDisposition.POLICY_REJECTED
+                )
                 steps.append(
                     BacktestStep(
                         frame.index,
@@ -279,7 +291,7 @@ class DeterministicBacktestService:
             )
             receipts.append(receipt)
             for fill in receipt.fills:
-                self._accounting.apply(fill, fee=receipt.fee / Decimal(len(receipt.fills)))
+                accounting.apply(fill, fee=receipt.fee / Decimal(len(receipt.fills)))
 
             steps.append(
                 BacktestStep(
@@ -298,5 +310,5 @@ class DeterministicBacktestService:
             data_quality=replay.quality.status,
             steps=tuple(steps),
             receipts=tuple(receipts),
-            ledger=self._accounting.snapshot(),
+            ledger=accounting.snapshot(),
         )
