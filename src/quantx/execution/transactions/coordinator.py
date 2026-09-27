@@ -50,6 +50,5 @@ class ExecutionTransactionCoordinator:
 
         self._idempotency.reserve(client_order_id, fingerprint)
         receipt = self._submit(request)
-        if receipt.request_id is not None:
-            self._idempotency.complete(client_order_id, receipt.request_id)
+        self._idempotency.complete(client_order_id, receipt.receipt_id)
         return TransactionResult(PreconditionsStatus.READY, receipt=receipt)
