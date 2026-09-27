@@ -9,10 +9,10 @@ from uuid import UUID, uuid4
 
 from quantx.domain.clock import Clock
 from quantx.domain.deployment import ExecutionMode
+from quantx.domain.enums import OrderStatus
 from quantx.domain.errors import IntegrationError
 from quantx.domain.events import OrderFilled, OrderSubmitted
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.enums import OrderStatus
 from quantx.domain.orders import Fill
 
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
@@ -62,10 +62,17 @@ class PaperExecutionEngine:
         self._receipts: dict[UUID, ExecutionReceipt] = {}
         self._events: list[object] = []
 
-    def execute(self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot) -> ExecutionReceipt:
+    def execute(
+        self,
+        request: ApprovedExecutionRequest,
+        *,
+        snapshot: MarketSnapshot,
+    ) -> ExecutionReceipt:
         mode = request.execution_context.execution_mode
         if mode not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
-            raise PaperExecutionError("paper executor only accepts PAPER, SHADOW, or REPLAY requests")
+            raise PaperExecutionError(
+                "paper executor only accepts PAPER, SHADOW, or REPLAY requests"
+            )
         if snapshot.instrument != request.order.instrument:
             raise PaperExecutionError("market snapshot instrument does not match the order")
 
@@ -118,8 +125,16 @@ class PaperExecutionEngine:
             fill_quantity = request.order.quantity
 
         price = self._slippage_model.apply(request.order.side, proposal.price)
-        status = OrderStatus.FILLED if fill_quantity == request.order.quantity else OrderStatus.PARTIALLY_FILLED
-        outcome = ExecutionOutcome.FILLED if status is OrderStatus.FILLED else ExecutionOutcome.PARTIALLY_FILLED
+        status = (
+            OrderStatus.FILLED
+            if fill_quantity == request.order.quantity
+            else OrderStatus.PARTIALLY_FILLED
+        )
+        outcome = (
+            ExecutionOutcome.FILLED
+            if status is OrderStatus.FILLED
+            else ExecutionOutcome.PARTIALLY_FILLED
+        )
         submitted_at = self._clock.now()
         executed_at = submitted_at + timedelta(milliseconds=self._profile.latency_ms)
         fill = Fill(
