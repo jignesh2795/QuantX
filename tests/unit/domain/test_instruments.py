@@ -3,16 +3,20 @@ from decimal import Decimal
 import pytest
 
 from quantx.domain.enums import AssetClass
-from quantx.domain.instruments import Contract, Instrument
+from quantx.domain.instruments import Contract, Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.value_objects import InstrumentId
+
+
+def market() -> MarketContext:
+    return MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
 
 
 def make_instrument() -> Instrument:
     return Instrument(
-        instrument_id=InstrumentId("NSE:NIFTY"),
+        instrument_id=InstrumentId("NSE", "NIFTY"),
         symbol="NIFTY",
         asset_class=AssetClass.INDEX,
-        venue="NSE",
+        market=market(),
         currency="INR",
         tick_size=Decimal("0.05"),
         lot_size=Decimal("1"),
@@ -22,10 +26,10 @@ def make_instrument() -> Instrument:
 def test_instrument_rejects_non_positive_tick_size() -> None:
     with pytest.raises(ValueError, match="tick_size"):
         Instrument(
-            instrument_id=InstrumentId("NSE:NIFTY"),
+            instrument_id=InstrumentId("NSE", "NIFTY"),
             symbol="NIFTY",
             asset_class=AssetClass.INDEX,
-            venue="NSE",
+            market=market(),
             currency="INR",
             tick_size=Decimal("0"),
             lot_size=Decimal("1"),
@@ -35,7 +39,7 @@ def test_instrument_rejects_non_positive_tick_size() -> None:
 def test_contract_accepts_call_option_metadata() -> None:
     contract = Contract(
         instrument=make_instrument(),
-        underlying=InstrumentId("NSE:NIFTY"),
+        underlying=InstrumentId("NSE", "NIFTY"),
         strike=Decimal("25000"),
         option_type="call",
     )
