@@ -12,7 +12,12 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.ports import ExecutionReceipt
-from quantx.integrations.brokers import BrokerAdapter, BrokerDescriptor, BrokerConnectionRef, CapabilitySet
+from quantx.integrations.brokers import (
+    BrokerAdapter,
+    BrokerConnectionRef,
+    BrokerDescriptor,
+    CapabilitySet,
+)
 
 
 @runtime_checkable
