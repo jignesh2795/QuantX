@@ -1,3 +1,5 @@
+import pytest
+
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.integrations.account_registry import AccountConnectionRegistry, RegisteredConnection
 from quantx.integrations.brokers import (
@@ -160,3 +162,17 @@ def test_disabled_preferred_connection_cannot_be_routed() -> None:
 
     assert decision.disposition is RoutingDisposition.FAILOVER_BLOCKED
     assert decision.reason is FailoverReason.CONNECTION_DISABLED
+
+
+def test_registration_rejects_adapter_connection_mismatch() -> None:
+    registry = AccountConnectionRegistry()
+    registered = register(registry, AccountId("acct-1"), "NSE")
+    mismatched_ref = BrokerConnectionRef(
+        AccountId("acct-2"),
+        BrokerConnectionId("conn-other"),
+        "fake",
+        "NSE",
+    )
+
+    with pytest.raises(ValueError, match="adapter connection does not match"):
+        RegisteredConnection(mismatched_ref, registered.adapter)
