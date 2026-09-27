@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from quantx.domain.clock import Clock
 from quantx.domain.deployment import ExecutionMode
-from quantx.domain.errors import IdempotencyError, IntegrationError
+from quantx.domain.errors import IntegrationError
 from quantx.domain.events import OrderFilled, OrderSubmitted
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Fill, OrderStatus
@@ -18,7 +18,6 @@ from .models import FillModel, QuoteFillModel, SlippageModel
 from .ports import ExecutionOutcome, ExecutionReceipt
 
 
-# Backward-compatible name for callers that used the earlier paper API.
 QuoteSnapshot = MarketSnapshot
 
 
@@ -44,12 +43,7 @@ class PaperSimulationProfile:
 
 
 class PaperExecutionEngine:
-    """Deterministic, model-driven paper execution engine.
-
-    The engine consumes observed market snapshots and explicit execution models.
-    It never fabricates missing prices. The same engine can be used for paper,
-    shadow, and replay modes; only the supplied data/model configuration changes.
-    """
+    """Deterministic, model-driven paper execution engine."""
 
     def __init__(
         self,
@@ -97,7 +91,7 @@ class PaperExecutionEngine:
                 executed_at=self._clock.now(),
                 simulated=True,
                 model_profile=self._profile.name,
-                model_version="paper-core-v0.2",
+                model_version="paper-core-v0.3",
                 assumptions=(
                     f"latency_ms={self._profile.latency_ms}",
                     f"slippage_bps={self._profile.slippage_bps}",
@@ -134,6 +128,7 @@ class PaperExecutionEngine:
             price=price,
             filled_at=now,
         )
+        fee = (fill.quantity * fill.price * self._profile.fee_bps) / Decimal("10000")
         receipt = ExecutionReceipt(
             request_id=uuid4(),
             client_order_id=request.order.client_order_id,
@@ -144,7 +139,7 @@ class PaperExecutionEngine:
             executed_at=now,
             simulated=True,
             model_profile=self._profile.name,
-            model_version="paper-core-v0.2",
+            model_version="paper-core-v0.3",
             assumptions=(
                 f"latency_ms={self._profile.latency_ms}",
                 f"slippage_bps={self._profile.slippage_bps}",
@@ -152,6 +147,7 @@ class PaperExecutionEngine:
                 f"fee_bps={self._profile.fee_bps}",
                 proposal.reason,
             ),
+            fee=fee,
         )
         self._receipts[request.order.client_order_id] = receipt
         self._events.append(
@@ -183,4 +179,10 @@ class PaperExecutionEngine:
         return self._receipts.get(client_order_id)
 
 
-__all__ = ["MarketSnapshot", "PaperExecutionEngine", "PaperExecutionError", "PaperSimulationProfile", "QuoteSnapshot"]
+__all__ = [
+    "MarketSnapshot",
+    "PaperExecutionEngine",
+    "PaperExecutionError",
+    "PaperSimulationProfile",
+    "QuoteSnapshot",
+]
