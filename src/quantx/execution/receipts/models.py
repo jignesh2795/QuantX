@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from uuid import UUID
+from uuid import UUID, uuid4
+
+from quantx.domain.enums import OrderStatus
+from quantx.domain.orders import Fill
 
 
-class ReceiptState(StrEnum):
+class ExecutionOutcome(StrEnum):
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
@@ -20,41 +23,42 @@ class ReceiptState(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ExecutionReceipt:
-    """Canonical immutable execution receipt for audit/reconciliation."""
+    """Canonical receipt returned by every execution environment."""
 
-    receipt_id: UUID
-    order_id: UUID
-    account_id: UUID
-    connection_id: UUID
-    client_order_id: str
-    state: ReceiptState
-    filled_quantity: Decimal
-    observed_at: datetime
-    broker_order_id: str | None = None
-    average_fill_price: Decimal | None = None
-    fee: Decimal = Decimal("0")
-    source: str = ""
-    raw_reference: str | None = None
+    request_id: UUID
+    client_order_id: UUID | str
+    outcome: ExecutionOutcome
+    order_status: OrderStatus
+    executed_at: datetime
+    fills: tuple[Fill, ...] = ()
     message: str = ""
+    simulated: bool = False
+    model_profile: str = ""
+    model_version: str = ""
+    assumptions: tuple[str, ...] = ()
+    fee: Decimal = Decimal("0")
+    broker_order_id: str | None = None
+    raw_reference: str | None = None
     correlation_id: str | None = None
+    receipt_id: UUID = field(default_factory=uuid4)
+    order_id: UUID | None = None
+    account_id: UUID | None = None
+    connection_id: UUID | None = None
 
     def __post_init__(self) -> None:
-        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
-            raise ValueError("observed_at must be timezone-aware")
-        if not self.client_order_id.strip():
+        if isinstance(self.client_order_id, str) and not self.client_order_id.strip():
             raise ValueError("client_order_id must not be empty")
-        if self.filled_quantity < 0:
-            raise ValueError("filled_quantity cannot be negative")
-        if self.average_fill_price is not None and self.average_fill_price < 0:
-            raise ValueError("average_fill_price cannot be negative")
+        if self.executed_at.tzinfo is None or self.executed_at.utcoffset() is None:
+            raise ValueError("executed_at must be timezone-aware")
         if self.fee < 0:
             raise ValueError("fee cannot be negative")
-        if not self.source.strip():
-            raise ValueError("source must not be empty")
+        if any(fill.client_order_id != self.client_order_id for fill in self.fills):
+            raise ValueError("all fills must belong to the receipt client_order_id")
+        if self.outcome is ExecutionOutcome.FILLED and self.order_status is not OrderStatus.FILLED:
+            raise ValueError("filled receipt must have FILLED order status")
+        if self.outcome is ExecutionOutcome.PARTIALLY_FILLED and self.order_status is not OrderStatus.PARTIALLY_FILLED:
+            raise ValueError("partial receipt must have PARTIALLY_FILLED order status")
 
 
-# Compatibility alias for callers that adopted the intermediate package model.
-ExecutionReceiptRecord = ExecutionReceipt
-
-# Compatibility alias for callers that used the earlier outcome terminology.
-ReceiptOutcome = ReceiptState
+ReceiptState = ExecutionOutcome
+ReceiptOutcome = ExecutionOutcome
