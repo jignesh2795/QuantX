@@ -10,7 +10,7 @@ from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, M
 from quantx.domain.market_data import Quote
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.order_intents import TradeIntent
-from quantx.domain.policy import PolicyContext
+from quantx.domain.policy import PolicyContext, PolicyDecision
 from quantx.domain.strategy import SignalAction, StrategyResult, StrategySignal, StrategyId
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
@@ -164,7 +164,7 @@ def test_backtest_blocks_risk_rejected_intent_without_execution() -> None:
     assert result.receipts == ()
 
 
-def test_backtest_blocks_policy_rejected_intent() -> None:
+def test_backtest_requires_approval_when_policy_requires_manual_approval() -> None:
     instrument = _instrument()
     context = _context()
 
