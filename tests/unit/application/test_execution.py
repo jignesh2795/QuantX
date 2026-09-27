@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -8,11 +8,18 @@ from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.order_intents import TradeIntent
-from quantx.domain.policy import PolicyResult, PolicyDecision
-from quantx.domain.risk import RiskResult, RiskDecision
+from quantx.domain.policy import PolicyDecision, PolicyResult
+from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.market_data import Quote
+from quantx.domain.orders import Fill
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.brokers import (
     BrokerCapability,
@@ -20,7 +27,6 @@ from quantx.integrations.brokers import (
     BrokerDescriptor,
     CapabilitySet,
 )
-from quantx.ports.broker import BrokerPort
 
 
 def _instrument() -> Instrument:
@@ -38,7 +44,8 @@ def _instrument() -> Instrument:
 
 def _request(mode: ExecutionMode, *, account_id: AccountId | None = None,
              connection_id: BrokerConnectionId | None = None,
-             required_capabilities: frozenset[str] = frozenset()) -> ApprovedExecutionRequest:
+             required_capabilities: frozenset[str] = frozenset(),
+) -> ApprovedExecutionRequest:
     instrument = _instrument()
     context = ExecutionContext(
         account_id=account_id or AccountId("acct-1"),
@@ -65,7 +72,9 @@ def _request(mode: ExecutionMode, *, account_id: AccountId | None = None,
 
 
 class FakePaperExecutor:
-    def execute(self, request: ApprovedExecutionRequest, *, snapshot):
+    def execute(
+        self, request: ApprovedExecutionRequest, *, snapshot: Quote
+    ) -> ExecutionReceipt:
         fill = Fill(
             client_order_id=request.order.client_order_id,
             instrument=request.order.instrument,
@@ -87,9 +96,18 @@ class FakePaperExecutor:
 
 
 class FakeBroker:
-    def __init__(self, *, account_id=AccountId("acct-1"), connection_id=BrokerConnectionId("conn-1"),
-                 healthy=True, capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
-                 instrument=None):
+    def __init__(
+        self,
+        *,
+        account_id: AccountId | None = None,
+        connection_id: BrokerConnectionId | None = None,
+        healthy: bool = True,
+        capabilities: frozenset[BrokerCapability] | None = None,
+        instrument: Instrument | None = None,
+    ):
+        account_id = account_id or AccountId("acct-1")
+        connection_id = connection_id or BrokerConnectionId("conn-1")
+        capabilities = capabilities or frozenset({BrokerCapability.ORDER_SUBMISSION})
         self._instrument = instrument or _instrument()
         self._connection = BrokerConnectionRef(account_id, connection_id, "fake", "NSE")
         self._healthy = healthy
@@ -140,12 +158,30 @@ def test_paper_rejects_snapshot_for_wrong_instrument() -> None:
     orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
     wrong = Quote(
         instrument=InstrumentId("NSE", "INFY"),
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         ask=Decimal("100"),
     )
     result = orchestrator.execute(_request(ExecutionMode.PAPER), snapshot=wrong)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "instrument" in result.reason
+
+
+def test_paper_executes_with_matching_snapshot() -> None:
+    orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
+    request = _request(ExecutionMode.PAPER)
+    snapshot = Quote(
+        instrument=request.order.instrument,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        ask=Decimal("100"),
+    )
+
+    result = orchestrator.execute(request, snapshot=snapshot)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+    assert result.receipt.outcome is ExecutionOutcome.FILLED
+    assert result.receipt.fills
+    assert result.receipt.fills[0].quantity == request.order.quantity
 
 
 def test_live_requires_a_broker() -> None:
