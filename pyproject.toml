@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "QuantX Contributors" }]
 dependencies = []
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "pytest>=8.3",
   "pytest-cov>=5.0",
@@ -38,3 +38,6 @@ select = ["E", "F", "I", "B", "UP"]
 python_version = "3.12"
 strict = true
 packages = ["quantx"]
+
+[tool.uv]
+default-groups = ["dev"]
