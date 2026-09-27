@@ -1,6 +1,6 @@
 from dataclasses import replace
 from decimal import Decimal
-from uuid import uuid4
+from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 
 import pytest
 
@@ -13,7 +13,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
-from quantx.integrations.brokers import BrokerConnectionRef, BrokerCapability
+from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
 from quantx.plugins.reference_broker import (
     InMemoryReferenceBrokerTransport,
     ReferenceBrokerAdapter,
@@ -101,8 +101,8 @@ def test_reference_adapter_translates_and_normalizes_filled_response() -> None:
 def test_reference_transport_is_deterministic_for_same_request() -> None:
     transport = InMemoryReferenceBrokerTransport(fill_price=Decimal("100"))
     adapter = _adapter(transport)
-    first = adapter.submit(_request())
-    second = adapter.submit(_request())
+    first = adapter.submit(request)
+    second = adapter.submit(request)
 
     assert first.executed_at == second.executed_at
     assert first.broker_order_id == second.broker_order_id
@@ -136,3 +136,14 @@ def test_reference_adapter_emits_domain_receipt_not_transport_response() -> None
     assert type(receipt).__name__ == "ExecutionReceipt"
     assert all(type(fill).__name__ == "Fill" for fill in receipt.fills)
     assert not hasattr(receipt, "outcome_code")
+
+
+
+def test_reference_adapter_composes_with_execution_orchestrator() -> None:
+    request = _request()
+    adapter = _adapter(InMemoryReferenceBrokerTransport())
+    result = ExecutionOrchestrator().execute(request, broker=adapter)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+    assert result.receipt.source == "reference-broker"
