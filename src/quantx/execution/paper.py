@@ -80,6 +80,7 @@ class PaperExecutionEngine:
                 fills=(),
                 message="order accepted but no fill was available from supplied market data",
                 simulated=True,
+                source="paper",
                 model_profile=self._profile.name,
                 model_version="paper-core-v0.3",
                 assumptions=(
@@ -121,6 +122,7 @@ class PaperExecutionEngine:
             fills=(fill,),
             message=proposal.reason,
             simulated=True,
+            source="paper",
             model_profile=self._profile.name,
             model_version="paper-core-v0.3",
             assumptions=(
@@ -147,7 +149,7 @@ class PaperExecutionEngine:
                 event_id=str(uuid4()),
                 occurred_at=now,
                 correlation_id=str(request.order.client_order_id),
-                order_id=str(request.client_order_id),
+                order_id=str(request.order.client_order_id),
                 fill_id=str(fill.execution_id),
                 quantity=fill.quantity,
                 price=fill.price,
