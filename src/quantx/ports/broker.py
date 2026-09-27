@@ -10,6 +10,7 @@ from typing import Protocol
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument
+from quantx.domain.value_objects import InstrumentId
 from quantx.execution.ports import ExecutionReceipt
 from quantx.integrations.brokers import BrokerDescriptor, CapabilitySet
 
@@ -25,7 +26,7 @@ class BrokerPort(Protocol):
     def capabilities(self) -> CapabilitySet:
         ...
 
-    def instrument(self, instrument_id: str) -> Instrument | None:
+    def instrument(self, instrument_id: InstrumentId) -> Instrument | None:
         ...
 
     def submit(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
