@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import hashlib
 from zoneinfo import ZoneInfo
 
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
@@ -45,6 +46,13 @@ def dhan_side(side: OrderSide) -> str:
     return side.value
 
 
+def dhan_correlation_id(correlation_id: str) -> str:
+    """Derive a deterministic Dhan-safe correlation id from a QuantX id."""
+    if not correlation_id.strip():
+        raise ValueError("correlation_id must not be empty")
+    return hashlib.sha256(correlation_id.encode("utf-8")).hexdigest()[:30]
+
+
 def build_order_request(
     *,
     instrument_id: InstrumentId,
@@ -70,7 +78,7 @@ def build_order_request(
         price=limit_price if limit_price is not None else Decimal("0"),
         trigger_price=stop_price if stop_price is not None else Decimal("0"),
         validity=dhan_time_in_force(time_in_force),
-        correlation_id=correlation_id,
+        correlation_id=dhan_correlation_id(correlation_id),
     )
 
 
