@@ -10,7 +10,7 @@ from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, M
 from quantx.domain.market_data import Quote
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.order_intents import TradeIntent
-from quantx.domain.policy import PolicyContext, PolicyDecision
+from quantx.domain.policy import PolicyContext
 from quantx.domain.strategy import SignalAction, StrategyResult, StrategySignal, StrategyId
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
@@ -181,7 +181,7 @@ def test_backtest_requires_approval_when_policy_requires_manual_approval() -> No
             instrument=instrument.instrument_id,
             side=OrderSide.BUY,
             quantity=Decimal("1"),
-            required_capabilities=frozenset({"LIVE_ONLY_CAPABILITY"}),
+            approval_required=True,
             execution_context=context,
             strategy_id="capability-gated",
             strategy_version="1",
@@ -189,7 +189,7 @@ def test_backtest_requires_approval_when_policy_requires_manual_approval() -> No
         return StrategyResult(signal, intent)
 
     result = DeterministicBacktestService(
-        instrument_registry=__import__("quantx.domain.instrument_registry", fromlist=["InMemoryInstrumentRegistry"]).InMemoryInstrumentRegistry((instrument,))
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
     ).run(
         series=_series(),
         strategy=strategy,
@@ -198,7 +198,7 @@ def test_backtest_requires_approval_when_policy_requires_manual_approval() -> No
     )
 
     assert result.executed_count == 0
-    assert all(step.disposition is BacktestDisposition.POLICY_REJECTED for step in result.steps)
+    assert all(step.disposition is BacktestDisposition.APPROVAL_REQUIRED for step in result.steps)
 
 
 def test_backtest_blocks_intent_when_canonical_market_does_not_match() -> None:
