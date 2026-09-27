@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.enums import AssetClass
@@ -24,14 +24,14 @@ def test_indian_equity_spec_builds_universal_instrument() -> None:
 def test_market_data_is_framework_independent() -> None:
     quote = Quote(
         instrument=InstrumentId("NSE", "TCS"),
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
     )
     candle = Candle(
         instrument=InstrumentId("NSE", "TCS"),
         timeframe="5m",
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         open=Decimal("100"),
         high=Decimal("101"),
         low=Decimal("99"),
@@ -49,7 +49,7 @@ def test_market_data_is_framework_independent() -> None:
             HistoricalObservation(
                 snapshot=Quote(
                     instrument=InstrumentId("NSE", "TCS"),
-                    timestamp=datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc),
+                    timestamp=datetime(2026, 1, 1, 0, 5, tzinfo=UTC),
                     bid=Decimal("100"),
                     ask=Decimal("101"),
                 ),
@@ -61,7 +61,7 @@ def test_market_data_is_framework_independent() -> None:
     )
     assert len(series) == 2
     assert (
-        series.latest_at_or_before(datetime(2026, 1, 1, 0, 3, tzinfo=timezone.utc))
+        series.latest_at_or_before(datetime(2026, 1, 1, 0, 3, tzinfo=UTC))
         is not None
     )
 
