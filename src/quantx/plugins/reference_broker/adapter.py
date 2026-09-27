@@ -17,6 +17,8 @@ from quantx.integrations.brokers import (
 )
 from quantx.ports.broker import BrokerPort
 
+from uuid import uuid4
+
 from .transport import (
     ReferenceBrokerTransport,
     ReferenceOrderFill,
@@ -123,7 +125,7 @@ class ReferenceBrokerAdapter:
         outcome, order_status = _OUTCOME_TO_STATUS[response.outcome]
         fills = tuple(self._to_fill(request, fill) for fill in response.fills)
         return ExecutionReceipt(
-            request_id=request.order.client_order_id,
+            request_id=uuid4(),
             client_order_id=request.order.client_order_id,
             outcome=outcome,
             order_status=order_status,
