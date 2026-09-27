@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from datetime import datetime
 from typing import Any, Mapping
 
 
@@ -68,7 +69,7 @@ class DhanOrderRequest:
 class DhanOrderResponse:
     order_id: str | None
     order_status: str
-    observed_at: Any
+    observed_at: datetime
     message: str = ""
     raw: DhanPayload | None = None
 
