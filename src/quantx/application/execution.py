@@ -106,10 +106,10 @@ class ExecutionOrchestrator:
 
         required_capabilities = request.order.required_capabilities
         if required_capabilities and not broker.capabilities().require(required_capabilities):
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason="broker does not support all required execution capabilities",
-                )
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="broker does not support all required execution capabilities",
+            )
 
         return ExecutionResult(
             ExecutionDispatchStatus.EXECUTED,
