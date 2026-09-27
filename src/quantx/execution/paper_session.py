@@ -86,12 +86,16 @@ class PaperSession:
         if mark_price is None and snapshot.bid is not None and snapshot.ask is not None:
             mark_price = (snapshot.bid + snapshot.ask) / Decimal("2")
 
-        marks: tuple[Mark, ...] = () if mark_price is None else (
-            Mark(
-                instrument_id=str(last_entry.instrument),
-                price=mark_price,
-                source="paper-session-market-snapshot",
-            ),
+        marks: tuple[Mark, ...] = (
+            ()
+            if mark_price is None
+            else (
+                Mark(
+                    instrument_id=str(last_entry.instrument),
+                    price=mark_price,
+                    source="paper-session-market-snapshot",
+                ),
+            )
         )
 
         position = Position(
