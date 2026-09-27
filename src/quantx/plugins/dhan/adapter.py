@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from quantx.domain.enums import OrderStatus
@@ -133,7 +133,7 @@ class DhanBrokerAdapter:
         executed_at = (
             parse_dhan_timestamp(detail.exchange_time)
             or parse_dhan_timestamp(detail.update_time)
-            or datetime.now(timezone.utc)
+            or datetime.now(UTC)
         )
         return ExecutionReceipt(
             request_id=uuid4(),
