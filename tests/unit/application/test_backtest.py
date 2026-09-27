@@ -233,7 +233,7 @@ def test_backtest_blocks_intent_when_canonical_market_does_not_match() -> None:
         return StrategyResult(signal, intent)
 
     result = DeterministicBacktestService(
-        instrument_registry=__import__("quantx.domain.instrument_registry", fromlist=["InMemoryInstrumentRegistry"]).InMemoryInstrumentRegistry((instrument,))
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
     ).run(
         series=_series(),
         strategy=strategy,
