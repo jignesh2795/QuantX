@@ -65,6 +65,21 @@ def test_market_buy_uses_observed_ask_and_explicit_slippage() -> None:
     assert receipt.fills[0].price == Decimal("100.10")
 
 
+def test_simulation_latency_is_applied_to_fill_and_receipt() -> None:
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        profile=PaperSimulationProfile(latency_ms=250),
+    )
+    receipt = engine.execute(
+        _request(),
+        snapshot=_snapshot(ask=Decimal("100")),
+    )
+
+    expected = datetime(2026, 1, 1, 0, 0, 0, 250000, tzinfo=timezone.utc)
+    assert receipt.executed_at == expected
+    assert receipt.fills[0].filled_at == expected
+
+
 def test_repeated_client_order_is_idempotent() -> None:
     engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     request = _request()
