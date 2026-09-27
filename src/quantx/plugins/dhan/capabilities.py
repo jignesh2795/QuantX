@@ -1,8 +1,6 @@
 """Capability declaration for the Dhan plugin."""
 
 from quantx.integrations.brokers import BrokerCapability, CapabilitySet
-
-
 DHAN_CAPABILITIES = CapabilitySet(
     frozenset(
         {
