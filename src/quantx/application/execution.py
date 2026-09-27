@@ -104,10 +104,8 @@ class ExecutionOrchestrator:
                 reason="broker connection is not healthy",
             )
 
-        required = request.order.intent_id and None
-        intent_capabilities = getattr(request, "required_capabilities", None)
-        if intent_capabilities:
-            if not broker.capabilities().require(frozenset(intent_capabilities)):
+        required_capabilities = request.order.required_capabilities
+        if required_capabilities and not broker.capabilities().require(required_capabilities):
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason="broker does not support all required execution capabilities",
