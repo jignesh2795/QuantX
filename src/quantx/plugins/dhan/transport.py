@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from .mapping import decimal_field, extract_filled_quantity
 from .models import (
@@ -20,6 +20,7 @@ from .models import (
 )
 
 
+@runtime_checkable
 class DhanTransport(Protocol):
     def health(self) -> bool:
         ...
