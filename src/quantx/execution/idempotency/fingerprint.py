@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict
 from decimal import Decimal
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
