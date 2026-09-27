@@ -47,6 +47,7 @@ def test_reference_market_data_adapter_conforms_to_port_behavior() -> None:
     )
     adapter: MarketDataPort = ReferenceMarketData(quote, (candle,))
 
+    assert isinstance(adapter, MarketDataPort)
     assert adapter.quote(instrument) == quote
     assert tuple(adapter.candles(instrument, timeframe="1m", start=first, end=first)) == (candle,)
 
