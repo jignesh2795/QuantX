@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import uuid4
+
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument
@@ -15,7 +17,6 @@ from quantx.integrations.brokers import (
     CapabilitySet,
 )
 from quantx.ports.broker import BrokerPort
-from uuid import uuid4
 
 from .transport import (
     ReferenceBrokerTransport,
