@@ -199,8 +199,12 @@ def _order_detail(response: object) -> DhanOrderDetail:
         order_status=str(payload.get("orderStatus", "UNKNOWN")),
         average_traded_price=decimal_field(payload, "averageTradedPrice"),
         filled_quantity=extract_filled_quantity(payload),
-        exchange_time=str(payload["exchangeTime"]) if payload.get("exchangeTime") else None,
-        update_time=str(payload["updateTime"]) if payload.get("updateTime") else None,
+        exchange_time=(
+            str(payload["exchangeTime"]) if payload.get("exchangeTime") else None
+        ),
+        update_time=(
+            str(payload["updateTime"]) if payload.get("updateTime") else None
+        ),
         message=str(payload.get("omsErrorDescription", "")),
         raw={"status": status, "remarks": remarks, "data": payload},
     )
