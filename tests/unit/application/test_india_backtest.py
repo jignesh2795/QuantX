@@ -31,6 +31,7 @@ from quantx.india import (
     IndianSegment,
 )
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
+from quantx.research.replay import ReplayFrame
 
 
 def test_indian_nse_spec_flows_through_registry_and_deterministic_backtest() -> None:
@@ -70,7 +71,7 @@ def test_indian_nse_spec_flows_through_registry_and_deterministic_backtest() -> 
         )
     )
 
-    def strategy(frame):
+    def strategy(frame: ReplayFrame) -> StrategyResult:
         signal = StrategySignal(
             StrategyId("india-tcs"),
             "1",
