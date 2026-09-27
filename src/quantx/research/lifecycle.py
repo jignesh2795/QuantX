@@ -1,4 +1,4 @@
-"""Point-in-time instrument lifecycle and corporate-action event rules."""
+""""Point-in-time instrument lifecycle and corporate-action event rules."""
 
 from __future__ import annotations
 
@@ -37,9 +37,7 @@ class InstrumentLifecycle:
     def contains(self, timestamp: datetime) -> bool:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
-        return self.valid_from <= timestamp and (
-            self.valid_to is None or timestamp < self.valid_to
-        )
+        return self.valid_from <= timestamp and (self.valid_to is None or timestamp < self.valid_to)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,3 +95,4 @@ class ContractLifecycle:
         if self.expiry_at is not None and timestamp >= self.expiry_at:
             return False
         return True
+"
