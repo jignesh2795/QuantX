@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from uuid import uuid4
 
 import pytest
 
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.integrations.account_state import (
     AccountFinancialState,
     AccountReconciler,
@@ -13,8 +13,8 @@ from quantx.integrations.account_state import (
 
 
 def test_reconciliation_matches_explicit_observed_state() -> None:
-    account_id = uuid4()
-    connection_id = uuid4()
+    account_id = AccountId("acct-1")
+    connection_id = BrokerConnectionId("conn-1")
     now = datetime.now(timezone.utc)
     state = AccountFinancialState(
         account_id=account_id,
@@ -31,8 +31,8 @@ def test_reconciliation_matches_explicit_observed_state() -> None:
 
 def test_reconciliation_never_invents_missing_observed_state() -> None:
     state = AccountFinancialState(
-        account_id=uuid4(),
-        connection_id=uuid4(),
+        account_id=AccountId("acct-1"),
+        connection_id=BrokerConnectionId("conn-1"),
         observed_at=datetime.now(timezone.utc),
         source=StateSource.PAPER,
         currency="USD",
@@ -45,8 +45,8 @@ def test_reconciliation_never_invents_missing_observed_state() -> None:
 def test_negative_financial_values_are_rejected() -> None:
     with pytest.raises(ValueError):
         AccountFinancialState(
-            account_id=uuid4(),
-            connection_id=uuid4(),
+            account_id=AccountId("acct-1"),
+            connection_id=BrokerConnectionId("conn-1"),
             observed_at=datetime.now(timezone.utc),
             source=StateSource.BROKER,
             currency="USD",
