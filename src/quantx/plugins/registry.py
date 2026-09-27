@@ -133,6 +133,7 @@ class PluginRegistry:
         if registration.state not in {
             PluginLifecycle.DISCOVERED,
             PluginLifecycle.DISABLED,
+            PluginLifecycle.FAILED,
         }:
             raise ValueError(f"plugin cannot be enabled from {registration.state}")
         return self.transition(plugin_id, PluginLifecycle.ENABLED)
