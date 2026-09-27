@@ -48,9 +48,7 @@ def test_adjustment_does_not_infer_missing_events() -> None:
 
 def test_adjustment_event_requires_positive_factor() -> None:
     with pytest.raises(ValueError):
-        AdjustmentEvent(
-            "evt-1", "SPLIT", datetime(2025, 1, 1, tzinfo=UTC), Decimal("0")
-        )
+        AdjustmentEvent("evt-1", "SPLIT", datetime(2025, 1, 1, tzinfo=UTC), Decimal("0"))
 
 
 def test_future_adjustment_is_excluded_from_historical_value() -> None:
@@ -72,9 +70,7 @@ def test_adjusted_policy_requires_point_in_time_cutoff() -> None:
 
 
 def test_adjusted_policy_requires_timezone_aware_cutoff() -> None:
-    event = AdjustmentEvent(
-        "evt-1", "SPLIT", datetime(2025, 1, 1, tzinfo=UTC), Decimal("0.5")
-    )
+    event = AdjustmentEvent("evt-1", "SPLIT", datetime(2025, 1, 1, tzinfo=UTC), Decimal("0.5"))
     with pytest.raises(ValueError, match="as_of must be timezone-aware"):
         HistoricalAdjuster().apply(
             Decimal("100"),
