@@ -1,13 +1,16 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
+from quantx.integrations.brokers import (
+    BrokerCapability,
+    BrokerConnectionRef,
+)
 from quantx.integrations.health import (
     CapabilitySnapshot,
     ConnectionHealth,
     ConnectionHealthRegistry,
     ConnectionHealthSnapshot,
 )
-from quantx.domain.value_objects import AccountId, BrokerConnectionId
-from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
 
 
 def test_health_and_capabilities_are_tracked_per_connection() -> None:
@@ -17,10 +20,12 @@ def test_health_and_capabilities_are_tracked_per_connection() -> None:
         broker_id="broker1",
         market_context_id="NSE-EQUITY",
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     registry = ConnectionHealthRegistry()
 
-    registry.set_health(ConnectionHealthSnapshot(connection, ConnectionHealth.HEALTHY, now, 12))
+    registry.set_health(
+        ConnectionHealthSnapshot(connection, ConnectionHealth.HEALTHY, now, 12)
+    )
     registry.set_capabilities(
         CapabilitySnapshot(
             connection,
@@ -47,7 +52,7 @@ def test_health_and_capabilities_are_isolated_by_full_connection_ref() -> None:
         "broker-b",
         "NSE-EQUITY",
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     registry = ConnectionHealthRegistry()
 
     registry.set_health(
