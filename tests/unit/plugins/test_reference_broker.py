@@ -1,8 +1,9 @@
 from dataclasses import replace
 from decimal import Decimal
-from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 
 import pytest
+
+from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
@@ -34,7 +35,7 @@ def _instrument() -> Instrument:
     )
 
 
-def _request() -> ApprovedExecutionRequest:
+def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequest:
     instrument = _instrument()
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
@@ -42,7 +43,7 @@ def _request() -> ApprovedExecutionRequest:
         deployment_id=StrategyDeploymentId("deploy-1"),
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
-        execution_mode=ExecutionMode.PAPER,
+        execution_mode=mode,
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -101,6 +102,7 @@ def test_reference_adapter_translates_and_normalizes_filled_response() -> None:
 def test_reference_transport_is_deterministic_for_same_request() -> None:
     transport = InMemoryReferenceBrokerTransport(fill_price=Decimal("100"))
     adapter = _adapter(transport)
+    request = _request()
     first = adapter.submit(request)
     second = adapter.submit(request)
 
@@ -140,7 +142,7 @@ def test_reference_adapter_emits_domain_receipt_not_transport_response() -> None
 
 
 def test_reference_adapter_composes_with_execution_orchestrator() -> None:
-    request = _request()
+    request = _request(ExecutionMode.LIVE)
     adapter = _adapter(InMemoryReferenceBrokerTransport())
     result = ExecutionOrchestrator().execute(request, broker=adapter)
 
