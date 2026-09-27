@@ -73,6 +73,24 @@ class ContractLifecycle:
     expiry_at: datetime | None = None
     settled_at: datetime | None = None
 
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("listed_from", self.listed_from),
+            ("expiry_at", self.expiry_at),
+            ("settled_at", self.settled_at),
+        ):
+            if value is not None and (
+                value.tzinfo is None or value.utcoffset() is None
+            ):
+                raise ValueError(f"{name} must be timezone-aware")
+        if self.expiry_at is not None and self.expiry_at <= self.listed_from:
+            raise ValueError("expiry_at must be after listed_from")
+        if self.settled_at is not None:
+            if self.expiry_at is None:
+                raise ValueError("settled_at requires expiry_at")
+            if self.settled_at < self.expiry_at:
+                raise ValueError("settled_at must not precede expiry_at")
+
     def tradable_at(self, timestamp: datetime) -> bool:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
