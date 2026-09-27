@@ -483,6 +483,28 @@ def test_provider_call_count_follows_refresh_policy() -> None:
     assert outcome.definitive is False
 
 
+def test_position_refresh_can_use_explicit_instrument_without_existing_position() -> None:
+    order_id = uuid4()
+    provider = ScriptedProvider(positions=[_position()])
+    refresher = ReconciliationEvidenceRefresher(
+        refresh_policy=RefreshPolicy(1),
+        evidence_policy=DefinitiveEvidencePolicy.order_and_position(),
+    )
+
+    outcome = refresher.refresh(
+        _receipt(order_id),
+        local_order=_order(order_id),
+        broker_order=_order(order_id),
+        checked_at=CHECKED_AT,
+        position_policy=POSITION_POLICY,
+        instrument_id="NSE:TCS",
+        provider=provider,
+    )
+
+    assert provider.position_calls == 1
+    assert outcome.definitive is True
+
+
 def test_default_policy_requires_all_evidence_for_definitive() -> None:
     order_id = uuid4()
     provider = ScriptedProvider()
