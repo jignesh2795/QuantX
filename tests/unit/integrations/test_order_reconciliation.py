@@ -42,6 +42,20 @@ def test_requested_quantity_mismatch_is_explicit():
     assert "requested" in result.message
 
 
+
+
+def test_status_and_fill_quantity_must_be_consistent():
+    oid = uuid4()
+
+    with pytest.raises(ValueError, match="filled status"):
+        OrderObservation(oid, OrderLifecycleStatus.FILLED, "10", "9")
+
+    with pytest.raises(ValueError, match="partially filled status"):
+        OrderObservation(oid, OrderLifecycleStatus.PARTIALLY_FILLED, "10", "0")
+
+    with pytest.raises(ValueError, match="partially filled status"):
+        OrderObservation(oid, OrderLifecycleStatus.PARTIALLY_FILLED, "10", "10")
+
 def test_invalid_order_quantities_are_rejected():
     oid = uuid4()
 
