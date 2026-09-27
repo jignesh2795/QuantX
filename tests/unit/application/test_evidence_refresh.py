@@ -502,7 +502,8 @@ def test_position_refresh_can_use_explicit_instrument_without_existing_position(
     )
 
     assert provider.position_calls == 1
-    assert outcome.definitive is True
+    assert outcome.result.status is OrderWorkflowStatus.INCOMPLETE
+    assert outcome.definitive is False
 
 
 def test_default_policy_requires_all_evidence_for_definitive() -> None:
