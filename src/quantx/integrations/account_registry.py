@@ -38,7 +38,10 @@ class AccountConnectionRegistry:
         return tuple(
             item
             for item in self._connections.values()
-            if item.ref.account_id == account_id and item.enabled
+            if (
+                item.ref.account_id == account_id
+                and item.enabled
+            )
         )
 
     def candidates(
