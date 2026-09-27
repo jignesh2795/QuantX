@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Callable, FrozenSet, Protocol
+from typing import FrozenSet, Protocol
 
 
 class PluginKind(StrEnum):
@@ -107,7 +107,11 @@ class PluginRegistry:
         registrations = tuple(self._registrations.values())
         if kind is None:
             return registrations
-        return tuple(registration for registration in registrations if registration.descriptor.kind is kind)
+        return tuple(
+            registration
+            for registration in registrations
+            if registration.descriptor.kind is kind
+        )
 
     def transition(
         self,
