@@ -181,7 +181,6 @@ def test_unknown_order_refreshes() -> None:
 
 
 def test_future_position_evidence_is_not_accepted_as_fresh() -> None:
-    order_id = uuid4()
     future = _position(observed_at=CHECKED_AT + timedelta(minutes=1))
     from quantx.integrations.reconciliation.positions import (
         PositionReconciler,
