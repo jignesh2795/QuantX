@@ -1,1 +1,0 @@
-The architecture and roadmap work will continue on `docs/architecture-roadmap`. The repository baseline on `main` remains intentionally minimal and should not receive production implementation until the architecture review gates are complete.
