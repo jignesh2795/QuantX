@@ -54,9 +54,7 @@ class ResearchArtifactManifest:
             seen_ids.add(artifact.artifact_id)
 
     def canonical_payload(self) -> dict[str, object]:
-        ordered = sorted(
-            self.artifacts, key=lambda item: (item.artifact_type, item.artifact_id)
-        )
+        ordered = sorted(self.artifacts, key=lambda item: (item.artifact_type, item.artifact_id))
         return {
             "manifest_version": self.manifest_version,
             "run_fingerprint": self.run_fingerprint,
