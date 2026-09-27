@@ -1,4 +1,4 @@
-""""Point-in-time instrument lifecycle and corporate-action event rules."""
+"""Point-in-time instrument lifecycle and corporate-action event rules."""
 
 from __future__ import annotations
 
@@ -95,4 +95,3 @@ class ContractLifecycle:
         if self.expiry_at is not None and timestamp >= self.expiry_at:
             return False
         return True
-"
