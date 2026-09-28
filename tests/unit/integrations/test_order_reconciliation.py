@@ -25,6 +25,14 @@ def test_unknown_broker_order_blocks_assumption_of_success():
     assert result.status is OrderReconciliationStatus.MISSING_BROKER_ORDER
 
 
+def test_decimal_equivalent_quantities_are_matched():
+    oid = uuid4()
+    local = OrderObservation(oid, OrderLifecycleStatus.PARTIALLY_FILLED, "10", "4.0")
+    broker = OrderObservation(oid, OrderLifecycleStatus.PARTIALLY_FILLED, "10.0", "4")
+    result = OrderReconciler().reconcile(local=local, broker=broker)
+    assert result.status is OrderReconciliationStatus.MATCHED
+
+
 def test_quantity_mismatch_is_explicit():
     oid = uuid4()
     local = OrderObservation(oid, OrderLifecycleStatus.PARTIALLY_FILLED, "10", "4")
@@ -60,6 +68,14 @@ def test_invalid_order_quantities_are_rejected():
 
     with pytest.raises(ValueError, match="valid decimals"):
         OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "not-a-number", "0")
+
+    for value in ("NaN", "Infinity", "-Infinity"):
+        with pytest.raises(ValueError, match="finite decimals"):
+            OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, value, "0")
+
+    for value in ("NaN", "Infinity", "-Infinity"):
+        with pytest.raises(ValueError, match="finite decimals"):
+            OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "10", value)
 
     with pytest.raises(ValueError, match="positive"):
         OrderObservation(oid, OrderLifecycleStatus.SUBMITTED, "0", "0")
