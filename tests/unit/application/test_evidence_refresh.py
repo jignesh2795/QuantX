@@ -621,7 +621,7 @@ def test_reconciliation_resolution_rejects_wrong_order_identity() -> None:
     )
     other_receipt = _receipt(other_order_id)
     store = InMemoryIdempotencyStore()
-    store.reserve(other_order_id, "fingerprint-a")
+    store.reserve_or_get(other_order_id, "fingerprint-a")
 
     import pytest
 
