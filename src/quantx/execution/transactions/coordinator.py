@@ -47,10 +47,15 @@ class ExecutionTransactionCoordinator:
                 PreconditionsStatus.READY,
                 reasons=(f"idempotent duplicate; receipt={decision.existing_receipt_id}",),
             )
-        if decision.reservation_pending:
+        if decision.reservation_pending and not decision.reservation_acquired:
             return TransactionResult(
                 PreconditionsStatus.UNKNOWN,
                 reasons=("submission outcome is unknown; reconciliation is required",),
+            )
+        if not decision.reservation_acquired:
+            return TransactionResult(
+                PreconditionsStatus.UNKNOWN,
+                reasons=("idempotency reservation was not acquired; reconciliation is required",),
             )
         try:
             receipt = self._submit(request)
