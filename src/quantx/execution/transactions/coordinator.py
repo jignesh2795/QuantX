@@ -11,6 +11,7 @@ from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionReceipt
 from quantx.execution.preconditions import PreconditionsResult, PreconditionsStatus
+from quantx.persistence import ReceiptRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,10 +30,12 @@ class ExecutionTransactionCoordinator:
         idempotency: IdempotencyStore,
         preconditions: Callable[[ApprovedExecutionRequest], PreconditionsResult],
         submit: Callable[[ApprovedExecutionRequest], ExecutionReceipt],
+        receipt_repository: ReceiptRepository | None = None,
     ) -> None:
         self._idempotency = idempotency
         self._preconditions = preconditions
         self._submit = submit
+        self._receipt_repository = receipt_repository
 
     def execute(self, request: ApprovedExecutionRequest) -> TransactionResult:
         preflight = self._preconditions(request)
@@ -43,6 +46,21 @@ class ExecutionTransactionCoordinator:
         client_order_id: UUID = request.order.client_order_id
         decision = self._idempotency.reserve_or_get(client_order_id, fingerprint)
         if decision.existing_receipt_id is not None:
+            if self._receipt_repository is not None:
+                authoritative = self._receipt_repository.get(decision.existing_receipt_id)
+                if authoritative is None:
+                    return TransactionResult(
+                        PreconditionsStatus.UNKNOWN,
+                        reasons=(
+                            "persisted receipt is missing for a completed reservation; "
+                            "reconciliation is required",
+                        ),
+                    )
+                return TransactionResult(
+                    PreconditionsStatus.READY,
+                    receipt=authoritative,
+                    reasons=(f"idempotent duplicate; receipt={decision.existing_receipt_id}",),
+                )
             return TransactionResult(
                 PreconditionsStatus.READY,
                 reasons=(f"idempotent duplicate; receipt={decision.existing_receipt_id}",),

@@ -14,6 +14,7 @@ from quantx.domain.errors import IntegrationError
 from quantx.domain.events import OrderFilled, OrderSubmitted
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Fill
+from quantx.persistence import ReceiptRepository
 
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
 from .market_data import MarketSnapshot
@@ -53,12 +54,14 @@ class PaperExecutionEngine:
         fill_model: FillModel | None = None,
         slippage_model: SlippageModel | None = None,
         idempotency_store: IdempotencyStore | None = None,
+        receipt_repository: ReceiptRepository | None = None,
     ) -> None:
         self._clock = clock
         self._profile = profile or PaperSimulationProfile()
         self._fill_model = fill_model or QuoteFillModel()
         self._slippage_model = slippage_model or SlippageModel(self._profile.slippage_bps)
         self._idempotency = idempotency_store or InMemoryIdempotencyStore()
+        self._receipt_repository = receipt_repository
         self._receipts: dict[UUID, ExecutionReceipt] = {}
         self._events: list[object] = []
 
@@ -80,6 +83,14 @@ class PaperExecutionEngine:
         fingerprint = request_fingerprint(request)
         reservation = self._idempotency.reserve_or_get(client_order_id, fingerprint)
         if reservation.existing_receipt_id is not None:
+            if self._receipt_repository is not None:
+                authoritative = self._receipt_repository.get(reservation.existing_receipt_id)
+                if authoritative is None:
+                    raise PaperExecutionError(
+                        "idempotency store references a completed receipt that is "
+                        "not available in the authoritative repository"
+                    )
+                return authoritative
             existing = self._receipts.get(client_order_id)
             if existing is None:
                 raise PaperExecutionError(
@@ -115,6 +126,8 @@ class PaperExecutionEngine:
                     "missing_required_liquidity_or_quote_does_not_create_a_fill",
                 ),
             )
+            if self._receipt_repository is not None:
+                self._receipt_repository.save(receipt)
             self._receipts[client_order_id] = receipt
             self._idempotency.complete(client_order_id, fingerprint, receipt.receipt_id)
             return receipt
@@ -172,6 +185,8 @@ class PaperExecutionEngine:
             ),
             fee=fee,
         )
+        if self._receipt_repository is not None:
+            self._receipt_repository.save(receipt)
         self._receipts[client_order_id] = receipt
         self._idempotency.complete(client_order_id, fingerprint, receipt.receipt_id)
         self._events.append(
@@ -200,4 +215,6 @@ class PaperExecutionEngine:
         return tuple(self._events)
 
     def receipt_for(self, client_order_id: UUID) -> ExecutionReceipt | None:
+        if self._receipt_repository is not None:
+            return self._receipt_repository.get_by_client_order(client_order_id)
         return self._receipts.get(client_order_id)

@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
@@ -19,7 +20,11 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId
-from quantx.execution.idempotency import IdempotencyDecision, InMemoryIdempotencyStore
+from quantx.execution.idempotency import (
+    IdempotencyDecision,
+    InMemoryIdempotencyStore,
+    request_fingerprint,
+)
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.paper import (
     PaperExecutionEngine,
@@ -27,6 +32,7 @@ from quantx.execution.paper import (
     PaperSimulationProfile,
     QuoteSnapshot,
 )
+from quantx.persistence import ReceiptRepository
 
 
 def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequest:
@@ -173,6 +179,85 @@ def test_stale_observation_returns_cached_receipt_not_pending() -> None:
     first = engine.execute(request, snapshot=snapshot)
     second = engine.execute(request, snapshot=snapshot)
     assert second == first
+
+
+class _FakeReceiptRepository(ReceiptRepository):
+    def __init__(self) -> None:
+        self._receipts = {}
+
+    def save(self, receipt) -> None:
+        self._receipts[receipt.receipt_id] = receipt
+
+    def get(self, receipt_id):
+        return self._receipts.get(receipt_id)
+
+    def get_by_client_order(self, client_order_id):
+        for receipt in self._receipts.values():
+            if receipt.client_order_id == client_order_id:
+                return receipt
+        return None
+
+
+def test_repository_backed_duplicate_returns_authoritative_receipt() -> None:
+    repository = _FakeReceiptRepository()
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        receipt_repository=repository,
+    )
+    request = _request()
+    snapshot = _snapshot(ask=Decimal("100"))
+    first = engine.execute(request, snapshot=snapshot)
+    assert repository.get(first.receipt_id) == first
+    second = engine.execute(request, snapshot=snapshot)
+    assert second == first
+
+
+def test_fresh_execution_saves_receipt_to_repository() -> None:
+    repository = _FakeReceiptRepository()
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        receipt_repository=repository,
+    )
+    receipt = engine.execute(_request(), snapshot=_snapshot(ask=Decimal("100")))
+    assert repository.get(receipt.receipt_id) == receipt
+    assert repository.get_by_client_order(receipt.client_order_id) == receipt
+
+
+def test_cache_conflict_cannot_override_repository_receipt() -> None:
+    repository = _FakeReceiptRepository()
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        receipt_repository=repository,
+    )
+    request = _request()
+    snapshot = _snapshot(ask=Decimal("100"))
+    first = engine.execute(request, snapshot=snapshot)
+    engine._receipts[request.order.client_order_id] = replace(
+        first, receipt_id=uuid4(), message="stale cache entry"
+    )
+    second = engine.execute(request, snapshot=snapshot)
+    assert second == first
+
+
+def test_missing_repository_receipt_fails_closed_without_resubmit() -> None:
+    store = InMemoryIdempotencyStore()
+    repository = _FakeReceiptRepository()
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        idempotency_store=store,
+        receipt_repository=repository,
+    )
+    request = _request()
+    snapshot = _snapshot(ask=Decimal("100"))
+    fingerprint = request_fingerprint(request)
+    store.reserve_or_get(request.order.client_order_id, fingerprint)
+    store.complete(request.order.client_order_id, fingerprint, uuid4())
+    with pytest.raises(PaperExecutionError, match="authoritative repository"):
+        engine.execute(request, snapshot=snapshot)
+    assert engine.events() == ()
+    with pytest.raises(PaperExecutionError, match="authoritative repository"):
+        engine.execute(request, snapshot=snapshot)
+    assert engine.events() == ()
 
 
 # Compatibility smoke test for the transitional alias.
