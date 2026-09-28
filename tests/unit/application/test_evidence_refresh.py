@@ -561,7 +561,7 @@ def test_definitive_reconciliation_resolves_pending_idempotency() -> None:
         provider=provider,
     )
     store = InMemoryIdempotencyStore()
-    store.reserve(order_id, "fingerprint-a")
+    store.reserve_or_get(order_id, "fingerprint-a")
 
     resolved = ReconciliationIdempotencyResolver.resolve(
         outcome,
@@ -590,7 +590,7 @@ def test_non_definitive_reconciliation_leaves_pending_idempotency() -> None:
         provider=provider,
     )
     store = InMemoryIdempotencyStore()
-    store.reserve(order_id, "fingerprint-a")
+    store.reserve_or_get(order_id, "fingerprint-a")
 
     resolved = ReconciliationIdempotencyResolver.resolve(
         outcome,
