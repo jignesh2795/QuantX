@@ -88,7 +88,6 @@ def test_idempotency_completion_failure_enters_unknown_and_blocks_retry(monkeypa
 
     class FailingCompletionStore(InMemoryIdempotencyStore):
         def complete(self, client_order_id, receipt_id) -> None:
-            super().complete(client_order_id, receipt_id)
             raise RuntimeError("persistence unavailable")
 
     monkeypatch.setattr(
@@ -114,7 +113,7 @@ def test_idempotency_completion_failure_enters_unknown_and_blocks_retry(monkeypa
 
     second = coordinator.execute(_request(client_order_id))
 
-    assert second.status is PreconditionsStatus.READY
+    assert second.status is PreconditionsStatus.UNKNOWN
     assert second.receipt is None
-    assert "idempotent duplicate" in second.reasons[0]
+    assert "reconciliation" in second.reasons[0]
     assert calls == 1
