@@ -113,7 +113,7 @@ class SqliteIdempotencyStore:
             if fingerprint != request_fingerprint:
                 raise ValueError("client_order_id was reused with a different request")
             if existing is not None:
-                raise ValueError("cannot overwrite an existing receipt")
+                raise ValueError("cannot resolve a non-pending idempotency reservation")
             connection.execute(
                 "UPDATE idempotency_reservations SET receipt_id = ?, completed_at = ? "
                 "WHERE client_order_id = ?",

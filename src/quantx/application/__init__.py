@@ -14,6 +14,7 @@ from .evidence_refresh import (
     RefreshPolicy,
 )
 from .execution import ExecutionDispatchStatus, ExecutionOrchestrator, ExecutionResult
+from .pending_reconciliation import reconcile_pending_execution
 from .reconciliation import (
     OrderStateReconciliationResult,
     OrderStateReconciliationWorkflow,
@@ -34,6 +35,7 @@ __all__ = [
     "OrderStateReconciliationResult",
     "OrderStateReconciliationWorkflow",
     "OrderWorkflowStatus",
+    "reconcile_pending_execution",
     "ReconciliationEvidenceProvider",
     "ReconciliationEvidenceRefresher",
     "RefreshPolicy",
