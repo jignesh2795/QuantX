@@ -12,6 +12,7 @@ from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionReceipt, MarketDataExecutionPort
 from quantx.execution.preconditions import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions import ExecutionTransactionCoordinator
+from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 
 
@@ -40,9 +41,11 @@ class ExecutionOrchestrator:
         *,
         paper_executor: MarketDataExecutionPort | None = None,
         idempotency: IdempotencyStore | None = None,
+        unit_of_work: UnitOfWork | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._idempotency = idempotency or InMemoryIdempotencyStore()
+        self._unit_of_work = unit_of_work
 
     def execute(
         self,
@@ -129,6 +132,10 @@ class ExecutionOrchestrator:
                 reason="broker does not support all required execution capabilities",
             )
 
+        unit_of_work = self._unit_of_work
+        if unit_of_work is not None:
+            return self._execute_live_transactional(request, broker, unit_of_work)
+
         coordinator = ExecutionTransactionCoordinator(
             idempotency=self._idempotency,
             preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
@@ -152,3 +159,42 @@ class ExecutionOrchestrator:
             receipt=transaction.receipt,
             reason="; ".join(transaction.reasons),
         )
+
+    def _execute_live_transactional(
+        self,
+        request: ApprovedExecutionRequest,
+        broker: BrokerPort,
+        unit_of_work: UnitOfWork,
+    ) -> ExecutionResult:
+        """Live execution grouping receipt save and idempotency completion.
+
+        The coordinator keeps its existing behavior against the unit of
+        work idempotency store; this boundary owns commit and rollback.
+        """
+        with unit_of_work:
+            coordinator = ExecutionTransactionCoordinator(
+                idempotency=unit_of_work.idempotency,
+                preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
+                submit=broker.submit,
+                receipt_repository=unit_of_work.receipts,
+            )
+            transaction = coordinator.execute(request)
+            if transaction.status is PreconditionsStatus.READY and transaction.receipt is not None:
+                unit_of_work.receipts.save(transaction.receipt)
+            if transaction.status is PreconditionsStatus.UNKNOWN:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.UNKNOWN,
+                    receipt=transaction.receipt,
+                    reason="; ".join(transaction.reasons),
+                )
+            if transaction.status is not PreconditionsStatus.READY:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    receipt=transaction.receipt,
+                    reason="; ".join(transaction.reasons),
+                )
+            return ExecutionResult(
+                ExecutionDispatchStatus.EXECUTED,
+                receipt=transaction.receipt,
+                reason="; ".join(transaction.reasons),
+            )

@@ -25,6 +25,8 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.execution.idempotency import InMemoryIdempotencyStore
+from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.brokers import (
     BrokerCapability,
@@ -32,6 +34,7 @@ from quantx.integrations.brokers import (
     BrokerDescriptor,
     CapabilitySet,
 )
+from quantx.persistence import ReceiptRepository, UnitOfWork
 
 
 def _instrument() -> Instrument:
@@ -321,4 +324,140 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
     assert result.status is ExecutionDispatchStatus.UNKNOWN
     assert result.receipt is None
     assert "reconciliation" in result.reason
+    assert broker.submit_calls == 1
+
+
+class _FakeReceiptRepository(ReceiptRepository):
+    def __init__(self) -> None:
+        self._receipts = {}
+
+    def save(self, receipt) -> None:
+        self._receipts[receipt.receipt_id] = receipt
+
+    def get(self, receipt_id):
+        return self._receipts.get(receipt_id)
+
+    def get_by_client_order(self, client_order_id):
+        for receipt in self._receipts.values():
+            if receipt.client_order_id == client_order_id:
+                return receipt
+        return None
+
+
+class _FakeUnitOfWork(UnitOfWork):
+    def __init__(self) -> None:
+        self._store = InMemoryIdempotencyStore()
+        self._repository = _FakeReceiptRepository()
+        self.committed = False
+        self.rolled_back = False
+
+    @property
+    def idempotency(self):
+        return self._store
+
+    @property
+    def receipts(self):
+        return self._repository
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()
+
+
+def _live_request():
+    return _request(
+        ExecutionMode.LIVE,
+        connection_id=BrokerConnectionId("conn-1"),
+    )
+
+
+def test_live_unit_of_work_groups_receipt_and_completion() -> None:
+    request = _live_request()
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work)
+
+    result = orchestrator.execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+    assert unit_of_work.committed
+    assert not unit_of_work.rolled_back
+    assert unit_of_work.receipts.get(result.receipt.receipt_id) == result.receipt
+    assert (
+        unit_of_work.receipts.get_by_client_order(request.order.client_order_id) == result.receipt
+    )
+    decision = unit_of_work.idempotency.check(
+        request.order.client_order_id, request_fingerprint(request)
+    )
+    assert decision.existing_receipt_id == result.receipt.receipt_id
+    assert not decision.reservation_pending
+    assert broker.submit_calls == 1
+
+
+def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
+    class FailingBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            raise RuntimeError("transport timeout")
+
+    request = _live_request()
+    broker = FailingBroker()
+    unit_of_work = _FakeUnitOfWork()
+    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work)
+
+    result = orchestrator.execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.UNKNOWN
+    assert result.receipt is None
+    assert "reconciliation" in result.reason
+    assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+    decision = unit_of_work.idempotency.check(
+        request.order.client_order_id, request_fingerprint(request)
+    )
+    assert decision.reservation_pending
+    assert decision.existing_receipt_id is None
+    assert unit_of_work.committed
+    assert not unit_of_work.rolled_back
+    assert broker.submit_calls == 1
+
+
+def test_live_without_unit_of_work_preserves_existing_behavior() -> None:
+    request = _live_request()
+    broker = FakeBroker()
+    orchestrator = ExecutionOrchestrator()
+
+    result = orchestrator.execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+    assert result.receipt.source == "fake-broker"
+    assert broker.submit_calls == 1
+
+
+def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
+    request = _live_request()
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work)
+
+    first = orchestrator.execute(request, broker=broker)
+    assert first.status is ExecutionDispatchStatus.EXECUTED
+    assert first.receipt is not None
+
+    second = orchestrator.execute(request, broker=broker)
+    assert second.status is ExecutionDispatchStatus.EXECUTED
+    assert second.receipt == first.receipt
+    assert "idempotent duplicate" in second.reason
     assert broker.submit_calls == 1
