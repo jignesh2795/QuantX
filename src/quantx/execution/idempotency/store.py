@@ -46,21 +46,23 @@ class InMemoryIdempotencyStore:
             if existing is not None and existing != request_fingerprint:
                 raise ValueError("client_order_id was reused with a different request")
             return IdempotencyDecision(
-            client_order_id=client_order_id,
-            request_fingerprint=request_fingerprint,
-            existing_receipt_id=self._receipts.get(client_order_id),
+                client_order_id=client_order_id,
+                request_fingerprint=request_fingerprint,
+                existing_receipt_id=self._receipts.get(client_order_id),
                 reservation_pending=existing is not None and client_order_id not in self._receipts,
             )
 
-    def reserve_or_get(self, client_order_id: UUID, request_fingerprint: str) -> IdempotencyDecision:
+    def reserve_or_get(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> IdempotencyDecision:
         with self._lock:
             decision = self.check(client_order_id, request_fingerprint)
             if decision.existing_receipt_id is not None or decision.reservation_pending:
                 return decision
             self._fingerprints[client_order_id] = request_fingerprint
             return IdempotencyDecision(
-            client_order_id=client_order_id,
-            request_fingerprint=request_fingerprint,
+                client_order_id=client_order_id,
+                request_fingerprint=request_fingerprint,
                 reservation_pending=True,
             )
 
@@ -70,7 +72,7 @@ class InMemoryIdempotencyStore:
         with self._lock:
             existing = self._fingerprints.get(client_order_id)
             if existing is None:
-            raise ValueError("cannot complete an unreserved client_order_id")
+                raise ValueError("cannot complete an unreserved client_order_id")
             if existing != request_fingerprint:
                 raise ValueError("client_order_id was reused with a different request")
             if client_order_id in self._receipts:
@@ -83,7 +85,10 @@ class InMemoryIdempotencyStore:
         request_fingerprint: str,
         receipt_id: UUID,
     ) -> None:
-        decision = self.check(client_order_id, request_fingerprint)
-        if not decision.reservation_pending:
-            raise ValueError("cannot resolve a non-pending idempotency reservation")
-        self._receipts[client_order_id] = receipt_id
+        with self._lock:
+            decision = self.check(client_order_id, request_fingerprint)
+            if not decision.reservation_pending:
+                raise ValueError("cannot resolve a non-pending idempotency reservation")
+            if self._receipts.get(client_order_id) is not None:
+                raise ValueError("cannot overwrite an existing receipt")
+            self._receipts[client_order_id] = receipt_id
