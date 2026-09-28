@@ -27,7 +27,6 @@ from .transport import (
     ReferenceOrderResponse,
 )
 
-
 _OUTCOME_TO_STATUS = {
     ReferenceOrderOutcome.ACCEPTED: (ExecutionOutcome.ACCEPTED, OrderStatus.ACCEPTED),
     ReferenceOrderOutcome.REJECTED: (ExecutionOutcome.REJECTED, OrderStatus.REJECTED),
