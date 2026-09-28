@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
+
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
@@ -35,6 +37,7 @@ from quantx.integrations.brokers import (
     CapabilitySet,
 )
 from quantx.persistence import ReceiptRepository, UnitOfWork
+from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
 
 
 def _instrument() -> Instrument:
@@ -461,3 +464,164 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
     assert second.receipt == first.receipt
     assert "idempotent duplicate" in second.reason
     assert broker.submit_calls == 1
+
+
+def _sqlite_setup(tmp_path):
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    unit_of_work = SqliteUnitOfWork(database)
+    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work)
+    return database, unit_of_work, orchestrator
+
+
+def test_sqlite_first_execution_persists_receipt_and_completion(tmp_path) -> None:
+    database, unit_of_work, orchestrator = _sqlite_setup(tmp_path)
+    try:
+        request = _live_request()
+        broker = FakeBroker()
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.EXECUTED
+        assert result.receipt is not None
+        assert broker.submit_calls == 1
+        assert unit_of_work.receipts.get(result.receipt.receipt_id) == result.receipt
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.existing_receipt_id == result.receipt.receipt_id
+        assert not decision.reservation_pending
+    finally:
+        database.close()
+
+
+def test_sqlite_duplicate_returns_persisted_receipt_without_resubmit(tmp_path) -> None:
+    database, unit_of_work, orchestrator = _sqlite_setup(tmp_path)
+    try:
+        request = _live_request()
+        broker = FakeBroker()
+        first = orchestrator.execute(request, broker=broker)
+        assert first.status is ExecutionDispatchStatus.EXECUTED
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.EXECUTED
+        assert second.receipt == first.receipt
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_sqlite_submission_failure_preserves_pending_without_retry(tmp_path) -> None:
+    class FailingBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            raise RuntimeError("transport timeout")
+
+    database, unit_of_work, orchestrator = _sqlite_setup(tmp_path)
+    try:
+        request = _live_request()
+        broker = FailingBroker()
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert "reconciliation" in result.reason
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_sqlite_fingerprint_mismatch_rejected_without_submit(tmp_path) -> None:
+    database, unit_of_work, orchestrator = _sqlite_setup(tmp_path)
+    try:
+        request = _live_request()
+        broker = FakeBroker()
+        first = orchestrator.execute(request, broker=broker)
+        assert first.status is ExecutionDispatchStatus.EXECUTED
+        changed_order = replace(request.order, quantity=Decimal("11"))
+        changed_request = replace(request, order=changed_order)
+        with pytest.raises(ValueError, match="different request"):
+            orchestrator.execute(changed_request, broker=broker)
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    request = _live_request()
+    database_a = SqliteDatabase(path)
+    try:
+        orchestrator_a = ExecutionOrchestrator(unit_of_work=SqliteUnitOfWork(database_a))
+        first = orchestrator_a.execute(request, broker=FakeBroker())
+        assert first.status is ExecutionDispatchStatus.EXECUTED
+    finally:
+        database_a.close()
+    database_b = SqliteDatabase(path)
+    try:
+        broker_b = FakeBroker()
+        orchestrator_b = ExecutionOrchestrator(unit_of_work=SqliteUnitOfWork(database_b))
+        second = orchestrator_b.execute(request, broker=broker_b)
+        assert second.status is ExecutionDispatchStatus.EXECUTED
+        assert second.receipt == first.receipt
+        assert broker_b.submit_calls == 0
+    finally:
+        database_b.close()
+
+
+def test_sqlite_completion_failure_is_unknown_with_pending(tmp_path, monkeypatch) -> None:
+    database, unit_of_work, orchestrator = _sqlite_setup(tmp_path)
+    try:
+        request = _live_request()
+        broker = FakeBroker()
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("completion unavailable")
+
+        monkeypatch.setattr(unit_of_work.idempotency, "complete", boom)
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is not None
+        assert "reconciliation" in result.reason
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        assert broker.submit_calls == 1
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_live_without_unit_of_work_needs_no_sqlite() -> None:
+    request = _live_request()
+    broker = FakeBroker()
+    result = ExecutionOrchestrator().execute(request, broker=broker)
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+    assert result.receipt.source == "fake-broker"
+    assert broker.submit_calls == 1
+
+
+def test_broker_submit_runs_outside_sqlite_transaction(tmp_path) -> None:
+    database, unit_of_work, orchestrator = _sqlite_setup(tmp_path)
+    try:
+        observed = {}
+
+        class InspectingBroker(FakeBroker):
+            def submit(self, request):
+                observed["in_transaction"] = database.connection().in_transaction
+                return super().submit(request)
+
+        result = orchestrator.execute(_live_request(), broker=InspectingBroker())
+        assert result.status is ExecutionDispatchStatus.EXECUTED
+        assert observed["in_transaction"] is False
+    finally:
+        database.close()

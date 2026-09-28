@@ -8,6 +8,7 @@ from enum import StrEnum
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.execution.idempotency import IdempotencyStore, InMemoryIdempotencyStore
+from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionReceipt, MarketDataExecutionPort
 from quantx.execution.preconditions import PreconditionsResult, PreconditionsStatus
@@ -166,35 +167,61 @@ class ExecutionOrchestrator:
         broker: BrokerPort,
         unit_of_work: UnitOfWork,
     ) -> ExecutionResult:
-        """Live execution grouping receipt save and idempotency completion.
+        """Live execution in two scopes so no transaction spans broker submit.
 
-        The coordinator keeps its existing behavior against the unit of
-        work idempotency store; this boundary owns commit and rollback.
+        Scope A commits the PENDING reservation; the broker submission runs
+        outside any transaction; Scope B atomically saves the receipt and
+        completes the reservation. The coordinator is not used here because
+        its single execute() call cannot release the transaction mid-flow.
         """
+        fingerprint = request_fingerprint(request)
+        client_order_id = request.order.client_order_id
         with unit_of_work:
-            coordinator = ExecutionTransactionCoordinator(
-                idempotency=unit_of_work.idempotency,
-                preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
-                submit=broker.submit,
-                receipt_repository=unit_of_work.receipts,
-            )
-            transaction = coordinator.execute(request)
-            if transaction.status is PreconditionsStatus.READY and transaction.receipt is not None:
-                unit_of_work.receipts.save(transaction.receipt)
-            if transaction.status is PreconditionsStatus.UNKNOWN:
+            decision = unit_of_work.idempotency.reserve_or_get(client_order_id, fingerprint)
+            if decision.existing_receipt_id is not None:
+                authoritative = unit_of_work.receipts.get(decision.existing_receipt_id)
+                if authoritative is None:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.UNKNOWN,
+                        reason=(
+                            "persisted receipt is missing for a completed reservation; "
+                            "reconciliation is required"
+                        ),
+                    )
+                return ExecutionResult(
+                    ExecutionDispatchStatus.EXECUTED,
+                    receipt=authoritative,
+                    reason=f"idempotent duplicate; receipt={decision.existing_receipt_id}",
+                )
+            if decision.reservation_pending and not decision.reservation_acquired:
                 return ExecutionResult(
                     ExecutionDispatchStatus.UNKNOWN,
-                    receipt=transaction.receipt,
-                    reason="; ".join(transaction.reasons),
+                    reason="submission outcome is unknown; reconciliation is required",
                 )
-            if transaction.status is not PreconditionsStatus.READY:
+            if not decision.reservation_acquired:
                 return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    receipt=transaction.receipt,
-                    reason="; ".join(transaction.reasons),
+                    ExecutionDispatchStatus.UNKNOWN,
+                    reason=("idempotency reservation was not acquired; reconciliation is required"),
                 )
+        try:
+            receipt = broker.submit(request)
+        except Exception as exc:
             return ExecutionResult(
-                ExecutionDispatchStatus.EXECUTED,
-                receipt=transaction.receipt,
-                reason="; ".join(transaction.reasons),
+                ExecutionDispatchStatus.UNKNOWN,
+                reason=f"submission outcome is unknown; reconciliation is required: {exc}",
             )
+        with unit_of_work:
+            unit_of_work.receipts.save(receipt)
+            try:
+                unit_of_work.idempotency.complete(client_order_id, fingerprint, receipt.receipt_id)
+            except Exception as exc:
+                unit_of_work.rollback()
+                return ExecutionResult(
+                    ExecutionDispatchStatus.UNKNOWN,
+                    receipt=receipt,
+                    reason=(
+                        "submission completed but idempotency completion is uncertain; "
+                        f"reconciliation is required: {exc}"
+                    ),
+                )
+        return ExecutionResult(ExecutionDispatchStatus.EXECUTED, receipt=receipt, reason="")
