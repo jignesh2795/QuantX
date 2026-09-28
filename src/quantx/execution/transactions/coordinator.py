@@ -47,8 +47,19 @@ class ExecutionTransactionCoordinator:
                 PreconditionsStatus.READY,
                 reasons=(f"idempotent duplicate; receipt={decision.existing_receipt_id}",),
             )
+        if decision.reservation_pending:
+            return TransactionResult(
+                PreconditionsStatus.UNKNOWN,
+                reasons=("submission outcome is unknown; reconciliation is required",),
+            )
 
         self._idempotency.reserve(client_order_id, fingerprint)
-        receipt = self._submit(request)
+        try:
+            receipt = self._submit(request)
+        except Exception as exc:
+            return TransactionResult(
+                PreconditionsStatus.UNKNOWN,
+                reasons=(f"submission outcome is unknown: {exc}",),
+            )
         self._idempotency.complete(client_order_id, receipt.receipt_id)
         return TransactionResult(PreconditionsStatus.READY, receipt=receipt)
