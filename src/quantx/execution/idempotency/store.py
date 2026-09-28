@@ -12,6 +12,7 @@ class IdempotencyDecision:
     client_order_id: UUID
     request_fingerprint: str
     existing_receipt_id: UUID | None = None
+    reservation_pending: bool = False
 
 
 class IdempotencyStore(Protocol):
@@ -35,6 +36,7 @@ class InMemoryIdempotencyStore:
             client_order_id=client_order_id,
             request_fingerprint=request_fingerprint,
             existing_receipt_id=self._receipts.get(client_order_id),
+            reservation_pending=existing is not None and client_order_id not in self._receipts,
         )
 
     def reserve(self, client_order_id: UUID, request_fingerprint: str) -> None:
