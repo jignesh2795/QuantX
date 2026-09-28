@@ -47,3 +47,14 @@ class InMemoryIdempotencyStore:
         if client_order_id not in self._fingerprints:
             raise ValueError("cannot complete an unreserved client_order_id")
         self._receipts[client_order_id] = receipt_id
+
+    def resolve_pending(
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        receipt_id: UUID,
+    ) -> None:
+        decision = self.check(client_order_id, request_fingerprint)
+        if not decision.reservation_pending:
+            raise ValueError("cannot resolve a non-pending idempotency reservation")
+        self._receipts[client_order_id] = receipt_id
