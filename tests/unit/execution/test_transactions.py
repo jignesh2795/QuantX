@@ -87,7 +87,7 @@ def test_idempotency_completion_failure_enters_unknown_and_blocks_retry(monkeypa
         return receipt
 
     class FailingCompletionStore(InMemoryIdempotencyStore):
-        def complete(self, client_order_id, receipt_id) -> None:
+        def complete(self, client_order_id, request_fingerprint, receipt_id) -> None:
             raise RuntimeError("persistence unavailable")
 
     monkeypatch.setattr(
