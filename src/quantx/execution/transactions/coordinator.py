@@ -41,7 +41,7 @@ class ExecutionTransactionCoordinator:
 
         fingerprint = request_fingerprint(request)
         client_order_id: UUID = request.order.client_order_id
-        decision = self._idempotency.check(client_order_id, fingerprint)
+        decision = self._idempotency.reserve_or_get(client_order_id, fingerprint)
         if decision.existing_receipt_id is not None:
             return TransactionResult(
                 PreconditionsStatus.READY,
@@ -52,8 +52,6 @@ class ExecutionTransactionCoordinator:
                 PreconditionsStatus.UNKNOWN,
                 reasons=("submission outcome is unknown; reconciliation is required",),
             )
-
-        self._idempotency.reserve(client_order_id, fingerprint)
         try:
             receipt = self._submit(request)
         except Exception as exc:
@@ -62,7 +60,7 @@ class ExecutionTransactionCoordinator:
                 reasons=(f"submission outcome is unknown; reconciliation is required: {exc}",),
             )
         try:
-            self._idempotency.complete(client_order_id, receipt.receipt_id)
+            self._idempotency.complete(client_order_id, fingerprint, receipt.receipt_id)
         except Exception as exc:
             return TransactionResult(
                 PreconditionsStatus.UNKNOWN,
