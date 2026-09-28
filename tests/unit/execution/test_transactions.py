@@ -73,3 +73,48 @@ def test_pending_submission_cannot_be_retried(monkeypatch) -> None:
     assert second.status is PreconditionsStatus.UNKNOWN
     assert "reconciliation" in second.reasons[0]
     assert calls == 1
+
+
+def test_idempotency_completion_failure_enters_unknown_and_blocks_retry(monkeypatch) -> None:
+    client_order_id = uuid4()
+    calls = 0
+    receipt_id = uuid4()
+
+    def submit(_):
+        nonlocal calls
+        calls += 1
+        receipt = type("Receipt", (), {"receipt_id": receipt_id})()
+        return receipt
+
+    class FailingCompletionStore(InMemoryIdempotencyStore):
+        def complete(self, client_order_id, receipt_id) -> None:
+            super().complete(client_order_id, receipt_id)
+            raise RuntimeError("persistence unavailable")
+
+    monkeypatch.setattr(
+        "quantx.execution.transactions.coordinator.request_fingerprint",
+        lambda _: "fingerprint-a",
+    )
+
+    store = FailingCompletionStore()
+    coordinator = ExecutionTransactionCoordinator(
+        idempotency=store,
+        preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
+        submit=submit,
+    )
+
+    first = coordinator.execute(_request(client_order_id))
+
+    assert first.status is PreconditionsStatus.UNKNOWN
+    assert first.receipt is not None
+    assert first.receipt.receipt_id == receipt_id
+    assert "idempotency completion" in first.reasons[0]
+    assert "reconciliation" in first.reasons[0]
+    assert calls == 1
+
+    second = coordinator.execute(_request(client_order_id))
+
+    assert second.status is PreconditionsStatus.READY
+    assert second.receipt is None
+    assert "idempotent duplicate" in second.reasons[0]
+    assert calls == 1
