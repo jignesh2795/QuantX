@@ -174,7 +174,7 @@ class PaperExecutionEngine:
             fee=fee,
         )
         self._receipts[client_order_id] = receipt
-        self._idempotency.complete(client_order_id, receipt.receipt_id)
+        self._idempotency.complete(client_order_id, fingerprint, receipt.receipt_id)
         self._events.append(
             OrderSubmitted(
                 event_id=str(uuid4()),
