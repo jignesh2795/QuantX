@@ -80,9 +80,7 @@ def _request(
 
 
 class FakePaperExecutor:
-    def execute(
-        self, request: ApprovedExecutionRequest, *, snapshot: Quote
-    ) -> ExecutionReceipt:
+    def execute(self, request: ApprovedExecutionRequest, *, snapshot: Quote) -> ExecutionReceipt:
         fill = Fill(
             client_order_id=request.order.client_order_id,
             instrument=request.order.instrument,
@@ -245,10 +243,12 @@ def test_live_blocks_missing_required_capability() -> None:
     request = _request(
         ExecutionMode.LIVE,
         connection_id=BrokerConnectionId("conn-1"),
-        required_capabilities=frozenset({
-            BrokerCapability.ORDER_SUBMISSION,
-            BrokerCapability.ORDER_CANCELLATION,
-        }),
+        required_capabilities=frozenset(
+            {
+                BrokerCapability.ORDER_SUBMISSION,
+                BrokerCapability.ORDER_CANCELLATION,
+            }
+        ),
     )
     result = ExecutionOrchestrator().execute(request, broker=FakeBroker())
     assert result.status is ExecutionDispatchStatus.BLOCKED
