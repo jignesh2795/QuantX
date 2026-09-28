@@ -7,8 +7,8 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.enums import OrderStatus
+from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Fill
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
