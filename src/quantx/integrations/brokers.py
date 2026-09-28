@@ -51,7 +51,7 @@ class CapabilitySet:
     def supports(self, capability: BrokerCapability) -> bool:
         return capability in self.values
 
-    def require(self, required: FrozenSet[BrokerCapability]) -> bool:
+    def require(self, required: FrozenSet[str]) -> bool:
         return required.issubset(self.values)
 
 
