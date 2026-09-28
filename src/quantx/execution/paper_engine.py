@@ -86,7 +86,11 @@ class PaperExecutionEngine:
                     "idempotency store references a completed receipt that is not available"
                 )
             return existing
-        self._idempotency.reserve(client_order_id, fingerprint)
+        reservation = self._idempotency.reserve_or_get(client_order_id, fingerprint)
+        if not reservation.reservation_acquired:
+            raise PaperExecutionError(
+                "submission is already pending and requires reconciliation"
+            )
 
         proposal = self._fill_model.propose_fill(request, snapshot)
         if proposal is None:
@@ -115,7 +119,7 @@ class PaperExecutionEngine:
                 ),
             )
             self._receipts[client_order_id] = receipt
-            self._idempotency.complete(client_order_id, receipt.receipt_id)
+            self._idempotency.complete(client_order_id, fingerprint, receipt.receipt_id)
             return receipt
 
         fill_quantity = proposal.quantity * self._profile.partial_fill_ratio
