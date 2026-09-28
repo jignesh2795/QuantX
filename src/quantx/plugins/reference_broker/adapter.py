@@ -48,12 +48,14 @@ class ReferenceBrokerAdapter:
     _instruments: tuple[Instrument, ...]
     _transport: ReferenceBrokerTransport
     _capabilities: CapabilitySet = CapabilitySet(
-        frozenset({
-            BrokerCapability.MARKET_DATA,
-            BrokerCapability.ORDER_SUBMISSION,
-            BrokerCapability.ORDER_CANCELLATION,
-            BrokerCapability.PAPER_TRADING,
-        })
+        frozenset(
+            {
+                BrokerCapability.MARKET_DATA,
+                BrokerCapability.ORDER_SUBMISSION,
+                BrokerCapability.ORDER_CANCELLATION,
+                BrokerCapability.PAPER_TRADING,
+            }
+        )
     )
     _adapter_version: str = "reference-0.1"
 
