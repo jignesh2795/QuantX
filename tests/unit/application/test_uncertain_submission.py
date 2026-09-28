@@ -123,6 +123,34 @@ def test_terminal_non_fill_states_recover_without_fabricating_fills(
     assert receipt.fills == ()
 
 
+def test_cancelled_order_requires_reported_fill_evidence() -> None:
+    request = _request()
+
+    with pytest.raises(ValueError, match="fill quantity"):
+        UncertainSubmissionReceiptRecovery().recover(
+            request,
+            _observation(request, OrderLifecycleStatus.CANCELLED, filled="1"),
+            request_id=uuid4(),
+            recovered_at=RECOVERED_AT,
+        )
+
+
+def test_cancelled_order_recovers_with_matching_fill_evidence() -> None:
+    request = _request()
+    fill = _fill(request, "1")
+    receipt = UncertainSubmissionReceiptRecovery().recover(
+        request,
+        _observation(request, OrderLifecycleStatus.CANCELLED, filled="1"),
+        request_id=uuid4(),
+        recovered_at=RECOVERED_AT,
+        fills=(fill,),
+    )
+
+    assert receipt is not None
+    assert receipt.outcome.value == "CANCELLED"
+    assert receipt.fills == (fill,)
+
+
 def test_filled_order_requires_real_fill_evidence() -> None:
     request = _request()
 
