@@ -88,9 +88,7 @@ class PaperExecutionEngine:
             return existing
         reservation = self._idempotency.reserve_or_get(client_order_id, fingerprint)
         if not reservation.reservation_acquired:
-            raise PaperExecutionError(
-                "submission is already pending and requires reconciliation"
-            )
+            raise PaperExecutionError("submission is already pending and requires reconciliation")
 
         proposal = self._fill_model.propose_fill(request, snapshot)
         if proposal is None:
