@@ -14,6 +14,7 @@ class IdempotencyDecision:
     request_fingerprint: str
     existing_receipt_id: UUID | None = None
     reservation_pending: bool = False
+    reservation_acquired: bool = False
 
 
 class IdempotencyStore(Protocol):
@@ -64,6 +65,7 @@ class InMemoryIdempotencyStore:
                 client_order_id=client_order_id,
                 request_fingerprint=request_fingerprint,
                 reservation_pending=True,
+                reservation_acquired=True,
             )
 
     def complete(
