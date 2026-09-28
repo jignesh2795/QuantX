@@ -68,9 +68,7 @@ class InMemoryIdempotencyStore:
                 reservation_acquired=True,
             )
 
-    def complete(
-        self, client_order_id: UUID, request_fingerprint: str, receipt_id: UUID
-    ) -> None:
+    def complete(self, client_order_id: UUID, request_fingerprint: str, receipt_id: UUID) -> None:
         with self._lock:
             existing = self._fingerprints.get(client_order_id)
             if existing is None:
