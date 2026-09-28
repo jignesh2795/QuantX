@@ -7,14 +7,18 @@ from enum import StrEnum
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.execution.idempotency import IdempotencyStore, InMemoryIdempotencyStore
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionReceipt, MarketDataExecutionPort
+from quantx.execution.preconditions import PreconditionsResult, PreconditionsStatus
+from quantx.execution.transactions import ExecutionTransactionCoordinator
 from quantx.ports.broker import BrokerPort
 
 
 class ExecutionDispatchStatus(StrEnum):
     EXECUTED = "EXECUTED"
     BLOCKED = "BLOCKED"
+    UNKNOWN = "UNKNOWN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,8 +39,10 @@ class ExecutionOrchestrator:
         self,
         *,
         paper_executor: MarketDataExecutionPort | None = None,
+        idempotency: IdempotencyStore | None = None,
     ) -> None:
         self._paper_executor = paper_executor
+        self._idempotency = idempotency or InMemoryIdempotencyStore()
 
     def execute(
         self,
@@ -123,7 +129,25 @@ class ExecutionOrchestrator:
                 reason="broker does not support all required execution capabilities",
             )
 
+        coordinator = ExecutionTransactionCoordinator(
+            idempotency=self._idempotency,
+            preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
+            submit=broker.submit,
+        )
+        transaction = coordinator.execute(request)
+        if transaction.status is PreconditionsStatus.UNKNOWN:
+            return ExecutionResult(
+                ExecutionDispatchStatus.UNKNOWN,
+                receipt=transaction.receipt,
+                reason="; ".join(transaction.reasons),
+            )
+        if transaction.status is not PreconditionsStatus.READY:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                receipt=transaction.receipt,
+                reason="; ".join(transaction.reasons),
+            )
         return ExecutionResult(
             ExecutionDispatchStatus.EXECUTED,
-            receipt=broker.submit(request),
+            receipt=transaction.receipt,
         )
