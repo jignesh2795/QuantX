@@ -58,10 +58,10 @@ def _order(
     *,
     quantity: Decimal = Decimal("2"),
     side: OrderSide = OrderSide.BUY,
-    instrument: InstrumentId = InstrumentId("NSE", "TCS"),
+    instrument: InstrumentId | None = None,
 ) -> Order:
     return Order(
-        instrument=instrument,
+        instrument=instrument or InstrumentId("NSE", "TCS"),
         side=side,
         order_type=OrderType.MARKET,
         quantity=quantity,
