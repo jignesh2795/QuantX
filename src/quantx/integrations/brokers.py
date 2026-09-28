@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import FrozenSet, Protocol
+from typing import Protocol
 
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 
@@ -46,12 +46,12 @@ class BrokerConnectionRef:
 
 @dataclass(frozen=True, slots=True)
 class CapabilitySet:
-    values: FrozenSet[BrokerCapability] = frozenset()
+    values: frozenset[BrokerCapability] = frozenset()
 
     def supports(self, capability: BrokerCapability) -> bool:
         return capability in self.values
 
-    def require(self, required: FrozenSet[str]) -> bool:
+    def require(self, required: frozenset[str]) -> bool:
         return required.issubset(self.values)
 
 
