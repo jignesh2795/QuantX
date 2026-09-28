@@ -34,6 +34,8 @@ class OrderObservation:
             filled = Decimal(self.filled_quantity)
         except (InvalidOperation, ValueError) as exc:
             raise ValueError("order quantities must be valid decimals") from exc
+        if not requested.is_finite() or not filled.is_finite():
+            raise ValueError("order quantities must be finite decimals")
         if requested <= 0:
             raise ValueError("requested quantity must be positive")
         if filled < 0:
@@ -100,7 +102,9 @@ class OrderReconciler:
                 OrderReconciliationStatus.STATE_MISMATCH,
                 f"local={local.status}, broker={broker.status}",
             )
-        if local.requested_quantity != broker.requested_quantity:
+        local_requested = Decimal(local.requested_quantity)
+        broker_requested = Decimal(broker.requested_quantity)
+        if local_requested != broker_requested:
             return OrderReconciliationResult(
                 local.order_id,
                 OrderReconciliationStatus.QUANTITY_MISMATCH,
@@ -109,7 +113,9 @@ class OrderReconciler:
                     f"{local.requested_quantity}, broker requested={broker.requested_quantity}"
                 ),
             )
-        if local.filled_quantity != broker.filled_quantity:
+        local_filled = Decimal(local.filled_quantity)
+        broker_filled = Decimal(broker.filled_quantity)
+        if local_filled != broker_filled:
             return OrderReconciliationResult(
                 local.order_id,
                 OrderReconciliationStatus.QUANTITY_MISMATCH,
