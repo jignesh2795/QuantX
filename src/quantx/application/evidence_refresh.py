@@ -16,6 +16,7 @@ from typing import Protocol
 from uuid import UUID
 
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
+from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.ports import ExecutionReceipt
 from quantx.integrations.reconciliation.account import AccountFinancialState
 from quantx.integrations.reconciliation.orders import OrderObservation
@@ -105,6 +106,31 @@ class EvidenceRefreshOutcome:
     broker_order: OrderObservation | None = None
     broker_position: PositionState | None = None
     broker_account: AccountFinancialState | None = None
+
+
+class ReconciliationIdempotencyResolver:
+    """Resolve a pending reservation only from a definitive canonical receipt."""
+
+    @staticmethod
+    def resolve(
+        outcome: EvidenceRefreshOutcome,
+        receipt: ExecutionReceipt,
+        *,
+        request_fingerprint: str,
+        idempotency: IdempotencyStore,
+    ) -> bool:
+        if not outcome.definitive:
+            return False
+        if outcome.result.order_id is not None and receipt.order_id != outcome.result.order_id:
+            raise ValueError("reconciliation order identity does not match receipt")
+        if not isinstance(receipt.client_order_id, UUID):
+            raise ValueError("receipt client_order_id must be a UUID for idempotency resolution")
+        idempotency.resolve_pending(
+            receipt.client_order_id,
+            request_fingerprint,
+            receipt.receipt_id,
+        )
+        return True
 
 
 class ReconciliationEvidenceRefresher:
