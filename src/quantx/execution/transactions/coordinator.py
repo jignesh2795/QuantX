@@ -59,7 +59,10 @@ class ExecutionTransactionCoordinator:
         except Exception as exc:
             return TransactionResult(
                 PreconditionsStatus.UNKNOWN,
-                reasons=(f"submission outcome is unknown: {exc}",),
+                reasons=(
+                    "submission outcome is unknown; reconciliation is required: "
+                    f"{exc}"
+                ,),
             )
         self._idempotency.complete(client_order_id, receipt.receipt_id)
         return TransactionResult(PreconditionsStatus.READY, receipt=receipt)
