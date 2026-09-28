@@ -120,6 +120,7 @@ class FakeBroker:
         self._connection = BrokerConnectionRef(account_id, connection_id, "fake", "NSE")
         self._healthy = healthy
         self._capabilities = CapabilitySet(capabilities)
+        self.submit_calls = 0
         self.descriptor = BrokerDescriptor("fake", "Fake", self._capabilities, "1")
 
     @property
@@ -136,6 +137,7 @@ class FakeBroker:
         return self._instrument if instrument_id == self._instrument.instrument_id else None
 
     def submit(self, request):
+        self.submit_calls += 1
         return ExecutionReceipt(
             request_id=uuid4(),
             client_order_id=request.order.client_order_id,
@@ -281,3 +283,43 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is not None
     assert result.receipt.source == "fake-broker"
+
+
+def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
+    request = _request(
+        ExecutionMode.LIVE,
+        connection_id=BrokerConnectionId("conn-1"),
+    )
+    broker = FakeBroker()
+    orchestrator = ExecutionOrchestrator()
+
+    first = orchestrator.execute(request, broker=broker)
+    second = orchestrator.execute(request, broker=broker)
+
+    assert first.status is ExecutionDispatchStatus.EXECUTED
+    assert first.receipt is not None
+    assert second.status is ExecutionDispatchStatus.EXECUTED
+    assert second.receipt is None
+    assert "idempotent duplicate" in second.reason
+    assert broker.submit_calls == 1
+
+
+def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None:
+    class FailingBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            raise RuntimeError("transport timeout")
+
+    request = _request(
+        ExecutionMode.LIVE,
+        connection_id=BrokerConnectionId("conn-1"),
+    )
+    broker = FailingBroker()
+    orchestrator = ExecutionOrchestrator()
+
+    result = orchestrator.execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.UNKNOWN
+    assert result.receipt is None
+    assert "reconciliation" in result.reason
+    assert broker.submit_calls == 1
