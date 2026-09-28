@@ -78,15 +78,14 @@ class PaperExecutionEngine:
 
         client_order_id = request.order.client_order_id
         fingerprint = request_fingerprint(request)
-        decision = self._idempotency.check(client_order_id, fingerprint)
-        if decision.existing_receipt_id is not None:
+        reservation = self._idempotency.reserve_or_get(client_order_id, fingerprint)
+        if reservation.existing_receipt_id is not None:
             existing = self._receipts.get(client_order_id)
             if existing is None:
                 raise PaperExecutionError(
                     "idempotency store references a completed receipt that is not available"
                 )
             return existing
-        reservation = self._idempotency.reserve_or_get(client_order_id, fingerprint)
         if not reservation.reservation_acquired:
             raise PaperExecutionError("submission is already pending and requires reconciliation")
 

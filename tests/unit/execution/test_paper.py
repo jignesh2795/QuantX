@@ -1,12 +1,17 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.clock import FixedClock
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
@@ -14,8 +19,14 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId
+from quantx.execution.idempotency import IdempotencyDecision, InMemoryIdempotencyStore
 from quantx.execution.market_data import MarketSnapshot
-from quantx.execution.paper import PaperExecutionEngine, PaperExecutionError, PaperSimulationProfile, QuoteSnapshot
+from quantx.execution.paper import (
+    PaperExecutionEngine,
+    PaperExecutionError,
+    PaperSimulationProfile,
+    QuoteSnapshot,
+)
 
 
 def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequest:
@@ -36,9 +47,7 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
     )
     order = build_order_from_intent(intent)
     policy = (
-        PolicyResult(PolicyDecision.APPROVE, "approved")
-        if mode is ExecutionMode.LIVE
-        else None
+        PolicyResult(PolicyDecision.APPROVE, "approved") if mode is ExecutionMode.LIVE else None
     )
     return ApprovedExecutionRequest(
         order, context, RiskResult(RiskDecision.APPROVE, "approved"), policy
@@ -48,7 +57,7 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
 def _snapshot(*, bid=None, ask=None, last=None) -> MarketSnapshot:
     return MarketSnapshot(
         instrument=InstrumentId("NSE", "TCS"),
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=bid,
         ask=ask,
         last=last,
@@ -57,7 +66,7 @@ def _snapshot(*, bid=None, ask=None, last=None) -> MarketSnapshot:
 
 def test_market_buy_uses_observed_ask_and_explicit_slippage() -> None:
     engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(slippage_bps=Decimal("10")),
     )
     receipt = engine.execute(_request(), snapshot=_snapshot(bid=Decimal("99"), ask=Decimal("100")))
@@ -67,7 +76,7 @@ def test_market_buy_uses_observed_ask_and_explicit_slippage() -> None:
 
 def test_simulation_latency_is_applied_to_fill_and_receipt() -> None:
     engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(latency_ms=250),
     )
     receipt = engine.execute(
@@ -75,13 +84,13 @@ def test_simulation_latency_is_applied_to_fill_and_receipt() -> None:
         snapshot=_snapshot(ask=Decimal("100")),
     )
 
-    expected = datetime(2026, 1, 1, 0, 0, 0, 250000, tzinfo=timezone.utc)
+    expected = datetime(2026, 1, 1, 0, 0, 0, 250000, tzinfo=UTC)
     assert receipt.executed_at == expected
     assert receipt.fills[0].filled_at == expected
 
 
 def test_repeated_client_order_is_idempotent() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     request = _request()
     snapshot = _snapshot(ask=Decimal("100"))
     first = engine.execute(request, snapshot=snapshot)
@@ -91,9 +100,7 @@ def test_repeated_client_order_is_idempotent() -> None:
 
 
 def test_reusing_client_order_id_for_changed_request_is_blocked() -> None:
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     request = _request()
     engine.execute(request, snapshot=_snapshot(ask=Decimal("100")))
     changed_order = replace(request.order, quantity=Decimal("11"))
@@ -104,7 +111,7 @@ def test_reusing_client_order_id_for_changed_request_is_blocked() -> None:
 
 
 def test_missing_required_price_does_not_create_a_fill() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     receipt = engine.execute(_request(), snapshot=_snapshot(bid=Decimal("99")))
     assert receipt.fills == ()
     assert receipt.order_status.value == "ACCEPTED"
@@ -112,10 +119,10 @@ def test_missing_required_price_does_not_create_a_fill() -> None:
 
 
 def test_snapshot_instrument_must_match_order() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     mismatched = MarketSnapshot(
         instrument=InstrumentId("NSE", "INFY"),
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         ask=Decimal("100"),
     )
     with pytest.raises(PaperExecutionError, match="does not match"):
@@ -123,16 +130,56 @@ def test_snapshot_instrument_must_match_order() -> None:
 
 
 def test_paper_engine_rejects_live_mode() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     with pytest.raises(PaperExecutionError, match="PAPER, SHADOW, or REPLAY"):
         engine.execute(_request(ExecutionMode.LIVE), snapshot=_snapshot(ask=Decimal("100")))
+
+
+class _StaleObservationStore:
+    """Expose a stale direct observation while keeping acquisition atomic.
+
+    Direct check() calls always miss, as if a concurrent completion landed
+    between observation and acquisition. reserve_or_get() delegates to the
+    real atomic operation, so only a single-acquisition engine observes the
+    completed receipt.
+    """
+
+    def __init__(self, real: InMemoryIdempotencyStore) -> None:
+        self._real = real
+
+    def check(self, client_order_id, request_fingerprint):
+        return IdempotencyDecision(
+            client_order_id=client_order_id,
+            request_fingerprint=request_fingerprint,
+        )
+
+    def reserve_or_get(self, client_order_id, request_fingerprint):
+        return self._real.reserve_or_get(client_order_id, request_fingerprint)
+
+    def complete(self, client_order_id, request_fingerprint, receipt_id):
+        return self._real.complete(client_order_id, request_fingerprint, receipt_id)
+
+    def resolve_pending(self, client_order_id, request_fingerprint, receipt_id):
+        return self._real.resolve_pending(client_order_id, request_fingerprint, receipt_id)
+
+
+def test_stale_observation_returns_cached_receipt_not_pending() -> None:
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        idempotency_store=_StaleObservationStore(InMemoryIdempotencyStore()),
+    )
+    request = _request()
+    snapshot = _snapshot(ask=Decimal("100"))
+    first = engine.execute(request, snapshot=snapshot)
+    second = engine.execute(request, snapshot=snapshot)
+    assert second == first
 
 
 # Compatibility smoke test for the transitional alias.
 def test_quote_snapshot_alias_matches_market_snapshot() -> None:
     quote = QuoteSnapshot(
         instrument=InstrumentId("NSE", "TCS"),
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         ask=Decimal("100"),
     )
     assert isinstance(quote, MarketSnapshot)
