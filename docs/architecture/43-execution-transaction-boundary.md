@@ -26,6 +26,23 @@ ExecutionReceipt
         |
         v
 Position / order reconciliation
+
+Submission uncertain
+        |
+        v
+Pending idempotency
+        |
+        v
+Broker reconciliation
+        |
+        v
+Definitive broker-order evidence
+        |
+        v
+Canonical receipt recovery
+        |
+        v
+Complete idempotency
 ```
 
 ## Package boundaries
@@ -34,6 +51,7 @@ Position / order reconciliation
 - `execution/idempotency/`: request identity and duplicate suppression.
 - `execution/receipts/`: immutable receipt records and uncertainty semantics.
 - `execution/transactions/`: orchestration only; vendor-specific behavior stays in adapters.
+- `application/uncertain_submission.py`: conservative receipt reconstruction after definitive broker-order evidence.
 - `integrations/`: broker/account/venue adapters and operational state.
 
 The transaction layer does not decide broker-specific rules and does not invent missing account, market, or execution data.
