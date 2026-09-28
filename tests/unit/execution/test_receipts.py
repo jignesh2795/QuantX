@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType
-from quantx.domain.orders import Fill
+from quantx.domain.orders import Fill, Order
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 
