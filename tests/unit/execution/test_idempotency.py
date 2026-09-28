@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
 import pytest
@@ -68,3 +69,18 @@ def test_complete_rejects_already_completed_reservation() -> None:
 
     with pytest.raises(ValueError, match="already completed"):
         store.complete(order_id, "fingerprint-a", uuid4())
+
+
+def test_concurrent_reservation_allows_exactly_one_acquisition() -> None:
+    store = InMemoryIdempotencyStore()
+    order_id = uuid4()
+
+    def reserve() -> bool:
+        return store.reserve_or_get(order_id, "fingerprint-a").reservation_acquired
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        acquired = list(executor.map(lambda _: reserve(), range(2)))
+
+    assert sorted(acquired) == [False, True]
+    decision = store.check(order_id, "fingerprint-a")
+    assert decision.reservation_pending
