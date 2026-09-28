@@ -6,12 +6,14 @@ from uuid import UUID, uuid4
 
 from quantx.application.evidence_refresh import (
     DefinitiveEvidencePolicy,
+    ReconciliationIdempotencyResolver,
     ReconciliationEvidenceRefresher,
     RefreshPolicy,
 )
 from quantx.application.reconciliation import OrderWorkflowStatus
 from quantx.domain.enums import OrderStatus
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
+from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.reconciliation import (
@@ -543,3 +545,90 @@ def test_default_policy_requires_all_evidence_for_definitive() -> None:
 
     assert outcome.result.status is OrderWorkflowStatus.MATCHED
     assert outcome.definitive is False
+
+
+def test_definitive_reconciliation_resolves_pending_idempotency() -> None:
+    order_id = uuid4()
+    receipt = _receipt(order_id)
+    provider = ScriptedProvider()
+    refresher, _ = _refresher(provider)
+    outcome = refresher.refresh(
+        receipt,
+        local_order=_order(order_id),
+        broker_order=_order(order_id),
+        checked_at=CHECKED_AT,
+        position_policy=POSITION_POLICY,
+        provider=provider,
+    )
+    store = InMemoryIdempotencyStore()
+    store.reserve(order_id, "fingerprint-a")
+
+    resolved = ReconciliationIdempotencyResolver.resolve(
+        outcome,
+        receipt,
+        request_fingerprint="fingerprint-a",
+        idempotency=store,
+    )
+
+    assert resolved is True
+    decision = store.check(order_id, "fingerprint-a")
+    assert decision.existing_receipt_id == receipt.receipt_id
+    assert not decision.reservation_pending
+
+
+def test_non_definitive_reconciliation_leaves_pending_idempotency() -> None:
+    order_id = uuid4()
+    receipt = _receipt(order_id)
+    provider = ScriptedProvider()
+    refresher, _ = _refresher(provider, max_attempts=1)
+    outcome = refresher.refresh(
+        receipt,
+        local_order=None,
+        broker_order=None,
+        checked_at=CHECKED_AT,
+        position_policy=POSITION_POLICY,
+        provider=provider,
+    )
+    store = InMemoryIdempotencyStore()
+    store.reserve(order_id, "fingerprint-a")
+
+    resolved = ReconciliationIdempotencyResolver.resolve(
+        outcome,
+        receipt,
+        request_fingerprint="fingerprint-a",
+        idempotency=store,
+    )
+
+    assert resolved is False
+    decision = store.check(order_id, "fingerprint-a")
+    assert decision.existing_receipt_id is None
+    assert decision.reservation_pending
+
+
+def test_reconciliation_resolution_rejects_wrong_order_identity() -> None:
+    order_id = uuid4()
+    receipt = _receipt(order_id)
+    other_order_id = uuid4()
+    provider = ScriptedProvider()
+    refresher, _ = _refresher(provider)
+    outcome = refresher.refresh(
+        receipt,
+        local_order=_order(order_id),
+        broker_order=_order(order_id),
+        checked_at=CHECKED_AT,
+        position_policy=POSITION_POLICY,
+        provider=provider,
+    )
+    other_receipt = _receipt(other_order_id)
+    store = InMemoryIdempotencyStore()
+    store.reserve(other_order_id, "fingerprint-a")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="order identity"):
+        ReconciliationIdempotencyResolver.resolve(
+            outcome,
+            other_receipt,
+            request_fingerprint="fingerprint-a",
+            idempotency=store,
+        )
