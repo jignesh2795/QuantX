@@ -255,7 +255,6 @@ def test_live_blocks_missing_required_capability() -> None:
     assert "capabilities" in result.reason
 
 
-
 def test_live_blocks_broker_instrument_market_mismatch() -> None:
     request = _request(
         ExecutionMode.LIVE,
