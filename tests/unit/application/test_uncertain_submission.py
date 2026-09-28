@@ -22,7 +22,7 @@ from quantx.domain.enums import (
 )
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Fill, Order
-from quantx.domain.policy import PolicyResult
+from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
@@ -50,8 +50,8 @@ def _request() -> ApprovedExecutionRequest:
             broker_connection_id=BrokerConnectionId("conn-1"),
             execution_mode=ExecutionMode.LIVE,
         ),
-        risk_result=RiskResult(RiskDecision.APPROVE, ()),
-        policy_result=PolicyResult(True, ()),
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
     )
 
 
