@@ -17,8 +17,12 @@ class IdempotencyDecision:
 
 class IdempotencyStore(Protocol):
     def check(self, client_order_id: UUID, request_fingerprint: str) -> IdempotencyDecision: ...
-    def reserve(self, client_order_id: UUID, request_fingerprint: str) -> None: ...
-    def complete(self, client_order_id: UUID, receipt_id: UUID) -> None: ...
+    def reserve_or_get(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> IdempotencyDecision: ...
+    def complete(
+        self, client_order_id: UUID, request_fingerprint: str, receipt_id: UUID
+    ) -> None: ...
     def resolve_pending(
         self,
         client_order_id: UUID,
@@ -45,13 +49,27 @@ class InMemoryIdempotencyStore:
             reservation_pending=existing is not None and client_order_id not in self._receipts,
         )
 
-    def reserve(self, client_order_id: UUID, request_fingerprint: str) -> None:
-        self.check(client_order_id, request_fingerprint)
+    def reserve_or_get(self, client_order_id: UUID, request_fingerprint: str) -> IdempotencyDecision:
+        decision = self.check(client_order_id, request_fingerprint)
+        if decision.existing_receipt_id is not None or decision.reservation_pending:
+            return decision
         self._fingerprints[client_order_id] = request_fingerprint
+        return IdempotencyDecision(
+            client_order_id=client_order_id,
+            request_fingerprint=request_fingerprint,
+            reservation_pending=True,
+        )
 
-    def complete(self, client_order_id: UUID, receipt_id: UUID) -> None:
-        if client_order_id not in self._fingerprints:
+    def complete(
+        self, client_order_id: UUID, request_fingerprint: str, receipt_id: UUID
+    ) -> None:
+        existing = self._fingerprints.get(client_order_id)
+        if existing is None:
             raise ValueError("cannot complete an unreserved client_order_id")
+        if existing != request_fingerprint:
+            raise ValueError("client_order_id was reused with a different request")
+        if client_order_id in self._receipts:
+            raise ValueError("cannot complete an already completed client_order_id")
         self._receipts[client_order_id] = receipt_id
 
     def resolve_pending(
