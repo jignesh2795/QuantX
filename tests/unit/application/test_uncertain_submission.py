@@ -33,7 +33,7 @@ RECOVERED_AT = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
 def _request() -> ApprovedExecutionRequest:
     order = Order(
-        instrument=InstrumentId("NSE:TCS"),
+        instrument=InstrumentId("NSE", "TCS"),
         side=OrderSide.BUY,
         order_type=OrderType.MARKET,
         quantity=Decimal("2"),
