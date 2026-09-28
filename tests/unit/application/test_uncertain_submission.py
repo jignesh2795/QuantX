@@ -13,7 +13,6 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.enums import (
     OrderSide,
     OrderStatus,
@@ -21,6 +20,7 @@ from quantx.domain.enums import (
     TimeInForce,
 )
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.orders import Fill, Order
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
