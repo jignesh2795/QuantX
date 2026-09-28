@@ -23,7 +23,10 @@ class IdempotencyStore(Protocol):
         self, client_order_id: UUID, request_fingerprint: str
     ) -> IdempotencyDecision: ...
     def complete(
-        self, client_order_id: UUID, request_fingerprint: str, receipt_id: UUID
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        receipt_id: UUID,
     ) -> None: ...
     def resolve_pending(
         self,
