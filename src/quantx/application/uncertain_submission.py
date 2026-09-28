@@ -47,11 +47,7 @@ class UncertainSubmissionReceiptRecovery:
 
         filled_quantity = sum((fill.quantity for fill in fills), Decimal("0"))
         if filled_quantity != Decimal(broker_order.filled_quantity):
-            if fills or broker_order.status in {
-                OrderLifecycleStatus.FILLED,
-                OrderLifecycleStatus.PARTIALLY_FILLED,
-            }:
-                raise ValueError("fill quantity does not match broker order evidence")
+            raise ValueError("fill quantity does not match broker order evidence")
 
         return ExecutionReceipt.from_order(
             order,
