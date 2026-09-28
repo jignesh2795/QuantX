@@ -150,4 +150,5 @@ class ExecutionOrchestrator:
         return ExecutionResult(
             ExecutionDispatchStatus.EXECUTED,
             receipt=transaction.receipt,
+            reason="; ".join(transaction.reasons),
         )
