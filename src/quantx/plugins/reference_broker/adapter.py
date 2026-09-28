@@ -124,9 +124,9 @@ class ReferenceBrokerAdapter:
     ) -> ExecutionReceipt:
         outcome, order_status = _OUTCOME_TO_STATUS[response.outcome]
         fills = tuple(self._to_fill(request, fill) for fill in response.fills)
-        return ExecutionReceipt(
+        return ExecutionReceipt.from_order(
+            request.order,
             request_id=uuid4(),
-            client_order_id=request.order.client_order_id,
             outcome=outcome,
             order_status=order_status,
             executed_at=response.executed_at,
@@ -136,7 +136,6 @@ class ReferenceBrokerAdapter:
             source="reference-broker",
             broker_order_id=response.broker_order_id,
             correlation_id=request.correlation_id,
-            order_id=request.order.client_order_id,
             account_id=request.execution_context.account_id,
             connection_id=request.execution_context.broker_connection_id,
         )
