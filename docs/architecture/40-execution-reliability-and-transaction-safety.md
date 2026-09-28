@@ -20,6 +20,10 @@ A network response is evidence about a submission attempt, not proof of final br
 
 When the broker outcome is uncertain, QuantX records `UNKNOWN` and reconciles. It never invents `REJECTED`, `ACCEPTED`, or `FILLED`.
 
+## Uncertain-submission receipt recovery
+
+After reconciliation obtains a definitive broker-order observation, the recovery boundary may reconstruct an `ExecutionReceipt` from the canonical `Order`. It is deliberately conservative: broker order identity and requested quantity must match; only definitive lifecycle states are recoverable; filled and partially filled states require real broker `Fill` evidence; fill quantities must agree with the broker observation; and no fill price, quantity, broker status, or receipt state is inferred. Unresolved lifecycle states never create receipts.
+
 ## Account safety
 
 Retries and failover must preserve account identity, connection identity, market context, instrument, side, quantity semantics, and execution policy. A retry that would change any of those dimensions requires an explicit higher-level decision.
