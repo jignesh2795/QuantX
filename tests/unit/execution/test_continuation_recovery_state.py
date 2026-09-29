@@ -107,3 +107,91 @@ def test_inspect_pending_continuation_reports_resolved_claim():
 
     assert status.state is PendingContinuationRecoveryState.RESOLVED
     assert status.receipt_id == child_receipt.receipt_id
+
+
+def test_inspect_pending_chain_continuation_reports_latest_stage_as_recoverable() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
+        requested_quantity=Decimal("5"),
+    )
+    first_receipt = _receipt(first, "2")
+    second = ExecutionLifecycle.rebuild(
+        first.order.client_order_id,
+        first.order.quantity,
+        (first_receipt,),
+    ).continuation_request(
+        first,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage two approval"),
+    )
+    second_receipt = _receipt(second, "3")
+    store = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(second)
+    store.reserve_or_get(second.order.client_order_id, fingerprint)
+    service = _pending_service(
+        _ReceiptRepository((root_receipt, first_receipt, second_receipt)),
+        second_receipt,
+        store,
+    )
+
+    status = service.inspect_pending_chain_continuation(
+        root,
+        (first,),
+        second,
+    )
+
+    assert status.state is PendingContinuationRecoveryState.RECOVERABLE
+    assert status.receipt_id == second_receipt.receipt_id
+
+
+def test_inspect_pending_chain_continuation_fails_closed_before_state_resolution() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
+    )
+    first_receipt = _receipt(first, "1")
+    terminal_receipt = _receipt(first, "4")
+    terminal_receipt = replace(
+        terminal_receipt,
+        outcome=ExecutionOutcome.CANCELLED,
+        order_status=OrderStatus.CANCELLED,
+    )
+    child = ExecutionLifecycle.rebuild(
+        first.order.client_order_id,
+        first.order.quantity,
+        (first_receipt,),
+    ).continuation_request(
+        first,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage two approval"),
+    )
+    store = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(child)
+    store.reserve_or_get(child.order.client_order_id, fingerprint)
+    service = _pending_service(
+        _ReceiptRepository((root_receipt, first_receipt, terminal_receipt)),
+        child,
+        store,
+    )
+
+    with pytest.raises(ValueError, match="chain stage lifecycle cannot continue"):
+        service.inspect_pending_chain_continuation(
+            root,
+            (first, child),
+            child,
+        )
+
+    decision = store.check(child.order.client_order_id, fingerprint)
+    assert decision.reservation_pending
+    assert decision.existing_receipt_id is None
