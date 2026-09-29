@@ -94,6 +94,8 @@ class ExecutionContinuationService:
         if not child_receipts:
             raise ValueError("authoritative continuation receipt evidence is unavailable")
         parent_lifecycle = self._lifecycle_service.reconcile(parent_request)
+        if not parent_lifecycle.can_continue:
+            raise ValueError("continuation parent lifecycle cannot continue")
         if child_request.order.quantity > parent_lifecycle.remaining_quantity:
             raise ValueError("continuation request exceeds parent lifecycle remainder")
         child_lifecycle = ExecutionLifecycle.rebuild(
