@@ -23,6 +23,7 @@ class AccountFinancialSnapshot:
     realized_pnl: Money
     unrealized_pnl: Money
     gross_exposure: Money
+    position_exposures: tuple[Money, ...] = ()
 
     def __post_init__(self) -> None:
         currencies = {
@@ -31,11 +32,14 @@ class AccountFinancialSnapshot:
             self.realized_pnl.currency,
             self.unrealized_pnl.currency,
             self.gross_exposure.currency,
+            *(value.currency for value in self.position_exposures),
         }
         if len(currencies) != 1:
             raise ValueError("all account financial values must use the same currency")
         if self.gross_exposure.amount < 0:
             raise ValueError("gross_exposure cannot be negative")
+        if any(value.amount < 0 for value in self.position_exposures):
+            raise ValueError("position exposure cannot be negative")
 
 
 class AccountFinancialStateBuilder:
@@ -61,6 +65,7 @@ class AccountFinancialStateBuilder:
         realized_pnl: Money,
         unrealized_pnl: Money,
         gross_exposure: Money,
+        position_exposures: tuple[Money, ...] = (),
     ) -> AccountFinancialSnapshot:
         values = (
             available_cash,
@@ -93,6 +98,7 @@ class AccountFinancialStateBuilder:
             realized_pnl=realized_pnl,
             unrealized_pnl=unrealized_pnl,
             gross_exposure=gross_exposure,
+            position_exposures=position_exposures,
         )
 
     def from_cash_and_margin(
@@ -107,6 +113,7 @@ class AccountFinancialStateBuilder:
         unrealized_pnl: Money,
         gross_exposure: Money,
         blocked_cash: Money | None = None,
+        position_exposures: tuple[Money, ...] = (),
     ) -> AccountFinancialSnapshot:
         """Build a conservative paper-style state from explicit ledgers.
 
@@ -130,4 +137,5 @@ class AccountFinancialStateBuilder:
             realized_pnl=realized_pnl,
             unrealized_pnl=unrealized_pnl,
             gross_exposure=gross_exposure,
+            position_exposures=position_exposures,
         )
