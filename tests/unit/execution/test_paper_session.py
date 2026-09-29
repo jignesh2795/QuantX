@@ -11,7 +11,7 @@ from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, M
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import Money
-from quantx.execution.paper import PaperExecutionEngine, QuoteSnapshot
+from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile, QuoteSnapshot
 from quantx.execution.paper_session import PaperSession
 
 
