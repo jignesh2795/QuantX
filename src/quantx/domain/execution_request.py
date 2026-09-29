@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 from .deployment import ExecutionContext, ExecutionMode
 from .order_intents import TradeIntent
@@ -17,8 +18,11 @@ class ApprovedExecutionRequest:
     execution_context: ExecutionContext
     risk_result: RiskResult
     policy_result: PolicyResult | None = None
+    required_margin: Decimal = Decimal("0")
 
     def __post_init__(self) -> None:
+        if self.required_margin < 0:
+            raise ValueError("required_margin cannot be negative")
         if self.risk_result.decision is not RiskDecision.APPROVE:
             raise ValueError("execution request requires an approved risk result")
         if self.execution_context.execution_mode is ExecutionMode.LIVE:
