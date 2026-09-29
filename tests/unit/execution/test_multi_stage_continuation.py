@@ -350,7 +350,7 @@ def test_prepare_chain_continuation_rejects_terminal_latest_stage() -> None:
     repository = _ReceiptRepository((root_receipt, first_receipt, terminal_receipt))
     service = _service(repository, terminal_receipt)
 
-    with pytest.raises(ValueError, match="continuation chain parent lifecycle cannot continue"):
+    with pytest.raises(ValueError, match="continuation chain latest lifecycle cannot continue"):
         service.prepare_chain_continuation(
             root,
             (first,),
