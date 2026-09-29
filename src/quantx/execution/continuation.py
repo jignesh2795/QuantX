@@ -184,6 +184,8 @@ class ExecutionContinuationService:
         )
         if latest_request.order.client_order_id != chain.latest_lifecycle.client_order_id:
             raise ValueError("latest continuation request does not match chain lifecycle")
+        if not chain.can_continue:
+            raise ValueError("continuation chain latest lifecycle cannot continue")
         return chain.latest_lifecycle.continuation_request(
             latest_request,
             risk_result=risk_result,
