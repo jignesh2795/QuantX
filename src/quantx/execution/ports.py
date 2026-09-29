@@ -14,6 +14,27 @@ class ExecutionPort(Protocol):
         ...
 
 
+class LiveExecutionPort(Protocol):
+    """Capability boundary for live execution adapters.
+
+    Concrete broker SDKs must implement this contract in plugins. The core
+    owns only the approved-request and receipt semantics; it does not know
+    vendor SDK types, credentials, or transport details.
+
+    Implementations are responsible for enforcing broker-specific capability
+    checks and translating the canonical request/receipt contracts.
+    """
+
+    def submit(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
+        ...
+
+    def cancel(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
+        ...
+
+    def reconcile(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
+        ...
+
+
 class MarketDataExecutionPort(Protocol):
     def execute(
         self,
@@ -24,4 +45,10 @@ class MarketDataExecutionPort(Protocol):
         ...
 
 
-__all__ = ["ExecutionPort", "MarketDataExecutionPort", "ExecutionOutcome", "ExecutionReceipt"]
+__all__ = [
+    "ExecutionPort",
+    "LiveExecutionPort",
+    "MarketDataExecutionPort",
+    "ExecutionOutcome",
+    "ExecutionReceipt",
+]
