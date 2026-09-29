@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from quantx.domain.finance import AccountFinancialState
+from quantx.execution.account_financial_state import AccountFinancialSnapshot
 from quantx.domain.value_objects import Money
 from quantx.execution.post_trade_risk import (
     PostTradeRiskEngine,
@@ -33,6 +34,16 @@ class PostTradeRiskEnforcer:
         self._limits = limits
         self._gate = trading_gate
         self._engine = engine or PostTradeRiskEngine()
+
+    def evaluate_snapshot(
+        self,
+        snapshot: AccountFinancialSnapshot,
+    ) -> RiskEnforcementResult:
+        return self.evaluate(
+            financial_state=snapshot.state,
+            daily_pnl=snapshot.daily_pnl,
+            gross_exposure=snapshot.gross_exposure,
+        )
 
     def evaluate(
         self,
