@@ -93,7 +93,7 @@ class PostTradeRiskEngine:
                 reasons.append("maximum open positions exceeded")
 
         if limits.max_position_exposure is not None:
-            for exposure in snapshot.financial_state.position_exposures:
+            for exposure in snapshot.position_exposures:
                 self._require_currency(exposure, limits.max_position_exposure, "position exposure")
                 if exposure.amount > limits.max_position_exposure.amount:
                     reasons.append("maximum single-position exposure exceeded")
