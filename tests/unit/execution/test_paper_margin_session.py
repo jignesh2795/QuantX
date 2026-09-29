@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from quantx.domain.clock import FixedClock
 from quantx.domain.accounts import AccountId
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
 from quantx.domain.enums import AssetClass, OrderSide, OrderType
