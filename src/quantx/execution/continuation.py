@@ -332,16 +332,10 @@ class ExecutionContinuationService:
             continuation,
             snapshot=snapshot,
         )
-        if not dispatched_result.dispatch_performed:
-            reconciliation = self.reconcile_continuation(
-                parent_request,
-                continuation,
-            )
-        else:
-            reconciliation = self.reconcile_continuation(
-                parent_request,
-                continuation,
-            )
+        reconciliation = self.reconcile_continuation(
+            parent_request,
+            continuation,
+        )
         return ExecutionContinuationDispatchReconciliation(
             parent_lifecycle=reconciliation.parent_lifecycle,
             request=continuation,
