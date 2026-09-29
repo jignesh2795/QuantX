@@ -1,0 +1,84 @@
+"""Deterministic post-trade account risk checks."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+
+from quantx.domain.finance import AccountFinancialState
+from quantx.domain.value_objects import Money
+
+
+@dataclass(frozen=True, slots=True)
+class PostTradeRiskLimits:
+    max_daily_loss: Money | None = None
+    max_margin_utilization: Decimal | None = None
+    max_exposure: Money | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_daily_loss is not None and self.max_daily_loss.amount < 0:
+            raise ValueError("max_daily_loss cannot be negative")
+        if self.max_margin_utilization is not None and not (
+            Decimal("0") <= self.max_margin_utilization <= Decimal("1")
+        ):
+            raise ValueError("max_margin_utilization must be between 0 and 1")
+        if self.max_exposure is not None and self.max_exposure.amount < 0:
+            raise ValueError("max_exposure cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class PostTradeRiskSnapshot:
+    financial_state: AccountFinancialState
+    daily_pnl: Money
+    gross_exposure: Money
+
+
+@dataclass(frozen=True, slots=True)
+class PostTradeRiskResult:
+    allowed: bool
+    reasons: tuple[str, ...] = ()
+
+    @property
+    def breached(self) -> bool:
+        return not self.allowed
+
+
+class PostTradeRiskEngine:
+    """Evaluate account limits after an execution state change.
+
+    Limits are explicit policy inputs; this engine does not invent broker
+    rules. A breach is intended to feed the runtime TradingGate.
+    """
+
+    def evaluate(
+        self,
+        snapshot: PostTradeRiskSnapshot,
+        limits: PostTradeRiskLimits,
+    ) -> PostTradeRiskResult:
+        reasons: list[str] = []
+        state = snapshot.financial_state
+
+        if limits.max_daily_loss is not None:
+            self._require_currency(snapshot.daily_pnl, limits.max_daily_loss, "daily loss")
+            if snapshot.daily_pnl.amount < -limits.max_daily_loss.amount:
+                reasons.append("maximum daily loss exceeded")
+
+        if limits.max_margin_utilization is not None:
+            total = state.margin_used.amount + state.margin_available.amount
+            utilization = (
+                state.margin_used.amount / total if total > 0 else Decimal("0")
+            )
+            if utilization > limits.max_margin_utilization:
+                reasons.append("maximum margin utilization exceeded")
+
+        if limits.max_exposure is not None:
+            self._require_currency(snapshot.gross_exposure, limits.max_exposure, "exposure")
+            if snapshot.gross_exposure.amount > limits.max_exposure.amount:
+                reasons.append("maximum gross exposure exceeded")
+
+        return PostTradeRiskResult(not reasons, tuple(reasons))
+
+    @staticmethod
+    def _require_currency(actual: Money, expected: Money, name: str) -> None:
+        if actual.currency != expected.currency:
+            raise ValueError(f"{name} currency does not match risk policy currency")
