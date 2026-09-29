@@ -20,6 +20,7 @@ from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.cash_ledger import CashLedger, CashLedgerEntry
 from quantx.execution.paper_engine import PaperExecutionEngine
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
+from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer, RiskEnforcementResult
 from quantx.execution.valuation import Mark
 
 from .market_data import MarketSnapshot
@@ -33,6 +34,7 @@ class PaperSessionResult:
     cash: Money
     cash_entries: tuple[CashLedgerEntry, ...] = ()
     financial_state: AccountFinancialSnapshot | None = None
+    risk_enforcement: RiskEnforcementResult | None = None
 
 
 class PaperSession:
@@ -52,6 +54,7 @@ class PaperSession:
         valuator: PortfolioValuator | None = None,
         initial_cash: Money | None = None,
         cash_ledger: CashLedger | None = None,
+        post_trade_risk: PostTradeRiskEnforcer | None = None,
     ) -> None:
         if initial_cash is not None and cash_ledger is not None:
             raise ValueError("provide either initial_cash or cash_ledger, not both")
@@ -62,6 +65,7 @@ class PaperSession:
         self._cash_ledger = cash_ledger or (
             CashLedger(initial_cash) if initial_cash is not None else None
         )
+        self._post_trade_risk = post_trade_risk
 
     def execute_and_value(
         self,
@@ -191,6 +195,11 @@ class PaperSession:
             unrealized_pnl=valuation.snapshot.unrealized_pnl,
             gross_exposure=gross_exposure,
         )
+        risk_enforcement = (
+            self._post_trade_risk.evaluate_snapshot(financial_state)
+            if self._post_trade_risk is not None
+            else None
+        )
         return PaperSessionResult(
             receipt,
             last_entry,
@@ -198,4 +207,5 @@ class PaperSession:
             account_cash,
             tuple(cash_entries),
             financial_state,
+            risk_enforcement,
         )
