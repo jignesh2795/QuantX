@@ -117,7 +117,9 @@ class ExecutionContinuationService:
         stages = []
         parent_request = root_request
         parent_lifecycle = self._lifecycle_service.reconcile(root_request)
-        for request in continuation_requests:
+        if continuation_requests and not parent_lifecycle.can_continue:
+            raise ValueError("continuation chain parent lifecycle cannot continue")
+        for index, request in enumerate(continuation_requests):
             expected_parent_id = str(parent_request.order.client_order_id)
             if request.parent_client_order_id != expected_parent_id:
                 raise ValueError("continuation chain parent linkage is invalid")
@@ -132,6 +134,8 @@ class ExecutionContinuationService:
             stages.append(stage)
             parent_request = request
             parent_lifecycle = stage
+            if index < len(continuation_requests) - 1 and not parent_lifecycle.can_continue:
+                raise ValueError("continuation chain stage lifecycle cannot continue")
         stages = tuple(stages)
         root = self._lifecycle_service.reconcile(root_request)
         total = root.filled_quantity + sum(
