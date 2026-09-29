@@ -117,6 +117,8 @@ class PaperSession:
                 margin_reservation = self._margin_ledger.reserve(
                     request.order.client_order_id,
                     request.required_margin,
+                    instrument=instrument.instrument_id,
+                    quantity=request.order.quantity,
                 )
             elif existing.amount != request.required_margin:
                 raise ValueError("existing margin reservation amount does not match request")
@@ -171,6 +173,9 @@ class PaperSession:
                 )
 
         assert last_entry is not None
+        if self._margin_ledger is not None and last_entry.quantity == 0:
+            self._margin_ledger.release_for_flat_position(last_entry.instrument)
+            margin_reservation = self._margin_ledger.reservation(request.order.client_order_id)
         account_cash = (
             self._cash_ledger.balance
             if self._cash_ledger is not None
