@@ -215,6 +215,35 @@ class PaperExecutionEngine:
         )
         return receipt
 
+    def rebuild_lifecycle(
+        self,
+        request: ApprovedExecutionRequest,
+        lifecycle: ExecutionLifecycle,
+    ) -> ExecutionLifecycle:
+        """Return the authoritative lifecycle used for continuation decisions."""
+        if request.order.client_order_id != lifecycle.client_order_id:
+            raise PaperExecutionError("request does not match partial execution lifecycle")
+        if self._receipt_repository is None:
+            return lifecycle
+        receipts = self._receipt_repository.list_by_correlation_id(
+            request.order.client_order_id
+        )
+        if not receipts:
+            raise PaperExecutionError(
+                "authoritative execution receipts are unavailable; "
+                "reconciliation is required"
+            )
+        try:
+            return ExecutionLifecycle.rebuild(
+                request.order.client_order_id,
+                request.order.quantity,
+                receipts,
+            )
+        except ValueError as exc:
+            raise PaperExecutionError(
+                f"authoritative execution lifecycle is invalid: {exc}"
+            ) from exc
+
     def continue_partial(
         self,
         request: ApprovedExecutionRequest,
@@ -234,26 +263,7 @@ class PaperExecutionEngine:
         if request.order.client_order_id != lifecycle.client_order_id:
             raise PaperExecutionError("request does not match partial execution lifecycle")
 
-        authoritative_lifecycle = lifecycle
-        if self._receipt_repository is not None:
-            receipts = self._receipt_repository.list_by_correlation_id(
-                request.order.client_order_id
-            )
-            if not receipts:
-                raise PaperExecutionError(
-                    "authoritative execution receipts are unavailable; "
-                    "reconciliation is required"
-                )
-            try:
-                authoritative_lifecycle = ExecutionLifecycle.rebuild(
-                    request.order.client_order_id,
-                    request.order.quantity,
-                    receipts,
-                )
-            except ValueError as exc:
-                raise PaperExecutionError(
-                    f"authoritative execution lifecycle is invalid: {exc}"
-                ) from exc
+        authoritative_lifecycle = self.rebuild_lifecycle(request, lifecycle)
 
         try:
             continuation = authoritative_lifecycle.continuation_request(
