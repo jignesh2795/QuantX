@@ -43,6 +43,7 @@ class ExecutionReceipt:
     correlation_id: str | None = None
     receipt_id: UUID = field(default_factory=uuid4)
     order_id: UUID | None = None
+    order_quantity: Decimal | None = None
     account_id: AccountId | None = None
     connection_id: BrokerConnectionId | None = None
 
@@ -91,6 +92,7 @@ class ExecutionReceipt:
             correlation_id=correlation_id,
             receipt_id=receipt_id or uuid4(),
             order_id=order.client_order_id,
+            order_quantity=order.quantity,
             account_id=account_id,
             connection_id=connection_id,
         )
@@ -120,6 +122,21 @@ class ExecutionReceipt:
                 "partially filled receipt fills must be between zero and order quantity"
             )
 
+    @property
+    def filled_quantity(self) -> Decimal:
+        """Total quantity evidenced by this receipt's fills."""
+        return sum((fill.quantity for fill in self.fills), Decimal("0"))
+
+    @property
+    def remaining_quantity(self) -> Decimal | None:
+        """Remaining quantity for an order-aware execution receipt."""
+        if self.order_quantity is None:
+            return None
+        remaining = self.order_quantity - self.filled_quantity
+        if remaining < 0:
+            raise ValueError("receipt fills exceed recorded order quantity")
+        return remaining
+
     def __post_init__(self) -> None:
         if isinstance(self.client_order_id, str) and not self.client_order_id.strip():
             raise ValueError("client_order_id must not be empty")
@@ -127,6 +144,8 @@ class ExecutionReceipt:
             raise ValueError("executed_at must be timezone-aware")
         if self.fee < 0:
             raise ValueError("fee cannot be negative")
+        if self.order_quantity is not None and self.order_quantity <= 0:
+            raise ValueError("order_quantity must be positive when provided")
         if any(fill.client_order_id != self.client_order_id for fill in self.fills):
             raise ValueError("all fills must belong to the receipt client_order_id")
         if self.outcome is ExecutionOutcome.FILLED and self.order_status is not OrderStatus.FILLED:
