@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import StrEnum
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.policy import PolicyResult
@@ -19,6 +20,23 @@ from .idempotency import InMemoryIdempotencyStore, IdempotencyStore, request_fin
 from .lifecycle import ExecutionLifecycleService
 from .receipts.lifecycle import ExecutionLifecycle
 from .receipts.models import ExecutionReceipt
+
+
+class PendingContinuationRecoveryState(StrEnum):
+    """Explicit state of a continuation dispatch claim during recovery."""
+
+    NOT_PENDING = "NOT_PENDING"
+    PENDING = "PENDING"
+    RECOVERABLE = "RECOVERABLE"
+    RESOLVED = "RESOLVED"
+
+
+@dataclass(frozen=True, slots=True)
+class PendingContinuationRecoveryStatus:
+    """Non-dispatching inspection result for one pending continuation claim."""
+
+    state: PendingContinuationRecoveryState
+    receipt_id: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,6 +439,44 @@ class ExecutionContinuationService:
             dispatch_performed=True,
         )
 
+    def inspect_pending_continuation(
+        self,
+        parent_request: ApprovedExecutionRequest,
+        child_request: ApprovedExecutionRequest,
+    ) -> PendingContinuationRecoveryStatus:
+        """Inspect pending recovery state without dispatching or mutating a claim."""
+        if child_request.parent_client_order_id != str(
+            parent_request.order.client_order_id
+        ):
+            raise ValueError("continuation child does not reference the parent order")
+        fingerprint = request_fingerprint(child_request)
+        decision = self._idempotency.check(
+            child_request.order.client_order_id,
+            fingerprint,
+        )
+        if decision.existing_receipt_id is not None:
+            return PendingContinuationRecoveryStatus(
+                state=PendingContinuationRecoveryState.RESOLVED,
+                receipt_id=decision.existing_receipt_id,
+            )
+        if not decision.reservation_pending:
+            return PendingContinuationRecoveryStatus(
+                state=PendingContinuationRecoveryState.NOT_PENDING,
+            )
+        authoritative = self._authoritative_child_receipt(
+            parent_request,
+            child_request,
+        )
+        if authoritative is None:
+            return PendingContinuationRecoveryStatus(
+                state=PendingContinuationRecoveryState.PENDING,
+            )
+        self.reconcile_continuation(parent_request, child_request)
+        return PendingContinuationRecoveryStatus(
+            state=PendingContinuationRecoveryState.RECOVERABLE,
+            receipt_id=authoritative.receipt_id,
+        )
+
     def recover_pending_continuation(
         self,
         parent_request: ApprovedExecutionRequest,
@@ -430,26 +486,23 @@ class ExecutionContinuationService:
         if child_request.parent_client_order_id != str(parent_request.order.client_order_id):
             raise ValueError("continuation child does not reference the parent order")
         fingerprint = request_fingerprint(child_request)
-        decision = self._idempotency.check(
-            child_request.order.client_order_id,
-            fingerprint,
-        )
-        if decision.existing_receipt_id is not None:
-            raise ValueError("continuation dispatch is already completed")
-        if not decision.reservation_pending:
-            raise ValueError("continuation dispatch is not pending")
-        authoritative = self._authoritative_child_receipt(
+        status = self.inspect_pending_continuation(
             parent_request,
             child_request,
         )
-        if authoritative is None:
+        if status.state is PendingContinuationRecoveryState.RESOLVED:
+            raise ValueError("continuation dispatch is already completed")
+        if status.state is PendingContinuationRecoveryState.NOT_PENDING:
+            raise ValueError("continuation dispatch is not pending")
+        if status.state is PendingContinuationRecoveryState.PENDING:
             raise ValueError(
                 "authoritative continuation receipt evidence is unavailable for pending recovery"
             )
-        reconciliation = self.reconcile_continuation(
-            parent_request,
-            child_request,
-        )
+        authoritative = self._lifecycle_service.receipt_repository.get(status.receipt_id)
+        if authoritative is None:
+            raise ValueError(
+                "pending recovery receipt is unavailable in the authoritative repository"
+            )
         try:
             self._idempotency.resolve_pending(
                 child_request.order.client_order_id,
@@ -472,6 +525,25 @@ class ExecutionContinuationService:
             ),
             dispatch_performed=False,
         )
+
+    def inspect_pending_chain_continuation(
+        self,
+        root_request: ApprovedExecutionRequest,
+        continuation_requests: tuple[ApprovedExecutionRequest, ...],
+        child_request: ApprovedExecutionRequest,
+    ) -> PendingContinuationRecoveryStatus:
+        """Inspect recovery state after binding the claim to the latest chain stage."""
+        chain = self.reconcile_chain(root_request, continuation_requests)
+        parent_request = (
+            continuation_requests[-1]
+            if continuation_requests
+            else root_request
+        )
+        if child_request.parent_client_order_id != str(
+            parent_request.order.client_order_id
+        ):
+            raise ValueError("pending continuation child does not reference latest chain stage")
+        return self.inspect_pending_continuation(parent_request, child_request)
 
     def recover_pending_chain_continuation(
         self,
@@ -591,6 +663,8 @@ class ExecutionContinuationService:
 
 __all__ = [
     "ExecutionContinuationChain",
+    "PendingContinuationRecoveryState",
+    "PendingContinuationRecoveryStatus",
     "ExecutionContinuationDispatchReconciliation",
     "ExecutionContinuationReconciliation",
     "ExecutionContinuationResult",
