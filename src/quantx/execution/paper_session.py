@@ -67,6 +67,11 @@ class PaperSessionResult:
     risk_enforcement: RiskEnforcementResult | None = None
     margin_reservation: MarginReservation | None = None
 
+    @property
+    def margin_used(self) -> Money:
+        """Expose the effective margin used by this session result."""
+        return self.valuation.snapshot.margin_used
+
 
 class PaperSession:
     """Run paper/replay/shadow execution through trading-state accounting.
