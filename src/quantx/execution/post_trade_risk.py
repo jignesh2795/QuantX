@@ -14,6 +14,7 @@ class PostTradeRiskLimits:
     max_daily_loss: Money | None = None
     max_margin_utilization: Decimal | None = None
     max_exposure: Money | None = None
+    max_position_exposure: Money | None = None
 
     def __post_init__(self) -> None:
         if self.max_daily_loss is not None and self.max_daily_loss.amount < 0:
@@ -24,6 +25,8 @@ class PostTradeRiskLimits:
             raise ValueError("max_margin_utilization must be between 0 and 1")
         if self.max_exposure is not None and self.max_exposure.amount < 0:
             raise ValueError("max_exposure cannot be negative")
+        if self.max_position_exposure is not None and self.max_position_exposure.amount < 0:
+            raise ValueError("max_position_exposure cannot be negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +78,13 @@ class PostTradeRiskEngine:
             self._require_currency(snapshot.gross_exposure, limits.max_exposure, "exposure")
             if snapshot.gross_exposure.amount > limits.max_exposure.amount:
                 reasons.append("maximum gross exposure exceeded")
+
+        if limits.max_position_exposure is not None:
+            for exposure in snapshot.financial_state.position_exposures:
+                self._require_currency(exposure, limits.max_position_exposure, "position exposure")
+                if exposure.amount > limits.max_position_exposure.amount:
+                    reasons.append("maximum single-position exposure exceeded")
+                    break
 
         return PostTradeRiskResult(not reasons, tuple(reasons))
 
