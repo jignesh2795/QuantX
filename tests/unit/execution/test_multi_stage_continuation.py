@@ -186,3 +186,33 @@ def test_reconcile_chain_rejects_stage_quantity_above_parent_remainder() -> None
 
     with pytest.raises(ValueError, match="exceeds parent lifecycle remainder"):
         service.reconcile_chain(root, (first, malformed_second))
+
+
+def test_reconcile_chain_rejects_continuation_after_terminal_stage() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        requested_quantity=Decimal("5"),
+    )
+    first_receipt = _receipt(first, "5")
+    first_lifecycle = ExecutionLifecycle.rebuild(
+        first.order.client_order_id,
+        first.order.quantity,
+        (first_receipt,),
+        correlation_id=str(root.order.client_order_id),
+    )
+    second = first_lifecycle.continuation_request(
+        first,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    repository = _ReceiptRepository((root_receipt, first_receipt))
+    service = _service(repository, first_receipt)
+
+    with pytest.raises(ValueError, match="stage lifecycle cannot continue"):
+        service.reconcile_chain(root, (first, second))
