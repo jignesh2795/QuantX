@@ -37,6 +37,7 @@ class ExecutionContinuationDispatchReconciliation:
     request: ApprovedExecutionRequest
     dispatch: ExecutionDispatchResult
     child_lifecycle: ExecutionLifecycle
+    dispatch_performed: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,6 +342,7 @@ class ExecutionContinuationService:
             request=continuation,
             dispatch=dispatched_result.dispatch,
             child_lifecycle=reconciliation.child_lifecycle,
+            dispatch_performed=dispatched_result.dispatch_performed,
         )
 
     def continue_partial(
