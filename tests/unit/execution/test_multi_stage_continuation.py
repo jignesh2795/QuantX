@@ -266,6 +266,7 @@ def test_reconcile_chain_exposes_terminal_latest_stage_as_complete() -> None:
         outcome=ExecutionOutcome.CANCELLED,
         order_status=OrderStatus.CANCELLED,
         executed_at=first_receipt.executed_at + timedelta(minutes=1),
+        fills=(),
         receipt_id=uuid4(),
     )
     repository = _ReceiptRepository((root_receipt, first_receipt, terminal_receipt))
