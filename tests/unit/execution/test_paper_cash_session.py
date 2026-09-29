@@ -72,11 +72,18 @@ def test_stateful_paper_session_carries_cash_between_fills() -> None:
     first = session.execute_and_value(_request(instrument, OrderSide.BUY), snapshot=snapshot)
     assert first.cash.amount == Decimal("4000")
     assert first.valuation.snapshot.cash.amount == Decimal("4000")
+    assert first.financial_state is not None
+    assert first.financial_state.state.cash_balance.amount == Decimal("4000")
+    assert first.financial_state.state.available_cash.amount == Decimal("4000")
+    assert first.financial_state.gross_exposure.amount == Decimal("1000")
 
     second = session.execute_and_value(_request(instrument, OrderSide.SELL), snapshot=snapshot)
     assert second.cash.amount == Decimal("5000")
     assert second.accounting_entry.quantity == Decimal("0")
     assert second.valuation.snapshot.cash.amount == Decimal("5000")
+    assert second.financial_state is not None
+    assert second.financial_state.state.cash_balance.amount == Decimal("5000")
+    assert second.financial_state.gross_exposure.amount == Decimal("0")
 
 
 def test_stateful_paper_session_applies_fees_to_cash_once() -> None:
