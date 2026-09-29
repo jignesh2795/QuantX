@@ -26,6 +26,7 @@ class ExecutionContinuationResult:
     parent_lifecycle: ExecutionLifecycle
     request: ApprovedExecutionRequest
     dispatch: ExecutionDispatchResult
+    dispatch_performed: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +226,52 @@ class ExecutionContinuationService:
         )
         return continuation
 
+    def _dispatch_or_reuse_chain_continuation(
+        self,
+        chain: ExecutionContinuationChain,
+        parent_request: ApprovedExecutionRequest,
+        continuation: ApprovedExecutionRequest,
+        *,
+        snapshot,
+    ) -> ExecutionContinuationResult:
+        repository = self._lifecycle_service.receipt_repository
+        if repository is not None:
+            parent_id = str(parent_request.order.client_order_id)
+            receipts = repository.list_by_correlation_id(parent_id)
+            child_receipts = tuple(
+                receipt
+                for receipt in receipts
+                if receipt.client_order_id == continuation.order.client_order_id
+            )
+            if child_receipts:
+                reconciliation = self.reconcile_continuation(
+                    parent_request,
+                    continuation,
+                )
+                return ExecutionContinuationResult(
+                    parent_lifecycle=reconciliation.parent_lifecycle,
+                    request=continuation,
+                    dispatch=ExecutionDispatchResult(
+                        request=continuation,
+                        receipt=max(
+                            child_receipts,
+                            key=lambda receipt: (
+                                receipt.executed_at,
+                                str(receipt.receipt_id),
+                            ),
+                        ),
+                    ),
+                    dispatch_performed=False,
+                )
+
+        dispatched = self._dispatcher.dispatch(continuation, snapshot=snapshot)
+        return ExecutionContinuationResult(
+            parent_lifecycle=chain.latest_lifecycle,
+            request=continuation,
+            dispatch=dispatched,
+            dispatch_performed=True,
+        )
+
     def dispatch_chain_continuation(
         self,
         root_request: ApprovedExecutionRequest,
@@ -245,11 +292,15 @@ class ExecutionContinuationService:
             required_margin=required_margin,
             requested_quantity=requested_quantity,
         )
-        dispatched = self._dispatcher.dispatch(continuation, snapshot=snapshot)
-        return ExecutionContinuationResult(
-            parent_lifecycle=chain.latest_lifecycle,
-            request=continuation,
-            dispatch=dispatched,
+        return self._dispatch_or_reuse_chain_continuation(
+            chain,
+            (
+                continuation_requests[-1]
+                if continuation_requests
+                else root_request
+            ),
+            continuation,
+            snapshot=snapshot,
         )
 
     def dispatch_chain_continuation_and_reconcile(
@@ -272,18 +323,29 @@ class ExecutionContinuationService:
             required_margin=required_margin,
             requested_quantity=requested_quantity,
         )
-        dispatched = self._dispatcher.dispatch(continuation, snapshot=snapshot)
         parent_request = (
             continuation_requests[-1] if continuation_requests else root_request
         )
-        reconciliation = self.reconcile_continuation(
+        dispatched_result = self._dispatch_or_reuse_chain_continuation(
+            chain,
             parent_request,
             continuation,
+            snapshot=snapshot,
         )
+        if not dispatched_result.dispatch_performed:
+            reconciliation = self.reconcile_continuation(
+                parent_request,
+                continuation,
+            )
+        else:
+            reconciliation = self.reconcile_continuation(
+                parent_request,
+                continuation,
+            )
         return ExecutionContinuationDispatchReconciliation(
             parent_lifecycle=reconciliation.parent_lifecycle,
             request=continuation,
-            dispatch=dispatched,
+            dispatch=dispatched_result.dispatch,
             child_lifecycle=reconciliation.child_lifecycle,
         )
 
