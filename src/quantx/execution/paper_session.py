@@ -275,6 +275,22 @@ class PaperSession:
         if self._margin_ledger is not None and last_entry.quantity == 0:
             self._margin_ledger.release_for_flat_position(last_entry.instrument)
             margin_reservation = self._margin_ledger.reservation(request.order.client_order_id)
+
+        # Refresh after post-fill margin resizing/release so valuation sees final state.
+        if self._margin_ledger is not None:
+            ledger_state = self._margin_ledger.state
+            margin_currency = (
+                cash.currency
+                if cash is not None
+                else self._cash_ledger.balance.currency
+                if self._cash_ledger is not None
+                else None
+            )
+            if margin_currency is None:
+                raise ValueError("cash is required when a margin ledger is configured")
+            margin_used = Money(ledger_state.used, margin_currency)
+            margin_available = Money(ledger_state.available, margin_currency)
+
         account_cash = (
             self._cash_ledger.balance
             if self._cash_ledger is not None
