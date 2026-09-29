@@ -625,3 +625,39 @@ def test_broker_submit_runs_outside_sqlite_transaction(tmp_path) -> None:
         assert observed["in_transaction"] is False
     finally:
         database.close()
+
+
+def test_partial_continuation_is_blocked_by_trading_gate_before_adapter() -> None:
+    from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+    from quantx.execution.trading_gate import TradingGate
+
+    request = _request(ExecutionMode.PAPER)
+    lifecycle = ExecutionLifecycle(
+        request.order.client_order_id,
+        Decimal("10"),
+        Decimal("4"),
+        OrderStatus.PARTIALLY_FILLED,
+    )
+    gate = TradingGate()
+    gate.block("risk limit reached")
+
+    class Adapter(FakePaperExecutor):
+        def continue_partial(self, *args, **kwargs):
+            raise AssertionError("continuation adapter must not be called")
+
+    result = ExecutionOrchestrator(
+        paper_executor=Adapter(),
+        trading_gate=gate,
+    ).continue_partial(
+        request,
+        lifecycle,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        snapshot=Quote(
+            instrument=request.order.instrument,
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+            ask=Decimal("100"),
+        ),
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "trading is blocked" in result.reason
