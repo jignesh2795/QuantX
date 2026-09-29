@@ -114,6 +114,37 @@ class ExecutionLifecycle:
             OrderStatus.UNKNOWN,
         }
 
+    @classmethod
+    def rebuild(
+        cls,
+        client_order_id: UUID | str,
+        order_quantity: Decimal,
+        receipts: tuple[ExecutionReceipt, ...] | list[ExecutionReceipt],
+    ) -> "ExecutionLifecycle":
+        """Reconstruct lifecycle state from authoritative immutable receipts.
+
+        Receipt identity is the deduplication boundary. Replaying the same
+        persisted receipt twice must never double-count its fill. Receipts
+        are ordered deterministically by execution time and receipt ID.
+        """
+        unique: dict[UUID, ExecutionReceipt] = {}
+        for receipt in receipts:
+            existing = unique.get(receipt.receipt_id)
+            if existing is not None:
+                if existing != receipt:
+                    raise ValueError("receipt ID maps to conflicting receipt data")
+                continue
+            unique[receipt.receipt_id] = receipt
+
+        lifecycle = cls(client_order_id, order_quantity)
+        ordered = sorted(
+            unique.values(),
+            key=lambda receipt: (receipt.executed_at, str(receipt.receipt_id)),
+        )
+        for receipt in ordered:
+            lifecycle = lifecycle.apply(receipt)
+        return lifecycle
+
     def apply(self, receipt: ExecutionReceipt) -> "ExecutionLifecycle":
         if (
             receipt.client_order_id != self.client_order_id
