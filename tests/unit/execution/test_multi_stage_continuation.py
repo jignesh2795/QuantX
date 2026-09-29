@@ -11,7 +11,7 @@ from quantx.execution.continuation import ExecutionContinuationChain
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.receipts.models import ExecutionOutcome
 
-from .test_continuation import _PaperPort, _ReceiptRepository, _receipt, _request
+from .test_continuation import _PaperPort, _ReceiptRepository, _receipt, _request, _snapshot
 from quantx.execution.continuation import ExecutionContinuationService
 from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.lifecycle import ExecutionLifecycleService
