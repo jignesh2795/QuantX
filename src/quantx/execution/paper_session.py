@@ -139,8 +139,15 @@ class PaperSession:
                 cash.currency if cash is not None else self._cash_ledger.balance.currency
             )
 
-        receipt = self._executor.execute(request, snapshot=snapshot)
+        try:
+            receipt = self._executor.execute(request, snapshot=snapshot)
+        except Exception:
+            if margin_reservation is not None:
+                self._margin_ledger.release(request.order.client_order_id)
+            raise
         if not receipt.fills:
+            if margin_reservation is not None:
+                self._margin_ledger.release(request.order.client_order_id)
             raise ValueError("execution produced no fill")
 
         applied_fee = receipt.fee if fee is None else fee
