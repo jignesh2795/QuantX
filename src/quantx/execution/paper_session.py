@@ -10,10 +10,12 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from quantx.domain.deployment import ExecutionMode
+from quantx.domain.finance import CapitalSourceType
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.positions import Position
 from quantx.domain.value_objects import Money
+from quantx.execution.account_financial_state import AccountFinancialSnapshot, AccountFinancialStateBuilder
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.cash_ledger import CashLedger, CashLedgerEntry
 from quantx.execution.paper_engine import PaperExecutionEngine
@@ -30,6 +32,7 @@ class PaperSessionResult:
     valuation: PortfolioValuationResult
     cash: Money
     cash_entries: tuple[CashLedgerEntry, ...] = ()
+    financial_state: AccountFinancialSnapshot | None = None
 
 
 class PaperSession:
@@ -70,6 +73,9 @@ class PaperSession:
         valuation_price: Decimal | None = None,
         realized_pnl_before: Decimal = Decimal("0"),
         fee: Decimal | None = None,
+        daily_pnl_before: Decimal = Decimal("0"),
+        margin_available: Money | None = None,
+        capital_source: CapitalSourceType = CapitalSourceType.PAPER_CONFIGURED,
     ) -> PaperSessionResult:
         mode = request.execution_context.execution_mode
         if mode not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
@@ -144,6 +150,9 @@ class PaperSession:
             average_price=last_entry.average_price,
             realized_pnl=last_entry.realized_pnl,
         )
+        realized_total = (
+            realized_pnl_before + last_entry.realized_pnl - last_entry.fees
+        )
         valuation = self._valuator.value(
             portfolio_id=request.execution_context.portfolio_id,
             valuation_currency=account_cash.currency,
@@ -151,7 +160,36 @@ class PaperSession:
             margin_used=margin_used,
             positions=(position,),
             marks=marks,
-            realized_pnl=realized_pnl_before + last_entry.realized_pnl - last_entry.fees,
+            realized_pnl=realized_total,
+        )
+
+        margin_available_money = (
+            margin_available
+            if margin_available is not None
+            else Money.zero(account_cash.currency)
+        )
+        gross_exposure = Money(
+            sum(
+                abs(result.market_value.amount)
+                for result in valuation.valuations
+            ),
+            account_cash.currency,
+        )
+        financial_state = AccountFinancialStateBuilder().from_cash_and_margin(
+            capital_source=capital_source,
+            cash_balance=account_cash,
+            margin_used=margin_used,
+            margin_available=margin_available_money,
+            daily_pnl=Money(
+                daily_pnl_before
+                + last_entry.realized_pnl
+                - last_entry.fees
+                + valuation.snapshot.unrealized_pnl.amount,
+                account_cash.currency,
+            ),
+            realized_pnl=valuation.snapshot.realized_pnl,
+            unrealized_pnl=valuation.snapshot.unrealized_pnl,
+            gross_exposure=gross_exposure,
         )
         return PaperSessionResult(
             receipt,
@@ -159,4 +197,5 @@ class PaperSession:
             valuation,
             account_cash,
             tuple(cash_entries),
+            financial_state,
         )
