@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 
 from quantx.domain.deployment import ExecutionMode
@@ -15,6 +16,8 @@ from quantx.execution.preconditions import PreconditionsResult, PreconditionsSta
 from quantx.execution.transactions import ExecutionTransactionCoordinator
 from quantx.execution.trading_gate import TradingGate
 from quantx.execution.session_guard import SessionExecutionGuard
+from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+from quantx.domain.risk import RiskResult
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 
@@ -180,6 +183,74 @@ class ExecutionOrchestrator:
             ExecutionDispatchStatus.EXECUTED,
             receipt=transaction.receipt,
             reason="; ".join(transaction.reasons),
+        )
+
+    def continue_partial(
+        self,
+        request: ApprovedExecutionRequest,
+        lifecycle: ExecutionLifecycle,
+        *,
+        risk_result: RiskResult,
+        snapshot: MarketSnapshot | None = None,
+        requested_quantity: Decimal | None = None,
+    ) -> ExecutionResult:
+        """Continue a partial paper execution through the control plane."""
+        mode = request.execution_context.execution_mode
+        if not self._trading_gate.allow():
+            state = self._trading_gate.state()
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=f"trading is blocked: {state.reason}",
+            )
+        if self._session_guard is not None:
+            session = self._session_guard.check(mode)
+            if not session.allowed:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=session.reason,
+                )
+        if mode not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="partial continuation is only supported for paper/replay execution",
+            )
+        if self._paper_executor is None:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="paper execution adapter is not configured",
+            )
+        if snapshot is None:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="market snapshot is required for partial continuation",
+            )
+        if snapshot.instrument != request.order.instrument:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="market snapshot instrument does not match execution request",
+            )
+        continue_partial = getattr(self._paper_executor, "continue_partial", None)
+        if not callable(continue_partial):
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="paper execution adapter does not support partial continuation",
+            )
+        try:
+            receipt = continue_partial(
+                request,
+                lifecycle,
+                risk_result=risk_result,
+                snapshot=snapshot,
+                requested_quantity=requested_quantity,
+            )
+        except Exception as exc:
+            return ExecutionResult(
+                ExecutionDispatchStatus.UNKNOWN,
+                reason=f"partial continuation failed safely: {exc}",
+            )
+        return ExecutionResult(
+            ExecutionDispatchStatus.EXECUTED,
+            receipt=receipt,
         )
 
     def _execute_live_transactional(
