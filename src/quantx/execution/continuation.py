@@ -14,10 +14,11 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.policy import PolicyResult
 from quantx.domain.risk import RiskResult
 
-from .idempotency import InMemoryIdempotencyStore, IdempotencyStore, request_fingerprint
 from .dispatch import ExecutionDispatchResult, ExecutionDispatcher
-from .receipts.lifecycle import ExecutionLifecycle
+from .idempotency import InMemoryIdempotencyStore, IdempotencyStore, request_fingerprint
 from .lifecycle import ExecutionLifecycleService
+from .receipts.lifecycle import ExecutionLifecycle
+from .receipts.models import ExecutionReceipt
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,7 +236,7 @@ class ExecutionContinuationService:
         self,
         parent_request: ApprovedExecutionRequest,
         continuation: ApprovedExecutionRequest,
-    ):
+    ) -> ExecutionReceipt | None:
         repository = self._lifecycle_service.receipt_repository
         if repository is None:
             return None
@@ -261,7 +262,9 @@ class ExecutionContinuationService:
     ) -> ExecutionContinuationResult:
         repository = self._lifecycle_service.receipt_repository
         if repository is None:
-            raise ValueError("authoritative receipt repository is required for continuation reuse")
+            raise ValueError(
+                "authoritative receipt repository is required for continuation reuse"
+            )
         receipt = repository.get(receipt_id)
         if receipt is None:
             raise ValueError(
