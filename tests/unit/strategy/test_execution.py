@@ -13,13 +13,17 @@ from quantx.domain.deployment import (
 )
 from quantx.domain.enums import AssetClass, OrderSide
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
+from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
 from quantx.domain.order_intents import TradeIntent
-from quantx.domain.policy import PolicyContext
-from quantx.domain.strategy import SignalAction, StrategyResult, StrategySignal
+from quantx.domain.strategy import (
+    SignalAction,
+    StrategyId,
+    StrategyResult,
+    StrategySignal,
+)
 from quantx.domain.value_objects import Money
-from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.strategy.deployment import StrategyExecutionDecision
 from quantx.strategy.execution import StrategyExecutionPreparer
 
@@ -71,7 +75,7 @@ def _decision(
 ) -> StrategyExecutionDecision:
     event = _event()
     signal = StrategySignal(
-        strategy_id=__import__("quantx.domain.strategy", fromlist=["StrategyId"]).StrategyId("buy-and-hold"),
+        strategy_id=StrategyId("buy-and-hold"),
         strategy_version="1",
         instrument=event.instrument,
         action=SignalAction.BUY,
