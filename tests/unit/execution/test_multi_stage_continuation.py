@@ -356,3 +356,107 @@ def test_prepare_chain_continuation_rejects_terminal_latest_stage() -> None:
             (first,),
             risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
         )
+
+
+
+def test_dispatch_chain_continuation_prepares_and_dispatches_latest_stage() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
+        requested_quantity=Decimal("5"),
+    )
+    first_receipt = _receipt(first, "2")
+    next_receipt = _receipt(
+        ExecutionLifecycle.rebuild(
+            first.order.client_order_id,
+            first.order.quantity,
+            (first_receipt,),
+            correlation_id=str(root.order.client_order_id),
+        ).continuation_request(
+            first,
+            risk_result=RiskResult(RiskDecision.APPROVE, "fresh next-stage approval"),
+        ),
+        "3",
+    )
+    repository = _ReceiptRepository((root_receipt, first_receipt))
+    port = _PaperPort(next_receipt)
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(lifecycle, dispatcher)
+
+    result = service.dispatch_chain_continuation(
+        root,
+        (first,),
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh next-stage approval"),
+        snapshot=_snapshot(),
+    )
+
+    assert result.parent_lifecycle.client_order_id == first.order.client_order_id
+    assert result.parent_lifecycle.remaining_quantity == Decimal("3")
+    assert result.request.order.quantity == Decimal("3")
+    assert result.request.parent_client_order_id == str(first.order.client_order_id)
+    assert result.request.order.client_order_id != first.order.client_order_id
+    assert result.dispatch.receipt is next_receipt
+    assert port.requests == [result.request]
+
+
+def test_dispatch_chain_continuation_requires_market_snapshot_for_paper() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    repository = _ReceiptRepository((root_receipt,))
+    port = _PaperPort(_receipt(root, "6"))
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(lifecycle, dispatcher)
+
+    with pytest.raises(ValueError, match="requires a market snapshot"):
+        service.dispatch_chain_continuation(
+            root,
+            (),
+            risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        )
+
+    assert port.requests == []
+
+
+def test_dispatch_chain_continuation_rejects_terminal_latest_stage_before_dispatch() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
+    )
+    first_receipt = _receipt(first, "1")
+    terminal_receipt = replace(
+        first_receipt,
+        outcome=ExecutionOutcome.CANCELLED,
+        order_status=OrderStatus.CANCELLED,
+        executed_at=first_receipt.executed_at + timedelta(minutes=1),
+        fills=(),
+        receipt_id=uuid4(),
+    )
+    repository = _ReceiptRepository((root_receipt, first_receipt, terminal_receipt))
+    port = _PaperPort(terminal_receipt)
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(lifecycle, dispatcher)
+
+    with pytest.raises(ValueError, match="continuation chain latest lifecycle cannot continue"):
+        service.dispatch_chain_continuation(
+            root,
+            (first,),
+            risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+            snapshot=_snapshot(),
+        )
+
+    assert port.requests == []
