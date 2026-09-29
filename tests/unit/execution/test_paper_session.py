@@ -5,6 +5,7 @@ from quantx.domain.accounts import AccountId
 from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
+from quantx.domain.orders import Fill
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
@@ -12,6 +13,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import Money
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile, QuoteSnapshot
+from quantx.execution.accounting import FillAccounting
 from quantx.execution.paper_session import PaperSession
 
 
@@ -143,7 +145,7 @@ def test_partial_continuation_reuses_account_pipeline_and_post_trade_risk() -> N
     clock = FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
     engine = PaperExecutionEngine(
         clock=clock,
-        profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1")),
+        profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1"), fee_bps=Decimal("10")),
     )
     accounting = FillAccounting()
     accounting.apply(
@@ -158,7 +160,7 @@ def test_partial_continuation_reuses_account_pipeline_and_post_trade_risk() -> N
     )
     gate = TradingGate()
     enforcer = PostTradeRiskEnforcer(
-        limits=PostTradeRiskLimits(max_position_exposure=Money(Decimal("500"), "INR")),
+        limits=PostTradeRiskLimits(max_daily_loss=Money(Decimal("0"), "INR")),
         trading_gate=gate,
     )
     session = PaperSession(
@@ -194,7 +196,7 @@ def test_partial_continuation_reuses_account_pipeline_and_post_trade_risk() -> N
     assert result.financial_state is not None
     assert result.risk_enforcement is not None
     assert result.risk_enforcement.allowed is False
-    assert "single-position exposure" in result.risk_enforcement.reasons[0]
+    assert "daily loss" in result.risk_enforcement.reasons[0]
     assert gate.allow() is False
 
 
