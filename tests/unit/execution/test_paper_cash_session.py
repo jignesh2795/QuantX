@@ -71,7 +71,7 @@ def test_stateful_paper_session_carries_cash_between_fills() -> None:
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
         timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        bid=Decimal("99"),
+        bid=Decimal("100"),
         ask=Decimal("100"),
         last=Decimal("100"),
     )
