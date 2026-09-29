@@ -167,6 +167,31 @@ class ExecutionContinuationService:
             stages=(root, *stages),
         )
 
+    def prepare_chain_continuation(
+        self,
+        root_request: ApprovedExecutionRequest,
+        continuation_requests: tuple[ApprovedExecutionRequest, ...],
+        *,
+        risk_result: RiskResult,
+        policy_result: PolicyResult | None = None,
+        required_margin: Decimal = Decimal("0"),
+        requested_quantity: Decimal | None = None,
+    ) -> ApprovedExecutionRequest:
+        """Build the next child from the authoritative latest chain stage."""
+        chain = self.reconcile_chain(root_request, continuation_requests)
+        latest_request = (
+            continuation_requests[-1] if continuation_requests else root_request
+        )
+        if latest_request.order.client_order_id != chain.latest_lifecycle.client_order_id:
+            raise ValueError("latest continuation request does not match chain lifecycle")
+        return chain.latest_lifecycle.continuation_request(
+            latest_request,
+            risk_result=risk_result,
+            policy_result=policy_result,
+            required_margin=required_margin,
+            requested_quantity=requested_quantity,
+        )
+
     def continue_partial(
         self,
         request: ApprovedExecutionRequest,
