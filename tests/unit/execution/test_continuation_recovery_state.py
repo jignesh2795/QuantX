@@ -1,8 +1,5 @@
 from decimal import Decimal
 
-import pytest
-
-from quantx.domain.enums import OrderStatus
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.continuation import (
     ExecutionContinuationService,
@@ -11,9 +8,9 @@ from quantx.execution.continuation import (
 from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.idempotency import InMemoryIdempotencyStore, request_fingerprint
 from quantx.execution.lifecycle import ExecutionLifecycleService
+from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 
 from .test_continuation import _PaperPort, _ReceiptRepository, _receipt, _request
-from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 
 
 def _pending_service(repository, receipt, store):
