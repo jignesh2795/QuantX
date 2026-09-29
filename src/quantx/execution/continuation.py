@@ -114,10 +114,16 @@ class ExecutionContinuationService:
     ) -> ExecutionContinuationChain:
         """Rebuild every continuation stage under the root correlation."""
         root_id = str(root_request.order.client_order_id)
-        stages = tuple(
-            self._lifecycle_service.reconcile_correlated(request, root_id)
-            for request in continuation_requests
-        )
+        stages = []
+        parent_correlation = root_id
+        for request in continuation_requests:
+            stage = self._lifecycle_service.reconcile_correlated(
+                request,
+                parent_correlation,
+            )
+            stages.append(stage)
+            parent_correlation = str(request.order.client_order_id)
+        stages = tuple(stages)
         root = self._lifecycle_service.reconcile(root_request)
         total = root.filled_quantity + sum(
             (stage.filled_quantity for stage in stages),
