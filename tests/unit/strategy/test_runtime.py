@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from quantx.domain.enums import OrderSide
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.strategy import SignalAction, StrategyDefinition, StrategyId, StrategyResult, StrategySignal
@@ -72,7 +73,7 @@ def test_runtime_rejects_hold_with_intent() -> None:
                 ),
                 intent=TradeIntent(
                     instrument=context.event.instrument,
-                    side="BUY",
+                    side=OrderSide.BUY,
                     quantity=Decimal("1"),
                     strategy_id=context.ir.strategy_id.value,
                     strategy_version=context.ir.version,
