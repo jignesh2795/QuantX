@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from uuid import UUID
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.policy import PolicyResult
@@ -36,7 +37,7 @@ class PendingContinuationRecoveryStatus:
     """Non-dispatching inspection result for one pending continuation claim."""
 
     state: PendingContinuationRecoveryState
-    receipt_id: object | None = None
+    receipt_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
