@@ -118,3 +118,46 @@ def test_reconcile_continuation_rejects_missing_child_evidence() -> None:
 
     with pytest.raises(ValueError, match="continuation receipt evidence"):
         service.reconcile_continuation(parent_request, child_request)
+
+
+def test_reconcile_continuation_rejects_child_quantity_above_parent_remainder() -> None:
+    parent_request = _request()
+    parent_receipt = _receipt(parent_request, "9")
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        parent_request.order.client_order_id,
+        parent_request.order.quantity,
+        (parent_receipt,),
+    )
+    valid_child = parent_lifecycle.continuation_request(
+        parent_request,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    oversized_child = valid_child.__class__(
+        order=valid_child.order.__class__(
+            instrument=valid_child.order.instrument,
+            side=valid_child.order.side,
+            order_type=valid_child.order.order_type,
+            quantity=Decimal("2"),
+            limit_price=valid_child.order.limit_price,
+            stop_price=valid_child.order.stop_price,
+            time_in_force=valid_child.order.time_in_force,
+            intent_id=valid_child.order.intent_id,
+            client_order_id=valid_child.order.client_order_id,
+            strategy_id=valid_child.order.strategy_id,
+            strategy_version=valid_child.order.strategy_version,
+            required_capabilities=valid_child.order.required_capabilities,
+        ),
+        execution_context=valid_child.execution_context,
+        risk_result=valid_child.risk_result,
+        policy_result=valid_child.policy_result,
+        required_margin=valid_child.required_margin,
+        parent_client_order_id=valid_child.parent_client_order_id,
+    )
+    child_receipt = _receipt(oversized_child, "1")
+    service = _service(
+        _ReceiptRepository((parent_receipt, child_receipt)),
+        child_receipt,
+    )
+
+    with pytest.raises(ValueError, match="continuation request exceeds parent lifecycle remainder"):
+        service.reconcile_continuation(parent_request, oversized_child)
