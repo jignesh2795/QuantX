@@ -13,13 +13,12 @@ from decimal import Decimal
 
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
+from quantx.domain.instrument_registry import InstrumentRegistry
+from quantx.domain.market_data import MarketDataEvent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
-from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskResult
-from quantx.domain.strategy import StrategyResult
+from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 
 from .deployment import StrategyExecutionDecision
-from quantx.domain.market_data import MarketDataEvent
-from quantx.domain.instrument_registry import InstrumentRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +96,7 @@ class StrategyExecutionPreparer:
                 reference_price=effective_reference,
             ),
         )
-        if risk.decision.value != "approve":
+        if risk.decision is not RiskDecision.APPROVE:
             return StrategyExecutionPreparation(decision, risk, None, None)
 
         policy = self._policy_engine.evaluate(intent, policy_context or PolicyContext())
