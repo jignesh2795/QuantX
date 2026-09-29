@@ -14,7 +14,7 @@ from decimal import Decimal
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
-from quantx.domain.market_data import MarketDataEvent
+from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 
@@ -81,11 +81,7 @@ class StrategyExecutionPreparer:
 
         effective_reference = reference_price
         if effective_reference is None:
-            effective_reference = event.snapshot.last
-        if effective_reference is None and event.snapshot.bid is not None and event.snapshot.ask is not None:
-            effective_reference = (event.snapshot.bid + event.snapshot.ask) / Decimal("2")
-        if effective_reference is None:
-            effective_reference = event.snapshot.ask or event.snapshot.bid
+            effective_reference = self._event_reference_price(event)
 
         risk = self._risk_engine.evaluate(
             intent,
@@ -111,6 +107,17 @@ class StrategyExecutionPreparer:
             required_margin=intent.required_margin,
         )
         return StrategyExecutionPreparation(decision, risk, policy, request)
+
+    @staticmethod
+    def _event_reference_price(event: MarketDataEvent) -> Decimal | None:
+        payload = event.payload
+        if isinstance(payload, Quote):
+            if payload.last is not None:
+                return payload.last
+            return payload.mid or payload.ask or payload.bid
+        if isinstance(payload, Candle):
+            return payload.close
+        raise TypeError(f"unsupported market-data payload: {type(payload).__name__}")
 
     @staticmethod
     def _validate_decision(
