@@ -32,7 +32,7 @@ def test_reconcile_two_sequential_continuations() -> None:
     first = first_lifecycle.continuation_request(
         root,
         risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
-        requested_quantity=Decimal("3"),
+        requested_quantity=Decimal("5"),
     )
     second_receipt = _receipt(first, "2")
     second_lifecycle = ExecutionLifecycle.rebuild(
@@ -76,7 +76,7 @@ def test_reconcile_chain_rejects_cumulative_overfill() -> None:
     repository = _ReceiptRepository((first_receipt, child_receipt))
     service = _service(repository, child_receipt)
 
-    with pytest.raises(ValueError, match="exceed root"):
+    with pytest.raises(ValueError, match="cumulative fills exceed order quantity"):
         service.reconcile_chain(root, (first,))
 
 
