@@ -59,6 +59,21 @@ class ExecutionContinuationChain:
     def aggregate_remaining_quantity(self) -> Decimal:
         return self.root_lifecycle.order_quantity - self.aggregate_filled_quantity
 
+    @property
+    def latest_lifecycle(self) -> ExecutionLifecycle:
+        """Return the lifecycle state at the end of the continuation chain."""
+        return self.stages[-1]
+
+    @property
+    def can_continue(self) -> bool:
+        """Whether the latest chain stage is still eligible for continuation."""
+        return self.latest_lifecycle.can_continue
+
+    @property
+    def is_complete(self) -> bool:
+        """Whether the latest stage is terminal or the aggregate is fully filled."""
+        return self.latest_lifecycle.is_complete
+
 
 class ExecutionContinuationService:
     """Continue a partial order using authoritative lifecycle evidence."""
