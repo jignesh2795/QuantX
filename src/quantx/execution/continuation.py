@@ -273,12 +273,11 @@ class ExecutionContinuationService:
             requested_quantity=requested_quantity,
         )
         dispatched = self._dispatcher.dispatch(continuation, snapshot=snapshot)
+        parent_request = (
+            continuation_requests[-1] if continuation_requests else root_request
+        )
         reconciliation = self.reconcile_continuation(
-            chain.latest_lifecycle_request
-            if hasattr(chain, "latest_lifecycle_request")
-            else (
-                continuation_requests[-1] if continuation_requests else root_request
-            ),
+            parent_request,
             continuation,
         )
         return ExecutionContinuationDispatchReconciliation(
