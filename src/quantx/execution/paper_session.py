@@ -18,6 +18,7 @@ from quantx.domain.value_objects import Money
 from quantx.execution.account_financial_state import AccountFinancialSnapshot, AccountFinancialStateBuilder
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.cash_ledger import CashLedger, CashLedgerEntry
+from quantx.execution.margin_ledger import MarginLedger, MarginReservation, MarginState
 from quantx.execution.paper_engine import PaperExecutionEngine
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
 from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer, RiskEnforcementResult
@@ -35,6 +36,7 @@ class PaperSessionResult:
     cash_entries: tuple[CashLedgerEntry, ...] = ()
     financial_state: AccountFinancialSnapshot | None = None
     risk_enforcement: RiskEnforcementResult | None = None
+    margin_reservation: MarginReservation | None = None
 
 
 class PaperSession:
@@ -55,6 +57,7 @@ class PaperSession:
         initial_cash: Money | None = None,
         cash_ledger: CashLedger | None = None,
         post_trade_risk: PostTradeRiskEnforcer | None = None,
+        margin_ledger: MarginLedger | None = None,
     ) -> None:
         if initial_cash is not None and cash_ledger is not None:
             raise ValueError("provide either initial_cash or cash_ledger, not both")
@@ -66,6 +69,16 @@ class PaperSession:
             CashLedger(initial_cash) if initial_cash is not None else None
         )
         self._post_trade_risk = post_trade_risk
+        self._margin_ledger = margin_ledger
+
+    @property
+    def margin_state(self) -> MarginState | None:
+        return None if self._margin_ledger is None else self._margin_ledger.state
+
+    def release_margin(self, reservation_id, amount: Decimal | None = None) -> MarginReservation:
+        if self._margin_ledger is None:
+            raise ValueError("no margin ledger is configured")
+        return self._margin_ledger.release(reservation_id, amount)
 
     def execute_and_value(
         self,
@@ -95,6 +108,19 @@ class PaperSession:
 
         if self._cash_ledger is None and cash is None:
             raise ValueError("cash is required when no cash ledger is configured")
+        margin_reservation = None
+        if self._margin_ledger is not None and request.required_margin > 0:
+            existing = self._margin_ledger.reservation(request.order.client_order_id)
+            if existing is None:
+                margin_reservation = self._margin_ledger.reserve(
+                    request.order.client_order_id,
+                    request.required_margin,
+                )
+            elif existing.amount != request.required_margin:
+                raise ValueError("existing margin reservation amount does not match request")
+            else:
+                margin_reservation = existing
+
         if margin_used is None:
             margin_used = Money.zero(
                 cash.currency if cash is not None else self._cash_ledger.balance.currency
@@ -208,4 +234,5 @@ class PaperSession:
             tuple(cash_entries),
             financial_state,
             risk_enforcement,
+            margin_reservation,
         )
