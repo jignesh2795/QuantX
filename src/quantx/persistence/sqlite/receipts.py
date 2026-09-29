@@ -166,3 +166,21 @@ class SqliteReceiptRepository:
         if row is None:
             return None
         return receipt_from_payload(row[0])
+
+    def list_by_correlation_id(
+        self, correlation_id: UUID | str
+    ) -> tuple[ExecutionReceipt, ...]:
+        """Return immutable receipts correlated to one parent lifecycle.
+
+        Correlation is stored inside the canonical immutable payload. The
+        query remains authoritative without introducing a second lifecycle
+        state store.
+        """
+        with self._database.transaction() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM receipts "
+                "WHERE json_extract(payload, '$.correlation_id') = ? "
+                "ORDER BY rowid",
+                (str(correlation_id),),
+            ).fetchall()
+        return tuple(receipt_from_payload(row[0]) for row in rows)
