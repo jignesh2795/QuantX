@@ -121,7 +121,20 @@ class PaperSession:
             else:
                 margin_reservation = existing
 
-        if margin_used is None:
+        if self._margin_ledger is not None:
+            ledger_state = self._margin_ledger.state
+            margin_currency = (
+                cash.currency
+                if cash is not None
+                else self._cash_ledger.balance.currency
+                if self._cash_ledger is not None
+                else None
+            )
+            if margin_currency is None:
+                raise ValueError("cash is required when a margin ledger is configured")
+            margin_used = Money(ledger_state.used, margin_currency)
+            margin_available = Money(ledger_state.available, margin_currency)
+        elif margin_used is None:
             margin_used = Money.zero(
                 cash.currency if cash is not None else self._cash_ledger.balance.currency
             )
