@@ -4,6 +4,7 @@ from decimal import Decimal
 from quantx.application.backtest import BacktestDisposition, DeterministicBacktestService
 from quantx.domain.accounts import AccountId
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.enums import AssetClass, OrderSide
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
