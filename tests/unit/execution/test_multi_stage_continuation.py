@@ -509,7 +509,8 @@ def test_dispatch_chain_continuation_and_reconcile_returns_authoritative_child_s
     assert result.child_lifecycle.client_order_id == result.request.order.client_order_id
     assert result.child_lifecycle.status is OrderStatus.FILLED
     assert result.child_lifecycle.filled_quantity == Decimal("3")
-    assert port.requests == [result.request]
+    assert result.dispatch_performed is False
+    assert port.requests == []
 
 
 def test_dispatch_chain_continuation_and_reconcile_rejects_missing_authoritative_child() -> None:
