@@ -96,6 +96,29 @@ class MarginLedger:
         return updated
 
 
+    def set_required_amount(self, reservation_id: UUID, required_amount: Decimal) -> MarginReservation:
+        if required_amount < 0:
+            raise ValueError("required margin cannot be negative")
+        current = self._reservations.get(reservation_id)
+        if current is None:
+            raise KeyError(f"unknown margin reservation: {reservation_id}")
+        delta = required_amount - current.outstanding
+        if delta > 0:
+            if delta > self.state.available:
+                raise ValueError("required margin exceeds available margin")
+            self._used += delta
+        elif delta < 0:
+            self._used += delta
+        updated = MarginReservation(
+            current.reservation_id,
+            current.amount + max(delta, Decimal("0")),
+            current.released + max(-delta, Decimal("0")),
+            current.instrument,
+            current.quantity,
+        )
+        self._reservations[reservation_id] = updated
+        return updated
+
     def release_for_flat_position(self, instrument: InstrumentId) -> tuple[MarginReservation, ...]:
         """Release reservations tied to an instrument after it becomes flat."""
         released: list[MarginReservation] = []
