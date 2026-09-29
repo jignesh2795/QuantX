@@ -308,8 +308,13 @@ def test_position_margin_policy_resizes_on_partial_close() -> None:
     assert session.margin_state is not None
     assert session.margin_state.used == Decimal("1200")
 
-    partial_close = replace(_request(instrument, OrderSide.SELL), required_margin=Decimal("0"))
+    partial_close = _request(instrument, OrderSide.SELL)
+    partial_close = replace(
+        partial_close,
+        order=replace(partial_close.order, quantity=Decimal("5")),
+        required_margin=Decimal("0"),
+    )
     result = session.execute_and_value(partial_close, snapshot=snapshot)
 
-    assert result.accounting_entry.quantity == Decimal("0")
-    assert session.margin_state.used == Decimal("0")
+    assert result.accounting_entry.quantity == Decimal("5")
+    assert session.margin_state.used == Decimal("600")
