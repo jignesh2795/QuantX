@@ -13,6 +13,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import Money
 from quantx.execution.paper_engine import PaperExecutionEngine, QuoteSnapshot
 from quantx.execution.margin_ledger import MarginLedger
+from quantx.execution.margin_policy import FixedPerUnitMarginPolicy
 from quantx.execution.paper_session import PaperSession
 from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
 from quantx.execution.post_trade_risk import PostTradeRiskLimits
@@ -291,7 +292,7 @@ def test_position_margin_policy_resizes_on_partial_close() -> None:
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         initial_cash=Money(Decimal("5000"), "INR"),
         margin_ledger=margin,
-        position_margin_requirement=lambda entry: abs(entry.quantity) * Decimal("120"),
+        position_margin_policy=FixedPerUnitMarginPolicy(Decimal("120")),
     )
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
