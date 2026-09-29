@@ -800,3 +800,112 @@ def test_recover_pending_continuation_rejects_completed_child_claim() -> None:
 
     with pytest.raises(ValueError, match="already completed"):
         service.recover_pending_continuation(root, child)
+
+
+def test_recover_pending_chain_continuation_uses_latest_stage() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
+        requested_quantity=Decimal("5"),
+    )
+    first_receipt = _receipt(first, "2")
+    second = ExecutionLifecycle.rebuild(
+        first.order.client_order_id,
+        first.order.quantity,
+        (first_receipt,),
+    ).continuation_request(
+        first,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage two approval"),
+    )
+    second_receipt = _receipt(second, "3")
+    repository = _ReceiptRepository((root_receipt, first_receipt, second_receipt))
+    idempotency = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(second)
+    idempotency.reserve_or_get(second.order.client_order_id, fingerprint)
+    port = _PaperPort(_receipt(second, "3"))
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+
+    result = service.recover_pending_chain_continuation(
+        root,
+        (first,),
+        second,
+    )
+
+    assert result.parent_lifecycle.client_order_id == first.order.client_order_id
+    assert result.parent_lifecycle.filled_quantity == Decimal("2")
+    assert result.request is second
+    assert result.dispatch.receipt is second_receipt
+    assert not result.dispatch_performed
+    assert port.requests == []
+    assert idempotency.check(
+        second.order.client_order_id,
+        fingerprint,
+    ).existing_receipt_id == second_receipt.receipt_id
+
+
+def test_recover_pending_chain_continuation_rejects_nonlatest_parent_link() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
+        requested_quantity=Decimal("5"),
+    )
+    first_receipt = _receipt(first, "2")
+    second = ExecutionLifecycle.rebuild(
+        first.order.client_order_id,
+        first.order.quantity,
+        (first_receipt,),
+    ).continuation_request(
+        first,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage two approval"),
+    )
+    malformed = second.__class__(
+        order=second.order,
+        execution_context=second.execution_context,
+        risk_result=second.risk_result,
+        policy_result=second.policy_result,
+        required_margin=second.required_margin,
+        parent_client_order_id=str(root.order.client_order_id),
+    )
+    repository = _ReceiptRepository((root_receipt, first_receipt))
+    idempotency = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(malformed)
+    idempotency.reserve_or_get(malformed.order.client_order_id, fingerprint)
+    port = _PaperPort(_receipt(malformed, "3"))
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+
+    with pytest.raises(ValueError, match="latest chain stage"):
+        service.recover_pending_chain_continuation(
+            root,
+            (first,),
+            malformed,
+        )
+
+    assert port.requests == []
+    assert idempotency.check(
+        malformed.order.client_order_id,
+        fingerprint,
+    ).reservation_pending
