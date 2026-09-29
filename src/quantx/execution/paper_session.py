@@ -1,7 +1,7 @@
 """End-to-end paper execution session orchestration.
 
-Connects approved execution, fill accounting, and explicit mark-to-market
-valuation without inventing balances or market data.
+Connects approved execution, fill accounting, explicit cash accounting, and
+mark-to-market valuation without inventing balances or market data.
 """
 
 from __future__ import annotations
@@ -15,7 +15,8 @@ from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.positions import Position
 from quantx.domain.value_objects import Money
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
-from quantx.execution.paper import PaperExecutionEngine
+from quantx.execution.cash_ledger import CashLedger, CashLedgerEntry
+from quantx.execution.paper_engine import PaperExecutionEngine
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
 from quantx.execution.valuation import Mark
 
@@ -27,10 +28,17 @@ class PaperSessionResult:
     execution: object
     accounting_entry: PositionLedgerEntry
     valuation: PortfolioValuationResult
+    cash: Money
+    cash_entries: tuple[CashLedgerEntry, ...] = ()
 
 
 class PaperSession:
-    """Run paper/replay/shadow execution through accounting and valuation."""
+    """Run paper/replay/shadow execution through trading-state accounting.
+
+    initial_cash or cash_ledger turns the session into a stateful paper
+    account. The legacy cash argument remains supported for one-shot
+    valuation when no ledger is configured.
+    """
 
     def __init__(
         self,
@@ -39,19 +47,26 @@ class PaperSession:
         instrument_registry: InstrumentRegistry,
         accounting: FillAccounting | None = None,
         valuator: PortfolioValuator | None = None,
+        initial_cash: Money | None = None,
+        cash_ledger: CashLedger | None = None,
     ) -> None:
+        if initial_cash is not None and cash_ledger is not None:
+            raise ValueError("provide either initial_cash or cash_ledger, not both")
         self._executor = executor
         self._instrument_registry = instrument_registry
         self._accounting = accounting or FillAccounting()
         self._valuator = valuator or PortfolioValuator()
+        self._cash_ledger = cash_ledger or (
+            CashLedger(initial_cash) if initial_cash is not None else None
+        )
 
     def execute_and_value(
         self,
         request: ApprovedExecutionRequest,
         *,
         snapshot: MarketSnapshot,
-        cash: Money,
-        margin_used: Money,
+        cash: Money | None = None,
+        margin_used: Money | None = None,
         valuation_price: Decimal | None = None,
         realized_pnl_before: Decimal = Decimal("0"),
         fee: Decimal | None = None,
@@ -68,6 +83,13 @@ class PaperSession:
         if instrument.market != request.execution_context.market:
             raise ValueError("resolved instrument market does not match the execution request")
 
+        if self._cash_ledger is None and cash is None:
+            raise ValueError("cash is required when no cash ledger is configured")
+        if margin_used is None:
+            margin_used = Money.zero(
+                cash.currency if cash is not None else self._cash_ledger.balance.currency
+            )
+
         receipt = self._executor.execute(request, snapshot=snapshot)
         if not receipt.fills:
             raise ValueError("execution produced no fill")
@@ -77,11 +99,29 @@ class PaperSession:
             raise ValueError("fee cannot be negative")
 
         last_entry: PositionLedgerEntry | None = None
+        cash_entries: list[CashLedgerEntry] = []
         per_fill_fee = applied_fee / Decimal(len(receipt.fills))
         for fill in receipt.fills:
             last_entry = self._accounting.apply(fill, fee=per_fill_fee)
+            if self._cash_ledger is not None:
+                cash_entries.append(
+                    self._cash_ledger.apply(
+                        fill,
+                        fee=per_fill_fee,
+                        multiplier=instrument.multiplier,
+                    )
+                )
 
         assert last_entry is not None
+        account_cash = (
+            self._cash_ledger.balance
+            if self._cash_ledger is not None
+            else cash
+        )
+        assert account_cash is not None
+        if cash is not None and cash.currency != account_cash.currency:
+            raise ValueError("cash currency does not match the paper account")
+
         mark_price = valuation_price if valuation_price is not None else snapshot.last
         if mark_price is None and snapshot.bid is not None and snapshot.ask is not None:
             mark_price = (snapshot.bid + snapshot.ask) / Decimal("2")
@@ -106,11 +146,17 @@ class PaperSession:
         )
         valuation = self._valuator.value(
             portfolio_id=request.execution_context.portfolio_id,
-            valuation_currency=cash.currency,
-            cash=cash,
+            valuation_currency=account_cash.currency,
+            cash=account_cash,
             margin_used=margin_used,
             positions=(position,),
             marks=marks,
             realized_pnl=realized_pnl_before + last_entry.realized_pnl - last_entry.fees,
         )
-        return PaperSessionResult(receipt, last_entry, valuation)
+        return PaperSessionResult(
+            receipt,
+            last_entry,
+            valuation,
+            account_cash,
+            tuple(cash_entries),
+        )
