@@ -122,13 +122,20 @@ class ExecutionLifecycle:
         new_filled = self.filled_quantity + receipt.filled_quantity
         if new_filled > self.order_quantity:
             raise ValueError("cumulative fills exceed order quantity")
-        next_status = (
-            OrderStatus.FILLED
-            if new_filled == self.order_quantity
-            else OrderStatus.PARTIALLY_FILLED
-            if new_filled > 0
-            else receipt.order_status
-        )
+        if new_filled == self.order_quantity:
+            next_status = OrderStatus.FILLED
+        elif new_filled > 0:
+            next_status = OrderStatus.PARTIALLY_FILLED
+        elif receipt.order_status in {
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED,
+            OrderStatus.FAILED,
+            OrderStatus.UNKNOWN,
+        }:
+            next_status = receipt.order_status
+        else:
+            next_status = self.status
         return ExecutionLifecycle(
             client_order_id=self.client_order_id,
             order_quantity=self.order_quantity,

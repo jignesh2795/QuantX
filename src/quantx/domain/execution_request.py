@@ -34,7 +34,7 @@ class ApprovedExecutionRequest:
 
     @property
     def correlation_id(self) -> str:
-        return str(self.order.client_order_id)
+        return self.parent_client_order_id or str(self.order.client_order_id)
 
 
 def build_order_from_intent(intent: TradeIntent) -> Order:

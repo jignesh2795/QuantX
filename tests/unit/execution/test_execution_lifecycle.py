@@ -78,3 +78,55 @@ def test_continuation_cannot_exceed_evidenced_remainder() -> None:
         assert "exceeds remaining" in str(exc)
     else:
         raise AssertionError("expected continuation quantity validation")
+
+
+def test_partial_continuation_executes_remaining_quantity_with_parent_correlation() -> None:
+    from quantx.domain.accounts import AccountId
+    from quantx.domain.clock import FixedClock
+    from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+    from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
+    from quantx.domain.order_intents import TradeIntent
+    from quantx.domain.risk import RiskDecision, RiskResult
+    from quantx.execution.market_data import MarketSnapshot
+    from quantx.execution.paper import PaperExecutionEngine
+    from datetime import UTC, datetime
+
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("p-1"),
+        deployment_id=StrategyDeploymentId("d-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        execution_mode=ExecutionMode.PAPER,
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("10"),
+        execution_context=context,
+    )
+    from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+    request = ApprovedExecutionRequest(
+        build_order_from_intent(intent),
+        context,
+        RiskResult(RiskDecision.APPROVE, "approved"),
+    )
+    lifecycle = ExecutionLifecycle(
+        request.order.client_order_id,
+        Decimal("10"),
+        Decimal("4"),
+        OrderStatus.PARTIALLY_FILLED,
+    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    receipt = engine.continue_partial(
+        request,
+        lifecycle,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        snapshot=MarketSnapshot(
+            instrument=request.order.instrument,
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+            ask=Decimal("100"),
+        ),
+    )
+    assert receipt.client_order_id != request.order.client_order_id
+    assert receipt.correlation_id == str(request.order.client_order_id)
+    assert receipt.filled_quantity == Decimal("6")

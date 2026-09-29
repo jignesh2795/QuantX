@@ -20,6 +20,8 @@ from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fin
 from .market_data import MarketSnapshot
 from .models import FillModel, QuoteFillModel, SlippageModel
 from .ports import ExecutionOutcome, ExecutionReceipt
+from .receipts.lifecycle import ExecutionLifecycle
+from quantx.domain.risk import RiskResult
 
 QuoteSnapshot = MarketSnapshot
 
@@ -212,6 +214,28 @@ class PaperExecutionEngine:
             )
         )
         return receipt
+
+    def continue_partial(
+        self,
+        request: ApprovedExecutionRequest,
+        lifecycle: ExecutionLifecycle,
+        *,
+        risk_result: RiskResult,
+        snapshot: MarketSnapshot,
+        requested_quantity: Decimal | None = None,
+    ) -> ExecutionReceipt:
+        """Execute only an evidenced partial remainder under fresh risk approval."""
+        if request.order.client_order_id != lifecycle.client_order_id:
+            raise PaperExecutionError("request does not match partial execution lifecycle")
+        try:
+            continuation = lifecycle.continuation_request(
+                request,
+                risk_result=risk_result,
+                requested_quantity=requested_quantity,
+            )
+        except ValueError as exc:
+            raise PaperExecutionError(str(exc)) from exc
+        return self.execute(continuation, snapshot=snapshot)
 
     def events(self) -> tuple[object, ...]:
         return tuple(self._events)
