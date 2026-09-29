@@ -224,11 +224,39 @@ class PaperExecutionEngine:
         snapshot: MarketSnapshot,
         requested_quantity: Decimal | None = None,
     ) -> ExecutionReceipt:
-        """Execute only an evidenced partial remainder under fresh risk approval."""
+        """Execute an evidenced partial remainder under fresh risk approval.
+
+        When an authoritative receipt repository is configured, the supplied
+        lifecycle is only the caller-side identity check. The continuation
+        decision is rebuilt from persisted receipts so a process restart or
+        stale in-memory state cannot authorize an unsupported quantity.
+        """
         if request.order.client_order_id != lifecycle.client_order_id:
             raise PaperExecutionError("request does not match partial execution lifecycle")
+
+        authoritative_lifecycle = lifecycle
+        if self._receipt_repository is not None:
+            receipts = self._receipt_repository.list_by_correlation_id(
+                request.order.client_order_id
+            )
+            if not receipts:
+                raise PaperExecutionError(
+                    "authoritative execution receipts are unavailable; "
+                    "reconciliation is required"
+                )
+            try:
+                authoritative_lifecycle = ExecutionLifecycle.rebuild(
+                    request.order.client_order_id,
+                    request.order.quantity,
+                    receipts,
+                )
+            except ValueError as exc:
+                raise PaperExecutionError(
+                    f"authoritative execution lifecycle is invalid: {exc}"
+                ) from exc
+
         try:
-            continuation = lifecycle.continuation_request(
+            continuation = authoritative_lifecycle.continuation_request(
                 request,
                 risk_result=risk_result,
                 requested_quantity=requested_quantity,
