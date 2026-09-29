@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
+from quantx.domain.strategy import StrategyResult
 from quantx.research.replay import ReplayFrame
 
 from .ir import StrategyIR
@@ -16,7 +17,7 @@ class StrategyEvaluation:
     """One strategy decision at a deterministic market-data timestamp."""
 
     event: MarketDataEvent
-    result: object
+    result: StrategyResult
 
 
 class StrategyEvaluationService:
