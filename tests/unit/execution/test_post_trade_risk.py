@@ -81,3 +81,26 @@ def test_single_position_exposure_limit() -> None:
     )
     assert result.breached
     assert result.reasons == ("maximum single-position exposure exceeded",)
+
+
+def test_max_open_positions_limit() -> None:
+    state = AccountFinancialStateBuilder().from_cash_and_margin(
+        capital_source=CapitalSourceType.PAPER_CONFIGURED,
+        cash_balance=Money(Decimal("5000"), "INR"),
+        margin_used=Money(Decimal("0"), "INR"),
+        margin_available=Money(Decimal("0"), "INR"),
+        daily_pnl=Money(Decimal("0"), "INR"),
+        realized_pnl=Money(Decimal("0"), "INR"),
+        unrealized_pnl=Money(Decimal("0"), "INR"),
+        gross_exposure=Money(Decimal("1500"), "INR"),
+        position_exposures=(
+            Money(Decimal("1000"), "INR"),
+            Money(Decimal("500"), "INR"),
+        ),
+    )
+    result = PostTradeRiskEngine().evaluate(
+        PostTradeRiskSnapshot(state.state, state.daily_pnl, state.gross_exposure),
+        PostTradeRiskLimits(max_open_positions=1),
+    )
+    assert result.breached
+    assert result.reasons == ("maximum open positions exceeded",)
