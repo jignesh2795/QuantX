@@ -55,6 +55,11 @@ def receipt_to_payload(receipt: ExecutionReceipt) -> str:
         "model_profile": receipt.model_profile,
         "model_version": receipt.model_version,
         "order_id": str(receipt.order_id) if receipt.order_id is not None else None,
+        "order_quantity": (
+            _canonical_decimal(receipt.order_quantity)
+            if receipt.order_quantity is not None
+            else None
+        ),
         "order_status": receipt.order_status.value,
         "outcome": receipt.outcome.value,
         "raw_reference": receipt.raw_reference,
@@ -102,6 +107,11 @@ def receipt_from_payload(payload: str) -> ExecutionReceipt:
         correlation_id=data["correlation_id"],
         receipt_id=UUID(data["receipt_id"]),
         order_id=UUID(data["order_id"]) if data["order_id"] is not None else None,
+        order_quantity=(
+            Decimal(data["order_quantity"])
+            if data["order_quantity"] is not None
+            else None
+        ),
         account_id=AccountId(data["account_id"]) if data["account_id"] is not None else None,
         connection_id=BrokerConnectionId(data["connection_id"])
         if data["connection_id"] is not None

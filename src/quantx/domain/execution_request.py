@@ -19,6 +19,7 @@ class ApprovedExecutionRequest:
     risk_result: RiskResult
     policy_result: PolicyResult | None = None
     required_margin: Decimal = Decimal("0")
+    parent_client_order_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.required_margin < 0:
