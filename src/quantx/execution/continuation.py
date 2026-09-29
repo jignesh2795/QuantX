@@ -29,6 +29,16 @@ class ExecutionContinuationResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionContinuationDispatchReconciliation:
+    """Dispatch evidence paired with authoritative child lifecycle state."""
+
+    parent_lifecycle: ExecutionLifecycle
+    request: ApprovedExecutionRequest
+    dispatch: ExecutionDispatchResult
+    child_lifecycle: ExecutionLifecycle
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionContinuationReconciliation:
     """Reconstructed parent and child lifecycle state from receipt history."""
 
@@ -242,6 +252,42 @@ class ExecutionContinuationService:
             dispatch=dispatched,
         )
 
+    def dispatch_chain_continuation_and_reconcile(
+        self,
+        root_request: ApprovedExecutionRequest,
+        continuation_requests: tuple[ApprovedExecutionRequest, ...],
+        *,
+        risk_result: RiskResult,
+        policy_result: PolicyResult | None = None,
+        required_margin: Decimal = Decimal("0"),
+        requested_quantity: Decimal | None = None,
+        snapshot=None,
+    ) -> ExecutionContinuationDispatchReconciliation:
+        """Dispatch a continuation and require authoritative child reconciliation."""
+        chain, continuation = self._prepare_chain_continuation(
+            root_request,
+            continuation_requests,
+            risk_result=risk_result,
+            policy_result=policy_result,
+            required_margin=required_margin,
+            requested_quantity=requested_quantity,
+        )
+        dispatched = self._dispatcher.dispatch(continuation, snapshot=snapshot)
+        reconciliation = self.reconcile_continuation(
+            chain.latest_lifecycle_request
+            if hasattr(chain, "latest_lifecycle_request")
+            else (
+                continuation_requests[-1] if continuation_requests else root_request
+            ),
+            continuation,
+        )
+        return ExecutionContinuationDispatchReconciliation(
+            parent_lifecycle=reconciliation.parent_lifecycle,
+            request=continuation,
+            dispatch=dispatched,
+            child_lifecycle=reconciliation.child_lifecycle,
+        )
+
     def continue_partial(
         self,
         request: ApprovedExecutionRequest,
@@ -269,6 +315,7 @@ class ExecutionContinuationService:
 
 __all__ = [
     "ExecutionContinuationChain",
+    "ExecutionContinuationDispatchReconciliation",
     "ExecutionContinuationReconciliation",
     "ExecutionContinuationResult",
     "ExecutionContinuationService",
