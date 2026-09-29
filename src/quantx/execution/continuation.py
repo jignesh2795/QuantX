@@ -499,7 +499,12 @@ class ExecutionContinuationService:
             raise ValueError(
                 "authoritative continuation receipt evidence is unavailable for pending recovery"
             )
-        authoritative = self._lifecycle_service.receipt_repository.get(status.receipt_id)
+        repository = self._lifecycle_service.receipt_repository
+        if repository is None or status.receipt_id is None:
+            raise ValueError(
+                "pending recovery receipt is unavailable in the authoritative repository"
+            )
+        authoritative = repository.get(status.receipt_id)
         if authoritative is None:
             raise ValueError(
                 "pending recovery receipt is unavailable in the authoritative repository"
@@ -534,7 +539,7 @@ class ExecutionContinuationService:
         child_request: ApprovedExecutionRequest,
     ) -> PendingContinuationRecoveryStatus:
         """Inspect recovery state after binding the claim to the latest chain stage."""
-        chain = self.reconcile_chain(root_request, continuation_requests)
+        self.reconcile_chain(root_request, continuation_requests)
         parent_request = (
             continuation_requests[-1]
             if continuation_requests
