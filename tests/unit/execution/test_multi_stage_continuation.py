@@ -1,5 +1,7 @@
 from dataclasses import replace
+from datetime import timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
@@ -263,6 +265,8 @@ def test_reconcile_chain_exposes_terminal_latest_stage_as_complete() -> None:
         first_receipt,
         outcome=ExecutionOutcome.CANCELLED,
         order_status=OrderStatus.CANCELLED,
+        executed_at=first_receipt.executed_at + timedelta(minutes=1),
+        receipt_id=uuid4(),
     )
     repository = _ReceiptRepository((root_receipt, first_receipt, terminal_receipt))
     service = _service(repository, terminal_receipt)
