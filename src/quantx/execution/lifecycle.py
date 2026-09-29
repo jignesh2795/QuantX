@@ -39,6 +39,10 @@ class ExecutionLifecycleService:
         self._dispatcher = dispatcher
         self._receipt_repository = receipt_repository
 
+    @property
+    def receipt_repository(self) -> ReceiptRepository | None:
+        return self._receipt_repository
+
     def dispatch(
         self,
         request: ApprovedExecutionRequest,
