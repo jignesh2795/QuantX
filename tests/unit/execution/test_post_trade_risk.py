@@ -53,3 +53,30 @@ def test_exposure_limit_breaches_and_currency_mismatch_is_rejected() -> None:
             PostTradeRiskSnapshot(_state("100", "9900"), Money(Decimal("0"), "USD"), Money(Decimal("1"), "INR")),
             PostTradeRiskLimits(max_daily_loss=Money(Decimal("500"), "INR")),
         )
+
+
+def test_single_position_exposure_limit() -> None:
+    state = AccountFinancialStateBuilder().from_cash_and_margin(
+        capital_source=CapitalSourceType.PAPER_CONFIGURED,
+        cash_balance=Money(Decimal("5000"), "INR"),
+        margin_used=Money(Decimal("0"), "INR"),
+        margin_available=Money(Decimal("0"), "INR"),
+        daily_pnl=Money(Decimal("0"), "INR"),
+        realized_pnl=Money(Decimal("0"), "INR"),
+        unrealized_pnl=Money(Decimal("0"), "INR"),
+        gross_exposure=Money(Decimal("1500"), "INR"),
+        position_exposures=(
+            Money(Decimal("1000"), "INR"),
+            Money(Decimal("500"), "INR"),
+        ),
+    )
+    result = PostTradeRiskEngine().evaluate(
+        PostTradeRiskSnapshot(
+            financial_state=state.state,
+            daily_pnl=state.daily_pnl,
+            gross_exposure=state.gross_exposure,
+        ),
+        PostTradeRiskLimits(max_position_exposure=Money(Decimal("900"), "INR")),
+    )
+    assert result.breached
+    assert result.reasons == ("maximum single-position exposure exceeded",)
