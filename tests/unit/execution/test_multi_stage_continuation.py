@@ -1,10 +1,13 @@
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 
+from quantx.domain.enums import OrderStatus
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.continuation import ExecutionContinuationChain
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+from quantx.execution.receipts.models import ExecutionOutcome
 
 from .test_continuation import _PaperPort, _ReceiptRepository, _receipt, _request
 from quantx.execution.continuation import ExecutionContinuationService
@@ -256,13 +259,18 @@ def test_reconcile_chain_exposes_terminal_latest_stage_as_complete() -> None:
         requested_quantity=Decimal("5"),
     )
     first_receipt = _receipt(first, "1")
-    terminal_receipt = _receipt(first, "4")
+    terminal_receipt = replace(
+        first_receipt,
+        outcome=ExecutionOutcome.CANCELLED,
+        order_status=OrderStatus.CANCELLED,
+    )
     repository = _ReceiptRepository((root_receipt, first_receipt, terminal_receipt))
     service = _service(repository, terminal_receipt)
 
     chain = service.reconcile_chain(root, (first,))
 
-    assert chain.latest_lifecycle.status.name == "FILLED"
+    assert chain.latest_lifecycle.status is OrderStatus.CANCELLED
+    assert chain.latest_lifecycle.remaining_quantity == Decimal("4")
     assert not chain.can_continue
     assert chain.is_complete
-    assert chain.aggregate_remaining_quantity == Decimal("1")
+    assert chain.aggregate_remaining_quantity == Decimal("5")
