@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from quantx.execution.continuation import (
 from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.lifecycle import ExecutionLifecycleService
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
 
 from .test_continuation import _PaperPort, _ReceiptRepository, _receipt, _request
 
@@ -161,3 +163,42 @@ def test_reconcile_continuation_rejects_child_quantity_above_parent_remainder() 
 
     with pytest.raises(ValueError, match="continuation request exceeds parent lifecycle remainder"):
         service.reconcile_continuation(parent_request, oversized_child)
+
+
+def test_reconcile_continuation_rejects_terminal_parent_with_remaining_quantity() -> None:
+    parent_request = _request()
+    partial_receipt = _receipt(parent_request, "4")
+    cancelled_receipt = ExecutionReceipt.from_order(
+        parent_request.order,
+        request_id=uuid4(),
+        outcome=ExecutionOutcome.CANCELLED,
+        order_status=OrderStatus.CANCELLED,
+        executed_at=datetime(2026, 1, 1, 9, 16, tzinfo=timezone.utc),
+        correlation_id=parent_request.correlation_id,
+    )
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        parent_request.order.client_order_id,
+        parent_request.order.quantity,
+        (partial_receipt, cancelled_receipt),
+    )
+    assert parent_lifecycle.status is OrderStatus.CANCELLED
+    assert parent_lifecycle.remaining_quantity == Decimal("6")
+
+    partial_lifecycle = ExecutionLifecycle.rebuild(
+        parent_request.order.client_order_id,
+        parent_request.order.quantity,
+        (partial_receipt,),
+    )
+    child_request = partial_lifecycle.continuation_request(
+        parent_request,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+
+    child_receipt = _receipt(child_request, "1")
+    service = _service(
+        _ReceiptRepository((partial_receipt, cancelled_receipt, child_receipt)),
+        child_receipt,
+    )
+
+    with pytest.raises(ValueError, match="continuation parent lifecycle cannot continue"):
+        service.reconcile_continuation(parent_request, child_request)
