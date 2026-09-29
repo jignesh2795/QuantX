@@ -216,3 +216,53 @@ def test_reconcile_chain_rejects_continuation_after_terminal_stage() -> None:
 
     with pytest.raises(ValueError, match="stage lifecycle cannot continue"):
         service.reconcile_chain(root, (first, second))
+
+
+
+def test_reconcile_chain_exposes_latest_partial_stage_as_continuable() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    first_receipt = _receipt(first, "2")
+    repository = _ReceiptRepository((root_receipt, first_receipt))
+    service = _service(repository, first_receipt)
+
+    chain = service.reconcile_chain(root, (first,))
+
+    assert chain.latest_lifecycle == chain.stages[-1]
+    assert chain.latest_lifecycle.client_order_id == first.order.client_order_id
+    assert chain.can_continue
+    assert not chain.is_complete
+    assert chain.aggregate_remaining_quantity == Decimal("4")
+
+
+def test_reconcile_chain_exposes_terminal_latest_stage_as_complete() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        requested_quantity=Decimal("5"),
+    )
+    first_receipt = _receipt(first, "1")
+    terminal_receipt = _receipt(first, "4")
+    repository = _ReceiptRepository((root_receipt, first_receipt, terminal_receipt))
+    service = _service(repository, terminal_receipt)
+
+    chain = service.reconcile_chain(root, (first,))
+
+    assert chain.latest_lifecycle.status.name == "FILLED"
+    assert not chain.can_continue
+    assert chain.is_complete
+    assert chain.aggregate_remaining_quantity == Decimal("1")
