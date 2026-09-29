@@ -120,6 +120,8 @@ class ExecutionLifecycle:
         client_order_id: UUID | str,
         order_quantity: Decimal,
         receipts: tuple[ExecutionReceipt, ...] | list[ExecutionReceipt],
+        *,
+        correlation_id: UUID | str | None = None,
     ) -> "ExecutionLifecycle":
         """Reconstruct lifecycle state from authoritative immutable receipts.
 
@@ -142,13 +144,21 @@ class ExecutionLifecycle:
             key=lambda receipt: (receipt.executed_at, str(receipt.receipt_id)),
         )
         for receipt in ordered:
-            lifecycle = lifecycle.apply(receipt)
+            lifecycle = lifecycle.apply(receipt, correlation_id=correlation_id)
         return lifecycle
 
-    def apply(self, receipt: ExecutionReceipt) -> "ExecutionLifecycle":
+    def apply(
+        self,
+        receipt: ExecutionReceipt,
+        *,
+        correlation_id: UUID | str | None = None,
+    ) -> "ExecutionLifecycle":
+        accepted_correlation = (
+            str(correlation_id) if correlation_id is not None else str(self.client_order_id)
+        )
         if (
             receipt.client_order_id != self.client_order_id
-            and receipt.correlation_id != str(self.client_order_id)
+            and receipt.correlation_id != accepted_correlation
         ):
             raise ValueError("receipt does not belong to lifecycle")
         new_filled = self.filled_quantity + receipt.filled_quantity
