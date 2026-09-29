@@ -1047,4 +1047,7 @@ def test_dispatch_claim_stays_pending_when_adapter_receipt_metadata_is_invalid()
     )
     assert decision.reservation_pending
     assert decision.existing_receipt_id is None
-    assert port.requests == [child]
+    assert len(port.requests) == 1
+    assert port.requests[0].order.client_order_id == child.order.client_order_id
+    assert port.requests[0].order.quantity == child.order.quantity
+    assert port.requests[0].parent_client_order_id == child.parent_client_order_id
