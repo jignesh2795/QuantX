@@ -12,6 +12,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import Money
 from quantx.execution.paper_engine import PaperExecutionEngine, QuoteSnapshot
+from quantx.execution.margin_ledger import MarginLedger
 from quantx.execution.paper_session import PaperSession
 from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
 from quantx.execution.post_trade_risk import PostTradeRiskLimits
@@ -151,3 +152,43 @@ def test_paper_session_feeds_account_snapshot_to_post_trade_risk() -> None:
     assert result.risk_enforcement is not None
     assert result.risk_enforcement.breached
     assert not gate.allow()
+
+
+def test_paper_session_keeps_margin_reservation_in_account_state() -> None:
+    instrument = _instrument()
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    )
+    margin = MarginLedger(Decimal("3000"))
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        initial_cash=Money(Decimal("5000"), "INR"),
+        margin_ledger=margin,
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+    request = _request(instrument, OrderSide.BUY)
+    from dataclasses import replace
+    request = replace(request, required_margin=Decimal("1200"))
+
+    result = session.execute_and_value(request, snapshot=snapshot)
+
+    assert result.margin_reservation is not None
+    assert result.margin_reservation.amount == Decimal("1200")
+    assert session.margin_state is not None
+    assert session.margin_state.used == Decimal("1200")
+    assert session.margin_state.available == Decimal("1800")
+    assert result.financial_state is not None
+    assert result.financial_state.state.margin_used.amount == Decimal("1200")
+    assert result.financial_state.state.margin_available.amount == Decimal("1800")
+
+    released = session.release_margin(request.order.client_order_id)
+    assert released.outstanding == Decimal("0")
+    assert session.margin_state.used == Decimal("0")
+    assert session.margin_state.available == Decimal("3000")
