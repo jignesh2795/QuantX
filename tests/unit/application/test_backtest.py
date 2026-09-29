@@ -11,9 +11,12 @@ from quantx.domain.market_data import Quote
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyContext
-from quantx.domain.strategy import SignalAction, StrategyResult, StrategySignal, StrategyId
+from quantx.domain.strategy import SignalAction, StrategyDefinition, StrategyResult, StrategySignal, StrategyId
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
+from quantx.strategy.compiler import StrategyCompiler
+from quantx.strategy.context import StrategyContext
+from quantx.strategy.evaluation import StrategyEvaluationService
 
 
 def _instrument() -> Instrument:
@@ -241,3 +244,49 @@ def test_backtest_blocks_intent_when_canonical_market_does_not_match() -> None:
     )
 
     assert all(step.disposition is BacktestDisposition.BLOCKED for step in result.steps)
+
+
+class _ParityStrategy:
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        event, ir = context.event, context.ir
+        signal = StrategySignal(
+            ir.strategy_id,
+            ir.version,
+            event.instrument,
+            SignalAction.BUY if event.timestamp.minute == 15 else SignalAction.HOLD,
+            1.0,
+            generated_at=event.timestamp,
+        )
+        if signal.action is SignalAction.HOLD:
+            return StrategyResult(signal)
+        intent = TradeIntent(
+            instrument=event.instrument,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            execution_context=_context(),
+            strategy_id=ir.strategy_id.value,
+            strategy_version=ir.version,
+        )
+        return StrategyResult(signal, intent)
+
+
+def test_backtest_accepts_runtime_neutral_strategy_evaluation_service() -> None:
+    instrument = _instrument()
+    ir = StrategyCompiler.compile(
+        StrategyDefinition(StrategyId("backtest-parity"), "1", "Backtest Parity")
+    )
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
+    ).run(
+        series=_series(),
+        strategy=StrategyEvaluationService(_ParityStrategy()),
+        strategy_ir=ir,
+        financial_state=_financial_state(),
+    )
+
+    assert result.executed_count == 1
+    assert result.rejected_count == 0
+    assert result.steps[0].strategy_result.signal.action is SignalAction.BUY
+    assert result.steps[1].strategy_result.signal.action is SignalAction.HOLD
+    assert result.receipts[0].fills[0].price == Decimal("100")
+    assert result.ledger[0].quantity == Decimal("1")
