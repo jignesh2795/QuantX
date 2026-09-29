@@ -377,6 +377,99 @@ class PaperSession:
             margin_reservation,
         )
 
+    def _check_continuation_projection(
+        self,
+        continuation: ApprovedExecutionRequest,
+        *,
+        snapshot: MarketSnapshot,
+        margin_used: Money | None,
+        margin_available: Money | None,
+    ) -> None:
+        if self._post_trade_risk is None:
+            return
+        instrument = self._instrument_registry.resolve(snapshot.instrument)
+        if instrument is None:
+            raise ValueError("instrument metadata unavailable for projected continuation")
+        reference_price = continuation.order.limit_price or continuation.order.stop_price
+        if reference_price is None:
+            reference_price = (
+                snapshot.ask or snapshot.last
+                if continuation.order.side is OrderSide.BUY
+                else snapshot.bid or snapshot.last
+            )
+        if reference_price is None or reference_price <= 0:
+            raise ValueError("projected continuation requires a positive reference price")
+        projected_fill = Fill(
+            client_order_id=continuation.order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=continuation.order.side,
+            quantity=continuation.order.quantity,
+            price=reference_price,
+            filled_at=snapshot.timestamp,
+            execution_id=uuid4(),
+        )
+        projected_position = self._accounting.project(projected_fill)
+        entries = [
+            projected_position if entry.instrument == instrument.instrument_id else entry
+            for entry in self._accounting.snapshot()
+        ]
+        if not any(entry.instrument == instrument.instrument_id for entry in entries):
+            entries.append(projected_position)
+        exposures: list[Money] = []
+        for entry in entries:
+            if entry.quantity == 0:
+                continue
+            if entry.instrument == instrument.instrument_id:
+                mark = reference_price
+                multiplier = instrument.multiplier
+            else:
+                stored = self._market_snapshots.get(entry.instrument)
+                if stored is None:
+                    raise ValueError("projected continuation requires marks for open positions")
+                mark = stored.last
+                if mark is None and stored.bid is not None and stored.ask is not None:
+                    mark = (stored.bid + stored.ask) / Decimal("2")
+                if mark is None:
+                    raise ValueError("projected continuation requires marks for open positions")
+                entry_instrument = self._instrument_registry.resolve(entry.instrument)
+                if entry_instrument is None:
+                    raise ValueError("instrument metadata unavailable for projected continuation")
+                multiplier = entry_instrument.multiplier
+            exposures.append(
+                Money(abs(entry.quantity) * mark * multiplier, instrument.currency)
+            )
+        if self._margin_ledger is not None:
+            state = self._margin_ledger.state
+            existing = sum(
+                reservation.outstanding
+                for reservation in self._margin_ledger.reservations
+                if reservation.instrument == instrument.instrument_id
+            )
+            policy_amount = (
+                self._position_margin_policy.required_margin(projected_position)
+                if self._position_margin_policy is not None
+                else Decimal("0")
+            )
+            target = max(continuation.required_margin, policy_amount)
+            projected_used = state.used - existing + target
+            capacity = state.used + state.available
+            projected_margin_used = Money(projected_used, instrument.currency)
+            projected_margin_available = Money(
+                max(Decimal("0"), capacity - projected_used),
+                instrument.currency,
+            )
+        else:
+            projected_margin_used = margin_used or Money.zero(instrument.currency)
+            projected_margin_available = margin_available or Money.zero(instrument.currency)
+        result = self._post_trade_risk.evaluate_projected_limits(
+            margin_used=projected_margin_used,
+            margin_available=projected_margin_available,
+            gross_exposure=Money(sum(x.amount for x in exposures), instrument.currency),
+            position_exposures=tuple(exposures),
+        )
+        if not result.allowed:
+            raise ValueError("projected account constraint: " + "; ".join(result.reasons))
+
     def continue_partial(
         self,
         request: ApprovedExecutionRequest,
@@ -400,6 +493,12 @@ class PaperSession:
             request,
             risk_result=risk_result,
             requested_quantity=requested_quantity,
+        )
+        self._check_continuation_projection(
+            continuation,
+            snapshot=snapshot,
+            margin_used=margin_used,
+            margin_available=margin_available,
         )
         adapter = _PartialContinuationAdapter(
             self._executor,
