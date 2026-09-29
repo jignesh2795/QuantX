@@ -13,6 +13,9 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import Money
 from quantx.execution.paper_engine import PaperExecutionEngine, QuoteSnapshot
 from quantx.execution.paper_session import PaperSession
+from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
+from quantx.execution.post_trade_risk import PostTradeRiskLimits
+from quantx.execution.trading_gate import TradingGate
 
 
 def _instrument() -> Instrument:
@@ -112,3 +115,39 @@ def test_stateful_paper_session_applies_fees_to_cash_once() -> None:
     assert result.execution.fee == Decimal("1.00")
     assert result.cash.amount == Decimal("3999")
     assert result.cash_entries[0].fee.amount == Decimal("1.00")
+
+
+def test_paper_session_feeds_account_snapshot_to_post_trade_risk() -> None:
+    instrument = _instrument()
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    )
+    gate = TradingGate()
+    risk = PostTradeRiskEnforcer(
+        limits=PostTradeRiskLimits(max_exposure=Money(Decimal("500"), "INR")),
+        trading_gate=gate,
+    )
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        initial_cash=Money(Decimal("5000"), "INR"),
+        post_trade_risk=risk,
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    result = session.execute_and_value(
+        _request(instrument, OrderSide.BUY),
+        snapshot=snapshot,
+    )
+
+    assert result.financial_state is not None
+    assert result.financial_state.gross_exposure.amount == Decimal("1000")
+    assert result.risk_enforcement is not None
+    assert result.risk_enforcement.breached
+    assert not gate.allow()
