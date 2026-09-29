@@ -65,7 +65,7 @@ def _snapshot(instrument: Instrument) -> QuoteSnapshot:
 
 def test_paper_session_tracks_margin_until_position_closes() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine()
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     session = PaperSession(
         executor=engine,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
