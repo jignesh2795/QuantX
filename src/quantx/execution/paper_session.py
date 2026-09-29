@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.finance import CapitalSourceType
+from quantx.domain.enums import OrderSide
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Fill
 from quantx.domain.instrument_registry import InstrumentRegistry
@@ -120,7 +121,7 @@ class PaperSession:
         if self._margin_ledger is not None and self._position_margin_policy is not None:
             reference_price = request.order.limit_price or request.order.stop_price
             if reference_price is None:
-                if request.order.side.value == "BUY":
+                if request.order.side is OrderSide.BUY:
                     reference_price = snapshot.ask or snapshot.last
                 else:
                     reference_price = snapshot.bid or snapshot.last
