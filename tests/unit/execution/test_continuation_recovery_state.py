@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -167,11 +168,13 @@ def test_inspect_pending_chain_continuation_fails_closed_before_state_resolution
         risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
     )
     first_receipt = _receipt(first, "1")
-    terminal_receipt = _receipt(first, "4")
     terminal_receipt = replace(
-        terminal_receipt,
+        first_receipt,
         outcome=ExecutionOutcome.CANCELLED,
         order_status=OrderStatus.CANCELLED,
+        executed_at=first_receipt.executed_at + timedelta(minutes=1),
+        fills=(),
+        receipt_id=uuid4(),
     )
     child = ExecutionLifecycle.rebuild(
         first.order.client_order_id,
