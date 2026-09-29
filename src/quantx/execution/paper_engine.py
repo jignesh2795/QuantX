@@ -114,7 +114,7 @@ class PaperExecutionEngine:
                 source="paper",
                 account_id=request.execution_context.account_id,
                 connection_id=request.execution_context.broker_connection_id,
-                correlation_id=str(request.order.client_order_id),
+                correlation_id=request.correlation_id,
                 order_id=request.order.client_order_id,
                 order_quantity=request.order.quantity,
                 model_profile=self._profile.name,
@@ -173,7 +173,7 @@ class PaperExecutionEngine:
             source="paper",
             account_id=request.execution_context.account_id,
             connection_id=request.execution_context.broker_connection_id,
-            correlation_id=str(request.order.client_order_id),
+            correlation_id=request.correlation_id,
             order_id=request.order.client_order_id,
             order_quantity=request.order.quantity,
             model_profile=self._profile.name,
@@ -195,7 +195,7 @@ class PaperExecutionEngine:
             OrderSubmitted(
                 event_id=str(uuid4()),
                 occurred_at=submitted_at,
-                correlation_id=str(request.order.client_order_id),
+                correlation_id=request.correlation_id,
                 order_id=str(request.order.client_order_id),
                 venue=request.execution_context.market.venue,
             )
@@ -204,7 +204,7 @@ class PaperExecutionEngine:
             OrderFilled(
                 event_id=str(uuid4()),
                 occurred_at=executed_at,
-                correlation_id=str(request.order.client_order_id),
+                correlation_id=request.correlation_id,
                 order_id=str(request.order.client_order_id),
                 fill_id=str(fill.execution_id),
                 quantity=fill.quantity,

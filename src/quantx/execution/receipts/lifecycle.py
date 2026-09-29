@@ -10,7 +10,6 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Order
 from quantx.domain.policy import PolicyResult
 from quantx.domain.risk import RiskResult
-
 from quantx.domain.enums import OrderStatus
 
 from .models import ExecutionReceipt
@@ -123,9 +122,16 @@ class ExecutionLifecycle:
         new_filled = self.filled_quantity + receipt.filled_quantity
         if new_filled > self.order_quantity:
             raise ValueError("cumulative fills exceed order quantity")
+        next_status = (
+            OrderStatus.FILLED
+            if new_filled == self.order_quantity
+            else OrderStatus.PARTIALLY_FILLED
+            if new_filled > 0
+            else receipt.order_status
+        )
         return ExecutionLifecycle(
             client_order_id=self.client_order_id,
             order_quantity=self.order_quantity,
             filled_quantity=new_filled,
-            status=receipt.order_status,
+            status=next_status,
         )
