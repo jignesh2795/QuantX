@@ -7,6 +7,7 @@ mark-to-market valuation without inventing balances or market data.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 from decimal import Decimal
 from uuid import uuid4
 
@@ -24,11 +25,41 @@ from quantx.execution.cash_ledger import CashLedger, CashLedgerEntry
 from quantx.execution.margin_ledger import MarginLedger, MarginReservation, MarginState
 from quantx.execution.margin_policy import PositionMarginPolicy
 from quantx.execution.paper_engine import PaperExecutionEngine
+from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+from quantx.domain.risk import RiskResult
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
 from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer, RiskEnforcementResult
 from quantx.execution.valuation import Mark
 
 from .market_data import MarketSnapshot
+
+
+class _ExecutionAdapter(Protocol):
+    def execute(self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot):
+        ...
+
+
+class _PartialContinuationAdapter:
+    def __init__(
+        self,
+        executor: PaperExecutionEngine,
+        lifecycle: ExecutionLifecycle,
+        risk_result: RiskResult,
+        requested_quantity: Decimal | None,
+    ) -> None:
+        self._executor = executor
+        self._lifecycle = lifecycle
+        self._risk_result = risk_result
+        self._requested_quantity = requested_quantity
+
+    def execute(self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot):
+        return self._executor.continue_partial(
+            request,
+            self._lifecycle,
+            risk_result=self._risk_result,
+            snapshot=snapshot,
+            requested_quantity=self._requested_quantity,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +131,7 @@ class PaperSession:
         daily_pnl_before: Decimal = Decimal("0"),
         margin_available: Money | None = None,
         capital_source: CapitalSourceType = CapitalSourceType.PAPER_CONFIGURED,
+        execution_adapter: _ExecutionAdapter | None = None,
     ) -> PaperSessionResult:
         mode = request.execution_context.execution_mode
         if mode not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
@@ -191,7 +223,8 @@ class PaperSession:
             )
 
         try:
-            receipt = self._executor.execute(request, snapshot=snapshot)
+            adapter = execution_adapter or self._executor
+            receipt = adapter.execute(request, snapshot=snapshot)
         except Exception:
             if margin_reservation is not None:
                 self._margin_ledger.release(request.order.client_order_id)
@@ -343,3 +376,48 @@ class PaperSession:
             risk_enforcement,
             margin_reservation,
         )
+
+    def continue_partial(
+        self,
+        request: ApprovedExecutionRequest,
+        lifecycle: ExecutionLifecycle,
+        *,
+        risk_result: RiskResult,
+        snapshot: MarketSnapshot,
+        requested_quantity: Decimal | None = None,
+        cash: Money | None = None,
+        margin_used: Money | None = None,
+        valuation_price: Decimal | None = None,
+        realized_pnl_before: Decimal = Decimal("0"),
+        fee: Decimal | None = None,
+        daily_pnl_before: Decimal = Decimal("0"),
+        margin_available: Money | None = None,
+        capital_source: CapitalSourceType = CapitalSourceType.PAPER_CONFIGURED,
+    ) -> PaperSessionResult:
+        """Continue a partial execution through the full account pipeline."""
+        authoritative_lifecycle = self._executor.rebuild_lifecycle(request, lifecycle)
+        continuation = authoritative_lifecycle.continuation_request(
+            request,
+            risk_result=risk_result,
+            requested_quantity=requested_quantity,
+        )
+        adapter = _PartialContinuationAdapter(
+            self._executor,
+            authoritative_lifecycle,
+            risk_result,
+            requested_quantity,
+        )
+        return self.execute_and_value(
+            continuation,
+            snapshot=snapshot,
+            cash=cash,
+            margin_used=margin_used,
+            valuation_price=valuation_price,
+            realized_pnl_before=realized_pnl_before,
+            fee=fee,
+            daily_pnl_before=daily_pnl_before,
+            margin_available=margin_available,
+            capital_source=capital_source,
+            execution_adapter=adapter,
+        )
+
