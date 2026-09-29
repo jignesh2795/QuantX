@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from quantx.domain.market_data import MarketDataEvent
-from quantx.domain.strategy import StrategyResult
+from quantx.domain.strategy import SignalAction, StrategyResult
 
 from .context import StrategyContext
 from .ir import StrategyIR
@@ -46,5 +46,5 @@ class StrategyRuntime:
             raise ValueError("strategy intent id does not match strategy IR")
         if intent.strategy_version != context.ir.version:
             raise ValueError("strategy intent version does not match strategy IR")
-        if signal.action.name == "HOLD":
+        if signal.action is SignalAction.HOLD:
             raise ValueError("HOLD signal cannot carry an executable intent")
