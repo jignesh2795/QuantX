@@ -260,3 +260,68 @@ def test_partial_continuation_recalculates_position_margin_for_full_resulting_po
     assert session.margin_state is not None
     assert session.margin_state.used == Decimal("100")
     assert session.margin_state.available == Decimal("0")
+
+
+def test_partial_continuation_is_blocked_before_executor_on_projected_position_exposure() -> None:
+    from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
+    from quantx.execution.post_trade_risk import PostTradeRiskLimits
+    from quantx.execution.trading_gate import TradingGate
+    from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+
+    instrument = _instrument()
+    request = _request()
+    clock = FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    engine = PaperExecutionEngine(
+        clock=clock,
+        profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1")),
+    )
+    accounting = FillAccounting()
+    accounting.apply(
+        Fill(
+            client_order_id=request.order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("4"),
+            price=Decimal("100"),
+            filled_at=clock.now(),
+        )
+    )
+    gate = TradingGate()
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        initial_cash=Money(Decimal("2000"), "INR"),
+        post_trade_risk=PostTradeRiskEnforcer(
+            limits=PostTradeRiskLimits(max_position_exposure=Money(Decimal("500"), "INR")),
+            trading_gate=gate,
+        ),
+    )
+
+    result_before = accounting.get(instrument.instrument_id)
+    assert result_before is not None
+    try:
+        session.continue_partial(
+            request,
+            ExecutionLifecycle(
+                request.order.client_order_id,
+                Decimal("10"),
+                Decimal("4"),
+                OrderStatus.PARTIALLY_FILLED,
+            ),
+            risk_result=RiskResult(RiskDecision.APPROVE, "fresh continuation approval"),
+            snapshot=QuoteSnapshot(
+                instrument=instrument.instrument_id,
+                timestamp=clock.now(),
+                bid=Decimal("99"),
+                ask=Decimal("100"),
+                last=Decimal("100"),
+            ),
+        )
+    except ValueError as exc:
+        assert "single-position exposure" in str(exc)
+    else:
+        raise AssertionError("projected exposure should block continuation")
+
+    result_after = accounting.get(instrument.instrument_id)
+    assert result_after == result_before
