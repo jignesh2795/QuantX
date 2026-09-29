@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import pytest
+
 from quantx.domain.accounts import AccountId
 from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
@@ -319,3 +321,34 @@ def test_position_margin_policy_resizes_on_partial_close() -> None:
 
     assert result.accounting_entry.quantity == Decimal("5")
     assert session.margin_state.used == Decimal("600")
+
+
+def test_position_margin_policy_blocks_before_execution_when_margin_is_insufficient() -> None:
+    instrument = _instrument()
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    )
+    margin = MarginLedger(Decimal("500"))
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        initial_cash=Money(Decimal("5000"), "INR"),
+        margin_ledger=margin,
+        position_margin_policy=FixedPerUnitMarginPolicy(Decimal("120")),
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    with pytest.raises(ValueError, match="available margin"):
+        session.execute_and_value(
+            _request(instrument, OrderSide.BUY),
+            snapshot=snapshot,
+        )
+
+    assert session.margin_state is not None
+    assert session.margin_state.used == Decimal("0")

@@ -3,30 +3,44 @@ from uuid import uuid4
 
 import pytest
 
-from quantx.domain.value_objects import InstrumentId
 from quantx.execution.margin_ledger import MarginLedger
 
 
-def test_set_required_amount_for_instrument_reconciles_multiple_reservations() -> None:
-    ledger = MarginLedger(Decimal("3000"))
-    instrument = InstrumentId("NSE", "TCS")
-    first = uuid4()
-    second = uuid4()
+def test_margin_reservation_reduces_available_margin() -> None:
+    ledger = MarginLedger(Decimal("10000"))
+    reservation = ledger.reserve(uuid4(), Decimal("2500"))
 
-    ledger.reserve(first, Decimal("700"), instrument=instrument)
-    ledger.reserve(second, Decimal("500"), instrument=instrument)
-
-    updated = ledger.set_required_amount_for_instrument(instrument, Decimal("600"))
-
-    assert ledger.state.used == Decimal("600")
-    assert sum(item.outstanding for item in updated) == Decimal("600")
+    assert reservation.outstanding == Decimal("2500")
+    assert ledger.state.used == Decimal("2500")
+    assert ledger.state.available == Decimal("7500")
 
 
-def test_set_required_amount_for_instrument_rejects_missing_reservation() -> None:
-    ledger = MarginLedger(Decimal("3000"))
+def test_partial_and_full_release_restore_available_margin() -> None:
+    ledger = MarginLedger(Decimal("10000"))
+    reservation_id = uuid4()
+    ledger.reserve(reservation_id, Decimal("2500"))
 
-    with pytest.raises(KeyError, match="no margin reservation"):
-        ledger.set_required_amount_for_instrument(
-            InstrumentId("NSE", "TCS"),
-            Decimal("100"),
-        )
+    updated = ledger.release(reservation_id, Decimal("1000"))
+    assert updated.outstanding == Decimal("1500")
+    assert ledger.state.used == Decimal("1500")
+
+    updated = ledger.release(reservation_id)
+    assert updated.outstanding == Decimal("0")
+    assert ledger.state.used == Decimal("0")
+    assert ledger.state.available == Decimal("10000")
+
+
+def test_reservation_cannot_overdraw_margin() -> None:
+    ledger = MarginLedger(Decimal("1000"))
+
+    with pytest.raises(ValueError, match="exceeds available margin"):
+        ledger.reserve(uuid4(), Decimal("1001"))
+
+
+def test_reservation_is_idempotency_unsafe_by_design() -> None:
+    ledger = MarginLedger(Decimal("1000"))
+    reservation_id = uuid4()
+    ledger.reserve(reservation_id, Decimal("100"))
+
+    with pytest.raises(ValueError, match="already exists"):
+        ledger.reserve(reservation_id, Decimal("100"))

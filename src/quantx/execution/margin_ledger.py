@@ -68,21 +68,12 @@ class MarginLedger:
         if amount > self.state.available:
             raise ValueError("requested margin exceeds available margin")
 
-        reservation = MarginReservation(
-            reservation_id,
-            amount,
-            instrument=instrument,
-            quantity=quantity,
-        )
+        reservation = MarginReservation(reservation_id, amount, instrument=instrument, quantity=quantity)
         self._reservations[reservation_id] = reservation
         self._used += amount
         return reservation
 
-    def release(
-        self,
-        reservation_id: UUID,
-        amount: Decimal | None = None,
-    ) -> MarginReservation:
+    def release(self, reservation_id: UUID, amount: Decimal | None = None) -> MarginReservation:
         current = self._reservations.get(reservation_id)
         if current is None:
             raise KeyError(f"unknown margin reservation: {reservation_id}")
@@ -104,17 +95,13 @@ class MarginLedger:
         self._used -= release_amount
         return updated
 
-    def set_required_amount(
-        self,
-        reservation_id: UUID,
-        required_amount: Decimal,
-    ) -> MarginReservation:
+
+    def set_required_amount(self, reservation_id: UUID, required_amount: Decimal) -> MarginReservation:
         if required_amount < 0:
             raise ValueError("required margin cannot be negative")
         current = self._reservations.get(reservation_id)
         if current is None:
             raise KeyError(f"unknown margin reservation: {reservation_id}")
-
         delta = required_amount - current.outstanding
         if delta > 0:
             if delta > self.state.available:
@@ -122,7 +109,6 @@ class MarginLedger:
             self._used += delta
         elif delta < 0:
             self._used += delta
-
         updated = MarginReservation(
             current.reservation_id,
             current.amount + max(delta, Decimal("0")),
@@ -133,61 +119,7 @@ class MarginLedger:
         self._reservations[reservation_id] = updated
         return updated
 
-    def set_required_amount_for_instrument(
-        self,
-        instrument: InstrumentId,
-        required_amount: Decimal,
-    ) -> tuple[MarginReservation, ...]:
-        """Resize outstanding reservations for a position as one margin pool.
-
-        A position can be changed by an order whose client ID differs from the
-        order that opened it. Position-level margin therefore cannot rely on
-        the latest order ID. This method reconciles the total outstanding
-        reservation for an instrument to the explicit position requirement,
-        preserving individual reservation identities.
-        """
-        if required_amount < 0:
-            raise ValueError("required margin cannot be negative")
-
-        reservations = [
-            reservation
-            for reservation in self._reservations.values()
-            if reservation.instrument == instrument and reservation.outstanding > 0
-        ]
-        if not reservations:
-            if required_amount == 0:
-                return ()
-            raise KeyError(f"no margin reservation exists for instrument: {instrument}")
-
-        current_total = sum(
-            (reservation.outstanding for reservation in reservations),
-            Decimal("0"),
-        )
-        delta = required_amount - current_total
-
-        if delta > 0:
-            self.set_required_amount(
-                reservations[0].reservation_id,
-                reservations[0].outstanding + delta,
-            )
-        elif delta < 0:
-            remaining = -delta
-            for reservation in reversed(reservations):
-                if remaining == 0:
-                    break
-                release_amount = min(reservation.outstanding, remaining)
-                self.release(reservation.reservation_id, release_amount)
-                remaining -= release_amount
-
-        return tuple(
-            self._reservations[reservation.reservation_id]
-            for reservation in reservations
-        )
-
-    def release_for_flat_position(
-        self,
-        instrument: InstrumentId,
-    ) -> tuple[MarginReservation, ...]:
+    def release_for_flat_position(self, instrument: InstrumentId) -> tuple[MarginReservation, ...]:
         """Release reservations tied to an instrument after it becomes flat."""
         released: list[MarginReservation] = []
         for reservation_id, reservation in tuple(self._reservations.items()):

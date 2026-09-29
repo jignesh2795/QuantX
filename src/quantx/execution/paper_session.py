@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from uuid import uuid4
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.finance import CapitalSourceType
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.orders import Fill
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.positions import Position
 from quantx.domain.value_objects import Money
@@ -114,19 +116,60 @@ class PaperSession:
         if self._cash_ledger is None and cash is None:
             raise ValueError("cash is required when no cash ledger is configured")
         margin_reservation = None
-        if self._margin_ledger is not None and request.required_margin > 0:
-            existing = self._margin_ledger.reservation(request.order.client_order_id)
-            if existing is None:
-                margin_reservation = self._margin_ledger.reserve(
-                    request.order.client_order_id,
-                    request.required_margin,
-                    instrument=instrument.instrument_id,
-                    quantity=request.order.quantity,
+        required_margin = request.required_margin
+        if self._margin_ledger is not None and self._position_margin_policy is not None:
+            reference_price = request.order.limit_price or request.order.stop_price
+            if reference_price is None:
+                if request.order.side.value == "BUY":
+                    reference_price = snapshot.ask or snapshot.last
+                else:
+                    reference_price = snapshot.bid or snapshot.last
+            if reference_price is None:
+                raise ValueError(
+                    "position margin policy requires a reference price before execution"
                 )
-            elif existing.amount != request.required_margin:
-                raise ValueError("existing margin reservation amount does not match request")
+            if reference_price <= 0:
+                raise ValueError("position margin reference price must be positive")
+            projected_fill = Fill(
+                client_order_id=request.order.client_order_id,
+                instrument=instrument.instrument_id,
+                side=request.order.side,
+                quantity=request.order.quantity,
+                price=reference_price,
+                filled_at=snapshot.timestamp,
+                execution_id=uuid4(),
+            )
+            projected_position = self._accounting.project(projected_fill)
+            policy_margin = self._position_margin_policy.required_margin(projected_position)
+            if policy_margin < 0:
+                raise ValueError("position margin requirement cannot be negative")
+            required_margin = max(required_margin, policy_margin)
+
+        if self._margin_ledger is not None and required_margin > 0:
+            existing = self._margin_ledger.reservation(request.order.client_order_id)
+            if existing is not None:
+                margin_reservation = self._margin_ledger.set_required_amount(
+                    request.order.client_order_id,
+                    required_margin,
+                )
             else:
-                margin_reservation = existing
+                if self._position_margin_policy is not None:
+                    try:
+                        updated = self._margin_ledger.set_required_amount_for_instrument(
+                            instrument.instrument_id,
+                            required_margin,
+                        )
+                    except KeyError:
+                        updated = ()
+                    if updated:
+                        margin_reservation = updated[0]
+                if margin_reservation is None:
+                    margin_reservation = self._margin_ledger.reserve(
+                        request.order.client_order_id,
+                        required_margin,
+                        instrument=instrument.instrument_id,
+                        quantity=request.order.quantity,
+                    )
 
         if self._margin_ledger is not None:
             ledger_state = self._margin_ledger.state
@@ -180,16 +223,20 @@ class PaperSession:
             required = self._position_margin_policy.required_margin(last_entry)
             if required < 0:
                 raise ValueError("position margin requirement cannot be negative")
+            target_required = max(
+                required,
+                request.required_margin,
+            )
             linked = self._margin_ledger.reservation(request.order.client_order_id)
             if linked is not None:
                 margin_reservation = self._margin_ledger.set_required_amount(
                     request.order.client_order_id,
-                    required,
+                    target_required,
                 )
-            elif required > 0:
+            elif target_required > 0:
                 updated = self._margin_ledger.set_required_amount_for_instrument(
                     last_entry.instrument,
-                    required,
+                    target_required,
                 )
                 margin_reservation = updated[0] if updated else None
         if self._margin_ledger is not None and last_entry.quantity == 0:

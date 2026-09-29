@@ -73,6 +73,12 @@ class FillAccounting:
         self._entries[fill.instrument] = entry
         return entry
 
+    def project(self, fill: Fill) -> PositionLedgerEntry:
+        """Return the position that a fill would produce without mutating state."""
+        projected = FillAccounting()
+        projected._entries = self._entries.copy()
+        return projected.apply(fill)
+
     def get(self, instrument: InstrumentId) -> PositionLedgerEntry | None:
         return self._entries.get(instrument)
 
