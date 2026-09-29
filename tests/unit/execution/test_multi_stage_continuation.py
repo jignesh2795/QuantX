@@ -955,3 +955,98 @@ def test_recover_pending_continuation_keeps_claim_pending_when_parent_is_termina
     )
     assert decision.reservation_pending
     assert decision.existing_receipt_id is None
+
+
+def test_completed_continuation_claim_must_reference_authoritative_receipt() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    )
+    child = parent_lifecycle.continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    claimed_receipt = _receipt(child, "2")
+    authoritative_receipt = replace(
+        _receipt(child, "3"),
+        executed_at=claimed_receipt.executed_at + timedelta(minutes=1),
+    )
+    repository = _ReceiptRepository(
+        (root_receipt, claimed_receipt, authoritative_receipt)
+    )
+    idempotency = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(child)
+    idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
+    idempotency.complete(
+        child.order.client_order_id,
+        fingerprint,
+        claimed_receipt.receipt_id,
+    )
+    port = _PaperPort(_receipt(child, "6"))
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+
+    with pytest.raises(ValueError, match="does not reference the authoritative continuation receipt"):
+        service.dispatch_chain_continuation(
+            root,
+            (),
+            risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+            snapshot=_snapshot(),
+        )
+
+    assert port.requests == []
+
+
+def test_dispatch_claim_stays_pending_when_adapter_receipt_metadata_is_invalid() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    repository = _ReceiptRepository((root_receipt,))
+    child_receipt = _receipt(root, "6")
+    invalid_receipt = replace(
+        child_receipt,
+        order_quantity=Decimal("1"),
+    )
+    port = _PaperPort(invalid_receipt)
+    idempotency = InMemoryIdempotencyStore()
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+    fingerprint_holder = {}
+
+    child = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    fingerprint_holder["value"] = request_fingerprint(child)
+
+    with pytest.raises(ValueError, match="invalid continuation order quantity"):
+        service.dispatch_chain_continuation(
+            root,
+            (),
+            risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+            snapshot=_snapshot(),
+        )
+
+    decision = idempotency.check(
+        child.order.client_order_id,
+        fingerprint_holder["value"],
+    )
+    assert decision.reservation_pending
+    assert decision.existing_receipt_id is None
+    assert port.requests == [child]
