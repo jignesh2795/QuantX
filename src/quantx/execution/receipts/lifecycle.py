@@ -29,6 +29,28 @@ class ExecutionLifecycle:
         return self.order_quantity - self.filled_quantity
 
     @property
+    def can_continue(self) -> bool:
+        """Whether another separately approved execution may target the remainder."""
+        return self.remaining_quantity > 0 and self.status is OrderStatus.PARTIALLY_FILLED
+
+    def continuation_quantity(self, requested_quantity: Decimal | None = None) -> Decimal:
+        """Return a safe continuation quantity without creating a new order.
+
+        A continuation must be a new, separately approved execution request.
+        This method only constrains its quantity to the currently evidenced
+        remainder; it never reuses the original client-order identity.
+        """
+        if not self.can_continue:
+            raise ValueError("execution lifecycle has no remaining partially-filled quantity")
+        if requested_quantity is None:
+            return self.remaining_quantity
+        if requested_quantity <= 0:
+            raise ValueError("continuation quantity must be positive")
+        if requested_quantity > self.remaining_quantity:
+            raise ValueError("continuation quantity exceeds remaining order quantity")
+        return requested_quantity
+
+    @property
     def is_complete(self) -> bool:
         return self.remaining_quantity == 0 or self.status in {
             OrderStatus.CANCELLED,
