@@ -338,7 +338,7 @@ class PaperSession:
             else Money.zero(account_cash.currency)
         )
         gross_exposure = Money(
-            sum(abs(result.market_value.amount) for result in valuation.valuations),
+            sum(abs(result.market_value) for result in valuation.valuations),
             account_cash.currency,
         )
         financial_state = AccountFinancialStateBuilder().from_cash_and_margin(
