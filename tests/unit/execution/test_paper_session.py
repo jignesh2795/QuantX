@@ -196,3 +196,67 @@ def test_partial_continuation_reuses_account_pipeline_and_post_trade_risk() -> N
     assert result.risk_enforcement.allowed is False
     assert "single-position exposure" in result.risk_enforcement.reasons[0]
     assert gate.allow() is False
+
+
+def test_partial_continuation_recalculates_position_margin_for_full_resulting_position() -> None:
+    from quantx.execution.accounting import FillAccounting
+    from quantx.execution.margin_ledger import MarginLedger
+    from quantx.execution.margin_policy import FixedPerUnitMarginPolicy
+    from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+
+    instrument = _instrument()
+    request = _request()
+    clock = FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    engine = PaperExecutionEngine(
+        clock=clock,
+        profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1")),
+    )
+    accounting = FillAccounting()
+    accounting.apply(
+        Fill(
+            client_order_id=request.order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("4"),
+            price=Decimal("100"),
+            filled_at=clock.now(),
+        )
+    )
+    margin = MarginLedger(Decimal("100"))
+    margin.reserve(
+        request.order.client_order_id,
+        Decimal("40"),
+        instrument=instrument.instrument_id,
+        quantity=Decimal("4"),
+    )
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        initial_cash=Money(Decimal("2000"), "INR"),
+        margin_ledger=margin,
+        position_margin_policy=FixedPerUnitMarginPolicy(Decimal("10")),
+    )
+
+    result = session.continue_partial(
+        request,
+        ExecutionLifecycle(
+            request.order.client_order_id,
+            Decimal("10"),
+            Decimal("4"),
+            OrderStatus.PARTIALLY_FILLED,
+        ),
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh continuation approval"),
+        snapshot=QuoteSnapshot(
+            instrument=instrument.instrument_id,
+            timestamp=clock.now(),
+            bid=Decimal("99"),
+            ask=Decimal("100"),
+            last=Decimal("100"),
+        ),
+    )
+
+    assert result.accounting_entry.quantity == Decimal("10")
+    assert session.margin_state is not None
+    assert session.margin_state.used == Decimal("100")
+    assert session.margin_state.available == Decimal("0")
