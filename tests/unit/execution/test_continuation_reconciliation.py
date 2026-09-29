@@ -184,13 +184,12 @@ def test_reconcile_continuation_rejects_terminal_parent_with_remaining_quantity(
     assert parent_lifecycle.status is OrderStatus.CANCELLED
     assert parent_lifecycle.remaining_quantity == Decimal("6")
 
-    child_request = ExecutionLifecycle(
-        client_order_id=uuid4(),
-        order_quantity=Decimal("6"),
-        filled_quantity=Decimal("0"),
-        status=OrderStatus.CREATED,
+    partial_lifecycle = ExecutionLifecycle.rebuild(
+        parent_request.order.client_order_id,
+        parent_request.order.quantity,
+        (partial_receipt,),
     )
-    child_request = parent_lifecycle.__class__.continuation_request(
+    child_request = partial_lifecycle.continuation_request(
         parent_request,
         risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
     )
