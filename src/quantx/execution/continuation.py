@@ -115,14 +115,23 @@ class ExecutionContinuationService:
         """Rebuild every continuation stage under the root correlation."""
         root_id = str(root_request.order.client_order_id)
         stages = []
-        parent_correlation = root_id
+        parent_request = root_request
+        parent_lifecycle = self._lifecycle_service.reconcile(root_request)
         for request in continuation_requests:
+            expected_parent_id = str(parent_request.order.client_order_id)
+            if request.parent_client_order_id != expected_parent_id:
+                raise ValueError("continuation chain parent linkage is invalid")
+            if request.order.quantity > parent_lifecycle.remaining_quantity:
+                raise ValueError("continuation request exceeds parent lifecycle remainder")
             stage = self._lifecycle_service.reconcile_correlated(
                 request,
-                parent_correlation,
+                expected_parent_id,
             )
+            if stage.filled_quantity > parent_lifecycle.remaining_quantity:
+                raise ValueError("continuation fills exceed parent lifecycle remainder")
             stages.append(stage)
-            parent_correlation = str(request.order.client_order_id)
+            parent_request = request
+            parent_lifecycle = stage
         stages = tuple(stages)
         root = self._lifecycle_service.reconcile(root_request)
         total = root.filled_quantity + sum(
