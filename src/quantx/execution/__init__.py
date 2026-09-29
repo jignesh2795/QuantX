@@ -1,6 +1,7 @@
 """Execution-layer public contracts."""
 
 from .continuation import (
+    ExecutionContinuationChain,
     ExecutionContinuationReconciliation,
     ExecutionContinuationResult,
     ExecutionContinuationService,
