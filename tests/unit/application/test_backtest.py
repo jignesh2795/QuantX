@@ -10,13 +10,16 @@ from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, M
 from quantx.domain.market_data import Quote
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.order_intents import TradeIntent
-from quantx.domain.policy import PolicyContext
+from quantx.domain.policy import PolicyContext, PolicyDecision, PolicyResult
 from quantx.domain.strategy import SignalAction, StrategyDefinition, StrategyResult, StrategySignal, StrategyId
+from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.evaluation import StrategyEvaluationService
+from quantx.execution.paper_engine import PaperExecutionEngine
+from quantx.execution.paper_session import PaperSession
 
 
 def _instrument() -> Instrument:
@@ -290,3 +293,36 @@ def test_backtest_accepts_runtime_neutral_strategy_evaluation_service() -> None:
     assert result.steps[1].strategy_result.signal.action is SignalAction.HOLD
     assert result.receipts[0].fills[0].price == Decimal("100")
     assert result.ledger[0].quantity == Decimal("1")
+
+
+def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
+    instrument = _instrument()
+    ir = StrategyCompiler.compile(
+        StrategyDefinition(StrategyId("replay-paper-parity"), "1", "Replay Paper Parity")
+    )
+    strategy = _ParityStrategy()
+    evaluation = StrategyEvaluationService(strategy)
+    frame = __import__("quantx.research.replay", fromlist=["HistoricalReplay"]).HistoricalReplay(_series()).frames()[0]
+    evaluated = evaluation.evaluate_replay_frame(frame, ir)
+    assert evaluated.result.intent is not None
+
+    engine = PaperExecutionEngine()
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        initial_cash=Money(Decimal("1000"), "INR"),
+    )
+    request = ApprovedExecutionRequest(
+        order=build_order_from_intent(evaluated.result.intent),
+        execution_context=evaluated.result.intent.execution_context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.ALLOW, "allowed"),
+    )
+    paper = session.execute_and_value(request, snapshot=frame.observation.snapshot)
+
+    assert evaluated.event.instrument == frame.observation.instrument
+    assert evaluated.event.timestamp == frame.observation.timestamp
+    assert paper.execution.fills[0].instrument == evaluated.result.intent.instrument
+    assert paper.execution.fills[0].side == evaluated.result.intent.side
+    assert paper.execution.fills[0].quantity == evaluated.result.intent.quantity
+    assert paper.execution.fills[0].price == Decimal("100")
