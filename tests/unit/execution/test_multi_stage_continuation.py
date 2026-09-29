@@ -539,3 +539,38 @@ def test_dispatch_chain_continuation_and_reconcile_rejects_missing_authoritative
         )
 
     assert port.requests
+
+
+def test_dispatch_chain_continuation_reuses_existing_authoritative_child() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    )
+    existing_child = parent_lifecycle.continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    authoritative_child_receipt = _receipt(existing_child, "3")
+    duplicate_dispatch_receipt = _receipt(existing_child, "6")
+    repository = _ReceiptRepository((root_receipt, authoritative_child_receipt))
+    port = _PaperPort(duplicate_dispatch_receipt)
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(lifecycle, dispatcher)
+
+    result = service.dispatch_chain_continuation(
+        root,
+        (),
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        snapshot=_snapshot(),
+    )
+
+    assert result.dispatch_performed is False
+    assert result.dispatch.receipt is authoritative_child_receipt
+    assert result.parent_lifecycle.client_order_id == root.order.client_order_id
+    assert result.request.order.client_order_id == existing_child.order.client_order_id
+    assert result.request.order.quantity == Decimal("6")
+    assert port.requests == []
