@@ -13,6 +13,7 @@ from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionReceipt, MarketDataExecutionPort
 from quantx.execution.preconditions import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions import ExecutionTransactionCoordinator
+from quantx.execution.trading_gate import TradingGate
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 
@@ -43,10 +44,12 @@ class ExecutionOrchestrator:
         paper_executor: MarketDataExecutionPort | None = None,
         idempotency: IdempotencyStore | None = None,
         unit_of_work: UnitOfWork | None = None,
+        trading_gate: TradingGate | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._idempotency = idempotency or InMemoryIdempotencyStore()
         self._unit_of_work = unit_of_work
+        self._trading_gate = trading_gate or TradingGate()
 
     def execute(
         self,
@@ -56,6 +59,13 @@ class ExecutionOrchestrator:
         broker: BrokerPort | None = None,
     ) -> ExecutionResult:
         mode = request.execution_context.execution_mode
+
+        if not self._trading_gate.allow():
+            state = self._trading_gate.state()
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=f"trading is blocked: {state.reason}",
+            )
 
         if mode in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
             if self._paper_executor is None:
