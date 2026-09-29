@@ -76,6 +76,7 @@ def test_single_position_exposure_limit() -> None:
             financial_state=state.state,
             daily_pnl=state.daily_pnl,
             gross_exposure=state.gross_exposure,
+            position_exposures=state.position_exposures,
         ),
         PostTradeRiskLimits(max_position_exposure=Money(Decimal("900"), "INR")),
     )
@@ -99,7 +100,7 @@ def test_max_open_positions_limit() -> None:
         ),
     )
     result = PostTradeRiskEngine().evaluate(
-        PostTradeRiskSnapshot(state.state, state.daily_pnl, state.gross_exposure),
+        PostTradeRiskSnapshot(state.state, state.daily_pnl, state.gross_exposure, state.position_exposures),
         PostTradeRiskLimits(max_open_positions=1),
     )
     assert result.breached
