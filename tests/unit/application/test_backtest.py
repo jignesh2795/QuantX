@@ -307,7 +307,9 @@ def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
     evaluated = evaluation.evaluate_replay_frame(frame, ir)
     assert evaluated.result.intent is not None
 
-    engine = PaperExecutionEngine()
+    from quantx.domain.clock import SimulatedClock
+
+    engine = PaperExecutionEngine(clock=SimulatedClock(frame.observation.timestamp))
     session = PaperSession(
         executor=engine,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
