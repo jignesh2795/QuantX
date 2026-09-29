@@ -66,9 +66,7 @@ class ExecutionLifecycleService:
         """Rebuild lifecycle from authoritative persisted receipt evidence."""
         if self._receipt_repository is None:
             raise ValueError("authoritative receipt repository is required for reconciliation")
-        receipts = self._receipt_repository.list_by_correlation_id(
-            request.order.client_order_id
-        )
+        receipts = self._direct_receipts(request)
         if not receipts:
             raise ValueError("authoritative execution receipts are unavailable")
         return ExecutionLifecycle.rebuild(
@@ -85,12 +83,25 @@ class ExecutionLifecycleService:
         if self._receipt_repository is None:
             return (receipt,)
 
-        persisted = self._receipt_repository.list_by_correlation_id(
-            request.order.client_order_id
-        )
+        persisted = self._direct_receipts(request)
         if not persisted:
             return (receipt,)
         return persisted
+
+    def _direct_receipts(
+        self,
+        request: ApprovedExecutionRequest,
+    ) -> tuple[ExecutionReceipt, ...]:
+        if self._receipt_repository is None:
+            return ()
+        receipts = self._receipt_repository.list_by_correlation_id(
+            request.order.client_order_id
+        )
+        return tuple(
+            receipt
+            for receipt in receipts
+            if receipt.client_order_id == request.order.client_order_id
+        )
 
 
 __all__ = ["ExecutionLifecycleResult", "ExecutionLifecycleService"]
