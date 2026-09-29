@@ -20,6 +20,10 @@ class RiskEnforcementResult:
     allowed: bool
     reasons: tuple[str, ...] = ()
 
+    @property
+    def breached(self) -> bool:
+        return not self.allowed
+
 
 class PostTradeRiskEnforcer:
     """Evaluate post-trade state and trip the runtime gate on a breach."""
@@ -60,6 +64,7 @@ class PostTradeRiskEnforcer:
             financial_state=snapshot.state,
             daily_pnl=snapshot.daily_pnl,
             gross_exposure=snapshot.gross_exposure,
+            position_exposures=snapshot.position_exposures,
         )
 
     def evaluate(
