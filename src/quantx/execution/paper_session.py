@@ -70,6 +70,7 @@ class PaperSession:
         )
         self._post_trade_risk = post_trade_risk
         self._margin_ledger = margin_ledger
+        self._market_snapshots: dict[object, MarketSnapshot] = {}
 
     @property
     def margin_state(self) -> MarginState | None:
@@ -101,6 +102,7 @@ class PaperSession:
         instrument = self._instrument_registry.resolve(snapshot.instrument)
         if instrument is None:
             raise ValueError(f"instrument metadata unavailable for {snapshot.instrument}")
+        self._market_snapshots[snapshot.instrument] = snapshot
         if instrument.instrument_id != request.order.instrument:
             raise ValueError("resolved instrument does not match the execution request")
         if instrument.market != request.execution_context.market:
@@ -178,38 +180,50 @@ class PaperSession:
         if cash is not None and cash.currency != account_cash.currency:
             raise ValueError("cash currency does not match the paper account")
 
-        mark_price = valuation_price if valuation_price is not None else snapshot.last
-        if mark_price is None and snapshot.bid is not None and snapshot.ask is not None:
-            mark_price = (snapshot.bid + snapshot.ask) / Decimal("2")
-
-        marks: tuple[Mark, ...] = (
-            ()
-            if mark_price is None
-            else (
-                Mark(
-                    instrument_id=str(last_entry.instrument),
-                    price=mark_price,
-                    source="paper-session-market-snapshot",
-                ),
+        positions: list[Position] = []
+        marks: list[Mark] = []
+        entries = self._accounting.snapshot()
+        for entry in entries:
+            entry_instrument = self._instrument_registry.resolve(entry.instrument)
+            if entry_instrument is None:
+                raise ValueError(f"instrument metadata unavailable for {entry.instrument}")
+            position = Position(
+                instrument=entry_instrument,
+                quantity=entry.quantity,
+                average_price=entry.average_price,
+                realized_pnl=entry.realized_pnl,
             )
-        )
+            positions.append(position)
+            entry_snapshot = self._market_snapshots.get(entry.instrument)
+            if entry.instrument == snapshot.instrument and valuation_price is not None:
+                mark_price = valuation_price
+            elif entry_snapshot is not None:
+                mark_price = entry_snapshot.last
+                if mark_price is None and entry_snapshot.bid is not None and entry_snapshot.ask is not None:
+                    mark_price = (entry_snapshot.bid + entry_snapshot.ask) / Decimal("2")
+            else:
+                mark_price = None
+            if mark_price is not None and not position.is_flat:
+                marks.append(
+                    Mark(
+                        instrument_id=str(entry.instrument),
+                        price=mark_price,
+                        source="paper-session-market-snapshot",
+                    )
+                )
 
-        position = Position(
-            instrument=instrument,
-            quantity=last_entry.quantity,
-            average_price=last_entry.average_price,
-            realized_pnl=last_entry.realized_pnl,
-        )
         realized_total = (
-            realized_pnl_before + last_entry.realized_pnl - last_entry.fees
+            realized_pnl_before
+            + sum(entry.realized_pnl for entry in entries)
+            - sum(entry.fees for entry in entries)
         )
         valuation = self._valuator.value(
             portfolio_id=request.execution_context.portfolio_id,
             valuation_currency=account_cash.currency,
             cash=account_cash,
             margin_used=margin_used,
-            positions=(position,),
-            marks=marks,
+            positions=tuple(positions),
+            marks=tuple(marks),
             realized_pnl=realized_total,
         )
 
@@ -219,10 +233,7 @@ class PaperSession:
             else Money.zero(account_cash.currency)
         )
         gross_exposure = Money(
-            sum(
-                abs(result.market_value.amount)
-                for result in valuation.valuations
-            ),
+            sum(abs(result.market_value.amount) for result in valuation.valuations),
             account_cash.currency,
         )
         financial_state = AccountFinancialStateBuilder().from_cash_and_margin(
@@ -232,8 +243,8 @@ class PaperSession:
             margin_available=margin_available_money,
             daily_pnl=Money(
                 daily_pnl_before
-                + last_entry.realized_pnl
-                - last_entry.fees
+                + sum(entry.realized_pnl for entry in entries)
+                - sum(entry.fees for entry in entries)
                 + valuation.snapshot.unrealized_pnl.amount,
                 account_cash.currency,
             ),
