@@ -232,6 +232,35 @@ class ExecutionContinuationService:
         )
         return continuation
 
+    def _validate_claimed_child_receipt(
+        self,
+        parent_request: ApprovedExecutionRequest,
+        continuation: ApprovedExecutionRequest,
+        receipt: ExecutionReceipt,
+    ) -> None:
+        """Validate receipt metadata before an idempotency claim can be reused."""
+        child_id = continuation.order.client_order_id
+        parent_id = str(parent_request.order.client_order_id)
+        if receipt.client_order_id != child_id:
+            raise ValueError("idempotency receipt does not match continuation request")
+        if receipt.correlation_id != parent_id:
+            raise ValueError("idempotency receipt has invalid continuation correlation")
+        if receipt.order_id is not None and receipt.order_id != child_id:
+            raise ValueError("idempotency receipt has invalid continuation order identity")
+        if (
+            receipt.order_quantity is not None
+            and receipt.order_quantity != continuation.order.quantity
+        ):
+            raise ValueError("idempotency receipt has invalid continuation order quantity")
+        if (
+            receipt.account_id is not None
+            and receipt.account_id != continuation.execution_context.account_id
+        ):
+            raise ValueError("idempotency receipt has invalid account binding")
+        expected_connection = continuation.execution_context.broker_connection_id
+        if receipt.connection_id is not None and receipt.connection_id != expected_connection:
+            raise ValueError("idempotency receipt has invalid broker connection binding")
+
     def _authoritative_child_receipt(
         self,
         parent_request: ApprovedExecutionRequest,
@@ -249,14 +278,21 @@ class ExecutionContinuationService:
         )
         if not matches:
             return None
-        return max(
+        authoritative = max(
             matches,
             key=lambda receipt: (receipt.executed_at, str(receipt.receipt_id)),
         )
+        self._validate_claimed_child_receipt(
+            parent_request,
+            continuation,
+            authoritative,
+        )
+        return authoritative
 
     def _reuse_claimed_child(
         self,
         chain: ExecutionContinuationChain,
+        parent_request: ApprovedExecutionRequest,
         continuation: ApprovedExecutionRequest,
         receipt_id,
     ) -> ExecutionContinuationResult:
@@ -271,8 +307,15 @@ class ExecutionContinuationService:
                 "idempotency store references a completed continuation receipt "
                 "that is not available in the authoritative repository"
             )
-        if receipt.client_order_id != continuation.order.client_order_id:
-            raise ValueError("idempotency receipt does not match continuation request")
+        self._validate_claimed_child_receipt(parent_request, continuation, receipt)
+        authoritative = self._authoritative_child_receipt(
+            parent_request,
+            continuation,
+        )
+        if authoritative.receipt_id != receipt.receipt_id:
+            raise ValueError(
+                "idempotency claim does not reference the authoritative continuation receipt"
+            )
         return ExecutionContinuationResult(
             parent_lifecycle=chain.latest_lifecycle,
             request=continuation,
@@ -299,6 +342,7 @@ class ExecutionContinuationService:
         if decision.existing_receipt_id is not None:
             return self._reuse_claimed_child(
                 chain,
+                parent_request,
                 continuation,
                 decision.existing_receipt_id,
             )
@@ -356,6 +400,11 @@ class ExecutionContinuationService:
             )
 
         dispatched = self._dispatcher.dispatch(continuation, snapshot=snapshot)
+        self._validate_claimed_child_receipt(
+            parent_request,
+            continuation,
+            dispatched.receipt,
+        )
         self._idempotency.complete(
             continuation.order.client_order_id,
             fingerprint,
