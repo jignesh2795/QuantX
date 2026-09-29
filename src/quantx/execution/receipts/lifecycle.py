@@ -9,7 +9,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Order
 from quantx.domain.policy import PolicyResult
-from quantx.domain.risk import RiskResult
+from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.enums import OrderStatus
 
 from .models import ExecutionReceipt
@@ -60,7 +60,7 @@ class ExecutionLifecycle:
         if request.order.client_order_id != self.client_order_id:
             raise ValueError("request client_order_id does not match lifecycle")
         quantity = self.continuation_quantity(requested_quantity)
-        if risk_result.decision.value != "APPROVE":
+        if risk_result.decision is not RiskDecision.APPROVE:
             raise ValueError("continuation requires a fresh approved risk result")
         if required_margin < 0:
             raise ValueError("required_margin cannot be negative")
@@ -72,6 +72,7 @@ class ExecutionLifecycle:
             limit_price=request.order.limit_price,
             stop_price=request.order.stop_price,
             time_in_force=request.order.time_in_force,
+            intent_id=request.order.intent_id,
             client_order_id=self.continuation_client_order_id(quantity),
             strategy_id=request.order.strategy_id,
             strategy_version=request.order.strategy_version,
