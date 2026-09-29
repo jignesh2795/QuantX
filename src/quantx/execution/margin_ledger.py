@@ -88,6 +88,8 @@ class MarginLedger:
             current.reservation_id,
             current.amount,
             current.released + release_amount,
+            current.instrument,
+            current.quantity,
         )
         self._reservations[reservation_id] = updated
         self._used -= release_amount
