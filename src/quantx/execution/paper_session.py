@@ -186,6 +186,12 @@ class PaperSession:
                     request.order.client_order_id,
                     required,
                 )
+            elif required > 0:
+                updated = self._margin_ledger.set_required_amount_for_instrument(
+                    last_entry.instrument,
+                    required,
+                )
+                margin_reservation = updated[0] if updated else None
         if self._margin_ledger is not None and last_entry.quantity == 0:
             self._margin_ledger.release_for_flat_position(last_entry.instrument)
             margin_reservation = self._margin_ledger.reservation(request.order.client_order_id)
