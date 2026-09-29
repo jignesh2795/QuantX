@@ -8,7 +8,7 @@ from quantx.domain.execution_request import ApprovedExecutionRequest, build_orde
 from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.ports import ExecutionReceipt, ExecutionOutcome
+from quantx.execution.ports import ExecutionReceipt, ExecutionOutcome, LiveExecutionPort
 from quantx.ports.broker import BrokerPort
 from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef, BrokerDescriptor, CapabilitySet
 from quantx.domain.orders import Fill
@@ -119,3 +119,12 @@ def test_reference_broker_conforms_to_broker_port_behavior() -> None:
     assert receipt.account_id == AccountId("acct-1")
     assert receipt.connection_id == BrokerConnectionId("conn-1")
     assert receipt.outcome is ExecutionOutcome.FILLED
+
+
+def test_reference_broker_conforms_to_live_execution_boundary() -> None:
+    adapter: LiveExecutionPort = ReferenceBroker(_instrument())
+
+    receipt = adapter.submit(_request())
+    assert receipt.source == "reference-broker"
+    assert adapter.cancel(_request()).source == "reference-broker"
+    assert adapter.reconcile(_request()).source == "reference-broker"
