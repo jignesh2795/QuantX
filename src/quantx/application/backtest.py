@@ -25,6 +25,8 @@ from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.research.data import HistoricalDataSeries
 from quantx.research.replay import HistoricalReplay, ReplayFrame
 from quantx.research.quality import DataQualityStatus
+from quantx.strategy.evaluation import StrategyEvaluationService
+from quantx.strategy.ir import StrategyIR
 
 
 class BacktestDisposition(StrEnum):
@@ -105,8 +107,9 @@ class DeterministicBacktestService:
         self,
         *,
         series: HistoricalDataSeries,
-        strategy: StrategyRunner,
+        strategy: StrategyRunner | StrategyEvaluationService,
         financial_state: AccountFinancialState,
+        strategy_ir: StrategyIR | None = None,
         policy_context: PolicyContext | None = None,
         broker_constraints: tuple[BrokerConstraint, ...] = (),
         allow_incomplete: bool = False,
@@ -132,7 +135,12 @@ class DeterministicBacktestService:
         receipts: list[ExecutionReceipt] = []
 
         for frame in frames:
-            strategy_result = strategy(frame)
+            if isinstance(strategy, StrategyEvaluationService):
+                if strategy_ir is None:
+                    raise ValueError("strategy_ir is required for StrategyEvaluationService")
+                strategy_result = strategy.evaluate_replay_frame(frame, strategy_ir).result
+            else:
+                strategy_result = strategy(frame)
             intent = strategy_result.intent
             timestamp = frame.observation.timestamp.isoformat()
 
