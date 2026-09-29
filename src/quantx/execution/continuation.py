@@ -522,8 +522,9 @@ class ExecutionContinuationService:
             )
             if refreshed.existing_receipt_id != authoritative.receipt_id:
                 raise
+        parent_lifecycle = self._lifecycle_service.reconcile(parent_request)
         return ExecutionContinuationResult(
-            parent_lifecycle=reconciliation.parent_lifecycle,
+            parent_lifecycle=parent_lifecycle,
             request=child_request,
             dispatch=ExecutionDispatchResult(
                 request=child_request,
