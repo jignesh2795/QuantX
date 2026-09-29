@@ -279,3 +279,80 @@ def test_reconcile_chain_exposes_terminal_latest_stage_as_complete() -> None:
     assert not chain.can_continue
     assert chain.is_complete
     assert chain.aggregate_remaining_quantity == Decimal("5")
+
+
+
+def test_prepare_chain_continuation_uses_authoritative_latest_stage() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
+        requested_quantity=Decimal("5"),
+    )
+    first_receipt = _receipt(first, "2")
+    repository = _ReceiptRepository((root_receipt, first_receipt))
+    service = _service(repository, first_receipt)
+
+    continuation = service.prepare_chain_continuation(
+        root,
+        (first,),
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh next-stage approval"),
+    )
+
+    assert continuation.order.quantity == Decimal("3")
+    assert continuation.parent_client_order_id == str(first.order.client_order_id)
+    assert continuation.order.client_order_id != first.order.client_order_id
+    assert continuation.risk_result.reason == "fresh next-stage approval"
+
+
+def test_prepare_chain_continuation_respects_requested_quantity() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    repository = _ReceiptRepository((root_receipt,))
+    service = _service(repository, root_receipt)
+
+    continuation = service.prepare_chain_continuation(
+        root,
+        (),
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        requested_quantity=Decimal("2"),
+    )
+
+    assert continuation.order.quantity == Decimal("2")
+    assert continuation.parent_client_order_id == str(root.order.client_order_id)
+
+
+def test_prepare_chain_continuation_rejects_terminal_latest_stage() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
+    )
+    first_receipt = _receipt(first, "1")
+    terminal_receipt = replace(
+        first_receipt,
+        outcome=ExecutionOutcome.CANCELLED,
+        order_status=OrderStatus.CANCELLED,
+        executed_at=first_receipt.executed_at + timedelta(minutes=1),
+        fills=(),
+        receipt_id=uuid4(),
+    )
+    repository = _ReceiptRepository((root_receipt, first_receipt, terminal_receipt))
+    service = _service(repository, terminal_receipt)
+
+    with pytest.raises(ValueError, match="continuation chain parent lifecycle cannot continue"):
+        service.prepare_chain_continuation(
+            root,
+            (first,),
+            risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        )
