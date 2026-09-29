@@ -39,6 +39,7 @@ def _request(quantity: str = "10") -> ApprovedExecutionRequest:
         portfolio_id=PortfolioId("portfolio-1"),
         deployment_id=StrategyDeploymentId("deploy-1"),
         market=instrument.market,
+        broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
     )
     order = Order(
