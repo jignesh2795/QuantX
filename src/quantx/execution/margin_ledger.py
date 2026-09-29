@@ -10,12 +10,16 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
+from quantx.domain.value_objects import InstrumentId
+
 
 @dataclass(frozen=True, slots=True)
 class MarginReservation:
     reservation_id: UUID
     amount: Decimal
     released: Decimal = Decimal("0")
+    instrument: InstrumentId | None = None
+    quantity: Decimal | None = None
 
     @property
     def outstanding(self) -> Decimal:
@@ -47,15 +51,24 @@ class MarginLedger:
             available=self._total - self._used,
         )
 
-    def reserve(self, reservation_id: UUID, amount: Decimal) -> MarginReservation:
+    def reserve(
+        self,
+        reservation_id: UUID,
+        amount: Decimal,
+        *,
+        instrument: InstrumentId | None = None,
+        quantity: Decimal | None = None,
+    ) -> MarginReservation:
         if amount <= 0:
             raise ValueError("margin reservation must be positive")
+        if quantity is not None and quantity <= 0:
+            raise ValueError("reserved quantity must be positive")
         if reservation_id in self._reservations:
             raise ValueError("margin reservation already exists")
         if amount > self.state.available:
             raise ValueError("requested margin exceeds available margin")
 
-        reservation = MarginReservation(reservation_id, amount)
+        reservation = MarginReservation(reservation_id, amount, instrument=instrument, quantity=quantity)
         self._reservations[reservation_id] = reservation
         self._used += amount
         return reservation
@@ -79,6 +92,16 @@ class MarginLedger:
         self._reservations[reservation_id] = updated
         self._used -= release_amount
         return updated
+
+
+    def release_for_flat_position(self, instrument: InstrumentId) -> tuple[MarginReservation, ...]:
+        """Release reservations tied to an instrument after it becomes flat."""
+        released: list[MarginReservation] = []
+        for reservation_id, reservation in tuple(self._reservations.items()):
+            if reservation.instrument != instrument or reservation.outstanding <= 0:
+                continue
+            released.append(self.release(reservation_id))
+        return tuple(released)
 
     def reservation(self, reservation_id: UUID) -> MarginReservation | None:
         return self._reservations.get(reservation_id)
