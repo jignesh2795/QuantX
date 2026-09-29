@@ -242,3 +242,39 @@ def test_stateful_session_values_multiple_open_positions() -> None:
     assert result.financial_state is not None
     assert result.financial_state.gross_exposure.amount == Decimal("3000")
     assert len(result.valuation.valuations) == 2
+
+
+def test_paper_session_releases_position_linked_margin_when_flat() -> None:
+    instrument = _instrument()
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    )
+    margin = MarginLedger(Decimal("3000"))
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        initial_cash=Money(Decimal("5000"), "INR"),
+        margin_ledger=margin,
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    from dataclasses import replace
+
+    opening = replace(_request(instrument, OrderSide.BUY), required_margin=Decimal("1200"))
+    opened = session.execute_and_value(opening, snapshot=snapshot)
+    assert opened.accounting_entry.quantity == Decimal("10")
+    assert session.margin_state is not None
+    assert session.margin_state.used == Decimal("1200")
+
+    closing = _request(instrument, OrderSide.SELL)
+    closed = session.execute_and_value(closing, snapshot=snapshot)
+
+    assert closed.accounting_entry.quantity == Decimal("0")
+    assert session.margin_state.used == Decimal("0")
+    assert session.margin_state.available == Decimal("3000")
