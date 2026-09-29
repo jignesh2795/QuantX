@@ -35,6 +35,23 @@ class PostTradeRiskEnforcer:
         self._gate = trading_gate
         self._engine = engine or PostTradeRiskEngine()
 
+    def evaluate_projected_limits(
+        self,
+        *,
+        margin_used: Money,
+        margin_available: Money,
+        gross_exposure: Money,
+        position_exposures: tuple[Money, ...],
+    ) -> RiskEnforcementResult:
+        result = self._engine.evaluate_projected_limits(
+            margin_used=margin_used,
+            margin_available=margin_available,
+            gross_exposure=gross_exposure,
+            position_exposures=position_exposures,
+            limits=self._limits,
+        )
+        return RiskEnforcementResult(result.allowed, result.reasons)
+
     def evaluate_snapshot(
         self,
         snapshot: AccountFinancialSnapshot,
