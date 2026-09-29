@@ -420,6 +420,25 @@ class ExecutionContinuationService:
             dispatch_performed=False,
         )
 
+    def recover_pending_chain_continuation(
+        self,
+        root_request: ApprovedExecutionRequest,
+        continuation_requests: tuple[ApprovedExecutionRequest, ...],
+        child_request: ApprovedExecutionRequest,
+    ) -> ExecutionContinuationResult:
+        """Recover the next chain child from authoritative evidence without dispatch."""
+        chain = self.reconcile_chain(root_request, continuation_requests)
+        parent_request = (
+            continuation_requests[-1]
+            if continuation_requests
+            else root_request
+        )
+        if child_request.parent_client_order_id != str(
+            parent_request.order.client_order_id
+        ):
+            raise ValueError("pending continuation child does not reference latest chain stage")
+        return self.recover_pending_continuation(parent_request, child_request)
+
     def dispatch_chain_continuation(
         self,
         root_request: ApprovedExecutionRequest,
