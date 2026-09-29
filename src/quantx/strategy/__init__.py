@@ -1,6 +1,7 @@
 """Strategy runtime evaluation contracts."""
 
 from .context import StrategyContext
+from .deployment import StrategyDeploymentRuntime, StrategyExecutionDecision
 from .evaluation import StrategyEvaluation, StrategyEvaluationService
 from .compiler import StrategyCompiler
 from .ir import StrategyIR
@@ -14,6 +15,8 @@ __all__ = [
     "ExecutableStrategy",
     "StrategyCompiler",
     "StrategyContext",
+    "StrategyDeploymentRuntime",
+    "StrategyExecutionDecision",
     "StrategyEvaluation",
     "StrategyEvaluationService",
     "StrategyIR",
