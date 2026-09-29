@@ -64,7 +64,7 @@ class ExecutionContinuationService:
         parent_id = str(parent_request.order.client_order_id)
         if child_request.parent_client_order_id != parent_id:
             raise ValueError("continuation child does not reference the parent order")
-        repository = self._lifecycle_service._receipt_repository
+        repository = self._lifecycle_service.receipt_repository
         if repository is None:
             raise ValueError("authoritative receipt repository is required for reconciliation")
         receipts = repository.list_by_correlation_id(parent_request.order.client_order_id)
