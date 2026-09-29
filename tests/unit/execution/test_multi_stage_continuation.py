@@ -99,3 +99,82 @@ def test_reconcile_chain_is_idempotent_for_duplicate_stage_receipts() -> None:
 
     assert chain.aggregate_filled_quantity == Decimal("10")
     assert chain.aggregate_remaining_quantity == Decimal("0")
+
+
+def test_reconcile_chain_rejects_broken_parent_linkage() -> None:
+    root = _request()
+    first_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (first_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        requested_quantity=Decimal("5"),
+    )
+    second_receipt = _receipt(first, "2")
+    second = ExecutionLifecycle.rebuild(
+        first.order.client_order_id,
+        first.order.quantity,
+        (second_receipt,),
+    ).continuation_request(
+        first,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    malformed_second = second.__class__(
+        order=second.order,
+        execution_context=second.execution_context,
+        risk_result=second.risk_result,
+        policy_result=second.policy_result,
+        required_margin=second.required_margin,
+        parent_client_order_id=str(root.order.client_order_id),
+    )
+    repository = _ReceiptRepository((first_receipt, second_receipt))
+    service = _service(repository, second_receipt)
+
+    with pytest.raises(ValueError, match="parent linkage is invalid"):
+        service.reconcile_chain(root, (first, malformed_second))
+
+
+def test_reconcile_chain_rejects_stage_quantity_above_parent_remainder() -> None:
+    root = _request()
+    first_receipt = _receipt(root, "8")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (first_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    second = second = first.__class__(
+        order=first.order.__class__(
+            instrument=first.order.instrument,
+            side=first.order.side,
+            order_type=first.order.order_type,
+            quantity=Decimal("5"),
+            limit_price=first.order.limit_price,
+            stop_price=first.order.stop_price,
+            time_in_force=first.order.time_in_force,
+            intent_id=first.order.intent_id,
+            client_order_id=ExecutionLifecycle.rebuild(
+                first.order.client_order_id,
+                first.order.quantity,
+                (first_receipt,),
+            ).continuation_client_order_id(Decimal("5")),
+            strategy_id=first.order.strategy_id,
+            strategy_version=first.order.strategy_version,
+            required_capabilities=first.order.required_capabilities,
+        ),
+        execution_context=first.execution_context,
+        risk_result=first.risk_result,
+        policy_result=first.policy_result,
+        required_margin=first.required_margin,
+        parent_client_order_id=str(first.order.client_order_id),
+    )
+    repository = _ReceiptRepository((first_receipt,))
+    service = _service(repository, first_receipt)
+
+    with pytest.raises(ValueError, match="exceeds parent lifecycle remainder"):
+        service.reconcile_chain(root, (first, second))
