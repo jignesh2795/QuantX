@@ -94,6 +94,8 @@ class ExecutionContinuationService:
         if not child_receipts:
             raise ValueError("authoritative continuation receipt evidence is unavailable")
         parent_lifecycle = self._lifecycle_service.reconcile(parent_request)
+        if child_request.order.quantity > parent_lifecycle.remaining_quantity:
+            raise ValueError("continuation request exceeds parent lifecycle remainder")
         child_lifecycle = ExecutionLifecycle.rebuild(
             child_request.order.client_order_id,
             child_request.order.quantity,
@@ -113,7 +115,6 @@ class ExecutionContinuationService:
         continuation_requests: tuple[ApprovedExecutionRequest, ...],
     ) -> ExecutionContinuationChain:
         """Rebuild every continuation stage under the root correlation."""
-        root_id = str(root_request.order.client_order_id)
         stages = []
         parent_request = root_request
         parent_lifecycle = self._lifecycle_service.reconcile(root_request)
