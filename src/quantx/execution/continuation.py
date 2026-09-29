@@ -14,6 +14,7 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.policy import PolicyResult
 from quantx.domain.risk import RiskResult
 
+from .idempotency import InMemoryIdempotencyStore, IdempotencyStore, request_fingerprint
 from .dispatch import ExecutionDispatchResult, ExecutionDispatcher
 from .receipts.lifecycle import ExecutionLifecycle
 from .lifecycle import ExecutionLifecycleService
@@ -94,9 +95,12 @@ class ExecutionContinuationService:
         self,
         lifecycle_service: ExecutionLifecycleService,
         dispatcher: ExecutionDispatcher,
+        *,
+        idempotency_store: IdempotencyStore | None = None,
     ) -> None:
         self._lifecycle_service = lifecycle_service
         self._dispatcher = dispatcher
+        self._idempotency = idempotency_store or InMemoryIdempotencyStore()
 
     def reconcile_continuation(
         self,
@@ -227,6 +231,58 @@ class ExecutionContinuationService:
         )
         return continuation
 
+    def _authoritative_child_receipt(
+        self,
+        parent_request: ApprovedExecutionRequest,
+        continuation: ApprovedExecutionRequest,
+    ):
+        repository = self._lifecycle_service.receipt_repository
+        if repository is None:
+            return None
+        parent_id = str(parent_request.order.client_order_id)
+        receipts = repository.list_by_correlation_id(parent_id)
+        matches = tuple(
+            receipt
+            for receipt in receipts
+            if receipt.client_order_id == continuation.order.client_order_id
+        )
+        if not matches:
+            return None
+        return max(
+            matches,
+            key=lambda receipt: (receipt.executed_at, str(receipt.receipt_id)),
+        )
+
+    def _reuse_claimed_child(
+        self,
+        continuation: ApprovedExecutionRequest,
+        receipt_id,
+    ) -> ExecutionContinuationResult:
+        repository = self._lifecycle_service.receipt_repository
+        if repository is None:
+            raise ValueError("authoritative receipt repository is required for continuation reuse")
+        receipt = repository.get(receipt_id)
+        if receipt is None:
+            raise ValueError(
+                "idempotency store references a completed continuation receipt "
+                "that is not available in the authoritative repository"
+            )
+        if receipt.client_order_id != continuation.order.client_order_id:
+            raise ValueError("idempotency receipt does not match continuation request")
+        return ExecutionContinuationResult(
+            parent_lifecycle=ExecutionLifecycle(
+                client_order_id=receipt.client_order_id,
+                order_quantity=continuation.order.quantity,
+                filled_quantity=receipt.filled_quantity,
+            ),
+            request=continuation,
+            dispatch=ExecutionDispatchResult(
+                request=continuation,
+                receipt=receipt,
+            ),
+            dispatch_performed=False,
+        )
+
     def _dispatch_or_reuse_chain_continuation(
         self,
         chain: ExecutionContinuationChain,
@@ -235,37 +291,75 @@ class ExecutionContinuationService:
         *,
         snapshot,
     ) -> ExecutionContinuationResult:
-        repository = self._lifecycle_service.receipt_repository
-        if repository is not None:
-            parent_id = str(parent_request.order.client_order_id)
-            receipts = repository.list_by_correlation_id(parent_id)
-            child_receipts = tuple(
-                receipt
-                for receipt in receipts
-                if receipt.client_order_id == continuation.order.client_order_id
+        fingerprint = request_fingerprint(continuation)
+        decision = self._idempotency.reserve_or_get(
+            continuation.order.client_order_id,
+            fingerprint,
+        )
+        if decision.existing_receipt_id is not None:
+            return self._reuse_claimed_child(
+                continuation,
+                decision.existing_receipt_id,
             )
-            if child_receipts:
-                reconciliation = self.reconcile_continuation(
-                    parent_request,
-                    continuation,
+
+        if decision.reservation_pending and not decision.reservation_acquired:
+            authoritative = self._authoritative_child_receipt(
+                parent_request,
+                continuation,
+            )
+            if authoritative is None:
+                raise ValueError(
+                    "continuation dispatch is already pending and requires reconciliation"
                 )
-                return ExecutionContinuationResult(
-                    parent_lifecycle=reconciliation.parent_lifecycle,
+            try:
+                self._idempotency.resolve_pending(
+                    continuation.order.client_order_id,
+                    fingerprint,
+                    authoritative.receipt_id,
+                )
+            except ValueError:
+                refreshed = self._idempotency.check(
+                    continuation.order.client_order_id,
+                    fingerprint,
+                )
+                if refreshed.existing_receipt_id != authoritative.receipt_id:
+                    raise
+            return ExecutionContinuationResult(
+                parent_lifecycle=chain.latest_lifecycle,
+                request=continuation,
+                dispatch=ExecutionDispatchResult(
                     request=continuation,
-                    dispatch=ExecutionDispatchResult(
-                        request=continuation,
-                        receipt=max(
-                            child_receipts,
-                            key=lambda receipt: (
-                                receipt.executed_at,
-                                str(receipt.receipt_id),
-                            ),
-                        ),
-                    ),
-                    dispatch_performed=False,
-                )
+                    receipt=authoritative,
+                ),
+                dispatch_performed=False,
+            )
+
+        if not decision.reservation_acquired:
+            raise ValueError("continuation dispatch claim could not be acquired")
+
+        authoritative = self._authoritative_child_receipt(parent_request, continuation)
+        if authoritative is not None:
+            self._idempotency.complete(
+                continuation.order.client_order_id,
+                fingerprint,
+                authoritative.receipt_id,
+            )
+            return ExecutionContinuationResult(
+                parent_lifecycle=chain.latest_lifecycle,
+                request=continuation,
+                dispatch=ExecutionDispatchResult(
+                    request=continuation,
+                    receipt=authoritative,
+                ),
+                dispatch_performed=False,
+            )
 
         dispatched = self._dispatcher.dispatch(continuation, snapshot=snapshot)
+        self._idempotency.complete(
+            continuation.order.client_order_id,
+            fingerprint,
+            dispatched.receipt.receipt_id,
+        )
         return ExecutionContinuationResult(
             parent_lifecycle=chain.latest_lifecycle,
             request=continuation,
