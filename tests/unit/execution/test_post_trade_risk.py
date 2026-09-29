@@ -4,6 +4,7 @@ import pytest
 
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.value_objects import Money
+from quantx.execution.account_financial_state import AccountFinancialStateBuilder
 from quantx.execution.post_trade_risk import (
     PostTradeRiskEngine,
     PostTradeRiskLimits,
