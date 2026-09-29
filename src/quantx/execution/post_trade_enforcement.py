@@ -73,9 +73,15 @@ class PostTradeRiskEnforcer:
         financial_state: AccountFinancialState,
         daily_pnl: Money,
         gross_exposure: Money,
+        position_exposures: tuple[Money, ...] = (),
     ) -> RiskEnforcementResult:
         result = self._engine.evaluate(
-            PostTradeRiskSnapshot(financial_state, daily_pnl, gross_exposure),
+            PostTradeRiskSnapshot(
+                financial_state,
+                daily_pnl,
+                gross_exposure,
+                position_exposures,
+            ),
             self._limits,
         )
         if result.breached:
