@@ -44,6 +44,22 @@ class ExecutionContinuationReconciliation:
         return self.parent_lifecycle.order_quantity - self.aggregate_filled_quantity
 
 
+@dataclass(frozen=True, slots=True)
+class ExecutionContinuationChain:
+    """Reconstructed lifecycle stages sharing one root execution lineage."""
+
+    root_lifecycle: ExecutionLifecycle
+    stages: tuple[ExecutionLifecycle, ...]
+
+    @property
+    def aggregate_filled_quantity(self) -> Decimal:
+        return sum((stage.filled_quantity for stage in self.stages), Decimal("0"))
+
+    @property
+    def aggregate_remaining_quantity(self) -> Decimal:
+        return self.root_lifecycle.order_quantity - self.aggregate_filled_quantity
+
+
 class ExecutionContinuationService:
     """Continue a partial order using authoritative lifecycle evidence."""
 
@@ -91,6 +107,29 @@ class ExecutionContinuationService:
             child_lifecycle=child_lifecycle,
         )
 
+    def reconcile_chain(
+        self,
+        root_request: ApprovedExecutionRequest,
+        continuation_requests: tuple[ApprovedExecutionRequest, ...],
+    ) -> ExecutionContinuationChain:
+        """Rebuild every continuation stage under the root correlation."""
+        root_id = str(root_request.order.client_order_id)
+        stages = tuple(
+            self._lifecycle_service.reconcile_correlated(request, root_id)
+            for request in continuation_requests
+        )
+        root = self._lifecycle_service.reconcile(root_request)
+        total = root.filled_quantity + sum(
+            (stage.filled_quantity for stage in stages),
+            Decimal("0"),
+        )
+        if total > root.order_quantity:
+            raise ValueError("continuation chain fills exceed root order quantity")
+        return ExecutionContinuationChain(
+            root_lifecycle=root,
+            stages=(root, *stages),
+        )
+
     def continue_partial(
         self,
         request: ApprovedExecutionRequest,
@@ -117,6 +156,7 @@ class ExecutionContinuationService:
 
 
 __all__ = [
+    "ExecutionContinuationChain",
     "ExecutionContinuationReconciliation",
     "ExecutionContinuationResult",
     "ExecutionContinuationService",
