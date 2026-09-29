@@ -13,6 +13,7 @@ from quantx.execution.continuation import (
     ExecutionContinuationChain,
     ExecutionContinuationDispatchReconciliation,
 )
+from quantx.execution.idempotency import InMemoryIdempotencyStore, request_fingerprint
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.receipts.models import ExecutionOutcome
 
