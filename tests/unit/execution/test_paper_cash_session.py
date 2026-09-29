@@ -278,3 +278,38 @@ def test_paper_session_releases_position_linked_margin_when_flat() -> None:
     assert closed.accounting_entry.quantity == Decimal("0")
     assert session.margin_state.used == Decimal("0")
     assert session.margin_state.available == Decimal("3000")
+
+
+def test_position_margin_policy_resizes_on_partial_close() -> None:
+    instrument = _instrument()
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    )
+    margin = MarginLedger(Decimal("3000"))
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        initial_cash=Money(Decimal("5000"), "INR"),
+        margin_ledger=margin,
+        position_margin_requirement=lambda entry: abs(entry.quantity) * Decimal("120"),
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    from dataclasses import replace
+
+    opening = replace(_request(instrument, OrderSide.BUY), required_margin=Decimal("1200"))
+    session.execute_and_value(opening, snapshot=snapshot)
+    assert session.margin_state is not None
+    assert session.margin_state.used == Decimal("1200")
+
+    partial_close = replace(_request(instrument, OrderSide.SELL), required_margin=Decimal("0"))
+    result = session.execute_and_value(partial_close, snapshot=snapshot)
+
+    assert result.accounting_entry.quantity == Decimal("0")
+    assert session.margin_state.used == Decimal("0")
