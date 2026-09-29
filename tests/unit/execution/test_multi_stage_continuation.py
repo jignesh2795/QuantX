@@ -1,6 +1,8 @@
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
+from threading import Event, Lock
 from uuid import uuid4
 
 import pytest
@@ -575,3 +577,116 @@ def test_dispatch_chain_continuation_reuses_existing_authoritative_child() -> No
     assert result.request.order.client_order_id == existing_child.order.client_order_id
     assert result.request.order.quantity == Decimal("6")
     assert port.requests == []
+
+
+class _BlockingRecordingPaperPort(_PaperPort):
+    def __init__(self, receipt, repository) -> None:
+        super().__init__(receipt)
+        self._repository = repository
+        self.started = Event()
+        self.release = Event()
+        self._lock = Lock()
+
+    def execute(self, request, *, snapshot):
+        with self._lock:
+            self.requests.append(request)
+        self.started.set()
+        if not self.release.wait(timeout=2):
+            raise RuntimeError("test dispatch release timed out")
+        self._repository.save(self.receipt)
+        return self.receipt
+
+
+def test_concurrent_chain_continuation_dispatch_has_one_atomic_claim() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    )
+    child = parent_lifecycle.continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        requested_quantity=Decimal("6"),
+    )
+    child_receipt = _receipt(child, "6")
+    repository = _ReceiptRepository((root_receipt,))
+    port = _BlockingRecordingPaperPort(child_receipt, repository)
+    idempotency = InMemoryIdempotencyStore()
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+
+    def dispatch():
+        return service.dispatch_chain_continuation(
+            root,
+            (),
+            risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+            snapshot=_snapshot(),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(dispatch)
+        assert port.started.wait(timeout=2)
+        second_future = executor.submit(dispatch)
+
+        with pytest.raises(
+            ValueError,
+            match="continuation dispatch is already pending and requires reconciliation",
+        ):
+            second_future.result(timeout=2)
+
+        port.release.set()
+        first = first_future.result(timeout=2)
+
+    assert first.dispatch_performed
+    assert first.dispatch.receipt is child_receipt
+    assert len(port.requests) == 1
+
+
+def test_pending_continuation_claim_is_resolved_from_authoritative_child() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    )
+    child = parent_lifecycle.continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        requested_quantity=Decimal("6"),
+    )
+    child_receipt = _receipt(child, "6")
+    repository = _ReceiptRepository((root_receipt, child_receipt))
+    idempotency = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(child)
+    idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
+    port = _PaperPort(_receipt(child, "6"))
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+
+    result = service.dispatch_chain_continuation(
+        root,
+        (),
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        snapshot=_snapshot(),
+    )
+
+    assert not result.dispatch_performed
+    assert result.dispatch.receipt is child_receipt
+    assert port.requests == []
+    assert idempotency.check(
+        child.order.client_order_id,
+        fingerprint,
+    ).existing_receipt_id == child_receipt.receipt_id
