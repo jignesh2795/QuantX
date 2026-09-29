@@ -15,6 +15,7 @@ from quantx.domain.strategy import SignalAction, StrategyDefinition, StrategyRes
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
+from quantx.research.replay import HistoricalReplay
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.evaluation import StrategyEvaluationService
@@ -302,7 +303,7 @@ def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
     )
     strategy = _ParityStrategy()
     evaluation = StrategyEvaluationService(strategy)
-    frame = __import__("quantx.research.replay", fromlist=["HistoricalReplay"]).HistoricalReplay(_series()).frames()[0]
+    frame = HistoricalReplay(_series()).frames()[0]
     evaluated = evaluation.evaluate_replay_frame(frame, ir)
     assert evaluated.result.intent is not None
 
@@ -316,7 +317,7 @@ def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
         order=build_order_from_intent(evaluated.result.intent),
         execution_context=evaluated.result.intent.execution_context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
-        policy_result=PolicyResult(PolicyDecision.ALLOW, "allowed"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
     )
     paper = session.execute_and_value(request, snapshot=frame.observation.snapshot)
 
