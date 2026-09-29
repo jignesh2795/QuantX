@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from collections.abc import Callable
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.finance import CapitalSourceType
@@ -20,6 +19,7 @@ from quantx.execution.account_financial_state import AccountFinancialSnapshot, A
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.cash_ledger import CashLedger, CashLedgerEntry
 from quantx.execution.margin_ledger import MarginLedger, MarginReservation, MarginState
+from quantx.execution.margin_policy import PositionMarginPolicy
 from quantx.execution.paper_engine import PaperExecutionEngine
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
 from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer, RiskEnforcementResult
@@ -59,7 +59,7 @@ class PaperSession:
         cash_ledger: CashLedger | None = None,
         post_trade_risk: PostTradeRiskEnforcer | None = None,
         margin_ledger: MarginLedger | None = None,
-        position_margin_requirement: Callable[[PositionLedgerEntry], Decimal] | None = None,
+        position_margin_policy: PositionMarginPolicy | None = None,
     ) -> None:
         if initial_cash is not None and cash_ledger is not None:
             raise ValueError("provide either initial_cash or cash_ledger, not both")
@@ -72,7 +72,7 @@ class PaperSession:
         )
         self._post_trade_risk = post_trade_risk
         self._margin_ledger = margin_ledger
-        self._position_margin_requirement = position_margin_requirement
+        self._position_margin_policy = position_margin_policy
         self._market_snapshots: dict[object, MarketSnapshot] = {}
 
     @property
@@ -176,8 +176,8 @@ class PaperSession:
                 )
 
         assert last_entry is not None
-        if self._margin_ledger is not None and self._position_margin_requirement is not None:
-            required = self._position_margin_requirement(last_entry)
+        if self._margin_ledger is not None and self._position_margin_policy is not None:
+            required = self._position_margin_policy.required_margin(last_entry)
             if required < 0:
                 raise ValueError("position margin requirement cannot be negative")
             linked = self._margin_ledger.reservation(request.order.client_order_id)
