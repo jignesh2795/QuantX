@@ -96,6 +96,7 @@ def test_partial_continuation_executes_remaining_quantity_with_parent_correlatio
         portfolio_id=PortfolioId("p-1"),
         deployment_id=StrategyDeploymentId("d-1"),
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
     )
     intent = TradeIntent(
