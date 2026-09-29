@@ -368,6 +368,58 @@ class ExecutionContinuationService:
             dispatch_performed=True,
         )
 
+    def recover_pending_continuation(
+        self,
+        parent_request: ApprovedExecutionRequest,
+        child_request: ApprovedExecutionRequest,
+    ) -> ExecutionContinuationResult:
+        """Resolve a pending continuation claim from authoritative receipt evidence."""
+        if child_request.parent_client_order_id != str(parent_request.order.client_order_id):
+            raise ValueError("continuation child does not reference the parent order")
+        fingerprint = request_fingerprint(child_request)
+        decision = self._idempotency.check(
+            child_request.order.client_order_id,
+            fingerprint,
+        )
+        if decision.existing_receipt_id is not None:
+            raise ValueError("continuation dispatch is already completed")
+        if not decision.reservation_pending:
+            raise ValueError("continuation dispatch is not pending")
+        authoritative = self._authoritative_child_receipt(
+            parent_request,
+            child_request,
+        )
+        if authoritative is None:
+            raise ValueError(
+                "authoritative continuation receipt evidence is unavailable for pending recovery"
+            )
+        try:
+            self._idempotency.resolve_pending(
+                child_request.order.client_order_id,
+                fingerprint,
+                authoritative.receipt_id,
+            )
+        except ValueError:
+            refreshed = self._idempotency.check(
+                child_request.order.client_order_id,
+                fingerprint,
+            )
+            if refreshed.existing_receipt_id != authoritative.receipt_id:
+                raise
+        reconciliation = self.reconcile_continuation(
+            parent_request,
+            child_request,
+        )
+        return ExecutionContinuationResult(
+            parent_lifecycle=reconciliation.parent_lifecycle,
+            request=child_request,
+            dispatch=ExecutionDispatchResult(
+                request=child_request,
+                receipt=authoritative,
+            ),
+            dispatch_performed=False,
+        )
+
     def dispatch_chain_continuation(
         self,
         root_request: ApprovedExecutionRequest,
