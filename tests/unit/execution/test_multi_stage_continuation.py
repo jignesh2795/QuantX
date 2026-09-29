@@ -909,3 +909,49 @@ def test_recover_pending_chain_continuation_rejects_nonlatest_parent_link() -> N
         malformed.order.client_order_id,
         fingerprint,
     ).reservation_pending
+
+
+def test_recover_pending_continuation_keeps_claim_pending_when_parent_is_terminal() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    terminal_receipt = replace(
+        root_receipt,
+        outcome=ExecutionOutcome.CANCELLED,
+        order_status=OrderStatus.CANCELLED,
+        executed_at=root_receipt.executed_at + timedelta(minutes=1),
+        fills=(),
+        receipt_id=uuid4(),
+    )
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    )
+    child = parent_lifecycle.continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    child_receipt = _receipt(child, "6")
+    repository = _ReceiptRepository((root_receipt, terminal_receipt, child_receipt))
+    idempotency = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(child)
+    idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
+    port = _PaperPort(child_receipt)
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+
+    with pytest.raises(ValueError, match="parent lifecycle cannot continue"):
+        service.recover_pending_continuation(root, child)
+
+    assert port.requests == []
+    decision = idempotency.check(
+        child.order.client_order_id,
+        fingerprint,
+    )
+    assert decision.reservation_pending
+    assert decision.existing_receipt_id is None
