@@ -691,3 +691,112 @@ def test_pending_continuation_claim_is_resolved_from_authoritative_child() -> No
         child.order.client_order_id,
         fingerprint,
     ).existing_receipt_id == child_receipt.receipt_id
+
+
+def test_recover_pending_continuation_resolves_from_authoritative_child() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    )
+    child = parent_lifecycle.continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        requested_quantity=Decimal("6"),
+    )
+    child_receipt = _receipt(child, "6")
+    repository = _ReceiptRepository((root_receipt, child_receipt))
+    idempotency = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(child)
+    idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
+    port = _PaperPort(_receipt(child, "6"))
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+
+    result = service.recover_pending_continuation(root, child)
+
+    assert not result.dispatch_performed
+    assert result.dispatch.receipt is child_receipt
+    assert result.parent_lifecycle.filled_quantity == Decimal("4")
+    assert result.request is child
+    assert port.requests == []
+    assert idempotency.check(
+        child.order.client_order_id,
+        fingerprint,
+    ).existing_receipt_id == child_receipt.receipt_id
+
+
+def test_recover_pending_continuation_requires_authoritative_evidence() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    )
+    child = parent_lifecycle.continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    repository = _ReceiptRepository((root_receipt,))
+    idempotency = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(child)
+    idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
+    port = _PaperPort(_receipt(child, "6"))
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+
+    with pytest.raises(ValueError, match="authoritative continuation receipt evidence"):
+        service.recover_pending_continuation(root, child)
+
+    assert port.requests == []
+    assert idempotency.check(
+        child.order.client_order_id,
+        fingerprint,
+    ).reservation_pending
+
+
+def test_recover_pending_continuation_rejects_completed_child_claim() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    parent_lifecycle = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    )
+    child = parent_lifecycle.continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    child_receipt = _receipt(child, "6")
+    repository = _ReceiptRepository((root_receipt, child_receipt))
+    idempotency = InMemoryIdempotencyStore()
+    fingerprint = request_fingerprint(child)
+    idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
+    idempotency.complete(
+        child.order.client_order_id,
+        fingerprint,
+        child_receipt.receipt_id,
+    )
+    dispatcher = ExecutionDispatcher(paper_port=_PaperPort(child_receipt))
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(
+        lifecycle,
+        dispatcher,
+        idempotency_store=idempotency,
+    )
+
+    with pytest.raises(ValueError, match="already completed"):
+        service.recover_pending_continuation(root, child)
