@@ -128,3 +128,71 @@ def test_missing_mark_produces_incomplete_valuation() -> None:
     )
     assert result.valuation.completeness == "INCOMPLETE"
     assert result.valuation.unavailable_instruments
+
+
+def test_partial_continuation_reuses_account_pipeline_and_post_trade_risk() -> None:
+    from quantx.domain.orders import Fill
+    from quantx.execution.accounting import FillAccounting
+    from quantx.execution.paper_engine import PaperSimulationProfile
+    from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
+    from quantx.execution.post_trade_risk import PostTradeRiskLimits
+    from quantx.execution.trading_gate import TradingGate
+    from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+
+    instrument = _instrument()
+    clock = FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    engine = PaperExecutionEngine(
+        clock=clock,
+        profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1")),
+    )
+    accounting = FillAccounting()
+    accounting.apply(
+        Fill(
+            client_order_id=_request().order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("4"),
+            price=Decimal("100"),
+            filled_at=clock.now(),
+        )
+    )
+    gate = TradingGate()
+    enforcer = PostTradeRiskEnforcer(
+        limits=PostTradeRiskLimits(max_position_exposure=Money(Decimal("500"), "INR")),
+        trading_gate=gate,
+    )
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        initial_cash=Money(Decimal("2000"), "INR"),
+        post_trade_risk=enforcer,
+    )
+    request = _request()
+    lifecycle = ExecutionLifecycle(
+        request.order.client_order_id,
+        Decimal("10"),
+        Decimal("4"),
+        OrderStatus.PARTIALLY_FILLED,
+    )
+
+    result = session.continue_partial(
+        request,
+        lifecycle,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh continuation approval"),
+        snapshot=QuoteSnapshot(
+            instrument=instrument.instrument_id,
+            timestamp=clock.now(),
+            bid=Decimal("99"),
+            ask=Decimal("100"),
+            last=Decimal("100"),
+        ),
+    )
+
+    assert result.execution.filled_quantity == Decimal("6")
+    assert result.accounting_entry.quantity == Decimal("10")
+    assert result.financial_state is not None
+    assert result.risk_enforcement is not None
+    assert result.risk_enforcement.allowed is False
+    assert "single-position exposure" in result.risk_enforcement.reasons[0]
+    assert gate.allow() is False
