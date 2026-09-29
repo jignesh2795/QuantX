@@ -255,6 +255,7 @@ class ExecutionContinuationService:
 
     def _reuse_claimed_child(
         self,
+        chain: ExecutionContinuationChain,
         continuation: ApprovedExecutionRequest,
         receipt_id,
     ) -> ExecutionContinuationResult:
@@ -270,11 +271,7 @@ class ExecutionContinuationService:
         if receipt.client_order_id != continuation.order.client_order_id:
             raise ValueError("idempotency receipt does not match continuation request")
         return ExecutionContinuationResult(
-            parent_lifecycle=ExecutionLifecycle(
-                client_order_id=receipt.client_order_id,
-                order_quantity=continuation.order.quantity,
-                filled_quantity=receipt.filled_quantity,
-            ),
+            parent_lifecycle=chain.latest_lifecycle,
             request=continuation,
             dispatch=ExecutionDispatchResult(
                 request=continuation,
@@ -298,6 +295,7 @@ class ExecutionContinuationService:
         )
         if decision.existing_receipt_id is not None:
             return self._reuse_claimed_child(
+                chain,
                 continuation,
                 decision.existing_receipt_id,
             )
