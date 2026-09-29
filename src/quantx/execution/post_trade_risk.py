@@ -37,6 +37,7 @@ class PostTradeRiskSnapshot:
     financial_state: AccountFinancialState
     daily_pnl: Money
     gross_exposure: Money
+    position_exposures: tuple[Money, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +86,7 @@ class PostTradeRiskEngine:
         if limits.max_open_positions is not None:
             open_positions = sum(
                 1
-                for exposure in snapshot.financial_state.position_exposures
+                for exposure in snapshot.position_exposures
                 if exposure.amount > 0
             )
             if open_positions > limits.max_open_positions:
