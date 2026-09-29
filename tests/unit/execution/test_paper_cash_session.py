@@ -192,3 +192,53 @@ def test_paper_session_keeps_margin_reservation_in_account_state() -> None:
     assert released.outstanding == Decimal("0")
     assert session.margin_state.used == Decimal("0")
     assert session.margin_state.available == Decimal("3000")
+
+
+def test_stateful_session_values_multiple_open_positions() -> None:
+    tcs = _instrument()
+    infy = Instrument(
+        instrument_id=InstrumentId("NSE", "INFY"),
+        symbol="INFY",
+        asset_class=AssetClass.EQUITY,
+        market=tcs.market,
+        currency="INR",
+        tick_size=Decimal("0.05"),
+        lot_size=Decimal("1"),
+    )
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    )
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((tcs, infy)),
+        initial_cash=Money(Decimal("10000"), "INR"),
+    )
+
+    tcs_snapshot = QuoteSnapshot(
+        instrument=tcs.instrument_id,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+    infy_snapshot = QuoteSnapshot(
+        instrument=infy.instrument_id,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        bid=Decimal("199"),
+        ask=Decimal("200"),
+        last=Decimal("200"),
+    )
+
+    session.execute_and_value(
+        _request(tcs, OrderSide.BUY),
+        snapshot=tcs_snapshot,
+    )
+    result = session.execute_and_value(
+        _request(infy, OrderSide.BUY),
+        snapshot=infy_snapshot,
+    )
+
+    assert result.valuation.snapshot.market_value.amount == Decimal("3000")
+    assert result.financial_state is not None
+    assert result.financial_state.gross_exposure.amount == Decimal("3000")
+    assert len(result.valuation.valuations) == 2
