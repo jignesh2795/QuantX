@@ -251,6 +251,10 @@ class PaperSession:
             realized_pnl=valuation.snapshot.realized_pnl,
             unrealized_pnl=valuation.snapshot.unrealized_pnl,
             gross_exposure=gross_exposure,
+            position_exposures=tuple(
+                Money(abs(result.market_value.amount), account_cash.currency)
+                for result in valuation.valuations
+            ),
         )
         risk_enforcement = (
             self._post_trade_risk.evaluate_snapshot(financial_state)
