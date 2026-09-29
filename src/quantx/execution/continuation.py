@@ -312,6 +312,10 @@ class ExecutionContinuationService:
             parent_request,
             continuation,
         )
+        if authoritative is None:
+            raise ValueError(
+                "idempotency claim has no authoritative continuation receipt"
+            )
         if authoritative.receipt_id != receipt.receipt_id:
             raise ValueError(
                 "idempotency claim does not reference the authoritative continuation receipt"
