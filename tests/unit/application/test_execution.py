@@ -661,3 +661,49 @@ def test_partial_continuation_is_blocked_by_trading_gate_before_adapter() -> Non
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "trading is blocked" in result.reason
+
+
+def test_partial_continuation_passes_control_plane_to_adapter() -> None:
+    from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+
+    request = _request(ExecutionMode.PAPER)
+    lifecycle = ExecutionLifecycle(
+        request.order.client_order_id,
+        Decimal("10"),
+        Decimal("4"),
+        OrderStatus.PARTIALLY_FILLED,
+    )
+    snapshot = Quote(
+        instrument=request.order.instrument,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        ask=Decimal("100"),
+    )
+
+    class Adapter(FakePaperExecutor):
+        def __init__(self):
+            self.called = False
+
+        def continue_partial(self, request, lifecycle, *, risk_result, snapshot, requested_quantity=None):
+            self.called = True
+            assert risk_result.decision is RiskDecision.APPROVE
+            return ExecutionReceipt(
+                request_id=uuid4(),
+                client_order_id=request.order.client_order_id,
+                outcome=ExecutionOutcome.PARTIALLY_FILLED,
+                order_status=OrderStatus.PARTIALLY_FILLED,
+                executed_at=snapshot.timestamp,
+                simulated=True,
+                source="continuation-test",
+            )
+
+    adapter = Adapter()
+    result = ExecutionOrchestrator(paper_executor=adapter).continue_partial(
+        request,
+        lifecycle,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+        snapshot=snapshot,
+    )
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+    assert adapter.called
