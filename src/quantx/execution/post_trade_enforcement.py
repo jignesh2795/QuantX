@@ -52,7 +52,6 @@ class PostTradeRiskEnforcer:
         )
         return RiskEnforcementResult(result.allowed, result.reasons)
 
-    def evaluate_projected_limits(
         self, *, margin_used: Money, margin_available: Money, gross_exposure: Money, position_exposures: tuple[Money, ...]
     ) -> RiskEnforcementResult:
         result = self._engine.evaluate_projected_limits(
