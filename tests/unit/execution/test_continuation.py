@@ -160,7 +160,7 @@ def test_continuation_uses_authoritative_remainder_and_fresh_identity() -> None:
     assert result.request.order.quantity == Decimal("6")
     assert result.request.parent_client_order_id == str(request.order.client_order_id)
     assert result.request.order.client_order_id != request.order.client_order_id
-    assert result.request.risk_result.message == "fresh approval"
+    assert result.request.risk_result.reason == "fresh approval"
     assert result.dispatch.receipt == port.receipt
     assert port.requests == [result.request]
 
