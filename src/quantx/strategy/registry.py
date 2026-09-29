@@ -3,16 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol
-
-from quantx.domain.market_data import MarketDataEvent
-from quantx.domain.strategy import StrategyResult
 
 from .ir import StrategyIR
-
-
-class ExecutableStrategy(Protocol):
-    def on_market_data(self, event: MarketDataEvent, ir: StrategyIR) -> StrategyResult: ...
+from .runtime import ExecutableStrategy
 
 
 StrategyFactory = Callable[[], ExecutableStrategy]
