@@ -4,7 +4,7 @@ from decimal import Decimal
 from quantx.domain.accounts import AccountId
 from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
-from quantx.domain.enums import AssetClass, OrderSide, OrderType
+from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
