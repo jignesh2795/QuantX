@@ -137,44 +137,52 @@ def test_reconcile_chain_rejects_broken_parent_linkage() -> None:
         service.reconcile_chain(root, (first, malformed_second))
 
 
+
 def test_reconcile_chain_rejects_stage_quantity_above_parent_remainder() -> None:
     root = _request()
-    first_receipt = _receipt(root, "8")
+    root_receipt = _receipt(root, "8")
     first = ExecutionLifecycle.rebuild(
         root.order.client_order_id,
         root.order.quantity,
-        (first_receipt,),
+        (root_receipt,),
     ).continuation_request(
         root,
         risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
     )
-    second = second = first.__class__(
-        order=first.order.__class__(
-            instrument=first.order.instrument,
-            side=first.order.side,
-            order_type=first.order.order_type,
-            quantity=Decimal("5"),
-            limit_price=first.order.limit_price,
-            stop_price=first.order.stop_price,
-            time_in_force=first.order.time_in_force,
-            intent_id=first.order.intent_id,
-            client_order_id=ExecutionLifecycle.rebuild(
-                first.order.client_order_id,
-                first.order.quantity,
-                (first_receipt,),
-            ).continuation_client_order_id(Decimal("5")),
-            strategy_id=first.order.strategy_id,
-            strategy_version=first.order.strategy_version,
-            required_capabilities=first.order.required_capabilities,
-        ),
-        execution_context=first.execution_context,
-        risk_result=first.risk_result,
-        policy_result=first.policy_result,
-        required_margin=first.required_margin,
-        parent_client_order_id=str(first.order.client_order_id),
+    first_receipt = _receipt(first, "1")
+    first_lifecycle = ExecutionLifecycle.rebuild(
+        first.order.client_order_id,
+        first.order.quantity,
+        (first_receipt,),
+        correlation_id=str(root.order.client_order_id),
     )
-    repository = _ReceiptRepository((first_receipt,))
+    valid_second = first_lifecycle.continuation_request(
+        first,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    malformed_second = valid_second.__class__(
+        order=valid_second.order.__class__(
+            instrument=valid_second.order.instrument,
+            side=valid_second.order.side,
+            order_type=valid_second.order.order_type,
+            quantity=Decimal("2"),
+            limit_price=valid_second.order.limit_price,
+            stop_price=valid_second.order.stop_price,
+            time_in_force=valid_second.order.time_in_force,
+            intent_id=valid_second.order.intent_id,
+            client_order_id=valid_second.order.client_order_id,
+            strategy_id=valid_second.order.strategy_id,
+            strategy_version=valid_second.order.strategy_version,
+            required_capabilities=valid_second.order.required_capabilities,
+        ),
+        execution_context=valid_second.execution_context,
+        risk_result=valid_second.risk_result,
+        policy_result=valid_second.policy_result,
+        required_margin=valid_second.required_margin,
+        parent_client_order_id=valid_second.parent_client_order_id,
+    )
+    repository = _ReceiptRepository((root_receipt, first_receipt))
     service = _service(repository, first_receipt)
 
     with pytest.raises(ValueError, match="exceeds parent lifecycle remainder"):
-        service.reconcile_chain(root, (first, second))
+        service.reconcile_chain(root, (first, malformed_second))
