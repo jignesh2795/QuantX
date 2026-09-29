@@ -393,6 +393,10 @@ class ExecutionContinuationService:
             raise ValueError(
                 "authoritative continuation receipt evidence is unavailable for pending recovery"
             )
+        reconciliation = self.reconcile_continuation(
+            parent_request,
+            child_request,
+        )
         try:
             self._idempotency.resolve_pending(
                 child_request.order.client_order_id,
@@ -406,10 +410,6 @@ class ExecutionContinuationService:
             )
             if refreshed.existing_receipt_id != authoritative.receipt_id:
                 raise
-        reconciliation = self.reconcile_continuation(
-            parent_request,
-            child_request,
-        )
         return ExecutionContinuationResult(
             parent_lifecycle=reconciliation.parent_lifecycle,
             request=child_request,
