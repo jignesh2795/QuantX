@@ -686,14 +686,24 @@ def test_partial_continuation_passes_control_plane_to_adapter() -> None:
         def continue_partial(self, request, lifecycle, *, risk_result, snapshot, requested_quantity=None):
             self.called = True
             assert risk_result.decision is RiskDecision.APPROVE
+            fill = Fill(
+                client_order_id=request.order.client_order_id,
+                instrument=request.order.instrument,
+                side=request.order.side,
+                quantity=Decimal("1"),
+                price=snapshot.ask,
+                filled_at=snapshot.timestamp,
+            )
             return ExecutionReceipt(
                 request_id=uuid4(),
                 client_order_id=request.order.client_order_id,
                 outcome=ExecutionOutcome.PARTIALLY_FILLED,
                 order_status=OrderStatus.PARTIALLY_FILLED,
                 executed_at=snapshot.timestamp,
+                fills=(fill,),
                 simulated=True,
                 source="continuation-test",
+                order_quantity=request.order.quantity,
             )
 
     adapter = Adapter()
