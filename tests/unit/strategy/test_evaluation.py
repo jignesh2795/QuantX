@@ -2,11 +2,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
-from quantx.domain.strategy import StrategyDefinition, StrategyId, SignalAction
+from quantx.domain.strategy import SignalAction, StrategyDefinition, StrategyId
 from quantx.domain.value_objects import InstrumentId
+from quantx.execution.market_data import MarketSnapshot
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.replay import HistoricalReplay
-from quantx.execution.market_data import MarketSnapshot
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.reference import BuyAndHoldStrategy
@@ -47,9 +47,10 @@ def _series() -> HistoricalDataSeries:
 
 
 def test_replay_adapter_preserves_strategy_semantics() -> None:
-    service = StrategyEvaluationService(BuyAndHoldStrategy())
-    direct = service.evaluate(_event(), _ir())
-    replay = service.evaluate_replay_frame(HistoricalReplay(_series()).frames()[0], _ir())
+    direct = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate(_event(), _ir())
+    replay = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(
+        HistoricalReplay(_series()).frames()[0], _ir()
+    )
 
     assert replay.event == direct.event
     assert replay.result.signal.strategy_id == direct.result.signal.strategy_id
