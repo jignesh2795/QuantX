@@ -200,19 +200,19 @@ def test_reconcile_chain_rejects_continuation_after_terminal_stage() -> None:
         risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
         requested_quantity=Decimal("5"),
     )
-    first_receipt = _receipt(first, "5")
-    first_lifecycle = ExecutionLifecycle.rebuild(
+    first_receipt = _receipt(first, "1")
+    second = ExecutionLifecycle.rebuild(
         first.order.client_order_id,
         first.order.quantity,
         (first_receipt,),
         correlation_id=str(root.order.client_order_id),
-    )
-    second = first_lifecycle.continuation_request(
+    ).continuation_request(
         first,
         risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
     )
-    repository = _ReceiptRepository((root_receipt, first_receipt))
-    service = _service(repository, first_receipt)
+    terminal_receipt = _receipt(first, "4")
+    repository = _ReceiptRepository((root_receipt, first_receipt, terminal_receipt))
+    service = _service(repository, terminal_receipt)
 
     with pytest.raises(ValueError, match="stage lifecycle cannot continue"):
         service.reconcile_chain(root, (first, second))
