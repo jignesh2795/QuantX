@@ -7,7 +7,10 @@ import pytest
 
 from quantx.domain.enums import OrderStatus
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.continuation import ExecutionContinuationChain
+from quantx.execution.continuation import (
+    ExecutionContinuationChain,
+    ExecutionContinuationDispatchReconciliation,
+)
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.receipts.models import ExecutionOutcome
 
@@ -460,3 +463,79 @@ def test_dispatch_chain_continuation_rejects_terminal_latest_stage_before_dispat
         )
 
     assert port.requests == []
+
+
+def test_dispatch_chain_continuation_and_reconcile_returns_authoritative_child_state() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    first = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh stage one approval"),
+        requested_quantity=Decimal("5"),
+    )
+    first_receipt = _receipt(first, "2")
+    prepared = ExecutionLifecycle.rebuild(
+        first.order.client_order_id,
+        first.order.quantity,
+        (first_receipt,),
+    ).continuation_request(
+        first,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh next-stage approval"),
+    )
+    child_receipt = _receipt(prepared, "3")
+    repository = _ReceiptRepository((root_receipt, first_receipt, child_receipt))
+    port = _PaperPort(child_receipt)
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(lifecycle, dispatcher)
+
+    result = service.dispatch_chain_continuation_and_reconcile(
+        root,
+        (first,),
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh next-stage approval"),
+        snapshot=_snapshot(),
+    )
+
+    assert isinstance(result, ExecutionContinuationDispatchReconciliation)
+    assert result.parent_lifecycle.client_order_id == first.order.client_order_id
+    assert result.parent_lifecycle.remaining_quantity == Decimal("3")
+    assert result.request.order.quantity == Decimal("3")
+    assert result.request.parent_client_order_id == str(first.order.client_order_id)
+    assert result.dispatch.receipt is child_receipt
+    assert result.child_lifecycle.client_order_id == result.request.order.client_order_id
+    assert result.child_lifecycle.status is OrderStatus.FILLED
+    assert result.child_lifecycle.filled_quantity == Decimal("3")
+    assert port.requests == [result.request]
+
+
+def test_dispatch_chain_continuation_and_reconcile_rejects_missing_authoritative_child() -> None:
+    root = _request()
+    root_receipt = _receipt(root, "4")
+    repository = _ReceiptRepository((root_receipt,))
+    prepared = ExecutionLifecycle.rebuild(
+        root.order.client_order_id,
+        root.order.quantity,
+        (root_receipt,),
+    ).continuation_request(
+        root,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+    child_receipt = _receipt(prepared, "6")
+    port = _PaperPort(child_receipt)
+    dispatcher = ExecutionDispatcher(paper_port=port)
+    lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
+    service = ExecutionContinuationService(lifecycle, dispatcher)
+
+    with pytest.raises(ValueError, match="continuation receipt evidence"):
+        service.dispatch_chain_continuation_and_reconcile(
+            root,
+            (),
+            risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+            snapshot=_snapshot(),
+        )
+
+    assert port.requests
