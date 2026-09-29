@@ -64,15 +64,29 @@ class ExecutionLifecycleService:
         request: ApprovedExecutionRequest,
     ) -> ExecutionLifecycle:
         """Rebuild lifecycle from authoritative persisted receipt evidence."""
+        return self.reconcile_correlated(request, request.order.client_order_id)
+
+    def reconcile_correlated(
+        self,
+        request: ApprovedExecutionRequest,
+        correlation_id,
+    ) -> ExecutionLifecycle:
+        """Rebuild one order from receipts under an explicit lineage correlation."""
         if self._receipt_repository is None:
             raise ValueError("authoritative receipt repository is required for reconciliation")
-        receipts = self._direct_receipts(request)
+        receipts = self._receipt_repository.list_by_correlation_id(correlation_id)
+        receipts = tuple(
+            receipt
+            for receipt in receipts
+            if receipt.client_order_id == request.order.client_order_id
+        )
         if not receipts:
             raise ValueError("authoritative execution receipts are unavailable")
         return ExecutionLifecycle.rebuild(
             request.order.client_order_id,
             request.order.quantity,
             receipts,
+            correlation_id=correlation_id,
         )
 
     def _receipts_for_dispatch(
