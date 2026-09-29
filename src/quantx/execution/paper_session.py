@@ -53,13 +53,7 @@ class _PartialContinuationAdapter:
         self._requested_quantity = requested_quantity
 
     def execute(self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot):
-        return self._executor.continue_partial(
-            request,
-            self._lifecycle,
-            risk_result=self._risk_result,
-            snapshot=snapshot,
-            requested_quantity=self._requested_quantity,
-        )
+        return self._executor.execute(request, snapshot=snapshot)
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,11 +221,11 @@ class PaperSession:
             receipt = adapter.execute(request, snapshot=snapshot)
         except Exception:
             if margin_reservation is not None:
-                self._margin_ledger.release(request.order.client_order_id)
+                self._margin_ledger.release(margin_reservation.reservation_id)
             raise
         if not receipt.fills:
             if margin_reservation is not None:
-                self._margin_ledger.release(request.order.client_order_id)
+                self._margin_ledger.release(margin_reservation.reservation_id)
             raise ValueError("execution produced no fill")
 
         applied_fee = receipt.fee if fee is None else fee
@@ -357,7 +351,7 @@ class PaperSession:
             unrealized_pnl=valuation.snapshot.unrealized_pnl,
             gross_exposure=gross_exposure,
             position_exposures=tuple(
-                Money(abs(result.market_value.amount), account_cash.currency)
+                Money(abs(result.market_value), account_cash.currency)
                 for result in valuation.valuations
             ),
         )
