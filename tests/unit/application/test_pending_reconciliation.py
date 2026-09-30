@@ -406,6 +406,7 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
             receipt_repository=SqliteReceiptRepository(database_b),
         ).execute(request)
         assert blocked.status is PreconditionsStatus.UNKNOWN
+        assert len(SqliteIdempotencyStore(database_b).list_pending_contexts()) == 1
 
         outcome = reconcile_pending_execution(
             request,
@@ -426,7 +427,6 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
         assert decision.pending_context is not None
         assert decision.pending_context.order == request.order
         assert decision.pending_context.execution_context == request.execution_context
-        assert len(SqliteIdempotencyStore(database_b).list_pending_contexts()) == 1
         assert decision.existing_receipt_id == persisted.receipt_id
         assert not decision.reservation_pending
     finally:
