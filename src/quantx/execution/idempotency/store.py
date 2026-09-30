@@ -93,7 +93,7 @@ class PendingExecutionContext:
                 "market_region": self.execution_context.market.region.value,
                 "market_family": self.execution_context.market.family.value,
                 "market_venue": self.execution_context.market.venue,
-                "market_country": self.execution_context.market.country,
+                "market_country": self.execution_context.market.country_code,
                 "broker_connection_id": (
                     None
                     if self.execution_context.broker_connection_id is None
