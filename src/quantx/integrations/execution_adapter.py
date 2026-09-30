@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.execution.ports import ExecutionPort, ExecutionReceipt
 
@@ -15,4 +16,8 @@ class BrokerExecutionAdapter(ExecutionPort):
         self._submission = submission
 
     def execute(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
+        if request.execution_context.execution_mode is ExecutionMode.LIVE:
+            raise ValueError(
+                "LIVE execution requires ExecutionOrchestrator with durable UnitOfWork"
+            )
         return self._submission.submit(request)
