@@ -140,10 +140,16 @@ def test_reference_adapter_emits_domain_receipt_not_transport_response() -> None
 
 
 
-def test_reference_adapter_composes_with_execution_orchestrator() -> None:
+def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> None:
     request = _request(ExecutionMode.LIVE)
     adapter = _adapter(InMemoryReferenceBrokerTransport())
-    result = ExecutionOrchestrator().execute(request, broker=adapter)
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        result = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database)
+        ).execute(request, broker=adapter)
+    finally:
+        database.close()
 
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is not None
