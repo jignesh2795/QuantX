@@ -57,6 +57,7 @@ class ExecutionOrchestrator:
         self._idempotency = idempotency or InMemoryIdempotencyStore()
         self._unit_of_work = unit_of_work
         self._trading_gate = trading_gate or TradingGate()
+        self._trading_gate_explicit = trading_gate is not None
         self._session_guard = session_guard
 
     def execute(
@@ -67,6 +68,18 @@ class ExecutionOrchestrator:
         broker: BrokerPort | None = None,
     ) -> ExecutionResult:
         mode = request.execution_context.execution_mode
+
+        if mode is ExecutionMode.LIVE:
+            if not self._trading_gate_explicit:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live execution requires an explicitly configured durable TradingGate",
+                )
+            if not self._trading_gate.is_durable:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live execution requires a durable TradingGate",
+                )
 
         if not self._trading_gate.allow():
             state = self._trading_gate.state()
