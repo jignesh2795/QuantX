@@ -5,15 +5,15 @@
 
 The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution recovery and continuation safety.
 
-**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342`.
+**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `e4d85ae6e4d61fe61bfbeba1c838fb7a428d1c9c`.
 
 ## Validation baseline
 
-The current fully validated implementation baseline is **635 passed, 0 failed, 0 errors, 0 skipped** at `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342`.
+The current fully validated test evidence is **635 passed, 0 failed, 0 errors, 0 skipped** at `e4d85ae6e4d61fe61bfbeba1c838fb7a428d1c9c`.
 
 This checkpoint validates the LIVE durability hardening, pending-recovery corruption isolation, and explicit startup lifecycle: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; pending LIVE reservation context is persisted and reconstructible across a simulated process restart; malformed pending contexts are isolated as per-context recovery failures; the default all-required recovery path can resolve with local position/account evidence; concurrent recovery passes resolve a pending reservation at most once; and an explicit application runtime runs pending recovery once before startup completes. The 635-test suite completed with zero failures, errors, or skipped tests.
 
-The 635-test validation was performed against the branch head after fast-forward sync. The only Ruff finding was the pre-existing `I001` import-order issue in `src/quantx/application/execution.py`; it was subsequently cleaned in `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342`. `git diff --check` was clean; the local `uv.lock` modification was pre-existing environment noise and remained untouched.
+The 635-test validation was performed against the branch head after fast-forward sync at `e4d85ae6e4d61fe61bfbeba1c838fb7a428d1c9c`. The only Ruff finding was the pre-existing `I001` import-order issue in `src/quantx/application/execution.py`; a subsequent import-only cleanup was committed at `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342`. `git diff --check` was clean; the local `uv.lock` modification was pre-existing environment noise and remained untouched. The import-only cleanup has not been independently re-run through the full suite in this environment.
 
 This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for this checkpoint, so this document does not claim GitHub CI independently executed that suite.
 
@@ -63,4 +63,4 @@ Architecture documents distinguish implemented/current behavior, target architec
 
 Before adding UI, AI, or a broad broker matrix, keep the current package boundaries stable and finish the final adversarial review of the LIVE/recovery boundary. The remaining work is primarily integration-level: define the concrete production startup composition for broker, local-position, local-account, and provider resolution dependencies; verify startup behavior across the actual application process lifecycle; and perform a fresh adversarial review of all compatibility/legacy routes that could reach broker transport.
 
-`uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change.
+`uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change. GitHub Actions runs observed for this branch fail before executing workflow steps, so they are not treated as code-validation evidence.
