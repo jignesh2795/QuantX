@@ -79,6 +79,42 @@ def test_execute_account_and_value_uses_observed_mark() -> None:
     assert result.valuation.snapshot.unrealized_pnl.amount == Decimal("0")
 
 
+def test_idempotent_receipt_does_not_double_apply_position_or_cash() -> None:
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        profile=PaperSimulationProfile(fee_bps=Decimal("10")),
+    )
+    instrument = _instrument()
+    accounting = FillAccounting()
+    cash_ledger = __import__("quantx.execution.cash_ledger", fromlist=["CashLedger"]).CashLedger(
+        Money(Decimal("5000"), "INR")
+    )
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        cash_ledger=cash_ledger,
+    )
+    request = _request()
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    first = session.execute_and_value(request, snapshot=snapshot)
+    second = session.execute_and_value(request, snapshot=snapshot)
+
+    assert first.execution == second.execution
+    assert second.accounting_entry.quantity == Decimal("10")
+    assert second.accounting_entry.fees == Decimal("1")
+    assert second.cash.amount == Decimal("3999")
+    assert accounting.snapshot() == (second.accounting_entry,)
+    assert cash_ledger.entries() == (first.cash_entries[0],)
+
+
 def test_receipt_fee_flows_into_accounting_by_default() -> None:
     from quantx.execution.paper import PaperSimulationProfile
 
