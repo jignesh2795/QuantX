@@ -17,6 +17,7 @@ from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
+from quantx.domain.strategy import SignalAction
 
 from .deployment import StrategyExecutionDecision
 
@@ -124,8 +125,24 @@ class StrategyExecutionPreparer:
         decision: StrategyExecutionDecision,
         event: MarketDataEvent,
     ) -> None:
-        if decision.result.signal.instrument != event.instrument:
+        deployment = decision.deployment
+        signal = decision.result.signal
+        if not deployment.enabled:
+            raise ValueError("strategy deployment is disabled")
+        if deployment.strategy_id != signal.strategy_id.value:
+            raise ValueError("deployment strategy id does not match strategy signal")
+        if deployment.strategy_version != signal.strategy_version:
+            raise ValueError("deployment strategy version does not match strategy signal")
+        if deployment.market.venue != event.instrument.venue:
+            raise ValueError("deployment market venue does not match market event")
+        if signal.instrument != event.instrument:
             raise ValueError("strategy result instrument does not match market event")
         intent = decision.result.intent
-        if intent is not None and intent.instrument != event.instrument:
+        if intent is None:
+            return
+        if intent.instrument != event.instrument:
             raise ValueError("strategy intent instrument does not match market event")
+        if signal.action is SignalAction.BUY and intent.side.value != "BUY":
+            raise ValueError("BUY signal must carry a BUY intent")
+        if signal.action is SignalAction.SELL and intent.side.value != "SELL":
+            raise ValueError("SELL signal must carry a SELL intent")
