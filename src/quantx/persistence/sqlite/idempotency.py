@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from uuid import UUID
+from typing import Any
 
 from quantx.execution.idempotency import IdempotencyDecision, PendingExecutionContext
 
@@ -20,7 +21,7 @@ class SqliteIdempotencyStore:
         self,
         client_order_id: UUID,
         request_fingerprint: str,
-        row,
+        row: tuple[str, str | None, str | None] | None,
     ) -> IdempotencyDecision:
         if row is None:
             return IdempotencyDecision(
