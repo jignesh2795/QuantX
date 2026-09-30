@@ -58,21 +58,6 @@ class TradingGate:
         with self._lock:
             return self._state.enabled
 
-    def state(self) -> TradingGateState:
-        persisted = self._state_store.load()
-        if persisted is None:
-            with self._lock:
-                return TradingGateState(
-                    enabled=False,
-                    reason="durable trading-gate state is unavailable",
-                )
-        with self._lock:
-            self._state = persisted
-            return persisted
-
-    def allow(self) -> bool:
-        return self.state().enabled
-
     def block(self, reason: str) -> TradingGateState:
         reason = reason.strip()
         if not reason:
@@ -106,6 +91,21 @@ class DurableTradingGate(TradingGate):
             self._state = initial
         if persisted is None:
             state_store.save(initial)
+
+    def state(self) -> TradingGateState:
+        persisted = self._state_store.load()
+        if persisted is None:
+            with self._lock:
+                return TradingGateState(
+                    enabled=False,
+                    reason="durable trading-gate state is unavailable",
+                )
+        with self._lock:
+            self._state = persisted
+            return persisted
+
+    def allow(self) -> bool:
+        return self.state().enabled
 
     def block(self, reason: str) -> TradingGateState:
         reason = reason.strip()
