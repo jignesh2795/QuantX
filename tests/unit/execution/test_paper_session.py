@@ -240,7 +240,10 @@ def test_partial_continuation_recalculates_position_margin_for_full_resulting_po
     from quantx.execution.accounting import FillAccounting
     from quantx.execution.margin_ledger import MarginLedger
     from quantx.execution.margin_policy import FixedPerUnitMarginPolicy
+    from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
+    from quantx.execution.post_trade_risk import PostTradeRiskLimits
     from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+    from quantx.execution.trading_gate import TradingGate
 
     instrument = _instrument()
     request = _request()
@@ -274,6 +277,12 @@ def test_partial_continuation_recalculates_position_margin_for_full_resulting_po
         initial_cash=Money(Decimal("2000"), "INR"),
         margin_ledger=margin,
         position_margin_policy=FixedPerUnitMarginPolicy(Decimal("10")),
+        post_trade_risk=PostTradeRiskEnforcer(
+            limits=PostTradeRiskLimits(
+                max_position_exposure=Money(Decimal("2000"), "INR"),
+            ),
+            trading_gate=TradingGate(),
+        ),
     )
 
     result = session.continue_partial(
