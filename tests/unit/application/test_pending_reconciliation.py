@@ -27,6 +27,7 @@ from quantx.domain.value_objects import InstrumentId
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
+from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.integrations.reconciliation import OrderObservation
 from quantx.persistence.sqlite import (
@@ -361,6 +362,20 @@ def test_reconciliation_never_submits_to_broker() -> None:
     assert "broker" not in parameters
     assert "provider" in parameters
 
+def test_pending_context_round_trip_reconstructs_recovery_request() -> None:
+    request = _request()
+    fingerprint = request_fingerprint(request)
+    context = PendingExecutionContext.from_request(request, fingerprint)
+
+    restored = PendingExecutionContext.from_json(context.to_json())
+    recovery_request = restored.to_recovery_request()
+
+    assert restored.request_fingerprint == fingerprint
+    assert recovery_request.order == request.order
+    assert recovery_request.execution_context == request.execution_context
+    assert recovery_request.correlation_id == request.correlation_id
+
+
 def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> None:
     request = _request()
     order_id = request.order.client_order_id
@@ -404,6 +419,10 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
         persisted = SqliteReceiptRepository(database_b).get_by_client_order(order_id)
         assert persisted is not None
         decision = SqliteIdempotencyStore(database_b).check(order_id, fingerprint)
+        assert decision.pending_context is not None
+        assert decision.pending_context.order == request.order
+        assert decision.pending_context.execution_context == request.execution_context
+        assert len(SqliteIdempotencyStore(database_b).list_pending_contexts()) == 1
         assert decision.existing_receipt_id == persisted.receipt_id
         assert not decision.reservation_pending
     finally:
