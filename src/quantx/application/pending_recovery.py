@@ -119,10 +119,20 @@ class PendingExecutionRecoveryRunner:
         if observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise ValueError("checked_at must be timezone-aware")
 
-        pending_contexts = self._unit_of_work.idempotency.list_pending_contexts()
+        pending_records = self._unit_of_work.idempotency.list_pending_recovery_records()
         results: list[PendingRecoveryResult] = []
-        for context in pending_contexts:
-            results.append(self._recover_one(context, observed_at))
+        for record in pending_records:
+            if record.error is not None:
+                results.append(
+                    PendingRecoveryResult(
+                        record.client_order_id,
+                        False,
+                        error=f"pending recovery failed safely: {record.error}",
+                    )
+                )
+                continue
+            assert record.context is not None
+            results.append(self._recover_one(record.context, observed_at))
         return PendingRecoveryRun(tuple(results))
 
     def _recover_one(

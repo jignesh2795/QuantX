@@ -13,6 +13,7 @@ from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.enums import OrderSide, OrderStatus
 from quantx.domain.orders import Fill
 from quantx.domain.value_objects import InstrumentId
+from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.persistence.sqlite import (
     SqliteDatabase,
@@ -322,3 +323,29 @@ def test_nested_unit_of_work_rejected(tmp_path) -> None:
             with pytest.raises(RuntimeError, match="nested"):
                 with uow:
                     pass
+
+
+def test_malformed_pending_context_is_reported_without_blocking_listing(tmp_path) -> None:
+    order_id = uuid4()
+    path = tmp_path / "quantx.db"
+    with SqliteDatabase(path) as database:
+        store = SqliteIdempotencyStore(database)
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO idempotency_reservations "
+                "(client_order_id, fingerprint, receipt_id, created_at, completed_at, "
+                "pending_context_json) VALUES (?, ?, NULL, ?, NULL, ?)",
+                (
+                    str(order_id),
+                    "fingerprint-a",
+                    datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                    "{malformed-json",
+                ),
+            )
+        records = store.list_pending_recovery_records()
+        assert len(records) == 1
+        assert records[0].client_order_id == str(order_id)
+        assert records[0].context is None
+        assert records[0].error is not None
+        assert "invalid pending execution context" in records[0].error
+        assert store.list_pending_contexts() == ()

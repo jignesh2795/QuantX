@@ -175,6 +175,21 @@ class PendingExecutionContext:
 
 
 @dataclass(frozen=True, slots=True)
+class PendingExecutionRecoveryRecord:
+    """One durable pending row, including safe decode failures."""
+
+    client_order_id: str
+    request_fingerprint: str
+    context: PendingExecutionContext | None = None
+    error: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.context is None) == (self.error is None):
+            raise ValueError("pending recovery record needs context or error")
+
+
+
+@dataclass(frozen=True, slots=True)
 class IdempotencyDecision:
     client_order_id: UUID
     request_fingerprint: str
@@ -204,6 +219,8 @@ class IdempotencyStore(Protocol):
         request_fingerprint: str,
         receipt_id: UUID,
     ) -> None: ...
+
+    def list_pending_recovery_records(self) -> tuple[PendingExecutionRecoveryRecord, ...]: ...
 
     def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]: ...
 
@@ -276,10 +293,21 @@ class InMemoryIdempotencyStore:
                 raise ValueError("cannot overwrite an existing receipt")
             self._receipts[client_order_id] = receipt_id
 
-    def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]:
+    def list_pending_recovery_records(self) -> tuple[PendingExecutionRecoveryRecord, ...]:
         with self._lock:
             return tuple(
-                context
+                PendingExecutionRecoveryRecord(
+                    client_order_id=str(client_order_id),
+                    request_fingerprint=self._fingerprints[client_order_id],
+                    context=context,
+                )
                 for client_order_id, context in self._contexts.items()
                 if client_order_id not in self._receipts
             )
+
+    def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]:
+        return tuple(
+            record.context
+            for record in self.list_pending_recovery_records()
+            if record.context is not None
+        )

@@ -6,6 +6,7 @@ from .store import (
     IdempotencyStore,
     InMemoryIdempotencyStore,
     PendingExecutionContext,
+    PendingExecutionRecoveryRecord,
 )
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "IdempotencyStore",
     "InMemoryIdempotencyStore",
     "PendingExecutionContext",
+    "PendingExecutionRecoveryRecord",
     "request_fingerprint",
 ]

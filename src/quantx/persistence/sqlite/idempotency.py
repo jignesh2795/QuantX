@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from quantx.execution.idempotency import IdempotencyDecision, PendingExecutionContext
+from quantx.execution.idempotency import (
+    IdempotencyDecision,
+    PendingExecutionContext,
+    PendingExecutionRecoveryRecord,
+)
 
 from .database import SqliteDatabase
 
@@ -15,6 +19,22 @@ class SqliteIdempotencyStore:
 
     def __init__(self, database: SqliteDatabase) -> None:
         self._database = database
+
+    def _decode_context(
+        self,
+        client_order_id: str,
+        request_fingerprint: str,
+        context_json: str,
+    ) -> PendingExecutionContext:
+        try:
+            context = PendingExecutionContext.from_json(context_json)
+        except ValueError as exc:
+            raise ValueError(f"invalid pending execution context: {exc}") from exc
+        if context.request_fingerprint != request_fingerprint:
+            raise ValueError("pending execution context fingerprint does not match reservation")
+        if str(context.order.client_order_id) != client_order_id:
+            raise ValueError("pending execution context client_order_id does not match reservation")
+        return context
 
     def _decision(
         self,
@@ -31,7 +51,11 @@ class SqliteIdempotencyStore:
         if fingerprint != request_fingerprint:
             raise ValueError("client_order_id was reused with a different request")
         context = (
-            PendingExecutionContext.from_json(context_json)
+            self._decode_context(
+                str(client_order_id),
+                request_fingerprint,
+                context_json,
+            )
             if context_json is not None
             else None
         )
@@ -58,6 +82,15 @@ class SqliteIdempotencyStore:
         request_fingerprint: str,
         pending_context: PendingExecutionContext | None = None,
     ) -> IdempotencyDecision:
+        if pending_context is not None:
+            if pending_context.request_fingerprint != request_fingerprint:
+                raise ValueError(
+                    "pending execution context fingerprint does not match reservation"
+                )
+            if pending_context.order.client_order_id != client_order_id:
+                raise ValueError(
+                    "pending execution context client_order_id does not match reservation"
+                )
         with self._database.transaction() as connection:
             row = connection.execute(
                 "SELECT fingerprint, receipt_id, pending_context_json "
@@ -135,11 +168,39 @@ class SqliteIdempotencyStore:
                 (str(receipt_id), datetime.now(UTC).isoformat(), str(client_order_id)),
             )
 
-    def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]:
+    def list_pending_recovery_records(self) -> tuple[PendingExecutionRecoveryRecord, ...]:
         with self._database.transaction() as connection:
             rows = connection.execute(
-                "SELECT pending_context_json FROM idempotency_reservations "
+                "SELECT client_order_id, fingerprint, pending_context_json "
+                "FROM idempotency_reservations "
                 "WHERE receipt_id IS NULL AND pending_context_json IS NOT NULL "
                 "ORDER BY created_at"
             ).fetchall()
-        return tuple(PendingExecutionContext.from_json(row[0]) for row in rows)
+        records = []
+        for client_order_id, fingerprint, context_json in rows:
+            try:
+                context = self._decode_context(client_order_id, fingerprint, context_json)
+            except ValueError as exc:
+                records.append(
+                    PendingExecutionRecoveryRecord(
+                        client_order_id=client_order_id,
+                        request_fingerprint=fingerprint,
+                        error=str(exc),
+                    )
+                )
+            else:
+                records.append(
+                    PendingExecutionRecoveryRecord(
+                        client_order_id=client_order_id,
+                        request_fingerprint=fingerprint,
+                        context=context,
+                    )
+                )
+        return tuple(records)
+
+    def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]:
+        return tuple(
+            record.context
+            for record in self.list_pending_recovery_records()
+            if record.context is not None
+        )

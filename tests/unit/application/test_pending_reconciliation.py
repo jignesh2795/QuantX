@@ -669,6 +669,71 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
         database_b.close()
 
 
+def test_pending_recovery_runner_isolates_malformed_context(tmp_path) -> None:
+    request = _request()
+    order_id = request.order.client_order_id
+    fingerprint = request_fingerprint(request)
+    database, unit_of_work = _database_and_uow(tmp_path)
+    malformed_order_id = str(request.order.client_order_id)
+    while malformed_order_id == str(order_id):
+        malformed_order_id = str(__import__("uuid").uuid4())
+    try:
+        unit_of_work.idempotency.reserve_or_get(
+            order_id,
+            fingerprint,
+            PendingExecutionContext.from_request(request, fingerprint),
+        )
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO idempotency_reservations "
+                "(client_order_id, fingerprint, receipt_id, created_at, completed_at, "
+                "pending_context_json) VALUES (?, ?, NULL, ?, NULL, ?)",
+                (
+                    malformed_order_id,
+                    "malformed-fingerprint",
+                    CHECKED_AT.isoformat(),
+                    "{malformed-json",
+                ),
+            )
+        provider = ScriptedProvider(
+            orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
+        )
+        runner = PendingExecutionRecoveryRunner(
+            unit_of_work=unit_of_work,
+            provider_resolver=lambda _: provider,
+            local_order_provider=lambda recovered: _observation(
+                recovered.order.client_order_id,
+                OrderLifecycleStatus.FILLED,
+                filled="2",
+            ),
+            fill_provider=lambda recovered, _: (_fill(recovered),),
+            evidence_policy=DefinitiveEvidencePolicy.order_only(),
+        )
+
+        report = runner.run(checked_at=CHECKED_AT)
+
+        assert report.attempted == 2
+        assert report.resolved == 1
+        assert report.pending == 0
+        assert report.failed == 1
+        malformed = next(
+            result for result in report.results if result.client_order_id == malformed_order_id
+        )
+        assert malformed.error is not None
+        assert "invalid pending execution context" in malformed.error
+        assert len(SqliteIdempotencyStore(database).list_pending_contexts()) == 0
+        with database.transaction() as connection:
+            row = connection.execute(
+                "SELECT receipt_id, pending_context_json "
+                "FROM idempotency_reservations WHERE client_order_id = ?",
+                (malformed_order_id,),
+            ).fetchone()
+        assert row[0] is None
+        assert row[1] == "{malformed-json"
+    finally:
+        database.close()
+
+
 def test_pending_recovery_runner_isolates_failed_context(tmp_path) -> None:
     request_ok = _request()
     request_bad = _request()
