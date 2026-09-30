@@ -5,15 +5,15 @@
 
 The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution recovery and continuation safety.
 
-**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `2f12e81dc39c5edeed66d2efcdb1814c016001e3`.
+**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342`.
 
 ## Validation baseline
 
-The current fully validated implementation baseline is **634 passed, 0 failed, 0 errors, 0 skipped** at `2f12e81dc39c5edeed66d2efcdb1814c016001e3`.
+The current fully validated implementation baseline is **635 passed, 0 failed, 0 errors, 0 skipped** at `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342`.
 
-This checkpoint validates the LIVE durability hardening, pending-recovery corruption isolation, and explicit startup lifecycle: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; pending LIVE reservation context is persisted and reconstructible across a simulated process restart; malformed pending contexts are isolated as per-context recovery failures; the default all-required recovery path can resolve with local position/account evidence; concurrent recovery passes resolve a pending reservation at most once; and an explicit application runtime runs pending recovery once before startup completes. The 634-test suite completed with zero failures, errors, or skipped tests.
+This checkpoint validates the LIVE durability hardening, pending-recovery corruption isolation, and explicit startup lifecycle: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; pending LIVE reservation context is persisted and reconstructible across a simulated process restart; malformed pending contexts are isolated as per-context recovery failures; the default all-required recovery path can resolve with local position/account evidence; concurrent recovery passes resolve a pending reservation at most once; and an explicit application runtime runs pending recovery once before startup completes. The 635-test suite completed with zero failures, errors, or skipped tests.
 
-The 634-test validation was performed against the branch head after fast-forward sync. Changed-file Ruff was clean and `git diff --check` was clean; the local `uv.lock` modification was pre-existing environment noise and remained untouched.
+The 635-test validation was performed against the branch head after fast-forward sync. The only Ruff finding was the pre-existing `I001` import-order issue in `src/quantx/application/execution.py`; it was subsequently cleaned in `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342`. `git diff --check` was clean; the local `uv.lock` modification was pre-existing environment noise and remained untouched.
 
 This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for this checkpoint, so this document does not claim GitHub CI independently executed that suite.
 
@@ -29,7 +29,8 @@ Recent continuation/recovery work includes:
 - SQLite schema v2 migration coverage for pending context and durable trading-gate state;
 - deterministic pending LIVE recovery with per-context failure isolation and no-submit semantics;
 - malformed persisted-context isolation with reservation/context identity checks;
-- explicit, one-shot application startup lifecycle for recovery-backed startup.
+- explicit, one-shot application startup lifecycle for recovery-backed startup;
+- broker-returned `UNKNOWN` LIVE receipts remain durably PENDING for reconciliation rather than completing idempotency.
 
 ## Architecture direction
 
@@ -48,7 +49,7 @@ Recent continuation/recovery work includes:
 
 ## Current implementation track
 
-Execution integrity and reconciliation remain the active track. The repository now covers idempotency, execution receipts, order lifecycle reconstruction, account/connection identity, broker-order reconciliation, bounded evidence refresh, uncertain-submission recovery, partial-fill continuation/recovery, durable trading-gate state, durable pending LIVE execution context, malformed-context isolation, and explicit recovery-backed application startup.
+Execution integrity and reconciliation remain the active track. The repository now covers idempotency, execution receipts, order lifecycle reconstruction, account/connection identity, broker-order reconciliation, bounded evidence refresh, uncertain-submission recovery, partial-fill continuation/recovery, durable trading-gate state, durable pending LIVE execution context, malformed-context isolation, explicit recovery-backed application startup, and fail-closed handling of broker-returned UNKNOWN LIVE receipts.
 
 `PendingExecutionRecoveryRunner` remains a deterministic application service with no broker-submit capability. `ApplicationRuntime` now provides the explicit one-shot startup lifecycle seam: it requires a recovery hook, runs it synchronously before marking the runtime started, rejects repeated starts, and leaves startup failed if recovery infrastructure raises. The repository still does not contain a concrete production process entrypoint that constructs the runtime and wires real broker/account/position providers, so this is a validated lifecycle contract rather than a claim of end-to-end deployed startup wiring.
 
