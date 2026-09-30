@@ -32,6 +32,27 @@ def test_buy_reduces_cash_and_fee_is_cash_outflow() -> None:
     assert ledger.balance.amount == Decimal("3999")
 
 
+def test_duplicate_fill_is_idempotent() -> None:
+    ledger = CashLedger(Money(Decimal("5000"), "INR"))
+    fill = _fill(OrderSide.BUY, "10", "100")
+
+    first = ledger.apply(fill, fee=Decimal("1"))
+    second = ledger.apply(fill, fee=Decimal("1"))
+
+    assert second == first
+    assert ledger.balance.amount == Decimal("3999")
+    assert ledger.entries() == (first,)
+
+
+def test_duplicate_execution_id_with_conflicting_fee_is_rejected() -> None:
+    ledger = CashLedger(Money(Decimal("5000"), "INR"))
+    fill = _fill(OrderSide.BUY, "10", "100")
+    ledger.apply(fill, fee=Decimal("1"))
+
+    with pytest.raises(ValueError, match="already applied"):
+        ledger.apply(fill, fee=Decimal("2"))
+
+
 def test_sell_increases_cash_after_fee() -> None:
     ledger = CashLedger(Money(Decimal("5000"), "INR"))
 
