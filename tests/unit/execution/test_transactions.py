@@ -285,3 +285,44 @@ def test_duplicate_with_missing_receipt_fails_closed(monkeypatch) -> None:
     assert third.status is PreconditionsStatus.UNKNOWN
     assert third.receipt is None
     assert calls == 1
+
+def test_live_coordinator_blocks_even_if_idempotency_reports_acquired(monkeypatch) -> None:
+    client_order_id = uuid4()
+    monkeypatch.setattr(
+        "quantx.execution.transactions.coordinator.request_fingerprint",
+        lambda _: "fingerprint-a",
+    )
+    request = _request(client_order_id)
+    request.execution_context = type(
+        "ExecutionContext", (), {"execution_mode": ExecutionMode.LIVE}
+    )()
+
+    class MisbehavingLiveStore(InMemoryIdempotencyStore):
+        def check(self, client_order_id, request_fingerprint):
+            from quantx.execution.idempotency import IdempotencyDecision
+
+            return IdempotencyDecision(
+                client_order_id=client_order_id,
+                request_fingerprint=request_fingerprint,
+                reservation_pending=True,
+                reservation_acquired=True,
+            )
+
+    calls = 0
+
+    def submit(_):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("legacy coordinator must never submit LIVE")
+
+    coordinator = ExecutionTransactionCoordinator(
+        idempotency=MisbehavingLiveStore(),
+        preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
+        submit=submit,
+    )
+
+    result = coordinator.execute(request)
+
+    assert result.status is PreconditionsStatus.BLOCKED
+    assert "ExecutionOrchestrator" in result.reasons[0]
+    assert calls == 0
