@@ -428,6 +428,9 @@ def test_live_unit_of_work_groups_receipt_and_completion() -> None:
     )
     assert decision.existing_receipt_id == result.receipt.receipt_id
     assert not decision.reservation_pending
+    assert decision.pending_context is not None
+    assert decision.pending_context.order == request.order
+    assert decision.pending_context.execution_context == request.execution_context
     assert broker.submit_calls == 1
 
 
@@ -456,6 +459,21 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
     assert unit_of_work.committed
     assert not unit_of_work.rolled_back
     assert broker.submit_calls == 1
+
+
+def test_live_without_explicit_trading_gate_is_blocked() -> None:
+    request = _live_request()
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    result = ExecutionOrchestrator(unit_of_work=unit_of_work).execute(
+        request,
+        broker=broker,
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "explicitly configured durable TradingGate" in result.reason
+    assert broker.submit_calls == 0
 
 
 def test_live_without_unit_of_work_is_blocked() -> None:
