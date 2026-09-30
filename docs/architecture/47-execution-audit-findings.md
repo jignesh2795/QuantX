@@ -51,23 +51,23 @@ Simulation fees are calculated on the executed fill and carried on `ExecutionRec
 
 `DeterministicBacktestService` accepts both the canonical `StrategyEvaluationService` path and a direct callable strategy seam. The direct callable path now enforces the same signal/intent instrument, strategy identity, BUY/SELL direction, and replay-timestamp invariants before risk or execution. This prevents a custom replay strategy from bypassing the execution-facing strategy contract.
 
-## Correctness finding: LIVE receipt durability on completion failure — fixed, validation pending
+## Correctness finding: LIVE receipt durability on completion failure — resolved and validated
 
 `ExecutionOrchestrator._execute_live_transactional()` previously rolled back the receipt insert when idempotency completion failed. That could erase the only durable proof of a successful broker submission while leaving the reservation PENDING. The completion-failure path now preserves and commits the receipt while leaving idempotency unresolved for reconciliation.
 
-Regression coverage asserts that the receipt remains durable after injected completion failure.
+Regression coverage asserts that the receipt remains durable after injected completion failure, and the full 614-test suite passes at the current green checkpoint.
 
-## Correctness finding: secondary LIVE dispatch bypass — fixed, validation pending
+## Correctness finding: secondary LIVE dispatch bypass — resolved and validated
 
 `ExecutionDispatcher` previously submitted LIVE requests directly to `LiveExecutionPort`, bypassing durable idempotency, persistence, and the trading gate. Its LIVE branch now fails loudly and requires callers to use `ExecutionOrchestrator` with durable `UnitOfWork`. The generic `BrokerExecutionAdapter` also rejects direct LIVE use so lower-level adapter wiring cannot become an unintended execution entry point.
 
-Regression coverage verifies that these direct LIVE routes do not call the broker adapter.
+Regression coverage verifies that these direct LIVE routes do not call the broker adapter, and the full 614-test suite passes at the current green checkpoint.
 
-## Correctness finding: LIVE persistence bypass — fixed, validation pending
+## Correctness finding: LIVE persistence bypass — resolved and validated
 
 The canonical `ExecutionOrchestrator` LIVE path previously allowed execution without a `UnitOfWork`, falling back to process-local idempotency. That meant an uncertain LIVE submission could lose its pending reservation on process restart and become eligible for duplicate broker submission. LIVE now fails closed when a `UnitOfWork` is not configured and uses the two-scope transactional path exclusively.
 
-Paper, shadow, and replay execution remain usable without persistent storage.
+Paper, shadow, and replay execution remain usable without persistent storage. The current green checkpoint is `d9f54765c0fc6c7ae975750592aedaf9253ebb8b` with 614 passed, 0 failed, 0 errors, 0 skipped.
 
 ## Correctness finding: projected continuation margin/risk composition — fixed, validation pending
 
@@ -77,18 +77,8 @@ The three-file fix is committed after the `746ed9d37d0922f4eff32822a0f485a31d71e
 
 ## Next action
 
-Do not restructure these modules further. After the current pending validation, audit durable kill-switch state and the request-context needed for automatic pending recovery; then run an adversarial end-to-end LIVE entry-point audit with Claude before considering the execution boundary stable.
+Do not restructure these modules further. With the current validation green, the next focused audit is durable kill-switch state and the request context needed for automatic pending recovery; then run an adversarial end-to-end LIVE entry-point audit with Claude before considering the execution boundary stable.
 
 The canonical `ExecutionOrchestrator` LIVE path previously allowed execution without a `UnitOfWork`, falling back to process-local idempotency. That meant an uncertain LIVE submission could lose its pending reservation on process restart and become eligible for duplicate broker submission. LIVE now fails closed when a `UnitOfWork` is not configured and uses the two-scope transactional path exclusively.
 
 Paper, shadow, and replay execution remain usable without persistent storage.
-
-## Correctness finding: projected continuation margin/risk composition — fixed, validation pending
-
-`PaperSession._check_continuation_projection()` previously referenced a nonexistent public `MarginLedger.reservations` attribute. The margin ledger now exposes an immutable tuple snapshot of reservations, and the projected outstanding-margin aggregation is explicitly seeded with `Decimal("0")` for deterministic typing. The existing position-margin continuation regression now also composes `MarginLedger` with `PostTradeRiskEnforcer`, covering the previously untested path.
-
-The three-file fix is committed after the `746ed9d37d0922f4eff32822a0f485a31d71e10d` green baseline and was validated as part of the subsequent 612-test green run at `d706dc7`.
-
-## Next action
-
-Do not restructure these modules further. After the current pending validation, audit durable kill-switch state and the request-context needed for automatic pending recovery; keep the current package boundaries stable.
