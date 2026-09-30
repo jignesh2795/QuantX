@@ -18,6 +18,8 @@ The execution reliability layer is intentionally implemented as one coherent sli
 
 A network response is evidence about a submission attempt, not proof of final broker state.
 
+For LIVE execution, durable idempotency state is mandatory at the application boundary. The canonical `ExecutionOrchestrator` rejects LIVE execution when no `UnitOfWork` is configured, preventing a process restart from losing a PENDING reservation and permitting duplicate submission.
+
 When the broker outcome is uncertain, QuantX records `UNKNOWN` and reconciles. It never invents `REJECTED`, `ACCEPTED`, or `FILLED`.
 
 ## Uncertain-submission receipt recovery
