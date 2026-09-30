@@ -15,6 +15,12 @@ from .evidence_refresh import (
 )
 from .execution import ExecutionDispatchStatus, ExecutionOrchestrator, ExecutionResult
 from .pending_reconciliation import reconcile_pending_execution
+from .pending_recovery import (
+    PendingExecutionRecoveryRunner,
+    PendingRecoveryResult,
+    PendingRecoveryRun,
+    recover_pending_live_executions,
+)
 from .reconciliation import (
     OrderStateReconciliationResult,
     OrderStateReconciliationWorkflow,
@@ -35,6 +41,10 @@ __all__ = [
     "OrderStateReconciliationResult",
     "OrderStateReconciliationWorkflow",
     "OrderWorkflowStatus",
+    "PendingExecutionRecoveryRunner",
+    "PendingRecoveryResult",
+    "PendingRecoveryRun",
+    "recover_pending_live_executions",
     "reconcile_pending_execution",
     "ReconciliationEvidenceProvider",
     "ReconciliationEvidenceRefresher",
