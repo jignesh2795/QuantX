@@ -51,6 +51,11 @@ class MarginLedger:
             available=self._total - self._used,
         )
 
+    @property
+    def reservations(self) -> tuple[MarginReservation, ...]:
+        """Return a read-only snapshot of all margin reservations."""
+        return tuple(self._reservations.values())
+
     def reserve(
         self,
         reservation_id: UUID,
