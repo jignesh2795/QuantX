@@ -244,6 +244,25 @@ def test_preparer_rejects_intent_deployment_mismatch() -> None:
         _preparer().prepare(decision, _event(), _financial_state())
 
 
+def test_preparer_rejects_intent_strategy_identity_mismatch() -> None:
+    decision = _decision()
+    bad_intent = TradeIntent(
+        instrument=_event().instrument,
+        side=OrderSide.BUY,
+        quantity=Decimal("10"),
+        execution_context=_execution_context(),
+        strategy_id="other-strategy",
+        strategy_version="1",
+    )
+    decision = StrategyExecutionDecision(
+        decision.deployment,
+        StrategyResult(decision.result.signal, bad_intent),
+    )
+
+    with pytest.raises(ValueError, match="intent id"):
+        _preparer().prepare(decision, _event(), _financial_state())
+
+
 def test_preparer_rejects_missing_instrument_metadata() -> None:
     with pytest.raises(ValueError, match="instrument metadata"):
         StrategyExecutionPreparer(InMemoryInstrumentRegistry()).prepare(
