@@ -4,11 +4,23 @@ from decimal import Decimal
 import pytest
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
+from quantx.execution.trading_gate import DurableTradingGate
 from quantx.domain.accounts import AccountId, BrokerConnectionId
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
@@ -18,7 +30,11 @@ from quantx.plugins.reference_broker import (
     InMemoryReferenceBrokerTransport,
     ReferenceBrokerAdapter,
 )
-from quantx.persistence.sqlite import SqliteDatabase, SqliteTradingGateStateStore, SqliteUnitOfWork
+from quantx.persistence.sqlite import (
+    SqliteDatabase,
+    SqliteTradingGateStateStore,
+    SqliteUnitOfWork,
+)
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.ports.broker import BrokerPort
 
@@ -148,7 +164,8 @@ def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> Non
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         result = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database)
+            unit_of_work=SqliteUnitOfWork(database),
+            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
         ).execute(request, broker=adapter)
     finally:
         database.close()
