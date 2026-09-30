@@ -12,7 +12,7 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
-from quantx.execution.idempotency import IdempotencyDecision
+from quantx.execution.idempotency import IdempotencyDecision, PendingExecutionContext
 from quantx.execution.ports import ExecutionReceipt
 
 
@@ -21,7 +21,10 @@ class PersistentIdempotencyStore(Protocol):
 
     def check(self, client_order_id: UUID, request_fingerprint: str) -> IdempotencyDecision: ...
     def reserve_or_get(
-        self, client_order_id: UUID, request_fingerprint: str
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        pending_context: PendingExecutionContext | None = None,
     ) -> IdempotencyDecision: ...
     def complete(
         self, client_order_id: UUID, request_fingerprint: str, receipt_id: UUID
@@ -32,6 +35,8 @@ class PersistentIdempotencyStore(Protocol):
         request_fingerprint: str,
         receipt_id: UUID,
     ) -> None: ...
+
+    def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]: ...
 
 
 class ReceiptRepository(Protocol):
