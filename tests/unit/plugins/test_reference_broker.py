@@ -26,16 +26,15 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
-from quantx.plugins.reference_broker import (
-    InMemoryReferenceBrokerTransport,
-    ReferenceBrokerAdapter,
-)
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
-from quantx.execution.trading_gate import DurableTradingGate
+from quantx.plugins.reference_broker import (
+    InMemoryReferenceBrokerTransport,
+    ReferenceBrokerAdapter,
+)
 from quantx.ports.broker import BrokerPort
 
 
