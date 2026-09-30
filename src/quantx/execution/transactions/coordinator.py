@@ -45,16 +45,22 @@ class ExecutionTransactionCoordinator:
             None,
         )
 
+        if mode is ExecutionMode.LIVE:
+            return TransactionResult(
+                PreconditionsStatus.BLOCKED,
+                reasons=(
+                    "LIVE submission requires ExecutionOrchestrator with durable "
+                    "UnitOfWork and TradingGate",
+                ),
+            )
+
         preflight = self._preconditions(request)
         if not preflight.can_execute:
             return TransactionResult(preflight.status, reasons=preflight.reasons)
 
         fingerprint = request_fingerprint(request)
         client_order_id: UUID = request.order.client_order_id
-        if mode is ExecutionMode.LIVE:
-            decision = self._idempotency.check(client_order_id, fingerprint)
-        else:
-            decision = self._idempotency.reserve_or_get(client_order_id, fingerprint)
+        decision = self._idempotency.reserve_or_get(client_order_id, fingerprint)
         if decision.existing_receipt_id is not None:
             if self._receipt_repository is not None:
                 authoritative = self._receipt_repository.get(decision.existing_receipt_id)
@@ -74,19 +80,6 @@ class ExecutionTransactionCoordinator:
             return TransactionResult(
                 PreconditionsStatus.READY,
                 reasons=(f"idempotent duplicate; receipt={decision.existing_receipt_id}",),
-            )
-        if (
-            mode is ExecutionMode.LIVE
-            and not decision.reservation_pending
-            and not decision.reservation_acquired
-            and decision.existing_receipt_id is None
-        ):
-            return TransactionResult(
-                PreconditionsStatus.BLOCKED,
-                reasons=(
-                    "LIVE submission requires ExecutionOrchestrator with durable "
-                    "UnitOfWork and TradingGate",
-                ),
             )
         if decision.reservation_pending and not decision.reservation_acquired:
             return TransactionResult(
