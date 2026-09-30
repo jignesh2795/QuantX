@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import pytest
+
 from quantx.application.backtest import BacktestDisposition, DeterministicBacktestService
 from quantx.domain.accounts import AccountId
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
@@ -238,7 +240,7 @@ def test_backtest_blocks_risk_rejected_intent_without_execution() -> None:
             instrument.instrument_id,
             SignalAction.BUY,
             1.0,
-            generated_at=datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc),
+            generated_at=frame.observation.timestamp,
         )
         intent = TradeIntent(
             instrument=instrument.instrument_id,
