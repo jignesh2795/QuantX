@@ -1,11 +1,24 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from types import SimpleNamespace
-
-import pytest
 from uuid import uuid4
 
-from quantx.domain.deployment import ExecutionMode
+import pytest
+
+from quantx.domain.accounts import AccountId, BrokerConnectionId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
+from quantx.domain.enums import AssetClass, OrderSide, OrderType
+from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import OrderStatus
+from quantx.domain.policy import PolicyDecision, PolicyResult
+from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.execution_adapter import BrokerExecutionAdapter
 
@@ -37,8 +50,38 @@ def test_broker_execution_adapter_delegates_to_submission_plugin() -> None:
     submission = FakeSubmission(receipt)
     adapter = BrokerExecutionAdapter(submission)
 
-    request = object()
-    result = adapter.execute(request)  # type: ignore[arg-type]
+    instrument = Instrument(
+        InstrumentId("NSE", "TCS"),
+        "TCS",
+        AssetClass.EQUITY,
+        MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        "INR",
+        Decimal("0.05"),
+        Decimal("1"),
+    )
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=instrument.market,
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.PAPER,
+    )
+    request = ApprovedExecutionRequest(
+        order=build_order_from_intent(
+            TradeIntent(
+                instrument=instrument.instrument_id,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                order_type=OrderType.MARKET,
+                execution_context=context,
+            )
+        ),
+        execution_context=context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+    )
+    result = adapter.execute(request)
 
     assert result is receipt
     assert submission.calls == 1
