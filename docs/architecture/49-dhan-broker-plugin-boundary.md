@@ -30,7 +30,9 @@ InMemory    DhanSDKTransport
 The Dhan SDK is imported only by
 `src/quantx/plugins/dhan/transport.py`. Vendor response payloads are mapped
 to QuantX `ExecutionReceipt`, `Fill`, and normalized order status values
-inside the plugin.
+inside the plugin. The adapter independently enforces its account-scoped
+broker connection before submit, cancel, or reconciliation, so direct adapter
+use cannot silently route a request to a different connection.
 
 The canonical QuantX `InstrumentId` remains the system identity. A
 `DhanInstrumentRef` separately maps it to Dhan's `securityId`,
@@ -82,8 +84,10 @@ A transport/network exception during submission, cancellation, or
 reconciliation produces an `UNKNOWN` execution receipt. The plugin does not
 automatically retry order submission.
 
-For a traded order, reconciliation uses the broker-reported filled quantity
-and average traded price when available. No price or fill is invented when
+For a traded order, reconciliation verifies the broker-returned correlation
+identity against the deterministic Dhan correlation derived from the request.
+It also rejects negative or over-order filled quantities and requires a traded
+price before constructing a canonical fill. No price or fill is invented when
 the broker does not provide one.
 
 ## Operational prerequisite
