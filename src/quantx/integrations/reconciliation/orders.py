@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from uuid import UUID
 
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 
 
@@ -27,6 +28,8 @@ class OrderObservation:
     requested_quantity: str
     filled_quantity: str
     broker_order_id: str | None = None
+    account_id: AccountId | None = None
+    connection_id: BrokerConnectionId | None = None
 
     def __post_init__(self) -> None:
         try:
