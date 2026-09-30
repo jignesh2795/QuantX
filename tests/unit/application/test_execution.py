@@ -209,6 +209,10 @@ class _FakeUnitOfWork(UnitOfWork):
             self.rollback()
 
 
+def _durable_gate() -> DurableTradingGate:
+    return DurableTradingGate(InMemoryTradingGateStateStore())
+
+
 def _live_request():
     return _request(
         ExecutionMode.LIVE,
@@ -259,7 +263,7 @@ def test_live_requires_a_broker() -> None:
         connection_id=BrokerConnectionId("conn-1"),
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
     )
-    result = ExecutionOrchestrator().execute(request)
+    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "broker adapter" in result.reason
 
@@ -271,7 +275,7 @@ def test_live_blocks_account_mismatch() -> None:
         connection_id=BrokerConnectionId("conn-1"),
     )
     broker = FakeBroker(account_id=AccountId("acct-2"))
-    result = ExecutionOrchestrator().execute(request, broker=broker)
+    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=broker)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "account" in result.reason
 
@@ -339,7 +343,7 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
         connection_id=BrokerConnectionId("conn-1"),
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
     )
-    result = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork()).execute(
+    result = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork(), trading_gate=_durable_gate()).execute(
         request,
         broker=FakeBroker(),
     )
@@ -392,7 +396,7 @@ def test_live_unit_of_work_groups_receipt_and_completion() -> None:
     request = _live_request()
     broker = FakeBroker()
     unit_of_work = _FakeUnitOfWork()
-    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work)
+    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work, trading_gate=_durable_gate())
 
     result = orchestrator.execute(request, broker=broker)
 
@@ -556,7 +560,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     request = _live_request()
     database_a = SqliteDatabase(path)
     try:
-        orchestrator_a = ExecutionOrchestrator(unit_of_work=SqliteUnitOfWork(database_a))
+        orchestrator_a = ExecutionOrchestrator(unit_of_work=SqliteUnitOfWork(database_a), trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_a)))
         first = orchestrator_a.execute(request, broker=FakeBroker())
         assert first.status is ExecutionDispatchStatus.EXECUTED
     finally:
@@ -564,7 +568,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     database_b = SqliteDatabase(path)
     try:
         broker_b = FakeBroker()
-        orchestrator_b = ExecutionOrchestrator(unit_of_work=SqliteUnitOfWork(database_b))
+        orchestrator_b = ExecutionOrchestrator(unit_of_work=SqliteUnitOfWork(database_b), trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_b)))
         second = orchestrator_b.execute(request, broker=broker_b)
         assert second.status is ExecutionDispatchStatus.EXECUTED
         assert second.receipt == first.receipt
