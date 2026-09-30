@@ -13,7 +13,10 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from quantx.domain.enums import OrderStatus
-from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.execution_request import (
+    ApprovedExecutionRequest,
+    PendingExecutionRecoveryRequest,
+)
 from quantx.domain.orders import Fill
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.reconciliation import (
@@ -36,7 +39,7 @@ from .uncertain_submission import UncertainSubmissionReceiptRecovery
 
 
 def reconcile_pending_execution(
-    request: ApprovedExecutionRequest,
+    request: ApprovedExecutionRequest | PendingExecutionRecoveryRequest,
     *,
     fingerprint: str,
     local_order: OrderObservation | None,
