@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.risk import RiskResult
 from quantx.execution.idempotency import (
     IdempotencyStore,
     InMemoryIdempotencyStore,
@@ -16,10 +17,9 @@ from quantx.execution.idempotency import (
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
-from quantx.execution.trading_gate import TradingGate
-from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
-from quantx.domain.risk import RiskResult
+from quantx.execution.session_guard import SessionExecutionGuard
+from quantx.execution.trading_gate import TradingGate
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 
