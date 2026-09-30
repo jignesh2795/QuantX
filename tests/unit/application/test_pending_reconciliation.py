@@ -27,6 +27,7 @@ from quantx.domain.value_objects import InstrumentId
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
+from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.integrations.reconciliation import OrderObservation
 from quantx.persistence.sqlite import (
     SqliteDatabase,
@@ -127,7 +128,7 @@ def test_definitive_positive_resolution(tmp_path, monkeypatch) -> None:
 
         outcome = reconcile_pending_execution(
             request,
-            fingerprint="fp-a",
+            fingerprint=fingerprint,
             local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
@@ -363,10 +364,11 @@ def test_reconciliation_never_submits_to_broker() -> None:
 def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> None:
     request = _request()
     order_id = request.order.client_order_id
+    fingerprint = request_fingerprint(request)
 
     database_a, unit_of_work_a = _database_and_uow(tmp_path)
     try:
-        decision = unit_of_work_a.idempotency.reserve_or_get(order_id, "fp-a")
+        decision = unit_of_work_a.idempotency.reserve_or_get(order_id, fingerprint)
         assert decision.reservation_acquired
     finally:
         database_a.close()
@@ -401,7 +403,7 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
         assert outcome.definitive
         persisted = SqliteReceiptRepository(database_b).get_by_client_order(order_id)
         assert persisted is not None
-        decision = SqliteIdempotencyStore(database_b).check(order_id, "fp-a")
+        decision = SqliteIdempotencyStore(database_b).check(order_id, fingerprint)
         assert decision.existing_receipt_id == persisted.receipt_id
         assert not decision.reservation_pending
     finally:
