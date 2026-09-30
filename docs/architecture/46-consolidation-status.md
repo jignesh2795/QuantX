@@ -9,9 +9,10 @@ This document records the repository consolidation pass and keeps implementation
 The repository has progressed beyond the original Batch-28 documentation baseline.
 
 ```text
-Branch: feat/continuation-claim-recovery-state-v1
-HEAD: 7f73d1005b779fab253c5bda5cf308effe9140a5
+Validation reference: feat/continuation-claim-recovery-state-v1 at 7f73d1005b779fab253c5bda5cf308effe9140a5
 Validation report: 594 passed, 0 failed, 0 errors, 0 skipped
+
+The documentation-sync commits following that validation do not claim to change production behavior.
 ```
 
 The active area is execution recovery and continuation safety.
