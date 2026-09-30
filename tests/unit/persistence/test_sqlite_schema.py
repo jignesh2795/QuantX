@@ -19,7 +19,12 @@ def test_schema_created_on_first_use(tmp_path) -> None:
         }
     finally:
         database.close()
-    assert {"schema_version", "idempotency_reservations", "receipts", "trading_gate_state"} <= tables
+    assert {
+        "schema_version",
+        "idempotency_reservations",
+        "receipts",
+        "trading_gate_state",
+    } <= tables
 
 
 def test_schema_version_present(tmp_path) -> None:
