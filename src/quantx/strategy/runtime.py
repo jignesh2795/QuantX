@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from quantx.domain.enums import OrderSide\nfrom quantx.domain.market_data import MarketDataEvent
+from quantx.domain.enums import OrderSide
+from quantx.domain.market_data import MarketDataEvent
 from quantx.domain.strategy import SignalAction, StrategyResult
 
 from .context import StrategyContext
@@ -48,3 +49,7 @@ class StrategyRuntime:
             raise ValueError("strategy intent version does not match strategy IR")
         if signal.action is SignalAction.HOLD:
             raise ValueError("HOLD signal cannot carry an executable intent")
+        if signal.action is SignalAction.BUY and intent.side is not OrderSide.BUY:
+            raise ValueError("BUY signal must carry a BUY intent")
+        if signal.action is SignalAction.SELL and intent.side is not OrderSide.SELL:
+            raise ValueError("SELL signal must carry a SELL intent")
