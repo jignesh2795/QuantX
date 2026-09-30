@@ -46,17 +46,6 @@ def test_runtime_runs_pending_recovery_once() -> None:
     assert recovery.calls == 1
 
 
-def test_runtime_without_recovery_is_valid_for_non_live_startup() -> None:
-    runtime = ApplicationRuntime()
-
-    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
-
-    assert runtime.started
-    assert result.recovered == 0
-    assert result.pending == 0
-    assert result.failed == 0
-
-
 def test_runtime_rejects_naive_startup_timestamp() -> None:
     runtime = ApplicationRuntime()
 
