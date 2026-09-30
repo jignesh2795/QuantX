@@ -456,9 +456,12 @@ class PaperSession:
         if self._margin_ledger is not None:
             state = self._margin_ledger.state
             existing = sum(
-                reservation.outstanding
-                for reservation in self._margin_ledger.reservations
-                if reservation.instrument == instrument.instrument_id
+                (
+                    reservation.outstanding
+                    for reservation in self._margin_ledger.reservations
+                    if reservation.instrument == instrument.instrument_id
+                ),
+                Decimal("0"),
             )
             policy_amount = (
                 self._position_margin_policy.required_margin(projected_position)
