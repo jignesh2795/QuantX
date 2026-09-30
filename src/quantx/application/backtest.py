@@ -16,6 +16,7 @@ from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
+from quantx.domain.enums import OrderSide
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.market_data import MarketSnapshot
@@ -103,6 +104,29 @@ class DeterministicBacktestService:
         self._execution_engine = execution_engine
         self._accounting_override = accounting
 
+    @staticmethod
+    def _validate_strategy_result(strategy_result: StrategyResult, frame: ReplayFrame) -> None:
+        signal = strategy_result.signal
+        if signal.instrument != frame.observation.instrument:
+            raise ValueError("strategy signal instrument does not match replay frame")
+        if signal.generated_at != frame.observation.timestamp:
+            raise ValueError("strategy signal timestamp does not match replay frame")
+        intent = strategy_result.intent
+        if intent is None:
+            return
+        if intent.instrument != frame.observation.instrument:
+            raise ValueError("strategy intent instrument does not match replay frame")
+        if intent.strategy_id != signal.strategy_id.value:
+            raise ValueError("strategy intent id does not match strategy signal")
+        if intent.strategy_version != signal.strategy_version:
+            raise ValueError("strategy intent version does not match strategy signal")
+        if signal.action is SignalAction.HOLD:
+            raise ValueError("HOLD signal cannot carry an executable intent")
+        if signal.action is SignalAction.BUY and intent.side is not OrderSide.BUY:
+            raise ValueError("BUY signal must carry a BUY intent")
+        if signal.action is SignalAction.SELL and intent.side is not OrderSide.SELL:
+            raise ValueError("SELL signal must carry a SELL intent")
+
     def run(
         self,
         *,
@@ -141,6 +165,7 @@ class DeterministicBacktestService:
                 strategy_result = strategy.evaluate_replay_frame(frame, strategy_ir).result
             else:
                 strategy_result = strategy(frame)
+            self._validate_strategy_result(strategy_result, frame)
             intent = strategy_result.intent
             timestamp = frame.observation.timestamp.isoformat()
 
