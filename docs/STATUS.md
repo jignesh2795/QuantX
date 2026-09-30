@@ -11,7 +11,7 @@ The repository contains an implemented domain, execution, research, India-market
 
 The last fully validated implementation baseline is **612 passed, 0 failed, 0 errors, 0 skipped** at `746ed9d37d0922f4eff32822a0f485a31d71e10d`.
 
-Post-validation follow-up is limited to a three-file margin/replay hardening patch on top of that green baseline: a read-only margin-reservation snapshot, an explicit Decimal zero aggregation seed, and a regression covering combined margin-ledger plus projected post-trade-risk continuation. The follow-up requires a fresh local validation run before the new tip is treated as a green baseline.
+Post-validation follow-up currently includes LIVE durability hardening and restart coverage on top of that green baseline: LIVE now requires a UnitOfWork-backed transaction path; the margin/replay composition fix remains included; and pending LIVE reservation recovery is covered across a simulated process restart. The current tip requires a fresh local validation run before a new green baseline is claimed.
 
 This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for `7f73d10`, so this document does not claim GitHub CI independently executed that suite.
 
