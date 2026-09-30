@@ -14,6 +14,7 @@ from decimal import Decimal
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
+from quantx.domain.enums import OrderSide
 from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
@@ -142,7 +143,11 @@ class StrategyExecutionPreparer:
             return
         if intent.instrument != event.instrument:
             raise ValueError("strategy intent instrument does not match market event")
-        if signal.action is SignalAction.BUY and intent.side.value != "BUY":
+        if intent.strategy_id != deployment.strategy_id:
+            raise ValueError("strategy intent id does not match deployment")
+        if intent.strategy_version != deployment.strategy_version:
+            raise ValueError("strategy intent version does not match deployment")
+        if signal.action is SignalAction.BUY and intent.side is not OrderSide.BUY:
             raise ValueError("BUY signal must carry a BUY intent")
-        if signal.action is SignalAction.SELL and intent.side.value != "SELL":
+        if signal.action is SignalAction.SELL and intent.side is not OrderSide.SELL:
             raise ValueError("SELL signal must carry a SELL intent")
