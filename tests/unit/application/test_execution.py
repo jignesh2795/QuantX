@@ -37,7 +37,11 @@ from quantx.integrations.brokers import (
     CapabilitySet,
 )
 from quantx.persistence import ReceiptRepository, UnitOfWork
-from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
+from quantx.persistence.sqlite import (
+    SqliteDatabase,
+    SqliteTradingGateStateStore,
+    SqliteUnitOfWork,
+)
 
 
 def _instrument() -> Instrument:
@@ -286,7 +290,7 @@ def test_live_blocks_connection_mismatch() -> None:
         connection_id=BrokerConnectionId("conn-1"),
     )
     broker = FakeBroker(connection_id=BrokerConnectionId("conn-2"))
-    result = ExecutionOrchestrator().execute(request, broker=broker)
+    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=broker)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "connection" in result.reason
 
@@ -296,7 +300,7 @@ def test_live_blocks_unhealthy_broker() -> None:
         ExecutionMode.LIVE,
         connection_id=BrokerConnectionId("conn-1"),
     )
-    result = ExecutionOrchestrator().execute(
+    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(
         request,
         broker=FakeBroker(healthy=False),
     )
@@ -315,7 +319,7 @@ def test_live_blocks_missing_required_capability() -> None:
             }
         ),
     )
-    result = ExecutionOrchestrator().execute(request, broker=FakeBroker())
+    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=FakeBroker())
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "capabilities" in result.reason
 
@@ -329,7 +333,7 @@ def test_live_blocks_broker_instrument_market_mismatch() -> None:
         _instrument(),
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"),
     )
-    result = ExecutionOrchestrator().execute(
+    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(
         request,
         broker=FakeBroker(instrument=wrong_market_instrument),
     )
@@ -358,7 +362,7 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
         connection_id=BrokerConnectionId("conn-1"),
     )
     broker = FakeBroker()
-    orchestrator = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork())
+    orchestrator = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork(), trading_gate=_durable_gate())
 
     first = orchestrator.execute(request, broker=broker)
     second = orchestrator.execute(request, broker=broker)
@@ -425,7 +429,7 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
     request = _live_request()
     broker = FailingBroker()
     unit_of_work = _FakeUnitOfWork()
-    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work)
+    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work, trading_gate=_durable_gate())
 
     result = orchestrator.execute(request, broker=broker)
 
@@ -447,7 +451,7 @@ def test_live_without_unit_of_work_is_blocked() -> None:
     request = _live_request()
     broker = FakeBroker()
 
-    result = ExecutionOrchestrator().execute(request, broker=broker)
+    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "durable UnitOfWork" in result.reason
@@ -458,7 +462,10 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
     request = _live_request()
     broker = FakeBroker()
     unit_of_work = _FakeUnitOfWork()
-    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work)
+    orchestrator = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+    )
 
     first = orchestrator.execute(request, broker=broker)
     assert first.status is ExecutionDispatchStatus.EXECUTED
