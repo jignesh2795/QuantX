@@ -40,7 +40,11 @@ from quantx.plugins.dhan import (
     InMemoryDhanTransport,
 )
 from quantx.plugins.dhan.mapping import dhan_correlation_id
-from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
+from quantx.persistence.sqlite import (
+    SqliteDatabase,
+    SqliteTradingGateStateStore,
+    SqliteUnitOfWork,
+)
 
 
 
@@ -307,7 +311,8 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         result = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database)
+            unit_of_work=SqliteUnitOfWork(database),
+            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
         ).execute(_request(), broker=adapter)
     finally:
         database.close()
