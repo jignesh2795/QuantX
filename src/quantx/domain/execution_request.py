@@ -37,6 +37,19 @@ class ApprovedExecutionRequest:
         return self.parent_client_order_id or str(self.order.client_order_id)
 
 
+@dataclass(frozen=True, slots=True)
+class PendingExecutionRecoveryRequest:
+    """Minimal request projection required to reconstruct broker evidence."""
+
+    order: Order
+    execution_context: ExecutionContext
+    parent_client_order_id: str | None = None
+
+    @property
+    def correlation_id(self) -> str:
+        return self.parent_client_order_id or str(self.order.client_order_id)
+
+
 def build_order_from_intent(intent: TradeIntent) -> Order:
     return Order(
         instrument=intent.instrument,
