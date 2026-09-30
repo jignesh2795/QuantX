@@ -84,6 +84,98 @@ def _series() -> HistoricalDataSeries:
     )
 
 
+def test_backtest_rejects_intent_strategy_identity_mismatch() -> None:
+    instrument = _instrument()
+    context = _context()
+
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("identity-check"),
+            "1",
+            instrument.instrument_id,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            execution_context=context,
+            strategy_id="different-strategy",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    with pytest.raises(ValueError, match="intent id"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=strategy,
+            financial_state=_financial_state(),
+        )
+
+
+def test_backtest_rejects_signal_intent_direction_mismatch() -> None:
+    instrument = _instrument()
+    context = _context()
+
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("direction-check"),
+            "1",
+            instrument.instrument_id,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=instrument.instrument_id,
+            side=OrderSide.SELL,
+            quantity=Decimal("1"),
+            execution_context=context,
+            strategy_id="direction-check",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    with pytest.raises(ValueError, match="BUY signal"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=strategy,
+            financial_state=_financial_state(),
+        )
+
+
+def test_backtest_rejects_nondeterministic_signal_timestamp() -> None:
+    instrument = _instrument()
+    context = _context()
+    nondeterministic_timestamp = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+
+    def strategy(_frame):
+        signal = StrategySignal(
+            StrategyId("timestamp-check"),
+            "1",
+            instrument.instrument_id,
+            SignalAction.HOLD,
+            1.0,
+            generated_at=nondeterministic_timestamp,
+        )
+        return StrategyResult(signal)
+
+    with pytest.raises(ValueError, match="timestamp"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=strategy,
+            financial_state=_financial_state(),
+        )
+
+
 def test_backtest_composes_replay_strategy_risk_policy_and_paper_execution() -> None:
     instrument = _instrument()
     context = _context()
