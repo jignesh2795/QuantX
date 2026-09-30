@@ -28,9 +28,9 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
+from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
-from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.integrations.reconciliation import (
     AccountFinancialState,
     OrderObservation,
@@ -48,9 +48,13 @@ CHECKED_AT = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
 
 class ScriptedProvider:
-    def __init__(self, *, orders=None) -> None:
+    def __init__(self, *, orders=None, positions=None, accounts=None) -> None:
         self._orders = list(orders or [])
+        self._positions = list(positions or [])
+        self._accounts = list(accounts or [])
         self.order_calls = 0
+        self.position_calls = 0
+        self.account_calls = 0
 
     def fetch_broker_order(self, **kwargs):
         self.order_calls += 1
@@ -59,9 +63,15 @@ class ScriptedProvider:
         return None
 
     def fetch_broker_position(self, **kwargs):
+        self.position_calls += 1
+        if self._positions:
+            return self._positions.pop(0)
         return None
 
     def fetch_broker_account(self, **kwargs):
+        self.account_calls += 1
+        if self._accounts:
+            return self._accounts.pop(0)
         return None
 
 
@@ -482,8 +492,11 @@ def test_pending_recovery_runner_resolves_with_default_all_required_evidence(tmp
             available_cash=Decimal("5000"),
             margin_used=Decimal("0"),
         )
-        provider._positions.append(broker_position)
-        provider._accounts.append(broker_account)
+        provider = ScriptedProvider(
+            orders=[provider._orders[0]],
+            positions=[broker_position],
+            accounts=[broker_account],
+        )
 
         local_position = PositionState(
             request.execution_context.account_id,
