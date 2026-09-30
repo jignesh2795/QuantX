@@ -383,7 +383,11 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
 
     database_a, unit_of_work_a = _database_and_uow(tmp_path)
     try:
-        decision = unit_of_work_a.idempotency.reserve_or_get(order_id, fingerprint)
+        decision = unit_of_work_a.idempotency.reserve_or_get(
+            order_id,
+            fingerprint,
+            PendingExecutionContext.from_request(request, fingerprint),
+        )
         assert decision.reservation_acquired
     finally:
         database_a.close()
