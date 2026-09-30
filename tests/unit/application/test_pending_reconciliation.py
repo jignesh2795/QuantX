@@ -27,8 +27,8 @@ from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.idempotency import PendingExecutionContext
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.idempotency.fingerprint import request_fingerprint
+from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
 from quantx.integrations.reconciliation import (
