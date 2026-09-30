@@ -44,8 +44,12 @@ def _receipt(client_order_id):
     )
 
 
-def test_live_execution_is_blocked_before_submission() -> None:
+def test_live_execution_is_blocked_before_submission(monkeypatch) -> None:
     client_order_id = uuid4()
+    monkeypatch.setattr(
+        "quantx.execution.transactions.coordinator.request_fingerprint",
+        lambda _: "fingerprint-a",
+    )
     request = _request(client_order_id)
     request.execution_context = type(
         "ExecutionContext", (), {"execution_mode": ExecutionMode.LIVE}
