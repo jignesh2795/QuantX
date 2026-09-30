@@ -55,19 +55,19 @@ Simulation fees are calculated on the executed fill and carried on `ExecutionRec
 
 `ExecutionOrchestrator._execute_live_transactional()` previously rolled back the receipt insert when idempotency completion failed. That could erase the only durable proof of a successful broker submission while leaving the reservation PENDING. The completion-failure path now preserves and commits the receipt while leaving idempotency unresolved for reconciliation.
 
-Regression coverage asserts that the receipt remains durable after injected completion failure, and the current full suite passes at the 625-test checkpoint.
+Regression coverage asserts that the receipt remains durable after injected completion failure, and the current full suite passes at the 634-test checkpoint.
 
 ## Correctness finding: secondary LIVE dispatch bypass — resolved and validated
 
 `ExecutionDispatcher` previously submitted LIVE requests directly to `LiveExecutionPort`, bypassing durable idempotency, persistence, and the trading gate. Its LIVE branch now fails loudly and requires callers to use `ExecutionOrchestrator` with durable `UnitOfWork`. The generic `BrokerExecutionAdapter` also rejects direct LIVE use so lower-level adapter wiring cannot become an unintended execution entry point.
 
-Regression coverage verifies that these direct LIVE routes do not call the broker adapter, and the current full suite passes at the 625-test checkpoint.
+Regression coverage verifies that these direct LIVE routes do not call the broker adapter, and the current full suite passes at the 634-test checkpoint.
 
 ## Correctness finding: LIVE persistence bypass — resolved and validated
 
 The canonical `ExecutionOrchestrator` LIVE path previously allowed execution without a `UnitOfWork`, falling back to process-local idempotency. That meant an uncertain LIVE submission could lose its pending reservation on process restart and become eligible for duplicate broker submission. LIVE now fails closed when a `UnitOfWork` is not configured and uses the two-scope transactional path exclusively.
 
-Paper, shadow, and replay execution remain usable without persistent storage. The current green checkpoint is `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a` with 625 passed, 0 failed, 0 errors, 0 skipped.
+Paper, shadow, and replay execution remain usable without persistent storage. The current validated checkpoint is `2f12e81dc39c5edeed66d2efcdb1814c016001e3` with 634 passed, 0 failed, 0 errors, 0 skipped.
 
 ## Correctness finding: projected continuation margin/risk composition — resolved and validated
 
@@ -89,7 +89,7 @@ A durable trading gate now refreshes persisted state when queried, so separate a
 
 ## Correctness finding: legacy LIVE transaction-coordinator bypass — resolved and validated
 
-The legacy `ExecutionTransactionCoordinator` no longer creates a new LIVE idempotency reservation. For LIVE requests it performs read-only idempotency inspection: existing completed state may be returned, pending state remains reconciliation-only, and a fresh LIVE request is blocked before submission. This preserves reconciliation callers without exposing a standalone LIVE submission path. The current green checkpoint is `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a` with 625 passed, 0 failed, 0 errors, 0 skipped.
+The legacy `ExecutionTransactionCoordinator` no longer creates a new LIVE idempotency reservation. For LIVE requests it performs read-only idempotency inspection: existing completed state may be returned, pending state remains reconciliation-only, and a fresh LIVE request is blocked before submission. This preserves reconciliation callers without exposing a standalone LIVE submission path. The current validated checkpoint is `2f12e81dc39c5edeed66d2efcdb1814c016001e3` with 634 passed, 0 failed, 0 errors, 0 skipped.
 
 ## Correctness finding: boot-time pending LIVE recovery orchestration — implemented and validated
 
