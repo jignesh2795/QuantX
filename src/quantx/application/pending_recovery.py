@@ -15,7 +15,11 @@ from datetime import UTC, datetime
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.orders import Fill
 from quantx.execution.idempotency import PendingExecutionContext
-from quantx.integrations.reconciliation import OrderObservation
+from quantx.integrations.reconciliation import (
+    AccountFinancialState,
+    OrderObservation,
+    PositionState,
+)
 from quantx.persistence import UnitOfWork
 
 from .evidence_refresh import (
@@ -68,6 +72,14 @@ LocalOrderProvider = Callable[
     [PendingExecutionRecoveryRequest],
     OrderObservation | None,
 ]
+LocalPositionProvider = Callable[
+    [PendingExecutionRecoveryRequest],
+    PositionState | None,
+]
+LocalAccountProvider = Callable[
+    [PendingExecutionRecoveryRequest],
+    AccountFinancialState | None,
+]
 FillProvider = Callable[
     [PendingExecutionRecoveryRequest, OrderObservation | None],
     tuple[Fill, ...],
@@ -83,6 +95,8 @@ class PendingExecutionRecoveryRunner:
         unit_of_work: UnitOfWork,
         provider_resolver: ProviderResolver,
         local_order_provider: LocalOrderProvider | None = None,
+        local_position_provider: LocalPositionProvider | None = None,
+        local_account_provider: LocalAccountProvider | None = None,
         fill_provider: FillProvider | None = None,
         evidence_policy: DefinitiveEvidencePolicy | None = None,
         refresh_policy: RefreshPolicy | None = None,
@@ -90,6 +104,8 @@ class PendingExecutionRecoveryRunner:
         self._unit_of_work = unit_of_work
         self._provider_resolver = provider_resolver
         self._local_order_provider = local_order_provider
+        self._local_position_provider = local_position_provider
+        self._local_account_provider = local_account_provider
         self._fill_provider = fill_provider
         self._evidence_policy = evidence_policy
         self._refresh_policy = refresh_policy
@@ -123,6 +139,16 @@ class PendingExecutionRecoveryRunner:
                 if self._local_order_provider is None
                 else self._local_order_provider(request)
             )
+            local_position = (
+                None
+                if self._local_position_provider is None
+                else self._local_position_provider(request)
+            )
+            local_account = (
+                None
+                if self._local_account_provider is None
+                else self._local_account_provider(request)
+            )
             fills = (
                 ()
                 if self._fill_provider is None
@@ -138,7 +164,9 @@ class PendingExecutionRecoveryRunner:
                 unit_of_work=self._unit_of_work,
                 checked_at=checked_at,
                 evidence_policy=self._evidence_policy
-                or DefinitiveEvidencePolicy.all_required(),
+                or DefinitiveEvidencePolicy.live_recovery(),
+                local_position=local_position,
+                local_account=local_account,
                 refresh_policy=self._refresh_policy,
                 instrument_id=str(request.order.instrument),
             )
@@ -160,6 +188,8 @@ def recover_pending_live_executions(
     unit_of_work: UnitOfWork,
     provider_resolver: ProviderResolver,
     local_order_provider: LocalOrderProvider | None = None,
+    local_position_provider: LocalPositionProvider | None = None,
+    local_account_provider: LocalAccountProvider | None = None,
     fill_provider: FillProvider | None = None,
     checked_at: datetime | None = None,
     evidence_policy: DefinitiveEvidencePolicy | None = None,
@@ -170,6 +200,8 @@ def recover_pending_live_executions(
         unit_of_work=unit_of_work,
         provider_resolver=provider_resolver,
         local_order_provider=local_order_provider,
+        local_position_provider=local_position_provider,
+        local_account_provider=local_account_provider,
         fill_provider=fill_provider,
         evidence_policy=evidence_policy,
         refresh_policy=refresh_policy,
