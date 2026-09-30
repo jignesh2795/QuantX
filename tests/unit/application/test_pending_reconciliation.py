@@ -8,6 +8,7 @@ import pytest
 
 from quantx.application.evidence_refresh import DefinitiveEvidencePolicy
 from quantx.application.pending_reconciliation import reconcile_pending_execution
+from quantx.application.pending_recovery import PendingExecutionRecoveryRunner
 from quantx.application.reconciliation import OrderWorkflowStatus
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
@@ -431,3 +432,108 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
         assert not decision.reservation_pending
     finally:
         database_b.close()
+
+
+def test_pending_recovery_runner_resolves_after_restart(tmp_path) -> None:
+    request = _request()
+    order_id = request.order.client_order_id
+    fingerprint = request_fingerprint(request)
+    database_a, unit_of_work_a = _database_and_uow(tmp_path)
+    try:
+        decision = unit_of_work_a.idempotency.reserve_or_get(
+            order_id,
+            fingerprint,
+            PendingExecutionContext.from_request(request, fingerprint),
+        )
+        assert decision.reservation_acquired
+    finally:
+        database_a.close()
+
+    database_b, unit_of_work_b = _database_and_uow(tmp_path)
+    try:
+        provider = ScriptedProvider(
+            orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
+        )
+        runner = PendingExecutionRecoveryRunner(
+            unit_of_work=unit_of_work_b,
+            provider_resolver=lambda _: provider,
+            local_order_provider=lambda recovered: _observation(
+                recovered.order.client_order_id,
+                OrderLifecycleStatus.FILLED,
+                filled="2",
+            ),
+            fill_provider=lambda recovered, _: (_fill(recovered),),
+            evidence_policy=DefinitiveEvidencePolicy.order_only(),
+        )
+
+        report = runner.run(checked_at=CHECKED_AT)
+
+        assert report.attempted == 1
+        assert report.resolved == 1
+        assert report.pending == 0
+        assert report.failed == 0
+        assert provider.order_calls >= 1
+        assert len(SqliteIdempotencyStore(database_b).list_pending_contexts()) == 0
+        decision = SqliteIdempotencyStore(database_b).check(order_id, fingerprint)
+        assert decision.existing_receipt_id is not None
+    finally:
+        database_b.close()
+
+
+def test_pending_recovery_runner_isolates_failed_context(tmp_path) -> None:
+    request_ok = _request()
+    request_bad = _request()
+    fingerprint_ok = request_fingerprint(request_ok)
+    fingerprint_bad = request_fingerprint(request_bad)
+    database, unit_of_work = _database_and_uow(tmp_path)
+    try:
+        unit_of_work.idempotency.reserve_or_get(
+            request_ok.order.client_order_id,
+            fingerprint_ok,
+            PendingExecutionContext.from_request(request_ok, fingerprint_ok),
+        )
+        unit_of_work.idempotency.reserve_or_get(
+            request_bad.order.client_order_id,
+            fingerprint_bad,
+            PendingExecutionContext.from_request(request_bad, fingerprint_bad),
+        )
+        good_provider = ScriptedProvider(
+            orders=[
+                _observation(
+                    request_ok.order.client_order_id,
+                    OrderLifecycleStatus.FILLED,
+                    filled="2",
+                )
+            ]
+        )
+
+        def provider_for(request):
+            if request.order.client_order_id == request_ok.order.client_order_id:
+                return good_provider
+            return ExplodingProvider()
+
+        runner = PendingExecutionRecoveryRunner(
+            unit_of_work=unit_of_work,
+            provider_resolver=provider_for,
+            local_order_provider=lambda recovered: _observation(
+                recovered.order.client_order_id,
+                OrderLifecycleStatus.FILLED,
+                filled="2",
+            ),
+            fill_provider=lambda recovered, _: (_fill(recovered),),
+            evidence_policy=DefinitiveEvidencePolicy.order_only(),
+        )
+
+        report = runner.run(checked_at=CHECKED_AT)
+
+        assert report.attempted == 2
+        assert report.resolved == 1
+        assert report.pending == 0
+        assert report.failed == 1
+        assert len(SqliteIdempotencyStore(database).list_pending_contexts()) == 1
+        bad_decision = SqliteIdempotencyStore(database).check(
+            request_bad.order.client_order_id, fingerprint_bad
+        )
+        assert bad_decision.reservation_pending
+    finally:
+        database.close()
