@@ -5,15 +5,15 @@
 
 The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution recovery and continuation safety.
 
-**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a`.
+**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `2f12e81dc39c5edeed66d2efcdb1814c016001e3`.
 
 ## Validation baseline
 
-The current fully validated implementation baseline is **625 passed, 0 failed, 0 errors, 0 skipped** at `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a`.
+The current fully validated implementation baseline is **634 passed, 0 failed, 0 errors, 0 skipped** at `2f12e81dc39c5edeed66d2efcdb1814c016001e3`.
 
-This checkpoint validates the LIVE durability hardening and restart coverage: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; pending LIVE reservation context is persisted and reconstructible across a simulated process restart; and a boot-time pending-recovery runner can process persisted pending contexts without broker resubmission. The 625-test suite completed with zero failures, errors, or skipped tests.
+This checkpoint validates the LIVE durability hardening, pending-recovery corruption isolation, and explicit startup lifecycle: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; pending LIVE reservation context is persisted and reconstructible across a simulated process restart; malformed pending contexts are isolated as per-context recovery failures; the default all-required recovery path can resolve with local position/account evidence; concurrent recovery passes resolve a pending reservation at most once; and an explicit application runtime runs pending recovery once before startup completes. The 634-test suite completed with zero failures, errors, or skipped tests.
 
-The 625-test validation was performed against the branch head after fast-forward sync. The local `uv.lock` modification was pre-existing environment noise and remained untouched; no project files were changed locally beyond the incoming branch content.
+The 634-test validation was performed against the branch head after fast-forward sync. Changed-file Ruff was clean and `git diff --check` was clean; the local `uv.lock` modification was pre-existing environment noise and remained untouched.
 
 This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for this checkpoint, so this document does not claim GitHub CI independently executed that suite.
 
@@ -27,7 +27,9 @@ Recent continuation/recovery work includes:
 - durable trading-gate state persisted behind a pluggable state-store boundary, with SQLite restart coverage;
 - versioned pending LIVE execution context persisted with idempotency reservations and reconstructible after restart;
 - SQLite schema v2 migration coverage for pending context and durable trading-gate state;
-- deterministic boot-time orchestration for pending LIVE recovery with per-context failure isolation and no-submit semantics.
+- deterministic pending LIVE recovery with per-context failure isolation and no-submit semantics;
+- malformed persisted-context isolation with reservation/context identity checks;
+- explicit, one-shot application startup lifecycle for recovery-backed startup.
 
 ## Architecture direction
 
@@ -46,9 +48,9 @@ Recent continuation/recovery work includes:
 
 ## Current implementation track
 
-Execution integrity and reconciliation remain the active track. The repository now covers idempotency, execution receipts, order lifecycle reconstruction, account/connection identity, broker-order reconciliation, bounded evidence refresh, uncertain-submission recovery, partial-fill continuation/recovery, durable trading-gate state, durable pending LIVE execution context, and a boot-time pending-recovery orchestration seam.
+Execution integrity and reconciliation remain the active track. The repository now covers idempotency, execution receipts, order lifecycle reconstruction, account/connection identity, broker-order reconciliation, bounded evidence refresh, uncertain-submission recovery, partial-fill continuation/recovery, durable trading-gate state, durable pending LIVE execution context, malformed-context isolation, and explicit recovery-backed application startup.
 
-The pending-recovery runner is deliberately a callable application hook, not an implicit background daemon or startup side effect. The repository does not yet contain a startup runtime that automatically invokes it, so no artificial runtime integration is claimed.
+`PendingExecutionRecoveryRunner` remains a deterministic application service with no broker-submit capability. `ApplicationRuntime` now provides the explicit one-shot startup lifecycle seam: it requires a recovery hook, runs it synchronously before marking the runtime started, rejects repeated starts, and leaves startup failed if recovery infrastructure raises. The repository still does not contain a concrete production process entrypoint that constructs the runtime and wires real broker/account/position providers, so this is a validated lifecycle contract rather than a claim of end-to-end deployed startup wiring.
 
 The continuation implementation deliberately remains persistence-agnostic: it consumes authoritative receipt/reconciliation contracts and does not introduce a database or broker network dependency by itself.
 
@@ -58,6 +60,6 @@ Architecture documents distinguish implemented/current behavior, target architec
 
 ## Next direction
 
-Before adding UI, AI, or a broad broker matrix, continue the execution/reconciliation audit and keep the current package boundaries stable. The next focused work is a dedicated adversarial audit of the pending-recovery runner and final LIVE boundary, with particular attention to provider/account/connection binding, concurrent recovery passes, malformed persisted contexts, repeated recovery after resolution, no-submit guarantees, and the evidence required by the default all-required recovery policy. Update canonical documentation whenever a durable architectural boundary or validation baseline changes.
+Before adding UI, AI, or a broad broker matrix, keep the current package boundaries stable and finish the final adversarial review of the LIVE/recovery boundary. The remaining work is primarily integration-level: define the concrete production startup composition for broker, local-position, local-account, and provider resolution dependencies; verify startup behavior across the actual application process lifecycle; and perform a fresh adversarial review of all compatibility/legacy routes that could reach broker transport.
 
 `uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change.
