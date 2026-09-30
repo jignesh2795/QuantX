@@ -57,6 +57,33 @@ def test_runtime_rejects_signal_for_wrong_instrument() -> None:
         StrategyRuntime(WrongInstrumentStrategy()).evaluate(event, _ir())
 
 
+def test_runtime_rejects_buy_signal_with_sell_intent() -> None:
+    event = _event()
+
+    class InvalidDirectionStrategy:
+        def on_market_data(self, context):
+            return StrategyResult(
+                signal=StrategySignal(
+                    strategy_id=context.ir.strategy_id,
+                    strategy_version=context.ir.version,
+                    instrument=context.event.instrument,
+                    action=SignalAction.BUY,
+                    confidence=1.0,
+                    generated_at=context.event.timestamp,
+                ),
+                intent=TradeIntent(
+                    instrument=context.event.instrument,
+                    side=OrderSide.SELL,
+                    quantity=Decimal("1"),
+                    strategy_id=context.ir.strategy_id.value,
+                    strategy_version=context.ir.version,
+                ),
+            )
+
+    with pytest.raises(ValueError, match="BUY signal"):
+        StrategyRuntime(InvalidDirectionStrategy()).evaluate(event, _ir())
+
+
 def test_runtime_rejects_hold_with_intent() -> None:
     event = _event()
 
