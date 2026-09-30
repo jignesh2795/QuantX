@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: ["feat/v0.1-implementation"]
+    branches: ["main", "feat/**", "fix/**"]
   pull_request:
 
 jobs:
