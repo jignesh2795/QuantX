@@ -4,6 +4,7 @@ import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
 from threading import Barrier, Lock, Thread
+from uuid import uuid4
 
 import pytest
 
@@ -674,9 +675,7 @@ def test_pending_recovery_runner_isolates_malformed_context(tmp_path) -> None:
     order_id = request.order.client_order_id
     fingerprint = request_fingerprint(request)
     database, unit_of_work = _database_and_uow(tmp_path)
-    malformed_order_id = str(request.order.client_order_id)
-    while malformed_order_id == str(order_id):
-        malformed_order_id = str(__import__("uuid").uuid4())
+    malformed_order_id = str(uuid4())
     try:
         unit_of_work.idempotency.reserve_or_get(
             order_id,

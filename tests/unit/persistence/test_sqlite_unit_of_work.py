@@ -13,7 +13,6 @@ from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.enums import OrderSide, OrderStatus
 from quantx.domain.orders import Fill
 from quantx.domain.value_objects import InstrumentId
-from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.persistence.sqlite import (
     SqliteDatabase,
