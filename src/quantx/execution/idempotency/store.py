@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from threading import RLock
 from typing import Protocol
 from uuid import UUID
@@ -103,7 +104,7 @@ class PendingExecutionContext:
                 ),
                 side=OrderSide(order_data["side"]),
                 order_type=OrderType(order_data["order_type"]),
-                quantity=__import__("decimal").Decimal(order_data["quantity"]),
+                quantity=Decimal(order_data["quantity"]),
                 limit_price=(
                     None
                     if order_data["limit_price"] is None
