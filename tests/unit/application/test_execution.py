@@ -30,6 +30,10 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.trading_gate import (
+    DurableTradingGate,
+    InMemoryTradingGateStateStore,
+)
 from quantx.integrations.brokers import (
     BrokerCapability,
     BrokerConnectionRef,
