@@ -2,13 +2,23 @@
 
 ## Purpose
 
-This document records the repository consolidation pass. The goal is to make the implementation match the agreed modular architecture without continuing to add parallel abstractions.
+This document records the repository consolidation pass and keeps implementation aligned with the agreed modular architecture without adding parallel abstractions.
+
+## Current implementation status
+
+The repository has progressed beyond the original Batch-28 documentation baseline.
+
+```text
+Branch: feat/continuation-claim-recovery-state-v1
+HEAD: 7f73d1005b779fab253c5bda5cf308effe9140a5
+Validation report: 594 passed, 0 failed, 0 errors, 0 skipped
+```
+
+The active area is execution recovery and continuation safety.
 
 ## Frozen architectural direction
 
-QuantX is a modular trading/research platform with:
-
-- market separation from the beginning: India, Global, Crypto;
+- market separation: India, Global, Crypto;
 - broker and venue implementations behind adapter/plugin boundaries;
 - account and connection identity as first-class state;
 - actual broker balance or explicitly configured paper balance as the capital source;
@@ -19,159 +29,58 @@ QuantX is a modular trading/research platform with:
 - idempotent order submission and broker reconciliation;
 - AI as an optional intelligence layer, never a prerequisite for core correctness.
 
-## Current top-level packages
-
-```text
-src/quantx/
-├── domain/
-├── execution/
-├── integrations/
-└── research/
-```
-
-These are the current implemented areas. Additional top-level packages such as `application`, `portfolio`, `risk`, `plugins`, `ai`, and `infrastructure` should be introduced when their implementation is actually ready, not merely to satisfy a diagram.
-
-## Completed consolidation examples
+## Consolidation completed
 
 ### Idempotency
 
-The package implementation is canonical:
-
-```text
-execution/idempotency/
-├── __init__.py
-├── fingerprint.py
-└── store.py
-```
-
-The redundant flat `execution/idempotency.py` was removed.
+The canonical implementation is `execution/idempotency/` with request fingerprinting and storage contracts.
 
 ### Execution receipts
 
-The package implementation is canonical:
-
-```text
-execution/receipts/
-├── __init__.py
-└── models.py
-```
-
-The earlier flat `execution/receipts.py` was removed after its fields and compatibility names were consolidated into the package model.
+The canonical implementation is `execution/receipts/`, including immutable receipt models and lifecycle reconstruction.
 
 ### Integration reconciliation
 
-The reconciliation package is now canonical:
+The canonical reconciliation package is `integrations/reconciliation/`. Integrations provide observed evidence; execution preconditions decide whether evidence is sufficient for execution.
 
-```text
-integrations/reconciliation/
-├── __init__.py
-├── account.py
-├── orders.py
-└── positions.py
-```
+### Reconciliation evidence refresh
 
-The redundant flat implementations were removed:
+`application/evidence_refresh.py` is the application-layer refresh coordinator. Definitive reconciliation requires the configured evidence scope. `UNKNOWN`, `STALE`, `INCOMPLETE`, and `UNAVAILABLE` remain non-definitive until authoritative evidence resolves them. Refresh attempts are bounded by explicit policy.
 
-- `integrations/account_state.py`
-- `integrations/reconciliation.py`
-- `integrations/order_reconciliation.py`
-- `integrations/execution_preconditions.py`
+### Continuation and recovery
 
-Account and position state now use the domain's `AccountId` and `BrokerConnectionId` value objects. Execution readiness remains owned by `execution/preconditions/`; integrations supply observed account, position, broker, and health evidence.
+Continuation is now a distinct execution responsibility:
+- continuation requests derive from authoritative lifecycle remainder;
+- child orders retain explicit parent lineage;
+- continuation chains can be reconstructed from receipt evidence;
+- aggregate fills cannot exceed root order quantity;
+- continuation dispatch uses idempotency claims;
+- recovery distinguishes `NOT_PENDING`, `PENDING`, `RECOVERABLE`, and `RESOLVED`;
+- a reused claim must match authoritative receipt identity, quantity, account, and broker connection;
+- contradictory or unresolved evidence is rejected rather than converted into a successful continuation.
 
-### Batch-C: Dhan account/position evidence bridge
-
-Reconciliation package consolidation is complete. The Dhan plugin now provides
-normalized account and position observations through the canonical contracts:
-
-- `DhanFundsSnapshot` / `DhanPositionsSnapshot` carry broker observations with
-  no domain or vendor types; only `transport.py` imports `dhanhq`;
-- `DhanBrokerAdapter.account_state()` maps observed balances to canonical
-  `AccountFinancialState` (missing values stay `None`, never zero);
-- `DhanBrokerAdapter.position_states()` reverse-resolves
-  `(security_id, exchange_segment)` to canonical `InstrumentId` and returns
-  canonical `PositionState` evidence;
-- the plugin advertises `BALANCES` and `POSITIONS` alongside
-  `ORDER_SUBMISSION` and `ORDER_CANCELLATION`.
-
-Evidence flow:
-
-```text
-Dhan API
-   ↓
-Dhan transport
-   ↓
-Dhan normalized snapshot
-   ↓
-QuantX AccountFinancialState / PositionState
-   ↓
-Reconciliation
-   ↓
-Execution Preconditions
-   ↓
-READY / BLOCKED / UNKNOWN
-```
-
-Integrations provide evidence; execution preconditions consume it.
-Missing or unmapped broker state remains fail-closed: unavailable observations
-raise instead of returning empty state, and unknown evidence never produces an
-execution-ready result. No live Dhan account connectivity was tested; all
-verification uses the deterministic in-memory transport.
-
-### Batch-C.6: reconciliation evidence refresh
-
-`application/reconciliation.py` remains the canonical orchestration workflow
-for one reconciliation evaluation. `application/evidence_refresh.py` is the
-application-layer refresh coordinator. Canonical reconcilers remain pure
-comparison components under `integrations/reconciliation/`.
-
-Unresolved evidence can be refreshed only through an explicit provider
-boundary. Definitive reconciliation requires the explicitly configured
-evidence scope; the default scope requires order + position + account to all
-be `MATCHED`. `UNKNOWN`, `STALE`, `INCOMPLETE`, and `UNAVAILABLE` remain
-non-definitive until authoritative refreshed evidence resolves them.
-Definitive `MISMATCH` is not automatically retried. Refresh attempts are
-bounded by explicit policy. No broker-specific implementation is required by
-the refresh coordinator, and no network/live broker behavior was added by C.6.
-
-```text
-Current reconciliation result
-            ↓
-Unresolved evidence
-            ↓
-ReconciliationEvidenceProvider
-            ↓
-Refreshed broker observation
-            ↓
-OrderStateReconciliationWorkflow
-            ↓
-Canonical reconciliation result
-            ↓
-Definitive only when required evidence is MATCHED
-```
+The continuation boundary remains persistence-agnostic and does not introduce broker network behavior.
 
 ## Current migration policy
 
-Existing flat modules are not automatically wrong. A module remains until its callers can be migrated safely. Compatibility wrappers are temporary and must not become permanent duplicate implementations.
+Existing standalone modules are not automatically wrong. A module remains valid when it owns one cohesive responsibility and its boundary is clearer than a forced subpackage migration.
 
-## Next consolidation batch
+Compatibility wrappers are temporary where they exist and must not become permanent duplicate implementations.
 
-Before adding another major trading subsystem:
+## Current consolidation gate
 
-1. inventory execution flat modules versus execution subpackages;
-2. inventory integration flat modules versus integration subpackages;
-3. inventory research modules and group them by responsibility;
-4. identify duplicate contracts and imports;
-5. migrate implementations, not just wrappers;
-6. update tests with the implementation moves;
-7. remove redundant modules only after callers are migrated;
-8. run the test suite and record unresolved issues;
-9. update this document to reflect the actual tree.
+The earlier broad inventory/migration checklist is no longer the active next batch. Before introducing a new major subsystem:
+1. confirm the proposed responsibility does not duplicate an existing boundary;
+2. confirm account, connection, market, and instrument identity are preserved;
+3. confirm unknown evidence remains explicit;
+4. confirm deterministic/provenance requirements remain intact where applicable;
+5. add focused regression coverage;
+6. run the full validation suite;
+7. update canonical status/architecture documentation if the boundary is durable.
 
 ## Architectural quality gate
 
-A new module should answer all of these:
-
+A new module should answer:
 - What single responsibility does it own?
 - Why does that responsibility not belong in an existing module?
 - Is it domain, application, execution, research, integration, plugin, AI, or infrastructure code?
@@ -179,4 +88,4 @@ A new module should answer all of these:
 - Does it preserve account and market identity?
 - Does it preserve deterministic/provenance requirements where applicable?
 
-If the answer is unclear, stop and consolidate rather than adding another abstraction.
+If the answer is unclear, consolidate rather than adding another abstraction.
