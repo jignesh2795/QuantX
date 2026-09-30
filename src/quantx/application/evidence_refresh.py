@@ -80,6 +80,7 @@ class DefinitiveEvidencePolicy:
 
     require_position: bool = True
     require_account: bool = True
+    require_order_scope: bool = False
 
     @classmethod
     def all_required(cls) -> DefinitiveEvidencePolicy:
@@ -92,6 +93,14 @@ class DefinitiveEvidencePolicy:
     @classmethod
     def order_only(cls) -> DefinitiveEvidencePolicy:
         return cls(require_position=False, require_account=False)
+
+    @classmethod
+    def live_recovery(cls) -> DefinitiveEvidencePolicy:
+        return cls(
+            require_position=True,
+            require_account=True,
+            require_order_scope=True,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +195,7 @@ class ReconciliationEvidenceRefresher:
                 broker_account=current_broker_account,
                 checked_at=checked_at,
                 position_policy=policy,
+                require_order_scope=self._evidence.require_order_scope,
             )
             if self._is_definitive(result):
                 return EvidenceRefreshOutcome(
