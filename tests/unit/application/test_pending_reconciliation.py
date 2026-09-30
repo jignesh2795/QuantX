@@ -128,7 +128,7 @@ def test_definitive_positive_resolution(tmp_path, monkeypatch) -> None:
 
         outcome = reconcile_pending_execution(
             request,
-            fingerprint=fingerprint,
+            fingerprint="fp-a",
             local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
@@ -390,7 +390,7 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
 
         outcome = reconcile_pending_execution(
             request,
-            fingerprint="fp-a",
+            fingerprint=fingerprint,
             local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
