@@ -14,7 +14,13 @@ from quantx.domain.deployment import (
 )
 from quantx.domain.enums import AssetClass, OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import OrderStatus
 from quantx.domain.policy import PolicyDecision, PolicyResult
