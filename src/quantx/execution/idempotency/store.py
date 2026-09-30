@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from threading import RLock
 from typing import Protocol
 from uuid import UUID
@@ -26,6 +26,12 @@ class PendingExecutionContext:
     order: Order
     execution_context: ExecutionContext
     parent_client_order_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.request_fingerprint.strip():
+            raise ValueError("pending execution context fingerprint must not be empty")
+        if self.execution_context.execution_mode is not ExecutionMode.LIVE:
+            raise ValueError("pending execution context must describe LIVE execution")
 
     @classmethod
     def from_request(
@@ -93,7 +99,7 @@ class PendingExecutionContext:
     def from_json(cls, payload_json: str) -> PendingExecutionContext:
         try:
             payload = json.loads(payload_json)
-            if payload.get("version") != 1:
+            if not isinstance(payload, dict) or payload.get("version") != 1:
                 raise ValueError("unsupported pending execution context version")
             order_data = payload["order"]
             context_data = payload["execution_context"]
@@ -108,12 +114,12 @@ class PendingExecutionContext:
                 limit_price=(
                     None
                     if order_data["limit_price"] is None
-                    else __import__("decimal").Decimal(order_data["limit_price"])
+                    else Decimal(order_data["limit_price"])
                 ),
                 stop_price=(
                     None
                     if order_data["stop_price"] is None
-                    else __import__("decimal").Decimal(order_data["stop_price"])
+                    else Decimal(order_data["stop_price"])
                 ),
                 time_in_force=TimeInForce(order_data["time_in_force"]),
                 client_order_id=UUID(order_data["client_order_id"]),
@@ -152,7 +158,7 @@ class PendingExecutionContext:
                 execution_context=context,
                 parent_client_order_id=parent,
             )
-        except (KeyError, TypeError, ValueError) as exc:
+        except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid pending execution context") from exc
 
 
