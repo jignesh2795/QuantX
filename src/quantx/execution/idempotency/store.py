@@ -36,7 +36,7 @@ class PendingExecutionContext:
     parent_client_order_id: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.request_fingerprint.strip():
+        if not isinstance(self.request_fingerprint, str) or not self.request_fingerprint.strip():
             raise ValueError("pending execution context fingerprint must not be empty")
         if self.execution_context.execution_mode is not ExecutionMode.LIVE:
             raise ValueError("pending execution context must describe LIVE execution")
