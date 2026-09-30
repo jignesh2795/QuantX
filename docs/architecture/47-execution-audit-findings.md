@@ -55,19 +55,19 @@ Simulation fees are calculated on the executed fill and carried on `ExecutionRec
 
 `ExecutionOrchestrator._execute_live_transactional()` previously rolled back the receipt insert when idempotency completion failed. That could erase the only durable proof of a successful broker submission while leaving the reservation PENDING. The completion-failure path now preserves and commits the receipt while leaving idempotency unresolved for reconciliation.
 
-Regression coverage asserts that the receipt remains durable after injected completion failure, and the full 623-test suite passes at the current green checkpoint.
+Regression coverage asserts that the receipt remains durable after injected completion failure, and the current full suite passes at the 625-test checkpoint.
 
 ## Correctness finding: secondary LIVE dispatch bypass — resolved and validated
 
 `ExecutionDispatcher` previously submitted LIVE requests directly to `LiveExecutionPort`, bypassing durable idempotency, persistence, and the trading gate. Its LIVE branch now fails loudly and requires callers to use `ExecutionOrchestrator` with durable `UnitOfWork`. The generic `BrokerExecutionAdapter` also rejects direct LIVE use so lower-level adapter wiring cannot become an unintended execution entry point.
 
-Regression coverage verifies that these direct LIVE routes do not call the broker adapter, and the full 623-test suite passes at the current green checkpoint.
+Regression coverage verifies that these direct LIVE routes do not call the broker adapter, and the current full suite passes at the 625-test checkpoint.
 
 ## Correctness finding: LIVE persistence bypass — resolved and validated
 
 The canonical `ExecutionOrchestrator` LIVE path previously allowed execution without a `UnitOfWork`, falling back to process-local idempotency. That meant an uncertain LIVE submission could lose its pending reservation on process restart and become eligible for duplicate broker submission. LIVE now fails closed when a `UnitOfWork` is not configured and uses the two-scope transactional path exclusively.
 
-Paper, shadow, and replay execution remain usable without persistent storage. The current green checkpoint is `1a30658b21fe98fa05a69edabeedef777fbcab05` with 623 passed, 0 failed, 0 errors, 0 skipped.
+Paper, shadow, and replay execution remain usable without persistent storage. The current green checkpoint is `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a` with 625 passed, 0 failed, 0 errors, 0 skipped.
 
 ## Correctness finding: projected continuation margin/risk composition — resolved and validated
 
@@ -77,20 +77,36 @@ The three-file fix is committed after the earlier green baseline and is included
 
 ## Correctness finding: durable LIVE trading-gate state — resolved and validated
 
-LIVE execution now requires an explicitly configured durable `TradingGate`. SQLite-backed gate state persists across process recreation, including block/enable transitions, and process-local gates are rejected for LIVE. Schema v2 creates and migrates the durable gate state table. The green checkpoint at `1a30658b21fe98fa05a69edabeedef777fbcab05` has 623 passed, 0 failed, 0 errors, 0 skipped.
+LIVE execution now requires an explicitly configured durable `TradingGate`. SQLite-backed gate state persists across process recreation, including block/enable transitions, and process-local gates are rejected for LIVE. Schema v2 creates and migrates the durable gate state table. The current green checkpoint at `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a` has 625 passed, 0 failed, 0 errors, 0 skipped.
 
 ## Correctness finding: durable pending LIVE execution context — resolved and validated
 
-Pending LIVE idempotency reservations now persist a versioned execution-context projection sufficient to reconstruct a recovery request after restart. SQLite stores and enumerates pending contexts without resubmission; reconciliation resolves the reservation by persisting authoritative evidence, while the pending enumeration correctly becomes empty after resolution. Round-trip, restart, and LIVE composition tests are covered in the 623-test green checkpoint.
+Pending LIVE idempotency reservations now persist a versioned execution-context projection sufficient to reconstruct a recovery request after restart. SQLite stores and enumerates pending contexts without resubmission; reconciliation resolves the reservation by persisting authoritative evidence, while the pending enumeration correctly becomes empty after resolution. Round-trip, restart, LIVE composition, and runner coverage are included in the current 625-test green checkpoint.
 
 ## Correctness finding: durable gate refresh across running instances — resolved and validated
 
-A durable trading gate now refreshes persisted state when queried, so separate already-running instances share operator block/enable changes instead of retaining stale process-local state. Missing durable state is fail-closed. Regression coverage verifies cross-instance refresh, and the current green checkpoint is `1a30658b21fe98fa05a69edabeedef777fbcab05` with 623 passed, 0 failed, 0 errors, 0 skipped.
+A durable trading gate now refreshes persisted state when queried, so separate already-running instances share operator block/enable changes instead of retaining stale process-local state. Missing durable state is fail-closed. Regression coverage verifies cross-instance refresh, and the current green checkpoint is `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a` with 625 passed, 0 failed, 0 errors, 0 skipped.
 
 ## Correctness finding: legacy LIVE transaction-coordinator bypass — resolved and validated
 
-The legacy `ExecutionTransactionCoordinator` no longer creates a new LIVE idempotency reservation. For LIVE requests it performs read-only idempotency inspection: existing completed state may be returned, pending state remains reconciliation-only, and a fresh LIVE request is blocked before submission. This preserves reconciliation callers without exposing a standalone LIVE submission path. The current green checkpoint is `1a30658b21fe98fa05a69edabeedef777fbcab05` with 623 passed, 0 failed, 0 errors, 0 skipped.
+The legacy `ExecutionTransactionCoordinator` no longer creates a new LIVE idempotency reservation. For LIVE requests it performs read-only idempotency inspection: existing completed state may be returned, pending state remains reconciliation-only, and a fresh LIVE request is blocked before submission. This preserves reconciliation callers without exposing a standalone LIVE submission path. The current green checkpoint is `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a` with 625 passed, 0 failed, 0 errors, 0 skipped.
+
+## Correctness finding: boot-time pending LIVE recovery orchestration — implemented and validated
+
+`PendingExecutionRecoveryRunner` enumerates persisted pending LIVE contexts, reconstructs recovery requests, resolves a provider using the persisted request identity, invokes reconciliation, and records a deterministic per-context result. It contains no broker-submit operation. Provider/reconciliation failures are isolated to the affected context so other pending contexts can still be processed.
+
+Regression coverage includes simulated process restart, successful resolution through reconciliation, failure isolation, pending-state preservation, and the invariant that reconciliation does not expose a submit/broker execution parameter. The current full suite is 625 passed, 0 failed, 0 errors, 0 skipped.
+
+This is an application hook, not a startup daemon: no runtime in the repository automatically invokes it yet.
+
+## Remaining recovery-boundary questions
+
+The next adversarial pass must verify the runner itself under stronger failure and concurrency conditions.
+
+The current runner defaults to `DefinitiveEvidencePolicy.all_required()`, which requires order, position, and account evidence. The runner currently exposes local-order and fill providers but not local-position or local-account providers. Because the canonical reconciliation workflow requires local state to match broker position/account evidence, the default runner may remain non-definitive unless those local evidence domains are supplied through another seam. This is an explicit design gap to resolve or document; tests intentionally use `order_only()` for the current runner regression and therefore do not prove that default all-required recovery can complete.
+
+Also test malformed persisted context handling, repeated/concurrent recovery passes over the same pending reservation, provider results that do not honor account/connection scope, and resolution races between independent UnitOfWork instances before treating automatic crash recovery as production-complete.
 
 ## Next action
 
-Do not restructure these modules further. With the current hardening green, run a final adversarial end-to-end LIVE entry-point audit. Focus on every broker-submit path, durable trading-gate enforcement, restart behavior, pending-context integrity, account/connection binding, and whether any compatibility/legacy path can reach a broker transport without the canonical LIVE control plane.
+Do not restructure these modules further. Run a focused adversarial audit of the pending-recovery runner and final LIVE boundary before adding UI, AI, or a broad broker matrix. Concentrate on provider/account/connection binding, concurrent recovery, malformed persistence, repeated recovery after resolution, default all-required evidence completeness, no-submit guarantees, and every compatibility/legacy route that could reach a broker transport.
