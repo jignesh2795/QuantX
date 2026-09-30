@@ -57,6 +57,12 @@ Simulation fees are calculated on the executed fill and carried on `ExecutionRec
 
 Regression coverage asserts that the receipt remains durable after injected completion failure, and the current full suite passes at the 634-test checkpoint.
 
+## Correctness finding: broker-returned UNKNOWN receipt must remain pending — resolved and validated
+
+A broker adapter can legitimately return an `ExecutionReceipt` whose outcome is `UNKNOWN` when transport failure or an indeterminate broker response prevents an authoritative submission result. The canonical LIVE orchestrator now treats such a receipt as non-authoritative: it returns `UNKNOWN`, does not persist the receipt as completion evidence, and leaves the already-committed durable idempotency reservation PENDING for reconciliation. A repeated execution attempt therefore does not resubmit the order.
+
+This closes the Dhan-relevant transport-failure path where an adapter converts an exception into an `UNKNOWN` receipt. Regression coverage verifies the pending reservation, absence of a completion receipt, and no-resubmit behavior. The current full suite passes at the 635-test checkpoint.
+
 ## Correctness finding: secondary LIVE dispatch bypass — resolved and validated
 
 `ExecutionDispatcher` previously submitted LIVE requests directly to `LiveExecutionPort`, bypassing durable idempotency, persistence, and the trading gate. Its LIVE branch now fails loudly and requires callers to use `ExecutionOrchestrator` with durable `UnitOfWork`. The generic `BrokerExecutionAdapter` also rejects direct LIVE use so lower-level adapter wiring cannot become an unintended execution entry point.
@@ -67,7 +73,7 @@ Regression coverage verifies that these direct LIVE routes do not call the broke
 
 The canonical `ExecutionOrchestrator` LIVE path previously allowed execution without a `UnitOfWork`, falling back to process-local idempotency. That meant an uncertain LIVE submission could lose its pending reservation on process restart and become eligible for duplicate broker submission. LIVE now fails closed when a `UnitOfWork` is not configured and uses the two-scope transactional path exclusively.
 
-Paper, shadow, and replay execution remain usable without persistent storage. The current validated checkpoint is `2f12e81dc39c5edeed66d2efcdb1814c016001e3` with 634 passed, 0 failed, 0 errors, 0 skipped.
+Paper, shadow, and replay execution remain usable without persistent storage. The current validated checkpoint is `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342` with 635 passed, 0 failed, 0 errors, 0 skipped.
 
 ## Correctness finding: projected continuation margin/risk composition — resolved and validated
 
@@ -89,19 +95,19 @@ A durable trading gate now refreshes persisted state when queried, so separate a
 
 ## Correctness finding: legacy LIVE transaction-coordinator bypass — resolved and validated
 
-The legacy `ExecutionTransactionCoordinator` no longer creates a new LIVE idempotency reservation. For LIVE requests it performs read-only idempotency inspection: existing completed state may be returned, pending state remains reconciliation-only, and a fresh LIVE request is blocked before submission. This preserves reconciliation callers without exposing a standalone LIVE submission path. The current validated checkpoint is `2f12e81dc39c5edeed66d2efcdb1814c016001e3` with 634 passed, 0 failed, 0 errors, 0 skipped.
+The legacy `ExecutionTransactionCoordinator` no longer creates a new LIVE idempotency reservation. For LIVE requests it performs read-only idempotency inspection: existing completed state may be returned, pending state remains reconciliation-only, and a fresh LIVE request is blocked before submission. This preserves reconciliation callers without exposing a standalone LIVE submission path. The current validated checkpoint is `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342` with 635 passed, 0 failed, 0 errors, 0 skipped.
 
 ## Correctness finding: boot-time pending LIVE recovery orchestration — implemented and validated
 
 `PendingExecutionRecoveryRunner` enumerates persisted pending LIVE contexts, reconstructs recovery requests, resolves a provider using the persisted request identity, invokes reconciliation, and records a deterministic per-context result. It contains no broker-submit operation. Provider/reconciliation failures are isolated to the affected context so other pending contexts can still be processed.
 
-Regression coverage includes simulated process restart, successful resolution through reconciliation, failure isolation, pending-state preservation, and the invariant that reconciliation does not expose a submit/broker execution parameter. The current full suite is 625 passed, 0 failed, 0 errors, 0 skipped.
+Regression coverage includes simulated process restart, successful resolution through reconciliation, failure isolation, pending-state preservation, and the invariant that reconciliation does not expose a submit/broker execution parameter. The current full suite is 635 passed, 0 failed, 0 errors, 0 skipped.
 
 This is an application hook, not a startup daemon: no runtime in the repository automatically invokes it yet.
 
 ## Remaining recovery-boundary questions
 
-The focused adversarial implementation gaps identified for pending recovery are now covered by the current validated checkpoint: malformed persistence is isolated, default all-required evidence can resolve, concurrent resolution is guarded by durable idempotency, broker-order scope is enforced, and reconciliation exposes no broker-submit capability.
+The focused adversarial implementation gaps identified for pending recovery are now covered by the current validated checkpoint: malformed persistence is isolated, default all-required evidence can resolve, concurrent resolution is guarded by durable idempotency, broker-order scope is enforced, reconciliation exposes no broker-submit capability, and broker-returned UNKNOWN LIVE receipts remain pending rather than being treated as authoritative completion.
 
 Remaining work is integration-level rather than a new persistence/recovery primitive: define and test the concrete production startup composition, including how broker/account/position providers are resolved from the persisted execution context, and perform a fresh adversarial review of every compatibility or legacy route that could reach broker transport.
 
