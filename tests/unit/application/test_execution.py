@@ -161,6 +161,61 @@ class FakeBroker:
         return self.submit(request)
 
 
+class _FakeReceiptRepository(ReceiptRepository):
+    def __init__(self) -> None:
+        self._receipts = {}
+
+    def save(self, receipt) -> None:
+        self._receipts[receipt.receipt_id] = receipt
+
+    def get(self, receipt_id):
+        return self._receipts.get(receipt_id)
+
+    def get_by_client_order(self, client_order_id):
+        for receipt in self._receipts.values():
+            if receipt.client_order_id == client_order_id:
+                return receipt
+        return None
+
+
+class _FakeUnitOfWork(UnitOfWork):
+    def __init__(self) -> None:
+        self._store = InMemoryIdempotencyStore()
+        self._repository = _FakeReceiptRepository()
+        self.committed = False
+        self.rolled_back = False
+
+    @property
+    def idempotency(self):
+        return self._store
+
+    @property
+    def receipts(self):
+        return self._repository
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()
+
+
+def _live_request():
+    return _request(
+        ExecutionMode.LIVE,
+        connection_id=BrokerConnectionId("conn-1"),
+    )
+
+
 def test_paper_requires_an_observed_snapshot() -> None:
     orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
     result = orchestrator.execute(_request(ExecutionMode.PAPER))
@@ -284,7 +339,10 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
         connection_id=BrokerConnectionId("conn-1"),
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
     )
-    result = ExecutionOrchestrator().execute(request, broker=FakeBroker())
+    result = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork()).execute(
+        request,
+        broker=FakeBroker(),
+    )
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is not None
     assert result.receipt.source == "fake-broker"
@@ -296,7 +354,7 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
         connection_id=BrokerConnectionId("conn-1"),
     )
     broker = FakeBroker()
-    orchestrator = ExecutionOrchestrator()
+    orchestrator = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork())
 
     first = orchestrator.execute(request, broker=broker)
     second = orchestrator.execute(request, broker=broker)
@@ -320,7 +378,7 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
         connection_id=BrokerConnectionId("conn-1"),
     )
     broker = FailingBroker()
-    orchestrator = ExecutionOrchestrator()
+    orchestrator = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork())
 
     result = orchestrator.execute(request, broker=broker)
 
@@ -328,61 +386,6 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
     assert result.receipt is None
     assert "reconciliation" in result.reason
     assert broker.submit_calls == 1
-
-
-class _FakeReceiptRepository(ReceiptRepository):
-    def __init__(self) -> None:
-        self._receipts = {}
-
-    def save(self, receipt) -> None:
-        self._receipts[receipt.receipt_id] = receipt
-
-    def get(self, receipt_id):
-        return self._receipts.get(receipt_id)
-
-    def get_by_client_order(self, client_order_id):
-        for receipt in self._receipts.values():
-            if receipt.client_order_id == client_order_id:
-                return receipt
-        return None
-
-
-class _FakeUnitOfWork(UnitOfWork):
-    def __init__(self) -> None:
-        self._store = InMemoryIdempotencyStore()
-        self._repository = _FakeReceiptRepository()
-        self.committed = False
-        self.rolled_back = False
-
-    @property
-    def idempotency(self):
-        return self._store
-
-    @property
-    def receipts(self):
-        return self._repository
-
-    def commit(self) -> None:
-        self.committed = True
-
-    def rollback(self) -> None:
-        self.rolled_back = True
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        if exc_type is None:
-            self.commit()
-        else:
-            self.rollback()
-
-
-def _live_request():
-    return _request(
-        ExecutionMode.LIVE,
-        connection_id=BrokerConnectionId("conn-1"),
-    )
 
 
 def test_live_unit_of_work_groups_receipt_and_completion() -> None:
@@ -436,17 +439,15 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
     assert broker.submit_calls == 1
 
 
-def test_live_without_unit_of_work_preserves_existing_behavior() -> None:
+def test_live_without_unit_of_work_is_blocked() -> None:
     request = _live_request()
     broker = FakeBroker()
-    orchestrator = ExecutionOrchestrator()
 
-    result = orchestrator.execute(request, broker=broker)
+    result = ExecutionOrchestrator().execute(request, broker=broker)
 
-    assert result.status is ExecutionDispatchStatus.EXECUTED
-    assert result.receipt is not None
-    assert result.receipt.source == "fake-broker"
-    assert broker.submit_calls == 1
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "durable UnitOfWork" in result.reason
+    assert broker.submit_calls == 0
 
 
 def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
@@ -600,14 +601,15 @@ def test_sqlite_completion_failure_is_unknown_with_pending(tmp_path, monkeypatch
         database.close()
 
 
-def test_live_without_unit_of_work_needs_no_sqlite() -> None:
+def test_live_without_unit_of_work_does_not_submit() -> None:
     request = _live_request()
     broker = FakeBroker()
+
     result = ExecutionOrchestrator().execute(request, broker=broker)
-    assert result.status is ExecutionDispatchStatus.EXECUTED
-    assert result.receipt is not None
-    assert result.receipt.source == "fake-broker"
-    assert broker.submit_calls == 1
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "durable UnitOfWork" in result.reason
+    assert broker.submit_calls == 0
 
 
 def test_broker_submit_runs_outside_sqlite_transaction(tmp_path) -> None:
