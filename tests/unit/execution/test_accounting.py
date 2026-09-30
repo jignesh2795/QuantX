@@ -38,6 +38,53 @@ def test_average_cost_buy_and_partial_sell_realizes_pnl() -> None:
     assert entry.realized_pnl == Decimal("40")
 
 
+def test_duplicate_fill_is_idempotent_with_same_fee() -> None:
+    instrument = InstrumentId("NSE", "TCS")
+    accounting = FillAccounting()
+    execution_id = __import__("uuid").uuid4()
+    fill = Fill(
+        client_order_id=__import__("uuid").uuid4(),
+        instrument=instrument,
+        side=OrderSide.BUY,
+        quantity=Decimal("10"),
+        price=Decimal("100"),
+        execution_id=execution_id,
+    )
+
+    first = accounting.apply(fill, fee=Decimal("1"))
+    second = accounting.apply(fill, fee=Decimal("1"))
+
+    assert second == first
+    assert accounting.get(instrument) == first
+    assert len(accounting.snapshot()) == 1
+
+
+def test_duplicate_execution_id_with_conflicting_fill_data_is_rejected() -> None:
+    instrument = InstrumentId("NSE", "TCS")
+    accounting = FillAccounting()
+    execution_id = __import__("uuid").uuid4()
+    first = Fill(
+        client_order_id=__import__("uuid").uuid4(),
+        instrument=instrument,
+        side=OrderSide.BUY,
+        quantity=Decimal("10"),
+        price=Decimal("100"),
+        execution_id=execution_id,
+    )
+    conflicting = Fill(
+        client_order_id=first.client_order_id,
+        instrument=instrument,
+        side=OrderSide.BUY,
+        quantity=Decimal("10"),
+        price=Decimal("101"),
+        execution_id=execution_id,
+    )
+
+    accounting.apply(first)
+    with pytest.raises(ValueError, match="already applied"):
+        accounting.apply(conflicting)
+
+
 def test_reversal_starts_new_average_at_reversal_price() -> None:
     instrument = InstrumentId("NSE", "TCS")
     accounting = FillAccounting()
