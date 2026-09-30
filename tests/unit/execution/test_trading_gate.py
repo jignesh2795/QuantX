@@ -1,7 +1,12 @@
 from types import SimpleNamespace
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
-from quantx.execution.trading_gate import TradingGate
+from quantx.execution.trading_gate import (
+    DurableTradingGate,
+    InMemoryTradingGateStateStore,
+    TradingGate,
+    TradingGateState,
+)
 
 
 def _paper_request() -> object:
@@ -53,3 +58,15 @@ def test_empty_kill_switch_reason_is_rejected() -> None:
         assert str(exc) == "kill-switch reason must not be empty"
     else:
         raise AssertionError("expected ValueError")
+
+
+
+def test_durable_gate_state_survives_gate_recreation() -> None:
+    store = InMemoryTradingGateStateStore()
+    first = DurableTradingGate(store)
+    first.block("operator emergency stop")
+
+    second = DurableTradingGate(store)
+
+    assert second.allow() is False
+    assert second.state() == TradingGateState(False, "operator emergency stop")
