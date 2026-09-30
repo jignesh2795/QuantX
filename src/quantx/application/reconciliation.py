@@ -100,6 +100,7 @@ class OrderStateReconciliationWorkflow:
         broker_account: AccountFinancialState | None = None,
         checked_at: datetime,
         position_policy: ReconciliationPolicy | None = None,
+        require_order_scope: bool = False,
     ) -> OrderStateReconciliationResult:
         if checked_at.tzinfo is None or checked_at.utcoffset() is None:
             raise ValueError("checked_at must be timezone-aware")
@@ -116,6 +117,7 @@ class OrderStateReconciliationWorkflow:
             broker_position,
             local_account,
             broker_account,
+            require_order_scope=require_order_scope,
         )
 
         order = self._reconcile_order(local_order, broker_order, order_id)
@@ -174,6 +176,8 @@ class OrderStateReconciliationWorkflow:
         broker_position: PositionState | None,
         local_account: AccountFinancialState | None,
         broker_account: AccountFinancialState | None,
+        *,
+        require_order_scope: bool = False,
     ) -> str | None:
         if (
             receipt.broker_order_id is not None
@@ -189,6 +193,17 @@ class OrderStateReconciliationWorkflow:
                 return "evidence account does not match execution receipt account"
             if receipt.connection_id is not None and state.connection_id != receipt.connection_id:
                 return "evidence connection does not match execution receipt connection"
+        if require_order_scope and broker_order is not None:
+            if broker_order.account_id is None or broker_order.connection_id is None:
+                return "broker order evidence lacks account/connection binding"
+            if receipt.account_id is not None and broker_order.account_id != receipt.account_id:
+                return "broker order evidence account does not match execution receipt account"
+            if (
+                receipt.connection_id is not None
+                and broker_order.connection_id != receipt.connection_id
+            ):
+                return "broker order evidence connection does not match execution receipt connection"
+
         if (
             local_order is not None
             and receipt.broker_order_id is not None
