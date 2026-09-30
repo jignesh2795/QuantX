@@ -359,3 +359,50 @@ def test_reconciliation_never_submits_to_broker() -> None:
     assert "submit" not in parameters
     assert "broker" not in parameters
     assert "provider" in parameters
+
+def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> None:
+    request = _request()
+    order_id = request.order.client_order_id
+
+    database_a, unit_of_work_a = _database_and_uow(tmp_path)
+    try:
+        decision = unit_of_work_a.idempotency.reserve_or_get(order_id, "fp-a")
+        assert decision.reservation_acquired
+    finally:
+        database_a.close()
+
+    database_b, unit_of_work_b = _database_and_uow(tmp_path)
+    try:
+        provider = ScriptedProvider(
+            orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
+        )
+        blocked = ExecutionTransactionCoordinator(
+            idempotency=SqliteIdempotencyStore(database_b),
+            preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
+            submit=lambda _: (_ for _ in ()).throw(
+                AssertionError("pending execution must not resubmit after restart")
+            ),
+            receipt_repository=SqliteReceiptRepository(database_b),
+        ).execute(request)
+        assert blocked.status is PreconditionsStatus.UNKNOWN
+
+        outcome = reconcile_pending_execution(
+            request,
+            fingerprint="fp-a",
+            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            broker_order=None,
+            fills=(_fill(request),),
+            provider=provider,
+            unit_of_work=unit_of_work_b,
+            checked_at=CHECKED_AT,
+            evidence_policy=DefinitiveEvidencePolicy.order_only(),
+        )
+
+        assert outcome.definitive
+        persisted = SqliteReceiptRepository(database_b).get_by_client_order(order_id)
+        assert persisted is not None
+        decision = SqliteIdempotencyStore(database_b).check(order_id, "fp-a")
+        assert decision.existing_receipt_id == persisted.receipt_id
+        assert not decision.reservation_pending
+    finally:
+        database_b.close()
