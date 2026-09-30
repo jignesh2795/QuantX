@@ -386,7 +386,10 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
         connection_id=BrokerConnectionId("conn-1"),
     )
     broker = FailingBroker()
-    orchestrator = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork())
+    orchestrator = ExecutionOrchestrator(
+        unit_of_work=_FakeUnitOfWork(),
+        trading_gate=_durable_gate(),
+    )
 
     result = orchestrator.execute(request, broker=broker)
 
