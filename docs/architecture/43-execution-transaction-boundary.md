@@ -50,6 +50,7 @@ Complete idempotency
 - `execution/preconditions/`: fail-closed checks before submission.
 - `execution/idempotency/`: request identity and duplicate suppression.
 - `execution/receipts/`: immutable receipt records and uncertainty semantics.
+- `execution/accounting.py` and `execution/cash_ledger.py`: fill application is idempotent by `execution_id`; conflicting reuse of a fill identity is rejected so replay/recovery cannot double-apply state.
 - `execution/transactions/`: orchestration only; vendor-specific behavior stays in adapters.
 - `application/uncertain_submission.py`: conservative receipt reconstruction after definitive broker-order evidence.
 - `integrations/`: broker/account/venue adapters and operational state.
