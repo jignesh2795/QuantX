@@ -5,11 +5,13 @@
 
 The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution recovery and continuation safety.
 
-**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `f61872bd368c8af19aa45d7dc447f7da497d45eb`.
+**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `746ed9d37d0922f4eff32822a0f485a31d71e10d`.
 
 ## Validation baseline
 
-The last fully validated implementation baseline is **609 passed, 0 failed, 0 errors, 0 skipped**. The branch now contains an additional deterministic-backtest boundary hardening slice with three new regression tests; those changes require a fresh local validation run before a new green baseline is claimed.
+The last fully validated implementation baseline is **612 passed, 0 failed, 0 errors, 0 skipped** at `746ed9d37d0922f4eff32822a0f485a31d71e10d`.
+
+Post-validation follow-up is limited to a three-file margin/replay hardening patch on top of that green baseline: a read-only margin-reservation snapshot, an explicit Decimal zero aggregation seed, and a regression covering combined margin-ledger plus projected post-trade-risk continuation. The follow-up requires a fresh local validation run before the new tip is treated as a green baseline.
 
 This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for `7f73d10`, so this document does not claim GitHub CI independently executed that suite.
 
