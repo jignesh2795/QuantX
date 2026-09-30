@@ -11,10 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from quantx.domain.enums import OrderSide
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
-from quantx.domain.enums import OrderSide
 from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
