@@ -12,8 +12,6 @@ from quantx.execution.idempotency import IdempotencyStore, InMemoryIdempotencySt
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionReceipt, MarketDataExecutionPort
-from quantx.execution.preconditions import PreconditionsResult, PreconditionsStatus
-from quantx.execution.transactions import ExecutionTransactionCoordinator
 from quantx.execution.trading_gate import TradingGate
 from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
@@ -158,32 +156,12 @@ class ExecutionOrchestrator:
             )
 
         unit_of_work = self._unit_of_work
-        if unit_of_work is not None:
-            return self._execute_live_transactional(request, broker, unit_of_work)
-
-        coordinator = ExecutionTransactionCoordinator(
-            idempotency=self._idempotency,
-            preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
-            submit=broker.submit,
-        )
-        transaction = coordinator.execute(request)
-        if transaction.status is PreconditionsStatus.UNKNOWN:
-            return ExecutionResult(
-                ExecutionDispatchStatus.UNKNOWN,
-                receipt=transaction.receipt,
-                reason="; ".join(transaction.reasons),
-            )
-        if transaction.status is not PreconditionsStatus.READY:
+        if unit_of_work is None:
             return ExecutionResult(
                 ExecutionDispatchStatus.BLOCKED,
-                receipt=transaction.receipt,
-                reason="; ".join(transaction.reasons),
+                reason="live execution requires a durable UnitOfWork",
             )
-        return ExecutionResult(
-            ExecutionDispatchStatus.EXECUTED,
-            receipt=transaction.receipt,
-            reason="; ".join(transaction.reasons),
-        )
+        return self._execute_live_transactional(request, broker, unit_of_work)
 
     def continue_partial(
         self,
