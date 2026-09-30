@@ -4,7 +4,6 @@ from decimal import Decimal
 import pytest
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
-from quantx.execution.trading_gate import DurableTradingGate
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
     ExecutionContext,
@@ -25,6 +24,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.trading_gate import DurableTradingGate
 from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
 from quantx.plugins.reference_broker import (
     InMemoryReferenceBrokerTransport,
