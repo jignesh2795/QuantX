@@ -33,6 +33,7 @@ from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import (
     DurableTradingGate,
     InMemoryTradingGateStateStore,
+    TradingGate,
 )
 from quantx.integrations.brokers import (
     BrokerCapability,
