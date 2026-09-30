@@ -171,7 +171,13 @@ def test_reconcile_rejects_mismatched_broker_correlation_id() -> None:
             detail = super().reconcile(correlation_id)
             return replace(detail, correlation_id="some-other-correlation")
 
-    receipt = _adapter(MismatchedCorrelationTransport(response_status="TRADED", filled_quantity=Decimal("2"), average_traded_price=Decimal("101"))).reconcile(_request())
+    receipt = _adapter(
+        MismatchedCorrelationTransport(
+            response_status="TRADED",
+            filled_quantity=Decimal("2"),
+            average_traded_price=Decimal("101"),
+        )
+    ).reconcile(_request())
 
     assert receipt.outcome is ExecutionOutcome.UNKNOWN
     assert receipt.order_status is OrderStatus.UNKNOWN
