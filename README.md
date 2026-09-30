@@ -4,7 +4,7 @@ Open-source, modular, event-driven trading infrastructure and platform for India
 
 ## Status
 
-v0.1 implementation has started. The first slice establishes dependency-free domain primitives and contracts; broker integrations, UI, AI, and distributed services remain outside this initial slice.
+v0.1 implementation is active. The repository now contains domain, application, execution, research, India-market, integration, plugin, strategy, port, and persistence foundations. The active implementation track is execution integrity, reconciliation, and recovery safety; UI, AI, and broader distributed services remain future capabilities.
 
 ## Design direction
 
@@ -33,9 +33,18 @@ The initial product focus is Indian markets, including equities, futures and opt
 9. UI and AI consume the engine through stable APIs instead of defining the core.
 10. Local-first deployment with optional distributed operation.
 
-## Roadmap
+## Documentation map
 
-The project follows research → compare → decide → document → build. Architecture and implementation decisions are versioned in `docs/architecture-roadmap/` and `docs/implementation/`.
+The canonical documentation entry points are:
+
+- `docs/STATUS.md` — current implementation and validation baseline.
+- `docs/architecture/README.md` — architecture records and current canonical boundaries.
+- `docs/implementation/README.md` — implementation discipline and build sequence.
+- `docs/roadmap/README.md` — future milestones and decision gates.
+- `docs/decisions/README.md` — durable architecture decisions.
+- `docs/research/README.md` — external-project research and technology evaluation.
+
+The project follows research → compare → decide → document → build.
 
 ## Windows development with uv
 
