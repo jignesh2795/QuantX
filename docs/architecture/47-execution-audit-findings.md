@@ -69,16 +69,13 @@ The canonical `ExecutionOrchestrator` LIVE path previously allowed execution wit
 
 Paper, shadow, and replay execution remain usable without persistent storage. The current green checkpoint is `d9f54765c0fc6c7ae975750592aedaf9253ebb8b` with 614 passed, 0 failed, 0 errors, 0 skipped.
 
-## Correctness finding: projected continuation margin/risk composition — fixed, validation pending
+## Correctness finding: projected continuation margin/risk composition — resolved and validated
 
 `PaperSession._check_continuation_projection()` previously referenced a nonexistent public `MarginLedger.reservations` attribute. The margin ledger now exposes an immutable tuple snapshot of reservations, and the projected outstanding-margin aggregation is explicitly seeded with `Decimal("0")` for deterministic typing. The existing position-margin continuation regression now also composes `MarginLedger` with `PostTradeRiskEnforcer`, covering the previously untested path.
 
-The three-file fix is committed after the `746ed9d37d0922f4eff32822a0f485a31d71e10d` green baseline and was validated as part of the subsequent 612-test green run at `d706dc7`.
+The three-file fix is committed after the earlier green baseline and is included in the current 614-test green checkpoint at `d9f54765c0fc6c7ae975750592aedaf9253ebb8b`.
 
 ## Next action
 
 Do not restructure these modules further. With the current validation green, the next focused audit is durable kill-switch state and the request context needed for automatic pending recovery; then run an adversarial end-to-end LIVE entry-point audit with Claude before considering the execution boundary stable.
 
-The canonical `ExecutionOrchestrator` LIVE path previously allowed execution without a `UnitOfWork`, falling back to process-local idempotency. That meant an uncertain LIVE submission could lose its pending reservation on process restart and become eligible for duplicate broker submission. LIVE now fails closed when a `UnitOfWork` is not configured and uses the two-scope transactional path exclusively.
-
-Paper, shadow, and replay execution remain usable without persistent storage.
