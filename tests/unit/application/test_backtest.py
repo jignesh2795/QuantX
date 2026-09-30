@@ -240,7 +240,7 @@ def test_backtest_blocks_risk_rejected_intent_without_execution() -> None:
             instrument.instrument_id,
             SignalAction.BUY,
             1.0,
-            generated_at=frame.observation.timestamp,
+            generated_at=_frame.observation.timestamp,
         )
         intent = TradeIntent(
             instrument=instrument.instrument_id,
@@ -277,7 +277,7 @@ def test_backtest_requires_approval_when_policy_requires_manual_approval() -> No
             instrument.instrument_id,
             SignalAction.BUY,
             1.0,
-            generated_at=datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc),
+            generated_at=_frame.observation.timestamp,
         )
         intent = TradeIntent(
             instrument=instrument.instrument_id,
