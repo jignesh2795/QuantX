@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from quantx.domain.market_data import MarketDataEvent
+from quantx.domain.enums import OrderSide\nfrom quantx.domain.market_data import MarketDataEvent
 from quantx.domain.strategy import SignalAction, StrategyResult
 
 from .context import StrategyContext
