@@ -123,6 +123,61 @@ def _preparer() -> StrategyExecutionPreparer:
     return StrategyExecutionPreparer(InMemoryInstrumentRegistry((instrument,)))
 
 
+def test_preparer_rejects_disabled_deployment() -> None:
+    deployment = _deployment()
+    disabled = StrategyDeployment(
+        deployment_id=deployment.deployment_id,
+        strategy_id=deployment.strategy_id,
+        strategy_version=deployment.strategy_version,
+        portfolio_id=deployment.portfolio_id,
+        account_id=deployment.account_id,
+        market=deployment.market,
+        execution_mode=deployment.execution_mode,
+        enabled=False,
+    )
+    decision = StrategyExecutionDecision(disabled, _decision().result)
+
+    with pytest.raises(ValueError, match="disabled"):
+        _preparer().prepare(decision, _event(), _financial_state())
+
+
+def test_preparer_rejects_deployment_strategy_identity_mismatch() -> None:
+    deployment = _deployment()
+    mismatched = StrategyDeployment(
+        deployment_id=deployment.deployment_id,
+        strategy_id="other-strategy",
+        strategy_version=deployment.strategy_version,
+        portfolio_id=deployment.portfolio_id,
+        account_id=deployment.account_id,
+        market=deployment.market,
+        execution_mode=deployment.execution_mode,
+        enabled=True,
+    )
+    decision = StrategyExecutionDecision(mismatched, _decision().result)
+
+    with pytest.raises(ValueError, match="strategy id"):
+        _preparer().prepare(decision, _event(), _financial_state())
+
+
+def test_preparer_rejects_deployment_market_mismatch() -> None:
+    deployment = _deployment()
+    wrong_market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN")
+    mismatched = StrategyDeployment(
+        deployment_id=deployment.deployment_id,
+        strategy_id=deployment.strategy_id,
+        strategy_version=deployment.strategy_version,
+        portfolio_id=deployment.portfolio_id,
+        account_id=deployment.account_id,
+        market=wrong_market,
+        execution_mode=deployment.execution_mode,
+        enabled=True,
+    )
+    decision = StrategyExecutionDecision(mismatched, _decision().result)
+
+    with pytest.raises(ValueError, match="market venue"):
+        _preparer().prepare(decision, _event(), _financial_state())
+
+
 def test_preparer_builds_approved_execution_request() -> None:
     result = _preparer().prepare(_decision(), _event(), _financial_state())
 
