@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from quantx.domain.deployment import ExecutionMode
 from quantx.domain.enums import OrderStatus
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
@@ -41,6 +42,32 @@ def _receipt(client_order_id):
         executed_at=datetime(2026, 1, 1, tzinfo=UTC),
         source="repository-test",
     )
+
+
+def test_live_execution_is_blocked_before_submission() -> None:
+    client_order_id = uuid4()
+    request = _request(client_order_id)
+    request.execution_context = type(
+        "ExecutionContext", (), {"execution_mode": ExecutionMode.LIVE}
+    )()
+    called = False
+
+    def submit(_):
+        nonlocal called
+        called = True
+        raise AssertionError("legacy coordinator must not submit LIVE")
+
+    coordinator = ExecutionTransactionCoordinator(
+        idempotency=InMemoryIdempotencyStore(),
+        preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
+        submit=submit,
+    )
+
+    result = coordinator.execute(request)
+
+    assert result.status is PreconditionsStatus.BLOCKED
+    assert "ExecutionOrchestrator" in result.reasons[0]
+    assert called is False
 
 
 def test_submission_exception_enters_unknown_and_preserves_reservation(monkeypatch) -> None:
