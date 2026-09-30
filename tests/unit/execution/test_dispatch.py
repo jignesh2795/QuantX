@@ -165,15 +165,14 @@ def test_dispatch_routes_simulated_modes_to_paper_port(mode: ExecutionMode) -> N
     assert port.calls[0][0] is request
 
 
-def test_dispatch_routes_live_mode_to_live_port() -> None:
+def test_dispatch_rejects_live_mode_without_durable_execution_boundary() -> None:
     port = FakeLivePort()
     request = _request(ExecutionMode.LIVE)
 
-    result = ExecutionDispatcher(live_port=port).dispatch(request)
+    with pytest.raises(ValueError, match="ExecutionOrchestrator.*UnitOfWork"):
+        ExecutionDispatcher(live_port=port).dispatch(request)
 
-    assert result.request is request
-    assert result.receipt.source == "fake-live"
-    assert port.calls == [request]
+    assert port.calls == []
 
 
 def test_dispatch_requires_snapshot_for_simulated_modes() -> None:
@@ -193,7 +192,7 @@ def test_dispatch_requires_matching_adapter() -> None:
     with pytest.raises(ValueError, match="no paper execution adapter"):
         ExecutionDispatcher().dispatch(_request(), snapshot=_snapshot())
 
-    with pytest.raises(ValueError, match="no live execution adapter"):
+    with pytest.raises(ValueError, match="ExecutionOrchestrator.*UnitOfWork"):
         ExecutionDispatcher().dispatch(_request(ExecutionMode.LIVE))
 
 
@@ -207,9 +206,11 @@ def test_dispatch_does_not_execute_backtest_mode() -> None:
         ).dispatch(request)
 
 
-def test_dispatch_preserves_account_and_connection_on_live_receipt() -> None:
+def test_dispatch_never_submits_live_requests_directly() -> None:
     request = _request(ExecutionMode.LIVE)
-    result = ExecutionDispatcher(live_port=FakeLivePort()).dispatch(request)
+    port = FakeLivePort()
 
-    assert result.receipt.account_id == AccountId("acct-1")
-    assert result.receipt.connection_id == BrokerConnectionId("conn-1")
+    with pytest.raises(ValueError, match="ExecutionOrchestrator.*UnitOfWork"):
+        ExecutionDispatcher(live_port=port).dispatch(request)
+
+    assert port.calls == []
