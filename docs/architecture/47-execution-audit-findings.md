@@ -61,8 +61,8 @@ Paper, shadow, and replay execution remain usable without persistent storage.
 
 `PaperSession._check_continuation_projection()` previously referenced a nonexistent public `MarginLedger.reservations` attribute. The margin ledger now exposes an immutable tuple snapshot of reservations, and the projected outstanding-margin aggregation is explicitly seeded with `Decimal("0")` for deterministic typing. The existing position-margin continuation regression now also composes `MarginLedger` with `PostTradeRiskEnforcer`, covering the previously untested path.
 
-The three-file fix is committed after the `746ed9d37d0922f4eff32822a0f485a31d71e10d` green baseline and requires a fresh local test run.
+The three-file fix is committed after the `746ed9d37d0922f4eff32822a0f485a31d71e10d` green baseline and was validated as part of the subsequent 612-test green run at `d706dc7`.
 
 ## Next action
 
-Do not restructure these modules further. After the pending validation, audit the LIVE durability requirement and persistence/restart behavior; keep the current package boundaries stable.
+Do not restructure these modules further. After the current pending validation, audit durable kill-switch state and the request-context needed for automatic pending recovery; keep the current package boundaries stable.
