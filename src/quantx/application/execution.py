@@ -8,7 +8,11 @@ from enum import StrEnum
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.execution.idempotency import IdempotencyStore, InMemoryIdempotencyStore
+from quantx.execution.idempotency import (
+    IdempotencyStore,
+    InMemoryIdempotencyStore,
+    PendingExecutionContext,
+)
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionReceipt, MarketDataExecutionPort
@@ -247,7 +251,12 @@ class ExecutionOrchestrator:
         fingerprint = request_fingerprint(request)
         client_order_id = request.order.client_order_id
         with unit_of_work:
-            decision = unit_of_work.idempotency.reserve_or_get(client_order_id, fingerprint)
+            pending_context = PendingExecutionContext.from_request(request, fingerprint)
+            decision = unit_of_work.idempotency.reserve_or_get(
+                client_order_id,
+                fingerprint,
+                pending_context,
+            )
             if decision.existing_receipt_id is not None:
                 authoritative = unit_of_work.receipts.get(decision.existing_receipt_id)
                 if authoritative is None:
