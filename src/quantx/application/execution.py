@@ -285,12 +285,11 @@ class ExecutionOrchestrator:
             try:
                 unit_of_work.idempotency.complete(client_order_id, fingerprint, receipt.receipt_id)
             except Exception as exc:
-                unit_of_work.rollback()
                 return ExecutionResult(
                     ExecutionDispatchStatus.UNKNOWN,
                     receipt=receipt,
                     reason=(
-                        "submission completed but idempotency completion is uncertain; "
+                        "submission completed; receipt is durable but idempotency completion is uncertain; "
                         f"reconciliation is required: {exc}"
                     ),
                 )
