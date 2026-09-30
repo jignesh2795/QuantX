@@ -18,8 +18,8 @@ from quantx.plugins.reference_broker import (
     InMemoryReferenceBrokerTransport,
     ReferenceBrokerAdapter,
 )
-from quantx.ports.broker import BrokerPort
 from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
+from quantx.ports.broker import BrokerPort
 
 
 def _instrument() -> Instrument:
