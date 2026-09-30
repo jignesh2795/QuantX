@@ -8,7 +8,10 @@ from decimal import Decimal
 from uuid import UUID
 
 from quantx.domain.enums import OrderStatus
-from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.execution_request import (
+    ApprovedExecutionRequest,
+    PendingExecutionRecoveryRequest,
+)
 from quantx.domain.orders import Fill
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
@@ -26,7 +29,7 @@ class UncertainSubmissionReceiptRecovery:
 
     def recover(
         self,
-        request: ApprovedExecutionRequest,
+        request: ApprovedExecutionRequest | PendingExecutionRecoveryRequest,
         broker_order: OrderObservation,
         *,
         request_id: UUID,
