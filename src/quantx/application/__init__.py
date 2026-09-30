@@ -26,6 +26,12 @@ from .reconciliation import (
     OrderStateReconciliationWorkflow,
     OrderWorkflowStatus,
 )
+from .recovery_composition import (
+    RecoveryEndpointResolver,
+    RecoveryEvidenceFactory,
+    ResolvedRecoveryEndpoint,
+    build_application_runtime,
+)
 from .runtime import ApplicationRuntime, ApplicationStartupResult, StartupRecoveryHook
 from .uncertain_submission import UncertainSubmissionReceiptRecovery
 
@@ -47,6 +53,9 @@ __all__ = [
     "PendingExecutionRecoveryRunner",
     "PendingRecoveryResult",
     "PendingRecoveryRun",
+    "RecoveryEndpointResolver",
+    "RecoveryEvidenceFactory",
+    "ResolvedRecoveryEndpoint",
     "recover_pending_live_executions",
     "reconcile_pending_execution",
     "ReconciliationEvidenceProvider",
@@ -54,4 +63,5 @@ __all__ = [
     "RefreshPolicy",
     "UncertainSubmissionReceiptRecovery",
     "StartupRecoveryHook",
+    "build_application_runtime",
 ]

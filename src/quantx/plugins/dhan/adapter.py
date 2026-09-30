@@ -173,6 +173,14 @@ class DhanBrokerAdapter:
             connection_id=request.execution_context.broker_connection_id,
         )
 
+    def order_detail(self, *, correlation_id: str) -> DhanOrderDetail:
+        """Read-only broker order detail for recovery evidence.
+
+        This performs no submission or cancellation; it only re-observes
+        broker state through the transport boundary.
+        """
+        return self._transport.reconcile(correlation_id)
+
     def _resolve(
         self,
         instrument_id: InstrumentId,

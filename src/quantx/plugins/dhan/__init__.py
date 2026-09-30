@@ -20,6 +20,7 @@ from .models import (
     DhanPositionSnapshot,
     DhanPositionsSnapshot,
 )
+from .recovery import DhanRecoveryEvidenceProvider, build_dhan_recovery_provider
 from .transport import DhanSDKTransport, DhanTransport, InMemoryDhanTransport
 
 DHAN_PLUGIN_DESCRIPTOR = PluginDescriptor(
@@ -48,10 +49,12 @@ __all__ = [
     "DhanOrderResponse",
     "DhanPositionSnapshot",
     "DhanPositionsSnapshot",
+    "DhanRecoveryEvidenceProvider",
     "DhanSDKTransport",
     "DhanTransport",
     "DHAN_CAPABILITIES",
     "DHAN_PLUGIN_DESCRIPTOR",
     "InMemoryDhanTransport",
+    "build_dhan_recovery_provider",
     "register_dhan_broker",
 ]

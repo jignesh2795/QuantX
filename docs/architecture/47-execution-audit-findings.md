@@ -109,7 +109,13 @@ This is an application hook, not a startup daemon: no runtime in the repository 
 
 The focused adversarial implementation gaps identified for pending recovery are now covered by the current validated checkpoint: malformed persistence is isolated, default all-required evidence can resolve, concurrent resolution is guarded by durable idempotency, broker-order scope is enforced, reconciliation exposes no broker-submit capability, and broker-returned UNKNOWN LIVE receipts remain pending rather than being treated as authoritative completion.
 
-Remaining work is integration-level rather than a new persistence/recovery primitive: define and test the concrete production startup composition, including how broker/account/position providers are resolved from the persisted execution context, and perform a fresh adversarial review of every compatibility or legacy route that could reach broker transport.
+## Production startup composition — implemented and validated
+
+The concrete production startup composition for pending LIVE recovery is implemented without new registries, routers, or reconciliation frameworks. `RecoveryEndpointResolver` resolves a recovery evidence provider from the persisted execution identity using only the existing `AccountConnectionRegistry`: the persisted broker connection id is looked up exactly, then account equality, enabled state, and optional expected-broker identity are enforced before a provider is built. There is no default-account or default-connection fallback; anything unresolvable fails closed and the reservation stays pending.
+
+`DhanRecoveryEvidenceProvider` (in `plugins/dhan/recovery.py`) implements the canonical `ReconciliationEvidenceProvider` contract over a bound Dhan adapter using only read paths (`order_detail`, `account_state`, `position_states`). Dhan order detail is mapped onto `OrderObservation` with unrecognized or expired broker states mapped to UNKNOWN rather than inventing lifecycle transitions. The provider is bound to one account, connection, order, correlation, and quantity; every fetch verifies its arguments against that binding. `build_application_runtime()` wires the durable `UnitOfWork`, registry, evidence factory, optional local providers, runner, and one-shot `ApplicationRuntime.start()` together with no broker-submit capability anywhere in the path.
+
+Regression coverage proves exact endpoint resolution, wrong-account/connection/broker rejection, multi-account selection by persisted connection identity, zero broker submissions during recovery, authoritative resolution through existing reconciliation, non-definitive evidence remaining pending, per-context failure isolation, one-shot startup semantics, and process-recreation recovery against the same durable store. No real broker end-to-end execution is claimed; recovery is validated with the in-memory Dhan transport and SQLite file databases, and no GitHub CI run is claimed as evidence.
 
 ## Next action
 
