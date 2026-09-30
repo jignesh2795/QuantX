@@ -47,6 +47,10 @@ Simulation fees are calculated on the executed fill and carried on `ExecutionRec
 
 `PaperSession` resolves the canonical `Instrument` through `InstrumentRegistry` and rejects execution when authoritative metadata is unavailable or inconsistent with the request. It does not manufacture fallback asset class, currency, tick size, lot size, or multiplier values.
 
+## Correctness finding: deterministic backtest strategy boundary — resolved
+
+`DeterministicBacktestService` accepts both the canonical `StrategyEvaluationService` path and a direct callable strategy seam. The direct callable path now enforces the same signal/intent instrument, strategy identity, BUY/SELL direction, and replay-timestamp invariants before risk or execution. This prevents a custom replay strategy from bypassing the execution-facing strategy contract.
+
 ## Next action
 
-Do not restructure these modules further. Continue the integration audit.
+Do not restructure these modules further. Continue the persistence/restart and replay audit.
