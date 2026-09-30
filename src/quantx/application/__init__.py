@@ -15,6 +15,7 @@ from .evidence_refresh import (
 )
 from .execution import ExecutionDispatchStatus, ExecutionOrchestrator, ExecutionResult
 from .pending_reconciliation import reconcile_pending_execution
+from .runtime import ApplicationRuntime, ApplicationStartupResult, StartupRecoveryHook
 from .pending_recovery import (
     PendingExecutionRecoveryRunner,
     PendingRecoveryResult,
@@ -32,6 +33,8 @@ __all__ = [
     "BacktestDisposition",
     "BacktestResult",
     "BacktestStep",
+    "ApplicationRuntime",
+    "ApplicationStartupResult",
     "DefinitiveEvidencePolicy",
     "DeterministicBacktestService",
     "EvidenceRefreshOutcome",
@@ -50,4 +53,5 @@ __all__ = [
     "ReconciliationEvidenceRefresher",
     "RefreshPolicy",
     "UncertainSubmissionReceiptRecovery",
+    "StartupRecoveryHook",
 ]
