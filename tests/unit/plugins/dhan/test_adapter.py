@@ -29,10 +29,17 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.persistence.sqlite import (
+    SqliteDatabase,
+    SqliteTradingGateStateStore,
+    SqliteUnitOfWork,
+)
+
 from quantx.execution.receipts.models import (
     ExecutionOutcome,
     ExecutionReceipt,
 )
+from quantx.execution.trading_gate import DurableTradingGate
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.plugins.dhan import (
     DhanBrokerAdapter,
@@ -40,12 +47,6 @@ from quantx.plugins.dhan import (
     InMemoryDhanTransport,
 )
 from quantx.plugins.dhan.mapping import dhan_correlation_id
-from quantx.persistence.sqlite import (
-    SqliteDatabase,
-    SqliteTradingGateStateStore,
-    SqliteUnitOfWork,
-)
-
 
 
 def _instrument() -> Instrument:
