@@ -51,6 +51,12 @@ Simulation fees are calculated on the executed fill and carried on `ExecutionRec
 
 `DeterministicBacktestService` accepts both the canonical `StrategyEvaluationService` path and a direct callable strategy seam. The direct callable path now enforces the same signal/intent instrument, strategy identity, BUY/SELL direction, and replay-timestamp invariants before risk or execution. This prevents a custom replay strategy from bypassing the execution-facing strategy contract.
 
+## Correctness finding: projected continuation margin/risk composition — fixed, validation pending
+
+`PaperSession._check_continuation_projection()` previously referenced a nonexistent public `MarginLedger.reservations` attribute. The margin ledger now exposes an immutable tuple snapshot of reservations, and the projected outstanding-margin aggregation is explicitly seeded with `Decimal("0")` for deterministic typing. The existing position-margin continuation regression now also composes `MarginLedger` with `PostTradeRiskEnforcer`, covering the previously untested path.
+
+The three-file fix is committed after the `746ed9d37d0922f4eff32822a0f485a31d71e10d` green baseline and requires a fresh local test run.
+
 ## Next action
 
-Do not restructure these modules further. Continue the persistence/restart and replay audit.
+Do not restructure these modules further. After the pending validation, audit the LIVE durability requirement and persistence/restart behavior; keep the current package boundaries stable.
