@@ -42,7 +42,7 @@ class ApplicationStartupResult:
 class ApplicationRuntime:
     """Run explicit startup recovery exactly once."""
 
-    def __init__(self, *, pending_recovery: StartupRecoveryHook | None = None) -> None:
+    def __init__(self, *, pending_recovery: StartupRecoveryHook) -> None:
         self._pending_recovery = pending_recovery
         self._started = False
 
@@ -63,10 +63,6 @@ class ApplicationRuntime:
         if observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise ValueError("checked_at must be timezone-aware")
 
-        recovery = (
-            PendingRecoveryRun()
-            if self._pending_recovery is None
-            else self._pending_recovery.run(checked_at=observed_at)
-        )
+        recovery = self._pending_recovery.run(checked_at=observed_at)
         self._started = True
         return ApplicationStartupResult(pending_recovery=recovery)
