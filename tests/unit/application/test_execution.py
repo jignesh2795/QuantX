@@ -469,6 +469,21 @@ def test_live_without_unit_of_work_is_blocked() -> None:
     assert broker.submit_calls == 0
 
 
+def test_live_rejects_process_local_trading_gate() -> None:
+    request = _live_request()
+    broker = FakeBroker()
+    gate = TradingGate()
+
+    result = ExecutionOrchestrator(
+        unit_of_work=_FakeUnitOfWork(),
+        trading_gate=gate,
+    ).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "durable TradingGate" in result.reason
+    assert broker.submit_calls == 0
+
+
 def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
     request = _live_request()
     broker = FakeBroker()
@@ -661,7 +676,6 @@ def test_broker_submit_runs_outside_sqlite_transaction(tmp_path) -> None:
 
 def test_partial_continuation_is_blocked_by_trading_gate_before_adapter() -> None:
     from quantx.execution.receipts.lifecycle import ExecutionLifecycle
-    from quantx.execution.trading_gate import TradingGate
 
     request = _request(ExecutionMode.PAPER)
     lifecycle = ExecutionLifecycle(
