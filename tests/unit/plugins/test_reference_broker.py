@@ -18,7 +18,8 @@ from quantx.plugins.reference_broker import (
     InMemoryReferenceBrokerTransport,
     ReferenceBrokerAdapter,
 )
-from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
+from quantx.persistence.sqlite import SqliteDatabase, SqliteTradingGateStateStore, SqliteUnitOfWork
+from quantx.execution.trading_gate import DurableTradingGate
 from quantx.ports.broker import BrokerPort
 
 
