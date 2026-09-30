@@ -1,7 +1,8 @@
-"""Dispatch approved execution requests to mode-specific execution adapters.
+"""Dispatch approved non-live execution requests to mode-specific adapters.
 
-This boundary owns only execution-mode routing. It does not implement broker
-SDKs, retries, reconciliation, persistence, or execution semantics.
+LIVE submission is intentionally unsupported here because this routing boundary
+does not own durable idempotency, persistence, reconciliation, or the trading
+gate. LIVE requests must enter through ExecutionOrchestrator.
 """
 
 from __future__ import annotations
@@ -62,10 +63,9 @@ class ExecutionDispatcher:
             return ExecutionDispatchResult(request=request, receipt=receipt)
 
         if mode is ExecutionMode.LIVE:
-            if self._live_port is None:
-                raise ValueError("no live execution adapter configured")
-            receipt = self._live_port.submit(request)
-            return ExecutionDispatchResult(request=request, receipt=receipt)
+            raise ValueError(
+                "LIVE dispatch requires ExecutionOrchestrator with durable UnitOfWork"
+            )
 
         raise ValueError(f"execution mode {mode.value} is not dispatchable")
 
