@@ -311,7 +311,8 @@ class ExecutionOrchestrator:
                     ExecutionDispatchStatus.UNKNOWN,
                     receipt=receipt,
                     reason=(
-                        "submission completed; receipt is durable but idempotency completion is uncertain; "
+                        "submission completed; receipt is durable but idempotency completion "
+                        "is uncertain; "
                         f"reconciliation is required: {exc}"
                     ),
                 )
