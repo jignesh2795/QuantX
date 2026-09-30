@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
+from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
@@ -38,6 +39,20 @@ class ExecutionTransactionCoordinator:
         self._receipt_repository = receipt_repository
 
     def execute(self, request: ApprovedExecutionRequest) -> TransactionResult:
+        mode = getattr(
+            getattr(request, "execution_context", None),
+            "execution_mode",
+            None,
+        )
+        if mode is ExecutionMode.LIVE:
+            return TransactionResult(
+                PreconditionsStatus.BLOCKED,
+                reasons=(
+                    "LIVE execution requires ExecutionOrchestrator with durable "
+                    "UnitOfWork and TradingGate",
+                ),
+            )
+
         preflight = self._preconditions(request)
         if not preflight.can_execute:
             return TransactionResult(preflight.status, reasons=preflight.reasons)
