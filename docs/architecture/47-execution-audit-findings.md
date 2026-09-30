@@ -101,11 +101,9 @@ This is an application hook, not a startup daemon: no runtime in the repository 
 
 ## Remaining recovery-boundary questions
 
-The next adversarial pass must verify the runner itself under stronger failure and concurrency conditions.
+The focused adversarial implementation gaps identified for pending recovery are now covered by the current validated checkpoint: malformed persistence is isolated, default all-required evidence can resolve, concurrent resolution is guarded by durable idempotency, broker-order scope is enforced, and reconciliation exposes no broker-submit capability.
 
-The current runner defaults to `DefinitiveEvidencePolicy.all_required()`, which requires order, position, and account evidence. The runner currently exposes local-order and fill providers but not local-position or local-account providers. Because the canonical reconciliation workflow requires local state to match broker position/account evidence, the default runner may remain non-definitive unless those local evidence domains are supplied through another seam. This is an explicit design gap to resolve or document; tests intentionally use `order_only()` for the current runner regression and therefore do not prove that default all-required recovery can complete.
-
-Also test malformed persisted context handling, repeated/concurrent recovery passes over the same pending reservation, provider results that do not honor account/connection scope, and resolution races between independent UnitOfWork instances before treating automatic crash recovery as production-complete.
+Remaining work is integration-level rather than a new persistence/recovery primitive: define and test the concrete production startup composition, including how broker/account/position providers are resolved from the persisted execution context, and perform a fresh adversarial review of every compatibility or legacy route that could reach broker transport.
 
 ## Next action
 
