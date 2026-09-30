@@ -61,6 +61,13 @@ class DhanBrokerAdapter:
     def connection(self) -> BrokerConnectionRef:
         return self._connection
 
+    def _validate_connection(self, request: ApprovedExecutionRequest) -> None:
+        context = request.execution_context
+        if context.account_id != self._connection.account_id:
+            raise ValueError("Dhan adapter account does not match execution request account")
+        if context.broker_connection_id != self._connection.connection_id:
+            raise ValueError("Dhan adapter connection does not match execution request connection")
+
     def health(self) -> bool:
         return self._transport.health()
 
@@ -72,6 +79,7 @@ class DhanBrokerAdapter:
         return None if item is None else item[0]
 
     def submit(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
+        self._validate_connection(request)
         broker_instrument = self._resolve(request.order.instrument)
         self._validate_market(broker_instrument[0], broker_instrument[1])
         wire = build_order_request(
@@ -106,6 +114,7 @@ class DhanBrokerAdapter:
         )
 
     def cancel(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
+        self._validate_connection(request)
         try:
             response = self._transport.cancel(dhan_correlation_id(request.correlation_id))
         except Exception as exc:
@@ -128,6 +137,7 @@ class DhanBrokerAdapter:
         )
 
     def reconcile(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
+        self._validate_connection(request)
         try:
             detail = self._transport.reconcile(dhan_correlation_id(request.correlation_id))
         except Exception as exc:
