@@ -362,7 +362,7 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
     assert first.status is ExecutionDispatchStatus.EXECUTED
     assert first.receipt is not None
     assert second.status is ExecutionDispatchStatus.EXECUTED
-    assert second.receipt is None
+    assert second.receipt == first.receipt
     assert "idempotent duplicate" in second.reason
     assert broker.submit_calls == 1
 
