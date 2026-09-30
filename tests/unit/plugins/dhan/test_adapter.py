@@ -40,6 +40,8 @@ from quantx.plugins.dhan import (
     InMemoryDhanTransport,
 )
 from quantx.plugins.dhan.mapping import dhan_correlation_id
+from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
+
 
 
 def _instrument() -> Instrument:
@@ -300,9 +302,15 @@ def test_market_segment_mismatch_is_rejected() -> None:
         adapter.submit(_request())
 
 
-def test_dhan_adapter_composes_with_live_execution_orchestrator() -> None:
+def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> None:
     adapter = _adapter(InMemoryDhanTransport(response_status="PENDING"))
-    result = ExecutionOrchestrator().execute(_request(), broker=adapter)
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        result = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database)
+        ).execute(_request(), broker=adapter)
+    finally:
+        database.close()
 
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is not None
