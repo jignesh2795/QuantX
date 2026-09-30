@@ -202,7 +202,7 @@ class OrderStateReconciliationWorkflow:
                 receipt.connection_id is not None
                 and broker_order.connection_id != receipt.connection_id
             ):
-                return "broker order evidence connection does not match execution receipt connection"
+                return "broker order evidence connection does not match execution receipt " "connection"
 
         if (
             local_order is not None
