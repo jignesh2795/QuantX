@@ -461,18 +461,14 @@ def test_pending_recovery_runner_resolves_with_default_all_required_evidence(tmp
             fingerprint,
             PendingExecutionContext.from_request(request, fingerprint),
         )
-        provider = ScriptedProvider(
-            orders=[
-                OrderObservation(
-                    order_id,
-                    OrderLifecycleStatus.FILLED,
-                    "2",
-                    "2",
-                    "dhan-1",
-                    request.execution_context.account_id,
-                    request.execution_context.broker_connection_id,
-                )
-            ]
+        broker_order = OrderObservation(
+            order_id,
+            OrderLifecycleStatus.FILLED,
+            "2",
+            "2",
+            "dhan-1",
+            request.execution_context.account_id,
+            request.execution_context.broker_connection_id,
         )
         broker_position = PositionState(
             request.execution_context.account_id,
@@ -493,7 +489,7 @@ def test_pending_recovery_runner_resolves_with_default_all_required_evidence(tmp
             margin_used=Decimal("0"),
         )
         provider = ScriptedProvider(
-            orders=[provider._orders[0]],
+            orders=[broker_order],
             positions=[broker_position],
             accounts=[broker_account],
         )
