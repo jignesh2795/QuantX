@@ -132,6 +132,13 @@ class DhanBrokerAdapter:
             detail = self._transport.reconcile(dhan_correlation_id(request.correlation_id))
         except Exception as exc:
             return self._unknown_receipt(request, f"Dhan reconciliation failure: {exc}")
+        if detail.correlation_id is not None:
+            expected_correlation = dhan_correlation_id(request.correlation_id)
+            if detail.correlation_id != expected_correlation:
+                return self._unknown_receipt(
+                    request,
+                    "Dhan reconciliation returned a mismatched correlation id",
+                )
         outcome_value, status = normalize_status(detail.order_status)
         fills = self._fill_from_detail(request, detail)
         executed_at = (
@@ -245,8 +252,14 @@ class DhanBrokerAdapter:
         request: ApprovedExecutionRequest,
         detail: DhanOrderDetail,
     ) -> tuple[Fill, ...]:
-        if detail.filled_quantity <= 0 or detail.average_traded_price is None:
+        if detail.filled_quantity < 0:
+            raise ValueError("Dhan reported a negative filled quantity")
+        if detail.filled_quantity > request.order.quantity:
+            raise ValueError("Dhan filled quantity exceeds canonical order quantity")
+        if detail.filled_quantity == 0:
             return ()
+        if detail.average_traded_price is None:
+            raise ValueError("Dhan filled quantity requires an average traded price")
         filled_at = parse_dhan_timestamp(detail.exchange_time) or parse_dhan_timestamp(
             detail.update_time
         )
