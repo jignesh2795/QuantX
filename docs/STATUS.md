@@ -5,13 +5,13 @@
 
 The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution recovery and continuation safety.
 
-**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `8ede9f1918e7eef477fe55200a75495e02b4b72f`.
+**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `1a30658b21fe98fa05a69edabeedef777fbcab05`.
 
 ## Validation baseline
 
-The last fully validated implementation baseline is **621 passed, 0 failed, 0 errors, 0 skipped** at `8ede9f1918e7eef477fe55200a75495e02b4b72f`.
+The last fully validated implementation baseline is **623 passed, 0 failed, 0 errors, 0 skipped** at `1a30658b21fe98fa05a69edabeedef777fbcab05`.
 
-This checkpoint validates the LIVE durability hardening and restart coverage: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; and pending LIVE reservation context is persisted and reconstructible across a simulated process restart. The 621-test suite completed with zero failures, errors, or skipped tests.
+This checkpoint validates the LIVE durability hardening and restart coverage: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; and pending LIVE reservation context is persisted and reconstructible across a simulated process restart. The 623-test suite completed with zero failures, errors, or skipped tests.
 
 This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for this checkpoint, so this document does not claim GitHub CI independently executed that suite.
 
@@ -53,6 +53,6 @@ Architecture documents distinguish implemented/current behavior, target architec
 
 ## Next direction
 
-Before adding UI, AI, or a broad broker matrix, continue the execution/reconciliation audit and keep the current package boundaries stable. The next focused work is an adversarial end-to-end LIVE entry-point audit, with particular attention to every broker-submit path, durable trading-gate enforcement, restart recovery, and account/connection binding. Update canonical documentation whenever a durable architectural boundary or validation baseline changes.
+Before adding UI, AI, or a broad broker matrix, continue the execution/reconciliation audit and keep the current package boundaries stable. The next focused work is a final adversarial end-to-end LIVE entry-point audit, with particular attention to every broker-submit path, durable trading-gate enforcement, restart recovery, pending-context integrity, and account/connection binding. Update canonical documentation whenever a durable architectural boundary or validation baseline changes.
 
 `uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change.
