@@ -462,10 +462,7 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
     request = _live_request()
     broker = FakeBroker()
     unit_of_work = _FakeUnitOfWork()
-    orchestrator = ExecutionOrchestrator(
-        unit_of_work=unit_of_work,
-        trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
-    )
+    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work, trading_gate=_durable_gate())
 
     first = orchestrator.execute(request, broker=broker)
     assert first.status is ExecutionDispatchStatus.EXECUTED
@@ -481,7 +478,10 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
 def _sqlite_setup(tmp_path):
     database = SqliteDatabase(tmp_path / "quantx.db")
     unit_of_work = SqliteUnitOfWork(database)
-    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work)
+    orchestrator = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+    )
     return database, unit_of_work, orchestrator
 
 
@@ -618,7 +618,7 @@ def test_live_without_unit_of_work_does_not_submit() -> None:
     request = _live_request()
     broker = FakeBroker()
 
-    result = ExecutionOrchestrator().execute(request, broker=broker)
+    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "durable UnitOfWork" in result.reason
