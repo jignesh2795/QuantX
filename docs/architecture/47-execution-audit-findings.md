@@ -73,25 +73,25 @@ Regression coverage verifies that these direct LIVE routes do not call the broke
 
 The canonical `ExecutionOrchestrator` LIVE path previously allowed execution without a `UnitOfWork`, falling back to process-local idempotency. That meant an uncertain LIVE submission could lose its pending reservation on process restart and become eligible for duplicate broker submission. LIVE now fails closed when a `UnitOfWork` is not configured and uses the two-scope transactional path exclusively.
 
-Paper, shadow, and replay execution remain usable without persistent storage. The current validated checkpoint is `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342` with 635 passed, 0 failed, 0 errors, 0 skipped.
+Paper, shadow, and replay execution remain usable without persistent storage. The current validated test checkpoint is `e4d85ae6e4d61fe61bfbeba1c838fb7a428d1c9c` with 635 passed, 0 failed, 0 errors, 0 skipped; `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342` is import-only cleanup after that validation.
 
 ## Correctness finding: projected continuation margin/risk composition — resolved and validated
 
 `PaperSession._check_continuation_projection()` previously referenced a nonexistent public `MarginLedger.reservations` attribute. The margin ledger now exposes an immutable tuple snapshot of reservations, and the projected outstanding-margin aggregation is explicitly seeded with `Decimal("0")` for deterministic typing. The existing position-margin continuation regression now also composes `MarginLedger` with `PostTradeRiskEnforcer`, covering the previously untested path.
 
-The three-file fix is committed after the earlier green baseline and is included in the current 621-test green checkpoint at `8ede9f1918e7eef477fe55200a75495e02b4b72f`.
+The three-file fix is historical; the branch now has 635 passing tests, with the latest fully executed suite at `e4d85ae6e4d61fe61bfbeba1c838fb7a428d1c9c`.
 
 ## Correctness finding: durable LIVE trading-gate state — resolved and validated
 
-LIVE execution now requires an explicitly configured durable `TradingGate`. SQLite-backed gate state persists across process recreation, including block/enable transitions, and process-local gates are rejected for LIVE. Schema v2 creates and migrates the durable gate state table. The current green checkpoint at `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a` has 625 passed, 0 failed, 0 errors, 0 skipped.
+LIVE execution now requires an explicitly configured durable `TradingGate`. SQLite-backed gate state persists across process recreation, including block/enable transitions, and process-local gates are rejected for LIVE. Schema v2 creates and migrates the durable gate state table. That hardening was introduced and validated earlier at `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a`; the latest branch-wide test evidence is 635 passed at `e4d85ae6e4d61fe61bfbeba1c838fb7a428d1c9c`.
 
 ## Correctness finding: durable pending LIVE execution context — resolved and validated
 
-Pending LIVE idempotency reservations now persist a versioned execution-context projection sufficient to reconstruct a recovery request after restart. SQLite stores and enumerates pending contexts without resubmission; reconciliation resolves the reservation by persisting authoritative evidence, while the pending enumeration correctly becomes empty after resolution. Round-trip, restart, LIVE composition, and runner coverage are included in the current 625-test green checkpoint.
+Pending LIVE idempotency reservations now persist a versioned execution-context projection sufficient to reconstruct a recovery request after restart. SQLite stores and enumerates pending contexts without resubmission; reconciliation resolves the reservation by persisting authoritative evidence, while the pending enumeration correctly becomes empty after resolution. Round-trip, restart, LIVE composition, and runner coverage were established in the earlier 625-test checkpoint; they remain covered by the latest 635-test suite.
 
 ## Correctness finding: durable gate refresh across running instances — resolved and validated
 
-A durable trading gate now refreshes persisted state when queried, so separate already-running instances share operator block/enable changes instead of retaining stale process-local state. Missing durable state is fail-closed. Regression coverage verifies cross-instance refresh, and the current green checkpoint is `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a` with 625 passed, 0 failed, 0 errors, 0 skipped.
+A durable trading gate now refreshes persisted state when queried, so separate already-running instances share operator block/enable changes instead of retaining stale process-local state. Missing durable state is fail-closed. Regression coverage verifies cross-instance refresh; the earlier green checkpoint was `82a0a2a367d7131c18e3dd9491b7e83fd1077c0a`, and the latest 635-test suite remains green.
 
 ## Correctness finding: legacy LIVE transaction-coordinator bypass — resolved and validated
 
