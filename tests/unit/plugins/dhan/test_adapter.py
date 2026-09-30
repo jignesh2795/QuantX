@@ -141,6 +141,41 @@ def test_submit_rejects_unsupported_dhan_validity_before_transport() -> None:
     assert transport.submitted == ()
 
 
+def test_reconcile_rejects_mismatched_broker_correlation_id() -> None:
+    class MismatchedCorrelationTransport(InMemoryDhanTransport):
+        def reconcile(self, correlation_id):  # type: ignore[no-untyped-def]
+            detail = super().reconcile(correlation_id)
+            return replace(detail, correlation_id="some-other-correlation")
+
+    receipt = _adapter(MismatchedCorrelationTransport(response_status="TRADED", filled_quantity=Decimal("2"), average_traded_price=Decimal("101"))).reconcile(_request())
+
+    assert receipt.outcome is ExecutionOutcome.UNKNOWN
+    assert receipt.order_status is OrderStatus.UNKNOWN
+    assert "mismatched correlation" in receipt.message
+
+
+def test_reconcile_rejects_fill_above_canonical_order_quantity() -> None:
+    transport = InMemoryDhanTransport(
+        response_status="TRADED",
+        filled_quantity=Decimal("3"),
+        average_traded_price=Decimal("101"),
+    )
+
+    with pytest.raises(ValueError, match="exceeds canonical order quantity"):
+        _adapter(transport).reconcile(_request())
+
+
+def test_reconcile_rejects_filled_quantity_without_price() -> None:
+    transport = InMemoryDhanTransport(
+        response_status="TRADED",
+        filled_quantity=Decimal("2"),
+        average_traded_price=None,
+    )
+
+    with pytest.raises(ValueError, match="requires an average traded price"):
+        _adapter(transport).reconcile(_request())
+
+
 def test_reconcile_maps_trade_and_uses_broker_reported_fill() -> None:
     transport = InMemoryDhanTransport(
         response_status="TRADED",
