@@ -5,15 +5,15 @@
 
 The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution recovery and continuation safety.
 
-**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `d9f54765c0fc6c7ae975750592aedaf9253ebb8b`.
+**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `8ede9f1918e7eef477fe55200a75495e02b4b72f`.
 
 ## Validation baseline
 
-The last fully validated implementation baseline is **614 passed, 0 failed, 0 errors, 0 skipped** at `d9f54765c0fc6c7ae975750592aedaf9253ebb8b`.
+The last fully validated implementation baseline is **621 passed, 0 failed, 0 errors, 0 skipped** at `8ede9f1918e7eef477fe55200a75495e02b4b72f`.
 
-This checkpoint validates the LIVE durability hardening and restart coverage: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; and pending LIVE reservation recovery is covered across a simulated process restart. The 614-test suite completed with zero failures, errors, or skipped tests.
+This checkpoint validates the LIVE durability hardening and restart coverage: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; and pending LIVE reservation context is persisted and reconstructible across a simulated process restart. The 621-test suite completed with zero failures, errors, or skipped tests.
 
-This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for `7f73d10`, so this document does not claim GitHub CI independently executed that suite.
+This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for this checkpoint, so this document does not claim GitHub CI independently executed that suite.
 
 Recent continuation/recovery work includes:
 - explicit continuation lifecycle reconstruction from authoritative receipt evidence;
@@ -21,7 +21,10 @@ Recent continuation/recovery work includes:
 - idempotent continuation dispatch claims;
 - pending/recoverable/resolved continuation recovery states;
 - validation that reused continuation claims match authoritative receipt identity, quantity, account, and broker connection;
-- conservative recovery of execution state rather than inference from an uncertain submission.
+- conservative recovery of execution state rather than inference from an uncertain submission;
+- durable trading-gate state persisted behind a pluggable state-store boundary, with SQLite restart coverage;
+- versioned pending LIVE execution context persisted with idempotency reservations and reconstructible after restart;
+- SQLite schema v2 migration coverage for pending context and durable trading-gate state.
 
 ## Architecture direction
 
@@ -40,7 +43,7 @@ Recent continuation/recovery work includes:
 
 ## Current implementation track
 
-Execution integrity and reconciliation remain the active track. The repository now covers idempotency, execution receipts, order lifecycle reconstruction, account/connection identity, broker-order reconciliation, bounded evidence refresh, uncertain-submission recovery, and partial-fill continuation/recovery.
+Execution integrity and reconciliation remain the active track. The repository now covers idempotency, execution receipts, order lifecycle reconstruction, account/connection identity, broker-order reconciliation, bounded evidence refresh, uncertain-submission recovery, partial-fill continuation/recovery, durable trading-gate state, and durable pending LIVE execution context.
 
 The continuation implementation deliberately remains persistence-agnostic: it consumes authoritative receipt/reconciliation contracts and does not introduce a database or broker network dependency by itself.
 
@@ -50,6 +53,6 @@ Architecture documents distinguish implemented/current behavior, target architec
 
 ## Next direction
 
-Before adding UI, AI, or a broad broker matrix, continue the execution/reconciliation audit and keep the current package boundaries stable. The next focused work is durable kill-switch state and the request context needed for automatic pending recovery, followed by an adversarial end-to-end LIVE entry-point audit. Update canonical documentation whenever a durable architectural boundary or validation baseline changes.
+Before adding UI, AI, or a broad broker matrix, continue the execution/reconciliation audit and keep the current package boundaries stable. The next focused work is an adversarial end-to-end LIVE entry-point audit, with particular attention to every broker-submit path, durable trading-gate enforcement, restart recovery, and account/connection binding. Update canonical documentation whenever a durable architectural boundary or validation baseline changes.
 
 `uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change.
