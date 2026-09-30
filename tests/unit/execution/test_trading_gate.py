@@ -70,3 +70,14 @@ def test_durable_gate_state_survives_gate_recreation() -> None:
 
     assert second.allow() is False
     assert second.state() == TradingGateState(False, "operator emergency stop")
+
+
+def test_durable_gate_refreshes_state_across_existing_instances() -> None:
+    store = InMemoryTradingGateStateStore()
+    first = DurableTradingGate(store)
+    second = DurableTradingGate(store)
+
+    first.block("operator emergency stop")
+
+    assert second.allow() is False
+    assert second.state() == TradingGateState(False, "operator emergency stop")
