@@ -10,9 +10,17 @@ from threading import RLock
 from typing import Protocol
 from uuid import UUID
 
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
-from quantx.domain.execution_request import ApprovedExecutionRequest, PendingExecutionRecoveryRequest
+from quantx.domain.execution_request import (
+    ApprovedExecutionRequest,
+    PendingExecutionRecoveryRequest,
+)
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.orders import Order
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
@@ -64,8 +72,12 @@ class PendingExecutionContext:
                 "side": self.order.side.value,
                 "order_type": self.order.order_type.value,
                 "quantity": str(self.order.quantity),
-                "limit_price": None if self.order.limit_price is None else str(self.order.limit_price),
-                "stop_price": None if self.order.stop_price is None else str(self.order.stop_price),
+                "limit_price": (
+                    None if self.order.limit_price is None else str(self.order.limit_price)
+                ),
+                "stop_price": (
+                    None if self.order.stop_price is None else str(self.order.stop_price)
+                ),
                 "time_in_force": self.order.time_in_force.value,
                 "status": self.order.status.value,
                 "created_at": self.order.created_at.isoformat(),
