@@ -587,7 +587,9 @@ def test_sqlite_completion_failure_is_unknown_with_pending(tmp_path, monkeypatch
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is not None
         assert "reconciliation" in result.reason
-        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        persisted = unit_of_work.receipts.get_by_client_order(request.order.client_order_id)
+        assert persisted is not None
+        assert persisted.receipt_id == result.receipt.receipt_id
         decision = unit_of_work.idempotency.check(
             request.order.client_order_id, request_fingerprint(request)
         )
