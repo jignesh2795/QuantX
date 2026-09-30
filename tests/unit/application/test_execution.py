@@ -319,7 +319,9 @@ def test_live_blocks_missing_required_capability() -> None:
             }
         ),
     )
-    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=FakeBroker())
+    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(
+        request, broker=FakeBroker()
+    )
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "capabilities" in result.reason
 
@@ -347,7 +349,10 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
         connection_id=BrokerConnectionId("conn-1"),
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
     )
-    result = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork(), trading_gate=_durable_gate()).execute(
+    result = ExecutionOrchestrator(
+        unit_of_work=_FakeUnitOfWork(),
+        trading_gate=_durable_gate(),
+    ).execute(
         request,
         broker=FakeBroker(),
     )
@@ -362,7 +367,10 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
         connection_id=BrokerConnectionId("conn-1"),
     )
     broker = FakeBroker()
-    orchestrator = ExecutionOrchestrator(unit_of_work=_FakeUnitOfWork(), trading_gate=_durable_gate())
+    orchestrator = ExecutionOrchestrator(
+        unit_of_work=_FakeUnitOfWork(),
+        trading_gate=_durable_gate(),
+    )
 
     first = orchestrator.execute(request, broker=broker)
     second = orchestrator.execute(request, broker=broker)
@@ -570,7 +578,10 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     request = _live_request()
     database_a = SqliteDatabase(path)
     try:
-        orchestrator_a = ExecutionOrchestrator(unit_of_work=SqliteUnitOfWork(database_a), trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_a)))
+        orchestrator_a = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database_a),
+            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_a)),
+        )
         first = orchestrator_a.execute(request, broker=FakeBroker())
         assert first.status is ExecutionDispatchStatus.EXECUTED
     finally:
@@ -578,7 +589,10 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     database_b = SqliteDatabase(path)
     try:
         broker_b = FakeBroker()
-        orchestrator_b = ExecutionOrchestrator(unit_of_work=SqliteUnitOfWork(database_b), trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_b)))
+        orchestrator_b = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database_b),
+            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_b)),
+        )
         second = orchestrator_b.execute(request, broker=broker_b)
         assert second.status is ExecutionDispatchStatus.EXECUTED
         assert second.receipt == first.receipt
@@ -701,7 +715,9 @@ def test_partial_continuation_passes_control_plane_to_adapter() -> None:
         def __init__(self):
             self.called = False
 
-        def continue_partial(self, request, lifecycle, *, risk_result, snapshot, requested_quantity=None):
+        def continue_partial(
+            self, request, lifecycle, *, risk_result, snapshot, requested_quantity=None
+        ):
             self.called = True
             assert risk_result.decision is RiskDecision.APPROVE
             fill = Fill(
