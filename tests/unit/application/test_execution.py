@@ -412,6 +412,49 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
     assert broker.submit_calls == 1
 
 
+def test_live_unknown_receipt_preserves_pending_reservation() -> None:
+    class UnknownBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            return ExecutionReceipt(
+                request_id=uuid4(),
+                client_order_id=request.order.client_order_id,
+                outcome=ExecutionOutcome.UNKNOWN,
+                order_status=OrderStatus.UNKNOWN,
+                executed_at=request.order.created_at,
+                simulated=False,
+                source="fake-broker",
+                account_id=self.connection.account_id,
+                connection_id=self.connection.connection_id,
+            )
+
+    request = _live_request()
+    broker = UnknownBroker()
+    unit_of_work = _FakeUnitOfWork()
+    orchestrator = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+    )
+
+    first = orchestrator.execute(request, broker=broker)
+
+    assert first.status is ExecutionDispatchStatus.UNKNOWN
+    assert first.receipt is not None
+    assert first.receipt.outcome is ExecutionOutcome.UNKNOWN
+    decision = unit_of_work.idempotency.check(
+        request.order.client_order_id,
+        request_fingerprint(request),
+    )
+    assert decision.reservation_pending
+    assert decision.existing_receipt_id is None
+    assert unit_of_work.receipts.get(first.receipt.receipt_id) is None
+
+    second = orchestrator.execute(request, broker=broker)
+
+    assert second.status is ExecutionDispatchStatus.UNKNOWN
+    assert broker.submit_calls == 1
+
+
 def test_live_unit_of_work_groups_receipt_and_completion() -> None:
     request = _live_request()
     broker = FakeBroker()
