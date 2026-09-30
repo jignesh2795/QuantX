@@ -1,9 +1,9 @@
 """Integration tests for pending-execution reconciliation over real SQLite."""
 
 import inspect
-from threading import Barrier, Lock, Thread
 from datetime import UTC, datetime
 from decimal import Decimal
+from threading import Barrier, Lock, Thread
 
 import pytest
 
@@ -31,7 +31,12 @@ from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
 from quantx.execution.idempotency.fingerprint import request_fingerprint
-from quantx.integrations.reconciliation import OrderObservation
+from quantx.integrations.reconciliation import (
+    AccountFinancialState,
+    OrderObservation,
+    PositionState,
+    StateSource,
+)
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteIdempotencyStore,
@@ -459,12 +464,6 @@ def test_pending_recovery_runner_resolves_with_default_all_required_evidence(tmp
                 )
             ]
         )
-        from quantx.integrations.reconciliation import (
-            AccountFinancialState,
-            PositionState,
-            StateSource,
-        )
-
         broker_position = PositionState(
             request.execution_context.account_id,
             request.execution_context.broker_connection_id,
@@ -634,7 +633,7 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
         )
 
     runners = (make_runner(unit_of_work_a), make_runner(unit_of_work_b))
-    reports: list[object | None] = [None, None]
+    reports = [None, None]
 
     def run(index):
         reports[index] = runners[index].run(checked_at=CHECKED_AT)
