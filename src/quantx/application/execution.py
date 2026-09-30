@@ -15,7 +15,7 @@ from quantx.execution.idempotency import (
 )
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
-from quantx.execution.ports import ExecutionReceipt, MarketDataExecutionPort
+from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
 from quantx.execution.trading_gate import TradingGate
 from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
@@ -301,6 +301,12 @@ class ExecutionOrchestrator:
             return ExecutionResult(
                 ExecutionDispatchStatus.UNKNOWN,
                 reason=f"submission outcome is unknown; reconciliation is required: {exc}",
+            )
+        if receipt.outcome is ExecutionOutcome.UNKNOWN:
+            return ExecutionResult(
+                ExecutionDispatchStatus.UNKNOWN,
+                receipt=receipt,
+                reason="broker returned an UNKNOWN receipt; reconciliation is required",
             )
         with unit_of_work:
             unit_of_work.receipts.save(receipt)
