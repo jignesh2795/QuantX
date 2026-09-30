@@ -1,6 +1,17 @@
 """Idempotency and duplicate-submission protection."""
 
 from .fingerprint import request_fingerprint
-from .store import IdempotencyDecision, IdempotencyStore, InMemoryIdempotencyStore
+from .store import (
+    IdempotencyDecision,
+    IdempotencyStore,
+    InMemoryIdempotencyStore,
+    PendingExecutionContext,
+)
 
-__all__ = ["IdempotencyDecision", "IdempotencyStore", "InMemoryIdempotencyStore", "request_fingerprint"]
+__all__ = [
+    "IdempotencyDecision",
+    "IdempotencyStore",
+    "InMemoryIdempotencyStore",
+    "PendingExecutionContext",
+    "request_fingerprint",
+]
