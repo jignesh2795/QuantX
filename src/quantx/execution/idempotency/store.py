@@ -25,7 +25,7 @@ class PendingExecutionContext:
     request_fingerprint: str
     order: Order
     execution_context: ExecutionContext
-    parent_client_order_id: UUID | None = None
+    parent_client_order_id: str | None = None
 
     @classmethod
     def from_request(
@@ -150,7 +150,7 @@ class PendingExecutionContext:
                 request_fingerprint=payload["request_fingerprint"],
                 order=order,
                 execution_context=context,
-                parent_client_order_id=None if parent is None else UUID(parent),
+                parent_client_order_id=parent,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid pending execution context") from exc
