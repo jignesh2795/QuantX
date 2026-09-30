@@ -1,20 +1,25 @@
 # QuantX Status
 
 ## Current state
+**Phase:** v0.1 implementation / execution-integrity and recovery hardening.
 
-**Phase:** v0.1 implementation / execution-and-research integrity hardening.
+The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution recovery and continuation safety.
 
-QuantX is no longer documentation-only. The repository has a working domain, execution, research, India-market, and reconciliation foundation, developed through small validated implementation batches.
+**Validated reference:** `feat/continuation-claim-recovery-state-v1` at `7f73d1005b779fab253c5bda5cf308effe9140a5`.
 
 ## Validation baseline
 
-The latest implementation slice is Batch-28, covering broker-order identity reconciliation. Its functional gate is green; the remaining checkpoint is the final formatter gate.
+The current local validation report for this implementation slice is **594 passed, 0 failed, 0 errors, 0 skipped**.
 
-- Batch-27: execution-receipt fill integrity — closed.
-- Batch-28: broker-order identity reconciliation — functionally closed; final formatter gate pending at the latest checkpoint.
-- Full-suite baseline after Batch-28 functional validation: 355 passed.
-- OpenCode is the local validation harness; it does not modify, commit, or push.
-- `uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change.
+This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for `7f73d10`, so this document does not claim GitHub CI independently executed that suite.
+
+Recent continuation/recovery work includes:
+- explicit continuation lifecycle reconstruction from authoritative receipt evidence;
+- continuation-chain lineage and aggregate fill validation;
+- idempotent continuation dispatch claims;
+- pending/recoverable/resolved continuation recovery states;
+- validation that reused continuation claims match authoritative receipt identity, quantity, account, and broker connection;
+- conservative recovery of execution state rather than inference from an uncertain submission.
 
 ## Architecture direction
 
@@ -33,8 +38,16 @@ The latest implementation slice is Batch-28, covering broker-order identity reco
 
 ## Current implementation track
 
-Execution integrity and reconciliation are the active track. Recent hardening covers historical market rules, research provenance/artifacts, account and position freshness, routing/connection identity, execution idempotency, order quantity/lifecycle consistency, execution-receipt fill integrity, and broker-order identity reconciliation.
+Execution integrity and reconciliation remain the active track. The repository now covers idempotency, execution receipts, order lifecycle reconstruction, account/connection identity, broker-order reconciliation, bounded evidence refresh, uncertain-submission recovery, and partial-fill continuation/recovery.
+
+The continuation implementation deliberately remains persistence-agnostic: it consumes authoritative receipt/reconciliation contracts and does not introduce a database or broker network dependency by itself.
+
+## Documentation policy
+
+Architecture documents distinguish implemented/current behavior, target architecture, and roadmap/future capabilities. Historical batch records should not be treated as current implementation state unless explicitly marked as historical.
 
 ## Next direction
 
-After the Batch-28 final gate, continue the existing execution/reconciliation audit. Inspect fill-level identity/quantity consistency and uncertain-submission recovery before adding new adapters, UI, or AI subsystems.
+Before adding UI, AI, or a broad broker matrix, continue the execution/reconciliation audit and keep the current package boundaries stable. Update canonical documentation whenever a durable architectural boundary or validation baseline changes.
+
+`uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change.
