@@ -75,6 +75,19 @@ class ExecutionTransactionCoordinator:
                 PreconditionsStatus.READY,
                 reasons=(f"idempotent duplicate; receipt={decision.existing_receipt_id}",),
             )
+        if (
+            mode is ExecutionMode.LIVE
+            and not decision.reservation_pending
+            and not decision.reservation_acquired
+            and decision.existing_receipt_id is None
+        ):
+            return TransactionResult(
+                PreconditionsStatus.BLOCKED,
+                reasons=(
+                    "LIVE submission requires ExecutionOrchestrator with durable "
+                    "UnitOfWork and TradingGate",
+                ),
+            )
         if decision.reservation_pending and not decision.reservation_acquired:
             return TransactionResult(
                 PreconditionsStatus.UNKNOWN,
