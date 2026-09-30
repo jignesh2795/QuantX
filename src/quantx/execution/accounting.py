@@ -32,15 +32,26 @@ class FillAccounting:
 
     def __init__(self) -> None:
         self._entries: dict[InstrumentId, PositionLedgerEntry] = {}
+        self._applied_fills: dict[UUID, tuple[Fill, Decimal]] = {}
 
     def apply(self, fill: Fill, *, fee: Decimal = Decimal("0")) -> PositionLedgerEntry:
         if fee < 0:
             raise ValueError("fee cannot be negative")
+        prior = self._applied_fills.get(fill.execution_id)
+        if prior is not None:
+            prior_fill, prior_fee = prior
+            if prior_fill != fill or prior_fee != fee:
+                raise ValueError("execution_id was already applied with different fill data")
+            current = self._entries.get(fill.instrument)
+            if current is None:
+                raise ValueError("applied execution_id has no corresponding position entry")
+            return current
         current = self._entries.get(fill.instrument)
         if current is None:
             signed = fill.quantity if fill.side is OrderSide.BUY else -fill.quantity
             entry = PositionLedgerEntry(fill.instrument, signed, fill.price, Decimal("0"), fee)
             self._entries[fill.instrument] = entry
+            self._applied_fills[fill.execution_id] = (fill, fee)
             return entry
 
         old_qty = current.quantity
@@ -71,12 +82,14 @@ class FillAccounting:
 
         entry = PositionLedgerEntry(fill.instrument, new_qty, avg, realized, current.fees + fee)
         self._entries[fill.instrument] = entry
+        self._applied_fills[fill.execution_id] = (fill, fee)
         return entry
 
     def project(self, fill: Fill) -> PositionLedgerEntry:
         """Return the position that a fill would produce without mutating state."""
         projected = FillAccounting()
         projected._entries = self._entries.copy()
+        projected._applied_fills = self._applied_fills.copy()
         return projected.apply(fill)
 
     def get(self, instrument: InstrumentId) -> PositionLedgerEntry | None:
