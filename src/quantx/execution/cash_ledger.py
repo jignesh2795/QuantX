@@ -43,6 +43,7 @@ class CashLedger:
             raise ValueError("initial cash cannot be negative")
         self._balance = initial_cash
         self._entries: list[CashLedgerEntry] = []
+        self._applied_fills: dict[UUID, tuple[Fill, Decimal, Decimal]] = {}
 
     @property
     def balance(self) -> Money:
@@ -59,6 +60,16 @@ class CashLedger:
             raise ValueError("fee cannot be negative")
         if multiplier <= 0:
             raise ValueError("multiplier must be positive")
+
+        prior = self._applied_fills.get(fill.execution_id)
+        if prior is not None:
+            prior_fill, prior_fee, prior_multiplier = prior
+            if prior_fill != fill or prior_fee != fee or prior_multiplier != multiplier:
+                raise ValueError("execution_id was already applied with different fill data")
+            for entry in reversed(self._entries):
+                if entry.execution_id == fill.execution_id:
+                    return entry
+            raise ValueError("applied execution_id has no corresponding cash entry")
 
         notional_amount = fill.quantity * fill.price * multiplier
         notional = Money(notional_amount, self._balance.currency)
@@ -86,6 +97,7 @@ class CashLedger:
         )
         self._balance = cash_after
         self._entries.append(entry)
+        self._applied_fills[fill.execution_id] = (fill, fee, multiplier)
         return entry
 
     def entries(self) -> tuple[CashLedgerEntry, ...]:
