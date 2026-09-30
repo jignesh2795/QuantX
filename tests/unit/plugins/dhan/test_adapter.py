@@ -131,6 +131,30 @@ def test_submit_translates_to_dhan_and_returns_normalized_receipt() -> None:
     assert transport.submitted[0].correlation_id == dhan_correlation_id(request.correlation_id)
 
 
+def test_submit_rejects_wrong_account_for_bound_connection() -> None:
+    request = _request()
+    wrong_context = replace(
+        request.execution_context,
+        account_id=AccountId("other-account"),
+    )
+    wrong_request = replace(request, execution_context=wrong_context)
+
+    with pytest.raises(ValueError, match="account"):
+        _adapter().submit(wrong_request)
+
+
+def test_submit_rejects_wrong_connection_for_bound_connection() -> None:
+    request = _request()
+    wrong_context = replace(
+        request.execution_context,
+        broker_connection_id=BrokerConnectionId("other-connection"),
+    )
+    wrong_request = replace(request, execution_context=wrong_context)
+
+    with pytest.raises(ValueError, match="connection"):
+        _adapter().submit(wrong_request)
+
+
 def test_submit_rejects_unsupported_dhan_validity_before_transport() -> None:
     transport = InMemoryDhanTransport()
     request = _request(time_in_force=TimeInForce.GTC)
