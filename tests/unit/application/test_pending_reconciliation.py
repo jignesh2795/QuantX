@@ -1,6 +1,7 @@
 """Integration tests for pending-execution reconciliation over real SQLite."""
 
 import inspect
+from threading import Barrier, Lock, Thread
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -434,6 +435,100 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
         database_b.close()
 
 
+def test_pending_recovery_runner_resolves_with_default_all_required_evidence(tmp_path) -> None:
+    request = _request()
+    order_id = request.order.client_order_id
+    fingerprint = request_fingerprint(request)
+    database, unit_of_work = _database_and_uow(tmp_path)
+    try:
+        unit_of_work.idempotency.reserve_or_get(
+            order_id,
+            fingerprint,
+            PendingExecutionContext.from_request(request, fingerprint),
+        )
+        provider = ScriptedProvider(
+            orders=[
+                OrderObservation(
+                    order_id,
+                    OrderLifecycleStatus.FILLED,
+                    "2",
+                    "2",
+                    "dhan-1",
+                    request.execution_context.account_id,
+                    request.execution_context.broker_connection_id,
+                )
+            ]
+        )
+        from quantx.integrations.reconciliation import (
+            AccountFinancialState,
+            PositionState,
+            StateSource,
+        )
+
+        broker_position = PositionState(
+            request.execution_context.account_id,
+            request.execution_context.broker_connection_id,
+            "NSE:TCS",
+            Decimal("10"),
+            Decimal("100"),
+            CHECKED_AT,
+            StateSource.BROKER,
+        )
+        broker_account = AccountFinancialState(
+            request.execution_context.account_id,
+            request.execution_context.broker_connection_id,
+            CHECKED_AT,
+            StateSource.BROKER,
+            "INR",
+            available_cash=Decimal("5000"),
+            margin_used=Decimal("0"),
+        )
+        provider._positions.append(broker_position)
+        provider._accounts.append(broker_account)
+
+        local_position = PositionState(
+            request.execution_context.account_id,
+            request.execution_context.broker_connection_id,
+            "NSE:TCS",
+            Decimal("10"),
+            Decimal("100"),
+            CHECKED_AT,
+            StateSource.PAPER,
+        )
+        local_account = AccountFinancialState(
+            request.execution_context.account_id,
+            request.execution_context.broker_connection_id,
+            CHECKED_AT,
+            StateSource.PAPER,
+            "INR",
+            available_cash=Decimal("5000"),
+            margin_used=Decimal("0"),
+        )
+        runner = PendingExecutionRecoveryRunner(
+            unit_of_work=unit_of_work,
+            provider_resolver=lambda _: provider,
+            local_order_provider=lambda recovered: OrderObservation(
+                recovered.order.client_order_id,
+                OrderLifecycleStatus.FILLED,
+                "2",
+                "2",
+                "dhan-1",
+            ),
+            local_position_provider=lambda _: local_position,
+            local_account_provider=lambda _: local_account,
+            fill_provider=lambda recovered, _: (_fill(recovered),),
+        )
+
+        report = runner.run(checked_at=CHECKED_AT)
+
+        assert report.attempted == 1
+        assert report.resolved == 1
+        assert report.pending == 0
+        assert report.failed == 0
+    finally:
+        database.close()
+
+
 def test_pending_recovery_runner_resolves_after_restart(tmp_path) -> None:
     request = _request()
     order_id = request.order.client_order_id
@@ -477,6 +572,92 @@ def test_pending_recovery_runner_resolves_after_restart(tmp_path) -> None:
         decision = SqliteIdempotencyStore(database_b).check(order_id, fingerprint)
         assert decision.existing_receipt_id is not None
     finally:
+        database_b.close()
+
+
+def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> None:
+    request = _request()
+    order_id = request.order.client_order_id
+    fingerprint = request_fingerprint(request)
+    database, unit_of_work = _database_and_uow(tmp_path)
+    try:
+        unit_of_work.idempotency.reserve_or_get(
+            order_id,
+            fingerprint,
+            PendingExecutionContext.from_request(request, fingerprint),
+        )
+    finally:
+        database.close()
+
+    database_a = SqliteDatabase(tmp_path / "quantx.db")
+    database_b = SqliteDatabase(tmp_path / "quantx.db")
+    unit_of_work_a = SqliteUnitOfWork(database_a)
+    unit_of_work_b = SqliteUnitOfWork(database_b)
+    barrier = Barrier(2)
+    lock = Lock()
+    calls = {"orders": 0}
+
+    class ConcurrentProvider:
+        def fetch_broker_order(self, **kwargs):
+            with lock:
+                calls["orders"] += 1
+            barrier.wait(timeout=5)
+            return OrderObservation(
+                order_id,
+                OrderLifecycleStatus.FILLED,
+                "2",
+                "2",
+                "dhan-1",
+            )
+
+        def fetch_broker_position(self, **kwargs):
+            return None
+
+        def fetch_broker_account(self, **kwargs):
+            return None
+
+    provider = ConcurrentProvider()
+
+    def make_runner(uow):
+        return PendingExecutionRecoveryRunner(
+            unit_of_work=uow,
+            provider_resolver=lambda _: provider,
+            local_order_provider=lambda recovered: OrderObservation(
+                recovered.order.client_order_id,
+                OrderLifecycleStatus.FILLED,
+                "2",
+                "2",
+                "dhan-1",
+            ),
+            fill_provider=lambda recovered, _: (_fill(recovered),),
+            evidence_policy=DefinitiveEvidencePolicy.order_only(),
+        )
+
+    runners = (make_runner(unit_of_work_a), make_runner(unit_of_work_b))
+    reports: list[object | None] = [None, None]
+
+    def run(index):
+        reports[index] = runners[index].run(checked_at=CHECKED_AT)
+
+    threads = [Thread(target=run, args=(0,)), Thread(target=run, args=(1,))]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        assert all(not thread.is_alive() for thread in threads)
+        assert calls["orders"] == 2
+        assert sum(report.resolved for report in reports if report is not None) == 1
+        assert sum(report.failed for report in reports if report is not None) == 1
+        with database_a.transaction() as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM receipts WHERE client_order_id = ?",
+                (str(order_id),),
+            ).fetchone()[0]
+        assert count == 1
+        assert len(SqliteIdempotencyStore(database_a).list_pending_contexts()) == 0
+    finally:
+        database_a.close()
         database_b.close()
 
 
