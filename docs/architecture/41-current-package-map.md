@@ -13,7 +13,11 @@ src/quantx/
 ├── execution/
 ├── integrations/
 ├── research/
-└── persistence/
+├── persistence/
+├── india/
+├── plugins/
+├── ports/
+└── strategy/
 ```
 
 These are current implementation areas; this is not a claim that every long-term package boundary has already been materialized.
@@ -30,7 +34,8 @@ execution/
 ├── lifecycle.py
 ├── dispatch.py
 ├── paper.py
-└── paper_session.py
+├── paper_session.py
+└── order_lifecycle.py
 
 application/
 ├── reconciliation.py
@@ -39,6 +44,15 @@ application/
 ```
 
 The exact tree may evolve incrementally. Ownership of invariants matters more than directory symmetry.
+
+### Lifecycle distinction
+
+There are two deliberately different lifecycle concepts:
+
+- `execution/order_lifecycle.py` is a small event/state-transition model for explicit lifecycle events, including uncertain `UNKNOWN` outcomes.
+- `execution/receipts/lifecycle.py` is the authoritative order-level aggregate reconstructed from immutable execution receipts and is the source used for continuation/recovery decisions.
+
+They should not be merged merely because both contain the word `lifecycle`; they operate at different abstraction boundaries.
 
 ## Long-term target organization
 
