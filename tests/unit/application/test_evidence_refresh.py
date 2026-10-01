@@ -84,8 +84,8 @@ def _order(
     *,
     filled: str = "2",
     broker_order_id: str | None = "dhan-1",
-    account: str | None = None,
-    connection: str | None = None,
+    account: str | None = "acct-1",
+    connection: str | None = "conn-1",
 ) -> OrderObservation:
     return OrderObservation(
         order_id,
@@ -481,7 +481,7 @@ def test_live_recovery_rejects_unscoped_broker_order() -> None:
     outcome = refresher.refresh(
         _receipt(order_id),
         local_order=_order(order_id),
-        broker_order=_order(order_id),
+        broker_order=_order(order_id, account=None, connection=None),
         local_position=_local_position(),
         broker_position=_position(),
         local_account=_account(source=StateSource.PAPER),
@@ -598,7 +598,7 @@ def test_default_policy_requires_scoped_broker_order_for_definitive() -> None:
     outcome = refresher.refresh(
         _receipt(order_id),
         local_order=_order(order_id),
-        broker_order=_order(order_id),
+        broker_order=_order(order_id, account=None, connection=None),
         local_position=_local_position(),
         broker_position=_position(),
         local_account=_account(source=StateSource.PAPER),

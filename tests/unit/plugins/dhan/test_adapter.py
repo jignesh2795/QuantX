@@ -1,9 +1,12 @@
 from dataclasses import replace
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
+from quantx.application.pending_recovery import PendingRecoveryRun
+from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
     ExecutionContext,
@@ -92,6 +95,16 @@ def _request(
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
     )
+
+
+def _started_runtime() -> ApplicationRuntime:
+    class NoopRecovery:
+        def run(self, *, checked_at=None) -> PendingRecoveryRun:
+            return PendingRecoveryRun()
+
+    runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
+    runtime.start(checked_at=datetime(2026, 1, 1, tzinfo=UTC))
+    return runtime
 
 
 def _adapter(transport: InMemoryDhanTransport | None = None) -> DhanBrokerAdapter:
@@ -313,6 +326,7 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
         result = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            application_runtime=_started_runtime(),
         ).execute(_request(), broker=adapter)
     finally:
         database.close()

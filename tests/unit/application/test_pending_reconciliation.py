@@ -112,8 +112,23 @@ def _request() -> ApprovedExecutionRequest:
     )
 
 
-def _observation(order_id, status, *, filled="0"):
-    return OrderObservation(order_id, status, "2", filled, "dhan-1")
+def _observation(
+    order_id,
+    status,
+    *,
+    filled="0",
+    account: str | None = "acct-1",
+    connection: str | None = "conn-1",
+):
+    return OrderObservation(
+        order_id,
+        status,
+        "2",
+        filled,
+        "dhan-1",
+        None if account is None else AccountId(account),
+        None if connection is None else BrokerConnectionId(connection),
+    )
 
 
 def _fill(request, quantity="2"):
