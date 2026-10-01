@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Callable
 
 import pytest
 
@@ -37,7 +37,7 @@ from quantx.plugins.reference_broker import (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _BrokerContractCase:
     name: str
     factory: Callable[[], BrokerPort]
