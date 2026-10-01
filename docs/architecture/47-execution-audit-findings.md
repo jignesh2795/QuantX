@@ -115,7 +115,7 @@ Second, the LIVE path had a check-to-submit TOCTOU window: `TradingGate.allow()`
 
 These changes preserve the existing two-scope database rule: no database transaction spans the broker call. The gate permit is an independent in-process synchronization boundary.
 
-Regression coverage on the hardening branch adds unstarted-runtime rejection, final authorization under a blocked gate, and the concurrent block/submission ordering invariant. Independent local full-suite validation remains required before calling this finding resolved.
+Regression coverage on the hardening branch adds unstarted-runtime rejection, final authorization under a blocked gate, and the concurrent block/submission ordering invariant. Independent local full-suite validation was completed during the PR review: Claude's sandbox run reached 813 passed tests after the affected fixtures were aligned with the new runtime/evidence contracts. The merged mainline contains those equivalent test fixes plus an additional explicit unscoped negative-case correction. GitHub Actions is not used as validation evidence while billing is disabled.
 
 ## Remaining recovery-boundary questions
 
