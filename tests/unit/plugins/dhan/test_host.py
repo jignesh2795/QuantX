@@ -37,6 +37,7 @@ from quantx.integrations.reconciliation import (
 )
 from quantx.persistence.sqlite import SqliteReceiptRepository
 from quantx.plugins.dhan.host import DhanHostConfig, DhanHostRuntime, build_dhan_host_runtime
+from quantx.plugins.dhan.market_data import DhanMarketDataAdapter
 from quantx.plugins.dhan.models import DhanCandleSnapshot, DhanCredentials, DhanInstrumentRef
 from quantx.plugins.dhan.transport import DhanSDKTransport, InMemoryDhanTransport
 
@@ -222,7 +223,8 @@ def test_host_wires_market_data_adapter_to_same_transport(tmp_path) -> None:
             end=CHECKED_AT,
         )
 
-        assert host.market_data._transport is host.transport
+        assert isinstance(host.market_data, DhanMarketDataAdapter)
+        assert host.transport is transport
         assert len(candles) == 1
         assert candles[0].instrument == _instrument().instrument_id
         assert candles[0].close == Decimal("100")
