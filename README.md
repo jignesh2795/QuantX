@@ -46,9 +46,9 @@ The canonical documentation entry points are:
 
 The project follows research → compare → decide → document → build.
 
-## Windows development with uv
+## Development with uv
 
-QuantX uses **uv** as its canonical Python environment and dependency manager. The project is pinned to Python 3.12 via `.python-version`; uv can install the pinned interpreter when it is not already available. uv supports Windows and project environments directly.
+QuantX uses **uv** as its canonical Python environment and dependency manager. The project is pinned to Python 3.12 via `.python-version`; uv can install the pinned interpreter when it is not already available. uv is the cross-platform project workflow. The full contributor environment installs the existing optional Dhan integration extra so the complete test suite, including the SDK transport construction test, runs without manual dependency installation. `scripts/setup.ps1` is the Windows convenience wrapper.
 
 Install uv on Windows, for example with WinGet:
 
@@ -67,7 +67,7 @@ Or run the setup steps directly:
 
 ```powershell
 uv python install
-uv sync --dev
+uv sync --dev --extra dhan
 uv lock
 uv run pytest -q
 ```
@@ -79,6 +79,7 @@ uv run pytest tests/unit/execution/paper -q
 uv run python scripts/test_execution.py
 uv run python scripts/test_fast.py
 uv run python scripts/test_all.py
+uv run mypy
 ```
 
 After dependency changes, regenerate the lockfile with `uv lock` and commit `uv.lock` so the environment is reproducible. uv's project workflow uses `uv sync` and `uv run`, with development dependencies defined in the `dev` dependency group.
