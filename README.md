@@ -4,7 +4,7 @@ Open-source, modular, event-driven trading infrastructure and platform for India
 
 ## Status
 
-Architecture and research phase. No production trading implementation has been committed yet.
+v0.1 implementation is active. The repository now contains domain, application, execution, research, India-market, integration, plugin, strategy, port, and persistence foundations. The active implementation track is execution integrity, reconciliation, and recovery safety; UI, AI, and broader distributed services remain future capabilities.
 
 ## Design direction
 
@@ -33,6 +33,52 @@ The initial product focus is Indian markets, including equities, futures and opt
 9. UI and AI consume the engine through stable APIs instead of defining the core.
 10. Local-first deployment with optional distributed operation.
 
-## Roadmap
+## Documentation map
 
-The project is following a research → compare → decide → document → build process. Detailed architecture and roadmap documents will be added on the architecture branch before implementation begins.
+The canonical documentation entry points are:
+
+- `docs/STATUS.md` — current implementation and validation baseline.
+- `docs/architecture/README.md` — architecture records and current canonical boundaries.
+- `docs/implementation/README.md` — implementation discipline and build sequence.
+- `docs/roadmap/README.md` — future milestones and decision gates.
+- `docs/decisions/README.md` — durable architecture decisions.
+- `docs/research/README.md` — external-project research and technology evaluation.
+
+The project follows research → compare → decide → document → build.
+
+## Windows development with uv
+
+QuantX uses **uv** as its canonical Python environment and dependency manager. The project is pinned to Python 3.12 via `.python-version`; uv can install the pinned interpreter when it is not already available. uv supports Windows and project environments directly.
+
+Install uv on Windows, for example with WinGet:
+
+```powershell
+winget install --id=astral-sh.uv -e
+```
+
+From the repository root:
+
+```powershell
+.\scripts\setup.ps1
+uv run pytest -q
+```
+
+Or run the setup steps directly:
+
+```powershell
+uv python install
+uv sync --dev
+uv lock
+uv run pytest -q
+```
+
+Useful local checks:
+
+```powershell
+uv run pytest tests/unit/execution/paper -q
+uv run python scripts/test_execution.py
+uv run python scripts/test_fast.py
+uv run python scripts/test_all.py
+```
+
+After dependency changes, regenerate the lockfile with `uv lock` and commit `uv.lock` so the environment is reproducible. uv's project workflow uses `uv sync` and `uv run`, with development dependencies defined in the `dev` dependency group.

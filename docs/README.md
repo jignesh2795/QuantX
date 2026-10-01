@@ -1,28 +1,38 @@
 # QuantX Documentation
 
-The documentation is being developed before production implementation.
+**Start here.** Four canonical entry points organize the repository docs.
 
-## Architecture track
+## Current state
 
-The architecture branch will define:
+See `STATUS.md` for implementation status and the current validation baseline.
 
-- system architecture and dependency rules
-- domain and event models
-- execution semantics across backtest, sandbox, paper and live
-- ports, adapters, capabilities and plugins
-- Indian-market and F&O domain requirements
-- data and research architecture
-- control-plane and API boundaries
-- security and deployment model
+## Architecture
 
-## Roadmap track
+See `architecture/README.md` for the architecture map and the authoritative design documents.
 
-The roadmap will consolidate the master milestones, feature priorities, plugin ecosystem and research decisions.
+## Implementation
 
-## Decision process
+See `implementation/README.md` for build order, canonical contracts, and implementation discipline.
 
-QuantX follows:
+## Roadmap
 
-Research → Compare → Decide → Document → Build
+See `roadmap/README.md` for milestones, priorities, decision gates, and plugin evolution.
 
-Existing projects are integrated or reused where appropriate instead of being rebuilt unnecessarily.
+## Decisions
+
+See `decisions/README.md` for durable architectural decisions.
+
+## Research
+
+See `research/README.md` for external-project research and technology evaluation.
+
+## Documentation rules
+
+- One source of truth: update an existing canonical document instead of creating duplicates.
+- Architecture decisions belong in `docs/decisions/`.
+- Implementation sequencing belongs in `docs/implementation/`.
+- Future work belongs in `docs/roadmap/`.
+- Temporary execution notes do not belong in the permanent architecture set.
+- Historical design records may remain when useful, but should not be treated as current policy unless linked from a canonical document.
+
+Research → Compare → Decide → Document → Build.

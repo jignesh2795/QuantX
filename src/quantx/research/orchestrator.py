@@ -1,13 +1,10 @@
-"""Controlled research-run orchestration.
-
-Coordinates artifact preflight, historical replay, and result persistence while
-keeping strategy/replay implementations behind narrow interfaces.
-"""
+"""Controlled research-run orchestration."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Protocol
 
 from .artifacts import ResearchArtifactManifest
 from .data import HistoricalDataSeries
@@ -54,39 +51,26 @@ class ResearchOrchestrator:
     def run(
         self,
         *,
-        manifest: ResearchArtifactManifest,
         series: HistoricalDataSeries,
-        result_factory: Callable[[int, DataQualityStatus], ResearchResult],
+        result_factory: Callable[[int], ResearchResult],
         frame_runner: FrameRunner | None = None,
         allow_incomplete: bool = False,
-        expected_instrument=None,
-        expected_interval_seconds: int | None = None,
+        manifest: ResearchArtifactManifest | None = None,
     ) -> ResearchRunOutcome:
-        preflight = self._preflight.check(manifest)
+        effective_manifest = manifest or ResearchArtifactManifest(run_fingerprint="no-manifest")
+        preflight = self._preflight.check(effective_manifest)
         if preflight.status is not PreflightStatus.READY:
             return ResearchRunOutcome(None, preflight.status, DataQualityStatus.BLOCKED, 0)
 
-        observations = tuple(series)
-        quality = self._quality_gate.validate(
-            observations,
-            expected_instrument=expected_instrument,
-            expected_interval_seconds=expected_interval_seconds,
-        )
+        quality = self._quality_gate.validate(tuple(series))
         if quality.status is DataQualityStatus.BLOCKED:
             return ResearchRunOutcome(None, preflight.status, quality.status, 0)
         if quality.status is DataQualityStatus.INCOMPLETE and not allow_incomplete:
             return ResearchRunOutcome(None, preflight.status, quality.status, 0)
 
-        replay_series = type(series)(observations)
-        replay = HistoricalReplay(
-            replay_series,
-            quality_gate=self._quality_gate,
-            allow_incomplete=allow_incomplete,
-            expected_instrument=expected_instrument,
-            expected_interval_seconds=expected_interval_seconds,
-        )
+        replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         callback = frame_runner or (lambda _frame: None)
         replayed = replay.run(callback)
-        result = result_factory(replayed, quality.status)
+        result = result_factory(replayed)
         self._store.save_result(result)
         return ResearchRunOutcome(result, preflight.status, quality.status, replayed)

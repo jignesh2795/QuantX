@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
-from .data import HistoricalObservation, HistoricalDataSeries
-from .quality import DataQualityStatus, HistoricalDataQualityGate
+from .data import HistoricalDataSeries, HistoricalObservation
+from .point_in_time import PointInTimeContext, PointInTimeContextResolver
+from .quality import DataQualityReport, DataQualityStatus, HistoricalDataQualityGate
+from quantx.domain.value_objects import InstrumentId
+
+HistoricalDataQualityValidator = HistoricalDataQualityGate
 
 
 @dataclass(frozen=True, slots=True)
 class ReplayFrame:
     observation: HistoricalObservation
     index: int
+    point_in_time: PointInTimeContext | None = None
+
+    @property
+    def executable(self) -> bool | None:
+        return None if self.point_in_time is None else self.point_in_time.executable
 
 
 class ReplayBlockedError(ValueError):
@@ -20,29 +29,32 @@ class ReplayBlockedError(ValueError):
 
 
 class HistoricalReplay:
-    """Replay observations only after enforcing the historical data-quality gate."""
+    """Replay observations only after enforcing data quality and optional point-in-time rules."""
 
     def __init__(
         self,
         series: HistoricalDataSeries,
         *,
+        validator: HistoricalDataQualityGate | None = None,
         quality_gate: HistoricalDataQualityGate | None = None,
         allow_incomplete: bool = False,
-        expected_instrument=None,
+        point_in_time_resolver: PointInTimeContextResolver | None = None,
+        expected_instrument: InstrumentId | None = None,
         expected_interval_seconds: int | None = None,
     ) -> None:
         self._series = series
-        self._quality_gate = quality_gate or HistoricalDataQualityGate()
+        self._validator = validator or quality_gate or HistoricalDataQualityGate()
         self._allow_incomplete = allow_incomplete
+        self._point_in_time_resolver = point_in_time_resolver
         self._expected_instrument = expected_instrument
         self._expected_interval_seconds = expected_interval_seconds
-        self._quality = None
+        self._quality: DataQualityReport | None = None
 
     @property
-    def quality(self):
+    def quality(self) -> DataQualityReport:
         if self._quality is None:
             observations = tuple(self._series)
-            self._quality = self._quality_gate.validate(
+            self._quality = self._validator.validate(
                 observations,
                 expected_instrument=self._expected_instrument,
                 expected_interval_seconds=self._expected_interval_seconds,
@@ -60,10 +72,16 @@ class HistoricalReplay:
 
     def frames(self) -> tuple[ReplayFrame, ...]:
         self._ensure_replayable()
-        return tuple(
-            ReplayFrame(observation=item, index=index)
-            for index, item in enumerate(self._series)
-        )
+        frames: list[ReplayFrame] = []
+        for index, item in enumerate(self._series):
+            context = None
+            if self._point_in_time_resolver is not None:
+                context = self._point_in_time_resolver.resolve(
+                    str(item.snapshot.instrument),
+                    item.snapshot.timestamp,
+                )
+            frames.append(ReplayFrame(observation=item, index=index, point_in_time=context))
+        return tuple(frames)
 
     def run(self, callback: Callable[[ReplayFrame], None]) -> int:
         count = 0

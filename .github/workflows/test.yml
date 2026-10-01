@@ -1,0 +1,31 @@
+name: tests
+
+on:
+  push:
+    branches: ["main", "feat/**", "fix/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.19"
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install
+      - name: Sync project environment
+        run: uv sync --locked --dev --extra dhan
+      - name: Run Ruff lint checks
+        run: uv run ruff check src/quantx/plugins/dhan tests/unit/plugins/dhan
+      - name: Check Ruff formatting
+        run: uv run ruff format --check src/quantx/plugins/dhan tests/unit/plugins/dhan
+      - name: Run Dhan plugin tests
+        run: uv run pytest tests/unit/plugins/dhan -q
+      - name: Run paper execution tests
+        run: uv run pytest tests/unit/execution/paper -q
+      - name: Run full test suite
+        run: uv run pytest -q

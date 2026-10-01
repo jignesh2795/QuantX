@@ -1,10 +1,15 @@
-"""Market-session and calendar primitives for point-in-time research."""
+"""Market-session classification for historical research and replay.
+
+Calendars are deliberately separate from normalization so venue-specific
+session rules can be supplied by plugins without leaking into the core.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, tzinfo
+from datetime import datetime, time
 from enum import StrEnum
+from zoneinfo import ZoneInfo
 
 
 class SessionStatus(StrEnum):
@@ -16,49 +21,65 @@ class SessionStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class SessionWindow:
-    """A timezone-aware tradable/session window."""
-
-    open_at: datetime
-    close_at: datetime
-    status: SessionStatus = SessionStatus.OPEN
-
-    def __post_init__(self) -> None:
-        if self.open_at.tzinfo is None or self.open_at.utcoffset() is None:
-            raise ValueError("open_at must be timezone-aware")
-        if self.close_at.tzinfo is None or self.close_at.utcoffset() is None:
-            raise ValueError("close_at must be timezone-aware")
-        if self.close_at <= self.open_at:
-            raise ValueError("close_at must be after open_at")
+class SessionClassification:
+    timestamp: datetime
+    status: SessionStatus
+    timezone: str
+    calendar_version: str
+    reason: str = ""
 
 
 class MarketCalendar:
-    """Calendar interface used by normalization/replay without hard-coding a market."""
+    """Protocol-like base for market calendar implementations."""
 
-    def session_for(self, timestamp: datetime) -> SessionWindow | None:
+    version: str
+
+    def classify(self, timestamp: datetime) -> SessionClassification:
         raise NotImplementedError
 
 
 @dataclass(frozen=True, slots=True)
 class FixedDailySessionCalendar(MarketCalendar):
-    """Small deterministic calendar useful for tests and simple venues.
+    """Deterministic development calendar with one daily open interval."""
 
-    Production exchanges should provide dedicated market plugins with holidays,
-    auctions, halts, early closes, expiry rules, and historical calendar versions.
-    """
-
-    timezone: tzinfo
+    timezone: str
     open_time: time
     close_time: time
+    version: str = "fixed-daily-v1"
 
-    def session_for(self, timestamp: datetime) -> SessionWindow | None:
+    def __post_init__(self) -> None:
+        if not self.timezone.strip():
+            raise ValueError("timezone must not be empty")
+        try:
+            ZoneInfo(self.timezone)
+        except KeyError as exc:
+            raise ValueError(f"unknown timezone: {self.timezone}") from exc
+        if self.open_time >= self.close_time:
+            raise ValueError("open_time must be before close_time")
+
+    def classify(self, timestamp: datetime) -> SessionClassification:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
-        local = timestamp.astimezone(self.timezone)
+        local = timestamp.astimezone(ZoneInfo(self.timezone))
+        current = local.timetz().replace(tzinfo=None)
         if local.weekday() >= 5:
-            return None
-        start = datetime.combine(local.date(), self.open_time, self.timezone)
-        end = datetime.combine(local.date(), self.close_time, self.timezone)
-        if not (start <= local <= end):
-            return None
-        return SessionWindow(start, end)
+            status = SessionStatus.CLOSED
+            reason = "outside configured session: weekend"
+        else:
+            status = (
+                SessionStatus.OPEN
+                if self.open_time <= current < self.close_time
+                else SessionStatus.CLOSED
+            )
+            reason = (
+                "within configured session"
+                if status is SessionStatus.OPEN
+                else "outside configured session"
+            )
+        return SessionClassification(
+            timestamp=timestamp,
+            status=status,
+            timezone=self.timezone,
+            calendar_version=self.version,
+            reason=reason,
+        )
