@@ -45,7 +45,43 @@ class ExecutionTransactionCoordinator:
             None,
         )
 
+        preflight = self._preconditions(request)
+        if not preflight.can_execute:
+            return TransactionResult(preflight.status, reasons=preflight.reasons)
+
+        fingerprint = request_fingerprint(request)
+        client_order_id: UUID = request.order.client_order_id
+
         if mode is ExecutionMode.LIVE:
+            # LIVE is inspection-only here. Submission remains exclusively owned
+            # by ExecutionOrchestrator; this lane preserves reconciliation and
+            # idempotency inspection without reserving or submitting.
+            decision = self._idempotency.check(client_order_id, fingerprint)
+            if decision.existing_receipt_id is not None:
+                if self._receipt_repository is None:
+                    return TransactionResult(
+                        PreconditionsStatus.READY,
+                        reasons=(f"idempotent duplicate; receipt={decision.existing_receipt_id}",),
+                    )
+                authoritative = self._receipt_repository.get(decision.existing_receipt_id)
+                if authoritative is None:
+                    return TransactionResult(
+                        PreconditionsStatus.UNKNOWN,
+                        reasons=(
+                            "persisted receipt is missing for a completed reservation; "
+                            "reconciliation is required",
+                        ),
+                    )
+                return TransactionResult(
+                    PreconditionsStatus.READY,
+                    receipt=authoritative,
+                    reasons=(f"idempotent duplicate; receipt={decision.existing_receipt_id}",),
+                )
+            if decision.reservation_pending:
+                return TransactionResult(
+                    PreconditionsStatus.UNKNOWN,
+                    reasons=("submission outcome is unknown; reconciliation is required",),
+                )
             return TransactionResult(
                 PreconditionsStatus.BLOCKED,
                 reasons=(
@@ -54,12 +90,6 @@ class ExecutionTransactionCoordinator:
                 ),
             )
 
-        preflight = self._preconditions(request)
-        if not preflight.can_execute:
-            return TransactionResult(preflight.status, reasons=preflight.reasons)
-
-        fingerprint = request_fingerprint(request)
-        client_order_id: UUID = request.order.client_order_id
         decision = self._idempotency.reserve_or_get(client_order_id, fingerprint)
         if decision.existing_receipt_id is not None:
             if self._receipt_repository is not None:
