@@ -5,11 +5,11 @@
 
 The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution recovery and continuation safety.
 
-**Last fully validated reference:** `feat/continuation-claim-recovery-state-v1` at `e4d85ae6e4d61fe61bfbeba1c838fb7a428d1c9c`.
+**Latest externally validated recovery milestone:** `feat/production-recovery-entrypoint` at `efa4798a76d3576f31b5a2127381fb990c6a0915` with 665 passed, 0 failed, 0 errors, 0 skipped. The earlier 635-test checkpoint remains the last independently documented baseline on the pre-entrypoint recovery branch.
 
 ## Validation baseline
 
-The current fully validated test evidence is **635 passed, 0 failed, 0 errors, 0 skipped** at `e4d85ae6e4d61fe61bfbeba1c838fb7a428d1c9c`.
+The current externally reported validation evidence for the production-recovery stack is **665 passed, 0 failed, 0 errors, 0 skipped** at `efa4798a76d3576f31b5a2127381fb990c6a0915`. This validation was run externally with OpenCode on `feat/production-recovery-entrypoint`; changed-file Ruff and `git diff --check` were clean. Repo-wide Ruff still reports 272 pre-existing errors. No production-broker end-to-end execution was claimed.
 
 This checkpoint validates the LIVE durability hardening, pending-recovery corruption isolation, and explicit startup lifecycle: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; pending LIVE reservation context is persisted and reconstructible across a simulated process restart; malformed pending contexts are isolated as per-context recovery failures; the default all-required recovery path can resolve with local position/account evidence; concurrent recovery passes resolve a pending reservation at most once; and an explicit application runtime runs pending recovery once before startup completes. The 635-test suite completed with zero failures, errors, or skipped tests.
 
@@ -51,7 +51,7 @@ Recent continuation/recovery work includes:
 
 Execution integrity and reconciliation remain the active track. The repository now covers idempotency, execution receipts, order lifecycle reconstruction, account/connection identity, broker-order reconciliation, bounded evidence refresh, uncertain-submission recovery, partial-fill continuation/recovery, durable trading-gate state, durable pending LIVE execution context, malformed-context isolation, explicit recovery-backed application startup, fail-closed handling of broker-returned UNKNOWN LIVE receipts, and concrete production startup composition with identity-bound Dhan recovery evidence.
 
-`PendingExecutionRecoveryRunner` remains a deterministic application service with no broker-submit capability. `ApplicationRuntime` now provides the explicit one-shot startup lifecycle seam: it requires a recovery hook, runs it synchronously before marking the runtime started, rejects repeated starts, and leaves startup failed if recovery infrastructure raises. The repository still does not contain a concrete production process entrypoint that constructs the runtime and wires real broker/account/position providers, so this is a validated lifecycle contract rather than a claim of end-to-end deployed startup wiring.
+`PendingExecutionRecoveryRunner` remains a deterministic application service with no broker-submit capability. `ApplicationRuntime` now provides the explicit one-shot startup lifecycle seam: it requires a recovery hook, runs it synchronously before marking the runtime started, rejects repeated starts, and leaves startup failed if recovery infrastructure raises. `ProductionRuntime` now provides the concrete process-composition boundary: it owns the durable SQLite lifecycle, accepts explicit registry configuration, delegates to the recovery-backed `ApplicationRuntime`, and closes persistence on composition failure. It intentionally does not construct credentials, broker transports, or deployment-specific services. Therefore this is validated production composition, not a claim of an executable CLI/service deployment or real-broker end-to-end startup.
 
 The continuation implementation deliberately remains persistence-agnostic: it consumes authoritative receipt/reconciliation contracts and does not introduce a database or broker network dependency by itself.
 
@@ -61,6 +61,6 @@ Architecture documents distinguish implemented/current behavior, target architec
 
 ## Next direction
 
-Before adding UI, AI, or a broad broker matrix, keep the current package boundaries stable and finish the final adversarial review of the LIVE/recovery boundary. The production startup composition is now implemented and validated locally: `build_application_runtime()` wires the durable `UnitOfWork`, `AccountConnectionRegistry`-based endpoint resolution, read-only Dhan recovery evidence, and one-shot `ApplicationRuntime.start()` with no broker-submit path. Remaining work is a fresh adversarial review of every compatibility/legacy route that could reach broker transport; no real broker end-to-end execution is claimed and no GitHub CI run is cited as evidence.
+Before adding UI, AI, or a broad broker matrix, keep the current package boundaries stable. The LIVE/recovery boundary and production composition are implemented and externally validated. The next narrow architectural step is Issue #22: define the host/deployment integration boundary that can turn `ProductionRuntime` into an actual process entrypoint without moving credentials, broker construction, or CLI/server concerns into the application/domain layers. Do not implement a generic deployment mechanism until that host contract is documented.
 
 `uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change. GitHub Actions runs observed for this branch fail before executing workflow steps, so they are not treated as code-validation evidence.
