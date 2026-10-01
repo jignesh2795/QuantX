@@ -327,7 +327,10 @@ def test_live_blocks_unhealthy_broker() -> None:
         ExecutionMode.LIVE,
         connection_id=BrokerConnectionId("conn-1"),
     )
-    result = ExecutionOrchestrator(application_runtime=_started_runtime(), trading_gate=_durable_gate()).execute(
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        trading_gate=_durable_gate(),
+    ).execute(
         request,
         broker=FakeBroker(healthy=False),
     )
@@ -346,7 +349,10 @@ def test_live_blocks_missing_required_capability() -> None:
             }
         ),
     )
-    result = ExecutionOrchestrator(application_runtime=_started_runtime(), trading_gate=_durable_gate()).execute(
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        trading_gate=_durable_gate(),
+    ).execute(
         request, broker=FakeBroker()
     )
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -362,7 +368,10 @@ def test_live_blocks_broker_instrument_market_mismatch() -> None:
         _instrument(),
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"),
     )
-    result = ExecutionOrchestrator(application_runtime=_started_runtime(), trading_gate=_durable_gate()).execute(
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        trading_gate=_durable_gate(),
+    ).execute(
         request,
         broker=FakeBroker(instrument=wrong_market_instrument),
     )
