@@ -103,7 +103,7 @@ The legacy `ExecutionTransactionCoordinator` no longer creates a new LIVE idempo
 
 Regression coverage includes simulated process restart, successful resolution through reconciliation, failure isolation, pending-state preservation, and the invariant that reconciliation does not expose a submit/broker execution parameter. The current full suite is 635 passed, 0 failed, 0 errors, 0 skipped.
 
-This is an application hook, not a startup daemon: no runtime in the repository automatically invokes it yet.
+This remains a one-shot application hook, not a startup daemon. ProductionRuntime now composes the durable store, recovery resolver, runner, and ApplicationRuntime; the host is responsible for explicitly calling start() before serving execution.
 
 ## Remaining recovery-boundary questions
 
@@ -117,6 +117,19 @@ The concrete production startup composition for pending LIVE recovery is impleme
 
 Regression coverage proves exact endpoint resolution, wrong-account/connection/broker rejection, multi-account selection by persisted connection identity, zero broker submissions during recovery, authoritative resolution through existing reconciliation, non-definitive evidence remaining pending, per-context failure isolation, one-shot startup semantics, and process-recreation recovery against the same durable store. No real broker end-to-end execution is claimed; recovery is validated with the in-memory Dhan transport and SQLite file databases, and no GitHub CI run is claimed as evidence.
 
+## Final adversarial LIVE/broker reachability audit — completed
+
+The final boundary audit found no alternate LIVE submission path in the current stack.
+
+- ExecutionOrchestrator._execute_live_transactional() remains the sole application-owned LIVE submission path and requires durable UnitOfWork plus an explicitly configured durable TradingGate.
+- ExecutionDispatcher rejects LIVE before touching LiveExecutionPort; BrokerExecutionAdapter also rejects direct LIVE use.
+- ExecutionTransactionCoordinator is LIVE inspection-only: it may read completed idempotency/receipt state or return UNKNOWN/BLOCKED, but it never reserves or calls submission.
+- ExecutionContinuationService routes dispatch through ExecutionDispatcher; therefore continuation cannot bypass the LIVE boundary.
+- Dhan's concrete adapter is the only broker submission implementation in the current plugin surface audited here. Recovery uses only order_detail, account_state, and position_states; the Dhan transport submit/cancel methods are not exposed by the recovery provider.
+- RecoveryEndpointResolver binds recovery to the exact persisted account/connection identity and rejects missing, disabled, mismatched, or drifted registrations.
+- No new runtime/router/registry layer is justified by this audit, and no credentials or vendor transport construction belongs in application/domain code.
+
+Validation evidence remains separate from CI evidence: the branch has the externally reported 665-test OpenCode validation, while the corresponding GitHub Actions run had failed without retrievable job logs and was re-queued for verification. No production-broker end-to-end result is being inferred from that run.
 ## Next action
 
-Do not restructure these modules further. Run a focused adversarial audit of the pending-recovery runner and final LIVE boundary before adding UI, AI, or a broad broker matrix. Concentrate on provider/account/connection binding, concurrent recovery, malformed persistence, repeated recovery after resolution, default all-required evidence completeness, no-submit guarantees, and every compatibility/legacy route that could reach a broker transport.
+Do not restructure these modules further. Treat the execution/recovery boundary as frozen unless a new concrete invariant violation is demonstrated. The remaining work is stack integration and host/deployment work; UI, AI, and a broad broker matrix should follow only after this foundation is integrated cleanly.
