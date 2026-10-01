@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 
@@ -54,9 +55,9 @@ class ProductionRuntime:
     registry: AccountConnectionRegistry
     application: ApplicationRuntime
 
-    def start(self) -> ApplicationStartupResult:
+    def start(self, *, checked_at: datetime | None = None) -> ApplicationStartupResult:
         """Run mandatory pending recovery before the process becomes ready."""
-        return self.application.start()
+        return self.application.start(checked_at=checked_at)
 
     @property
     def started(self) -> bool:
