@@ -23,6 +23,8 @@ from quantx.execution.trading_gate import TradingGate
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 
+from .runtime import ApplicationRuntime
+
 
 class ExecutionDispatchStatus(StrEnum):
     EXECUTED = "EXECUTED"
