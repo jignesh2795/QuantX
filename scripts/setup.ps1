@@ -12,6 +12,6 @@ if (-not $NoPythonInstall) {
     uv python install
 }
 
-uv sync --dev
+uv sync --dev --extra dhan
 uv run python --version
 Write-Host "QuantX uv environment is ready."

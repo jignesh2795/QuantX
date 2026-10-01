@@ -14,6 +14,7 @@ from uuid import UUID
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
+from quantx.integrations.brokers import BrokerAdapter
 from quantx.integrations.reconciliation.account import AccountFinancialState
 from quantx.integrations.reconciliation.orders import OrderObservation
 from quantx.integrations.reconciliation.positions import PositionState
@@ -167,10 +168,17 @@ def _lifecycle_status(order_status: str) -> OrderLifecycleStatus:
 
 
 def build_dhan_recovery_provider(
-    adapter: DhanBrokerAdapter,
+    adapter: BrokerAdapter,
     request: PendingExecutionRecoveryRequest,
 ) -> DhanRecoveryEvidenceProvider:
-    """Bind a Dhan adapter to one persisted recovery request for evidence reads."""
+    """Bind a Dhan adapter to one persisted recovery request for evidence reads.
+
+    The application recovery boundary accepts the generic ``BrokerAdapter``
+    contract. This plugin factory validates the concrete Dhan adapter at the
+    plugin boundary before using Dhan-specific recovery capabilities.
+    """
+    if not isinstance(adapter, DhanBrokerAdapter):
+        raise TypeError("Dhan recovery requires a DhanBrokerAdapter")
     context = request.execution_context
     if context.broker_connection_id is None:
         raise ValueError("pending recovery requires a broker connection identity")

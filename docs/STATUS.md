@@ -7,6 +7,14 @@ The repository contains an implemented domain, execution, research, India-market
 
 **Latest externally validated recovery milestone:** `feat/production-recovery-entrypoint` at `efa4798a76d3576f31b5a2127381fb990c6a0915` with 665 passed, 0 failed, 0 errors, 0 skipped. The earlier 635-test checkpoint remains the last independently documented baseline on the pre-entrypoint recovery branch.
 
+## Developer validation audit — 2026-10-01
+
+A fresh validation of main at `8ed40520a7bfdefb978f4ef3747615a9a98d644c` established **807 passed tests after manually installing `dhanhq==2.2.0`**. A fresh `uv sync --dev` environment initially produced 806 passed and one failure because the Dhan SDK optional extra was not installed. This branch aligns the contributor setup with the existing `dhan` extra so the documented full-development environment is dependency-complete.
+
+The same audit found 268 repo-wide Ruff errors (181 auto-fixable), 76 files that would be reformatted by the formatter check, and 73 strict mypy errors across 15 files once the package typing invocation was run directly against `src/quantx`. These remain known validation debt and are not being mass-modified in this tooling-integrity slice. One concrete Dhan host typing defect was identified at `src/quantx/plugins/dhan/host.py`; the recovery factory is being widened to the generic `BrokerAdapter` contract with an explicit runtime Dhan type check.
+
+The audit is historical evidence for the pre-fix baseline. It must not be read as a claim that this branch has passed those gates yet.
+
 ## Validation baseline
 
 The current externally reported validation evidence for the production-recovery stack is **665 passed, 0 failed, 0 errors, 0 skipped** at `efa4798a76d3576f31b5a2127381fb990c6a0915`. This validation was run externally with OpenCode on `feat/production-recovery-entrypoint`; changed-file Ruff and `git diff --check` were clean. Repo-wide Ruff still reports 272 pre-existing errors. No production-broker end-to-end execution was claimed.

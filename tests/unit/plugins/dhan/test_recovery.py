@@ -180,6 +180,15 @@ def test_unknown_broker_status_maps_to_unknown_observation() -> None:
     assert observation.status is OrderLifecycleStatus.UNKNOWN
 
 
+def test_generic_broker_adapter_is_rejected_before_dhan_specific_access() -> None:
+    request = _recovery_request()
+
+    class GenericBrokerAdapter:
+        connection = _adapter().connection
+
+    with pytest.raises(TypeError, match="DhanBrokerAdapter"):
+        build_dhan_recovery_provider(GenericBrokerAdapter(), request)
+
 def test_binding_mismatch_rejected_at_construction() -> None:
     request = _recovery_request(account="acct-2")
 
