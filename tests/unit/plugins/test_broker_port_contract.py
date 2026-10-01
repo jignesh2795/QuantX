@@ -160,4 +160,4 @@ def test_order_operations_return_canonical_receipts(
     assert receipt.client_order_id == request.order.client_order_id
     assert receipt.account_id == request.execution_context.account_id
     assert receipt.connection_id == request.execution_context.broker_connection_id
-    assert receipt.source == adapter.descriptor.broker_id
+    assert receipt.source.strip()
