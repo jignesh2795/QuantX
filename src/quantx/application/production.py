@@ -11,22 +11,19 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import TracebackType
 
 from quantx.integrations.account_registry import AccountConnectionRegistry
 from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
 
+from .evidence_refresh import DefinitiveEvidencePolicy, RefreshPolicy
 from .pending_recovery import (
     FillProvider,
     LocalAccountProvider,
     LocalOrderProvider,
     LocalPositionProvider,
 )
-from .recovery_composition import (
-    DefinitiveEvidencePolicy,
-    RecoveryEvidenceFactory,
-    RefreshPolicy,
-    build_application_runtime,
-)
+from .recovery_composition import RecoveryEvidenceFactory, build_application_runtime
 from .runtime import ApplicationRuntime, ApplicationStartupResult
 
 RegistryConfigurator = Callable[[AccountConnectionRegistry], None]
@@ -72,7 +69,12 @@ class ProductionRuntime:
     def __enter__(self) -> ProductionRuntime:
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self.close()
 
 
