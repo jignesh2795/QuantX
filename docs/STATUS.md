@@ -3,9 +3,13 @@
 ## Current state
 **Phase:** v0.1 implementation / execution-integrity, recovery, and LIVE-control hardening.
 
-The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution recovery and continuation safety.
+The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution-integrity hardening, developer-validation integrity, and stack integration.
 
 **Latest externally validated recovery milestone:** `feat/production-recovery-entrypoint` at `efa4798a76d3576f31b5a2127381fb990c6a0915` with 665 passed, 0 failed, 0 errors, 0 skipped. The earlier 635-test checkpoint remains the last independently documented baseline on the pre-entrypoint recovery branch.
+
+## Post-PR #33 validation evidence
+
+The LIVE startup/readiness and trading-gate hardening merged in PR #33. Claude's local sandbox validation of the PR branch reached **813 passed tests, 0 failed** after aligning the affected fixtures with the new runtime/evidence contracts. Equivalent test fixes are included in the merged mainline, with an additional explicit unscoped negative-case correction. This is local validation evidence, not GitHub Actions evidence; Actions is not used as a repository gate while billing is disabled.
 
 ## Validation baseline
 
