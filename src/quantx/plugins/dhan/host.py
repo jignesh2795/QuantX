@@ -2,7 +2,7 @@
 
 This module composes validated boundaries for one concrete deployment: Dhan
 credentials/transport construction, exact account/connection registration,
-read-only Dhan recovery evidence, and the existing one-shot
+broker and market-data adapters, read-only Dhan recovery evidence, and the existing one-shot
 ``ProductionRuntime`` startup lifecycle.
 
 The host owns deployment concerns only. It performs no broker submission,
@@ -37,6 +37,7 @@ from quantx.integrations.account_registry import AccountConnectionRegistry, Regi
 from quantx.integrations.brokers import BrokerConnectionRef
 
 from .adapter import DhanBrokerAdapter
+from .market_data import DhanMarketDataAdapter
 from .models import DhanCredentials, DhanInstrumentRef
 from .recovery import build_dhan_recovery_provider
 from .transport import DhanSDKTransport, DhanTransport
@@ -83,6 +84,7 @@ class DhanHostRuntime:
     config: DhanHostConfig
     transport: DhanTransport
     adapter: DhanBrokerAdapter
+    market_data: DhanMarketDataAdapter
     runtime: ProductionRuntime
 
     @property
@@ -131,12 +133,17 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         _DHAN_BROKER_ID,
         config.market_context_id,
     )
+    instruments = {
+        instrument.instrument_id: (instrument, instrument_ref)
+        for instrument, instrument_ref in config.instruments
+    }
     adapter = DhanBrokerAdapter(
         _connection=connection,
-        _instruments={
-            instrument.instrument_id: (instrument, instrument_ref)
-            for instrument, instrument_ref in config.instruments
-        },
+        _instruments=instruments,
+        _transport=transport,
+    )
+    market_data = DhanMarketDataAdapter(
+        _instruments=instruments,
         _transport=transport,
     )
 
@@ -161,6 +168,7 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         config=config,
         transport=transport,
         adapter=adapter,
+        market_data=market_data,
         runtime=runtime,
     )
 
