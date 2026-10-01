@@ -77,7 +77,7 @@ class ExecutionTransactionCoordinator:
                     receipt=authoritative,
                     reasons=(f"idempotent duplicate; receipt={decision.existing_receipt_id}",),
                 )
-            if decision.reservation_pending:
+            if decision.reservation_pending and not decision.reservation_acquired:
                 return TransactionResult(
                     PreconditionsStatus.UNKNOWN,
                     reasons=("submission outcome is unknown; reconciliation is required",),
