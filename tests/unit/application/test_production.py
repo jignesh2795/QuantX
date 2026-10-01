@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from quantx.domain.value_objects import AccountId
 from quantx.application.production import (
     ProductionRuntimeConfig,
     build_production_runtime,
@@ -26,7 +27,7 @@ def test_build_production_runtime_uses_explicit_registry_configuration(tmp_path:
     )
     try:
         assert runtime.registry is configured[0]
-        assert runtime.registry.for_account("acct-1") == ()
+        assert runtime.registry.for_account(AccountId("acct-1")) == ()
         assert not runtime.started
     finally:
         runtime.close()
