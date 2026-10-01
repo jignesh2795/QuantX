@@ -11,6 +11,7 @@ from quantx.plugins import (
 
 from .adapter import DhanBrokerAdapter
 from .capabilities import DHAN_CAPABILITIES
+from .host import DhanHostConfig, DhanHostRuntime, build_dhan_host_runtime
 from .models import (
     DhanCredentials,
     DhanFundsSnapshot,
@@ -44,6 +45,8 @@ __all__ = [
     "DhanBrokerAdapter",
     "DhanCredentials",
     "DhanFundsSnapshot",
+    "DhanHostConfig",
+    "DhanHostRuntime",
     "DhanInstrumentRef",
     "DhanOrderRequest",
     "DhanOrderResponse",
@@ -55,6 +58,7 @@ __all__ = [
     "DHAN_CAPABILITIES",
     "DHAN_PLUGIN_DESCRIPTOR",
     "InMemoryDhanTransport",
+    "build_dhan_host_runtime",
     "build_dhan_recovery_provider",
     "register_dhan_broker",
 ]
