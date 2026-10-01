@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from quantx.domain.value_objects import AccountId
 from quantx.application.production import (
     ProductionRuntimeConfig,
     build_production_runtime,
 )
+from quantx.domain.value_objects import AccountId
 from quantx.integrations.account_registry import AccountConnectionRegistry
 
 
