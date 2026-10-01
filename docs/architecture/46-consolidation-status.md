@@ -15,7 +15,7 @@ Validation report: 594 passed, 0 failed, 0 errors, 0 skipped
 The documentation-sync commits following that validation do not claim to change production behavior.
 ```
 
-The active area is execution recovery and continuation safety.
+The active area is execution-integrity hardening, developer-validation integrity, and stack integration.
 
 ## Frozen architectural direction
 
