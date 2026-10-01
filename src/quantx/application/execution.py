@@ -51,6 +51,7 @@ class ExecutionOrchestrator:
         idempotency: IdempotencyStore | None = None,
         unit_of_work: UnitOfWork | None = None,
         trading_gate: TradingGate | None = None,
+        application_runtime: ApplicationRuntime | None = None,
         session_guard: SessionExecutionGuard | None = None,
     ) -> None:
         self._paper_executor = paper_executor
@@ -58,6 +59,7 @@ class ExecutionOrchestrator:
         self._unit_of_work = unit_of_work
         self._trading_gate = trading_gate or TradingGate()
         self._trading_gate_explicit = trading_gate is not None
+        self._application_runtime = application_runtime
         self._session_guard = session_guard
 
     def execute(
@@ -79,6 +81,16 @@ class ExecutionOrchestrator:
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason="live execution requires a durable TradingGate",
+                )
+            if self._application_runtime is None:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live execution requires the recovery-backed ApplicationRuntime",
+                )
+            if not self._application_runtime.started:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live execution requires a started ApplicationRuntime",
                 )
 
         if not self._trading_gate.allow():
@@ -263,15 +275,12 @@ class ExecutionOrchestrator:
         """
         fingerprint = request_fingerprint(request)
         client_order_id = request.order.client_order_id
+
+        # Completed duplicates and existing pending reservations never submit.
         with unit_of_work:
-            pending_context = PendingExecutionContext.from_request(request, fingerprint)
-            decision = unit_of_work.idempotency.reserve_or_get(
-                client_order_id,
-                fingerprint,
-                pending_context,
-            )
-            if decision.existing_receipt_id is not None:
-                authoritative = unit_of_work.receipts.get(decision.existing_receipt_id)
+            existing = unit_of_work.idempotency.check(client_order_id, fingerprint)
+            if existing.existing_receipt_id is not None:
+                authoritative = unit_of_work.receipts.get(existing.existing_receipt_id)
                 if authoritative is None:
                     return ExecutionResult(
                         ExecutionDispatchStatus.UNKNOWN,
@@ -283,25 +292,69 @@ class ExecutionOrchestrator:
                 return ExecutionResult(
                     ExecutionDispatchStatus.EXECUTED,
                     receipt=authoritative,
-                    reason=f"idempotent duplicate; receipt={decision.existing_receipt_id}",
+                    reason=f"idempotent duplicate; receipt={existing.existing_receipt_id}",
                 )
-            if decision.reservation_pending and not decision.reservation_acquired:
+            if existing.reservation_pending:
                 return ExecutionResult(
                     ExecutionDispatchStatus.UNKNOWN,
                     reason="submission outcome is unknown; reconciliation is required",
                 )
-            if not decision.reservation_acquired:
+
+        # The permit is acquired before creating the pending reservation and
+        # held until broker.submit() returns. This closes the gate check ->
+        # submit TOCTOU window without leaving a reservation behind when the
+        # gate is blocked.
+        with self._trading_gate.submission_permit() as permitted:
+            if not permitted:
+                state = self._trading_gate.state()
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"trading is blocked: {state.reason}",
+                )
+
+            with unit_of_work:
+                pending_context = PendingExecutionContext.from_request(request, fingerprint)
+                decision = unit_of_work.idempotency.reserve_or_get(
+                    client_order_id,
+                    fingerprint,
+                    pending_context,
+                )
+                if decision.existing_receipt_id is not None:
+                    authoritative = unit_of_work.receipts.get(decision.existing_receipt_id)
+                    if authoritative is None:
+                        return ExecutionResult(
+                            ExecutionDispatchStatus.UNKNOWN,
+                            reason=(
+                                "persisted receipt is missing for a completed reservation; "
+                                "reconciliation is required"
+                            ),
+                        )
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.EXECUTED,
+                        receipt=authoritative,
+                        reason=f"idempotent duplicate; receipt={decision.existing_receipt_id}",
+                    )
+                if decision.reservation_pending and not decision.reservation_acquired:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.UNKNOWN,
+                        reason="submission outcome is unknown; reconciliation is required",
+                    )
+                if not decision.reservation_acquired:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.UNKNOWN,
+                        reason=(
+                            "idempotency reservation was not acquired; "
+                            "reconciliation is required"
+                        ),
+                    )
+
+            try:
+                receipt = broker.submit(request)
+            except Exception as exc:
                 return ExecutionResult(
                     ExecutionDispatchStatus.UNKNOWN,
-                    reason=("idempotency reservation was not acquired; reconciliation is required"),
+                    reason=f"submission outcome is unknown; reconciliation is required: {exc}",
                 )
-        try:
-            receipt = broker.submit(request)
-        except Exception as exc:
-            return ExecutionResult(
-                ExecutionDispatchStatus.UNKNOWN,
-                reason=f"submission outcome is unknown; reconciliation is required: {exc}",
-            )
         if receipt.outcome is ExecutionOutcome.UNKNOWN:
             return ExecutionResult(
                 ExecutionDispatchStatus.UNKNOWN,

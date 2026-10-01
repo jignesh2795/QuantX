@@ -1,11 +1,14 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from threading import Event, Thread
 from uuid import uuid4
 
 import pytest
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
+from quantx.application.pending_recovery import PendingRecoveryRun
+from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
     ExecutionContext,
@@ -222,6 +225,16 @@ def _durable_gate() -> DurableTradingGate:
     return DurableTradingGate(InMemoryTradingGateStateStore())
 
 
+def _started_runtime() -> ApplicationRuntime:
+    class NoopRecovery:
+        def run(self, *, checked_at=None) -> PendingRecoveryRun:
+            return PendingRecoveryRun()
+
+    runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
+    runtime.start(checked_at=datetime(2026, 1, 1, tzinfo=UTC))
+    return runtime
+
+
 def _live_request():
     return _request(
         ExecutionMode.LIVE,
@@ -272,7 +285,10 @@ def test_live_requires_a_broker() -> None:
         connection_id=BrokerConnectionId("conn-1"),
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
     )
-    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request)
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        trading_gate=_durable_gate(),
+    ).execute(request)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "broker adapter" in result.reason
 
@@ -284,7 +300,10 @@ def test_live_blocks_account_mismatch() -> None:
         connection_id=BrokerConnectionId("conn-1"),
     )
     broker = FakeBroker(account_id=AccountId("acct-2"))
-    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=broker)
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        trading_gate=_durable_gate(),
+    ).execute(request, broker=broker)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "account" in result.reason
 
@@ -295,7 +314,10 @@ def test_live_blocks_connection_mismatch() -> None:
         connection_id=BrokerConnectionId("conn-1"),
     )
     broker = FakeBroker(connection_id=BrokerConnectionId("conn-2"))
-    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=broker)
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        trading_gate=_durable_gate(),
+    ).execute(request, broker=broker)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "connection" in result.reason
 
@@ -305,7 +327,7 @@ def test_live_blocks_unhealthy_broker() -> None:
         ExecutionMode.LIVE,
         connection_id=BrokerConnectionId("conn-1"),
     )
-    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(
+    result = ExecutionOrchestrator(application_runtime=_started_runtime(), trading_gate=_durable_gate()).execute(
         request,
         broker=FakeBroker(healthy=False),
     )
@@ -324,7 +346,7 @@ def test_live_blocks_missing_required_capability() -> None:
             }
         ),
     )
-    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(
+    result = ExecutionOrchestrator(application_runtime=_started_runtime(), trading_gate=_durable_gate()).execute(
         request, broker=FakeBroker()
     )
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -340,7 +362,7 @@ def test_live_blocks_broker_instrument_market_mismatch() -> None:
         _instrument(),
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"),
     )
-    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(
+    result = ExecutionOrchestrator(application_runtime=_started_runtime(), trading_gate=_durable_gate()).execute(
         request,
         broker=FakeBroker(instrument=wrong_market_instrument),
     )
@@ -355,6 +377,7 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
     )
     result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
     ).execute(
@@ -373,6 +396,7 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
     )
     broker = FakeBroker()
     orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
     )
@@ -400,6 +424,7 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
     )
     broker = FailingBroker()
     orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
     )
@@ -432,6 +457,7 @@ def test_live_unknown_receipt_preserves_pending_reservation() -> None:
     broker = UnknownBroker()
     unit_of_work = _FakeUnitOfWork()
     orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
     )
@@ -459,7 +485,11 @@ def test_live_unit_of_work_groups_receipt_and_completion() -> None:
     request = _live_request()
     broker = FakeBroker()
     unit_of_work = _FakeUnitOfWork()
-    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work, trading_gate=_durable_gate())
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+    )
 
     result = orchestrator.execute(request, broker=broker)
 
@@ -491,7 +521,11 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
     request = _live_request()
     broker = FailingBroker()
     unit_of_work = _FakeUnitOfWork()
-    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work, trading_gate=_durable_gate())
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+    )
 
     result = orchestrator.execute(request, broker=broker)
 
@@ -524,11 +558,100 @@ def test_live_without_explicit_trading_gate_is_blocked() -> None:
     assert broker.submit_calls == 0
 
 
+def test_live_without_application_runtime_is_blocked() -> None:
+    request = _live_request()
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    result = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+    ).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "ApplicationRuntime" in result.reason
+    assert broker.submit_calls == 0
+
+
+def test_live_with_unstarted_application_runtime_is_blocked() -> None:
+    request = _live_request()
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    class NoopRecovery:
+        def run(self, *, checked_at=None) -> PendingRecoveryRun:
+            return PendingRecoveryRun()
+
+    runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
+
+    result = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        application_runtime=runtime,
+    ).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "started ApplicationRuntime" in result.reason
+    assert broker.submit_calls == 0
+
+
+def test_live_gate_permit_spans_broker_submission() -> None:
+    request = _live_request()
+    gate = _durable_gate()
+    unit_of_work = _FakeUnitOfWork()
+    submit_started = Event()
+    release_submit = Event()
+    block_complete = Event()
+    outcome = {}
+
+    class BlockingBroker(FakeBroker):
+        def submit(self, request):
+            submit_started.set()
+            if not release_submit.wait(timeout=5):
+                raise AssertionError("submission release event was not signalled")
+            return super().submit(request)
+
+    broker = BlockingBroker()
+    orchestrator = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=gate,
+        application_runtime=_started_runtime(),
+    )
+
+    def run_execution() -> None:
+        outcome["result"] = orchestrator.execute(request, broker=broker)
+
+    def block_gate() -> None:
+        gate.block("operator emergency stop")
+        block_complete.set()
+
+    execute_thread = Thread(target=run_execution)
+    block_thread = Thread(target=block_gate)
+    execute_thread.start()
+    assert submit_started.wait(timeout=5)
+
+    block_thread.start()
+    assert not block_complete.wait(timeout=0.1)
+
+    release_submit.set()
+    execute_thread.join(timeout=5)
+    block_thread.join(timeout=5)
+
+    assert not execute_thread.is_alive()
+    assert not block_thread.is_alive()
+    assert outcome["result"].status is ExecutionDispatchStatus.EXECUTED
+    assert broker.submit_calls == 1
+    assert gate.allow() is False
+
+
 def test_live_without_unit_of_work_is_blocked() -> None:
     request = _live_request()
     broker = FakeBroker()
 
-    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=broker)
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        trading_gate=_durable_gate(),
+    ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "durable UnitOfWork" in result.reason
@@ -541,6 +664,7 @@ def test_live_rejects_process_local_trading_gate() -> None:
     gate = TradingGate()
 
     result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=gate,
     ).execute(request, broker=broker)
@@ -554,7 +678,11 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
     request = _live_request()
     broker = FakeBroker()
     unit_of_work = _FakeUnitOfWork()
-    orchestrator = ExecutionOrchestrator(unit_of_work=unit_of_work, trading_gate=_durable_gate())
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+    )
 
     first = orchestrator.execute(request, broker=broker)
     assert first.status is ExecutionDispatchStatus.EXECUTED
@@ -571,6 +699,7 @@ def _sqlite_setup(tmp_path):
     database = SqliteDatabase(tmp_path / "quantx.db")
     unit_of_work = SqliteUnitOfWork(database)
     orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
     )
@@ -660,6 +789,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     database_a = SqliteDatabase(path)
     try:
         orchestrator_a = ExecutionOrchestrator(
+            application_runtime=_started_runtime(),
             unit_of_work=SqliteUnitOfWork(database_a),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_a)),
         )
@@ -671,6 +801,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     try:
         broker_b = FakeBroker()
         orchestrator_b = ExecutionOrchestrator(
+            application_runtime=_started_runtime(),
             unit_of_work=SqliteUnitOfWork(database_b),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_b)),
         )
@@ -716,7 +847,10 @@ def test_live_without_unit_of_work_does_not_submit() -> None:
     request = _live_request()
     broker = FakeBroker()
 
-    result = ExecutionOrchestrator(trading_gate=_durable_gate()).execute(request, broker=broker)
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        trading_gate=_durable_gate(),
+    ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "durable UnitOfWork" in result.reason
@@ -758,6 +892,7 @@ def test_partial_continuation_is_blocked_by_trading_gate_before_adapter() -> Non
             raise AssertionError("continuation adapter must not be called")
 
     result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
         paper_executor=Adapter(),
         trading_gate=gate,
     ).continue_partial(

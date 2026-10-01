@@ -75,16 +75,21 @@ class DefinitiveEvidencePolicy:
     """Which evidence domains must match for a definitive reconciliation.
 
     The default is conservative: order, position, and account evidence must
-    all be definitively matched. Narrower workflows opt out explicitly.
+    all be definitively matched, and broker-order evidence must carry matching
+    account/connection scope. Narrower workflows opt out explicitly.
     """
 
     require_position: bool = True
     require_account: bool = True
-    require_order_scope: bool = False
+    require_order_scope: bool = True
 
     @classmethod
     def all_required(cls) -> DefinitiveEvidencePolicy:
-        return cls(require_position=True, require_account=True)
+        return cls(
+            require_position=True,
+            require_account=True,
+            require_order_scope=True,
+        )
 
     @classmethod
     def order_and_position(cls) -> DefinitiveEvidencePolicy:

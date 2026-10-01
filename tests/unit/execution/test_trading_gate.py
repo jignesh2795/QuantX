@@ -81,3 +81,41 @@ def test_durable_gate_refreshes_state_across_existing_instances() -> None:
 
     assert second.allow() is False
     assert second.state() == TradingGateState(False, "operator emergency stop")
+
+
+def test_durable_gate_shared_store_serializes_submission_permit() -> None:
+    from threading import Event, Thread
+
+    store = InMemoryTradingGateStateStore()
+    first = DurableTradingGate(store)
+    second = DurableTradingGate(store)
+    entered = Event()
+    release = Event()
+    blocked = Event()
+
+    def protected_submission() -> None:
+        with first.submission_permit() as permitted:
+            assert permitted is True
+            entered.set()
+            assert release.wait(timeout=5)
+
+    def block_gate() -> None:
+        second.block("operator emergency stop")
+        blocked.set()
+
+    submit_thread = Thread(target=protected_submission)
+    block_thread = Thread(target=block_gate)
+    submit_thread.start()
+    assert entered.wait(timeout=5)
+
+    block_thread.start()
+    assert not blocked.wait(timeout=0.1)
+
+    release.set()
+    submit_thread.join(timeout=5)
+    block_thread.join(timeout=5)
+
+    assert not submit_thread.is_alive()
+    assert not block_thread.is_alive()
+    assert second.allow() is False
+    assert second.state() == TradingGateState(False, "operator emergency stop")

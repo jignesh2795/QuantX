@@ -45,6 +45,10 @@ application/
 
 The exact tree may evolve incrementally. Ownership of invariants matters more than directory symmetry.
 
+### Current LIVE startup/control boundaries
+
+`application/runtime.py` owns the one-shot recovery-backed application startup lifecycle; `application/production.py` composes the durable process runtime; `application/execution.py` is the application-owned LIVE submission boundary and now requires a started `ApplicationRuntime` plus final trading-gate authorization before broker submission. `execution/trading_gate.py` owns gate state and submission authorization, while `persistence/sqlite/trading_gate.py` supplies durable gate synchronization.
+
 ### Lifecycle distinction
 
 There are two deliberately different lifecycle concepts:

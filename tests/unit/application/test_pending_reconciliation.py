@@ -790,3 +790,72 @@ def test_pending_recovery_runner_isolates_failed_context(tmp_path) -> None:
         assert bad_decision.reservation_pending
     finally:
         database.close()
+
+
+def test_default_pending_reconciliation_requires_scoped_broker_order(tmp_path) -> None:
+    request = _request()
+    order_id = request.order.client_order_id
+    database, unit_of_work = _database_and_uow(tmp_path)
+    try:
+        unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
+        broker_order = _observation(order_id, OrderLifecycleStatus.FILLED, filled="2")
+        broker_position = PositionState(
+            request.execution_context.account_id,
+            request.execution_context.broker_connection_id,
+            "NSE:TCS",
+            Decimal("10"),
+            Decimal("100"),
+            CHECKED_AT,
+            StateSource.BROKER,
+        )
+        local_position = PositionState(
+            request.execution_context.account_id,
+            request.execution_context.broker_connection_id,
+            "NSE:TCS",
+            Decimal("10"),
+            Decimal("100"),
+            CHECKED_AT,
+            StateSource.PAPER,
+        )
+        broker_account = AccountFinancialState(
+            request.execution_context.account_id,
+            request.execution_context.broker_connection_id,
+            CHECKED_AT,
+            StateSource.BROKER,
+            "INR",
+            available_cash=Decimal("5000"),
+            margin_used=Decimal("0"),
+        )
+        local_account = AccountFinancialState(
+            request.execution_context.account_id,
+            request.execution_context.broker_connection_id,
+            CHECKED_AT,
+            StateSource.PAPER,
+            "INR",
+            available_cash=Decimal("5000"),
+            margin_used=Decimal("0"),
+        )
+        provider = ScriptedProvider()
+        outcome = reconcile_pending_execution(
+            request,
+            fingerprint="fp-a",
+            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            broker_order=broker_order,
+            fills=(_fill(request),),
+            provider=provider,
+            unit_of_work=unit_of_work,
+            checked_at=CHECKED_AT,
+            local_position=local_position,
+            broker_position=broker_position,
+            local_account=local_account,
+            broker_account=broker_account,
+        )
+
+        assert not outcome.definitive
+        assert outcome.result.status is OrderWorkflowStatus.MISMATCH
+        assert "lacks account/connection binding" in outcome.result.reasons[0]
+        decision = SqliteIdempotencyStore(database).check(order_id, "fp-a")
+        assert decision.reservation_pending
+        assert SqliteReceiptRepository(database).get_by_client_order(order_id) is None
+    finally:
+        database.close()
