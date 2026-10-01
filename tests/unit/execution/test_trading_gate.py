@@ -60,7 +60,6 @@ def test_empty_kill_switch_reason_is_rejected() -> None:
         raise AssertionError("expected ValueError")
 
 
-
 def test_durable_gate_state_survives_gate_recreation() -> None:
     store = InMemoryTradingGateStateStore()
     first = DurableTradingGate(store)
