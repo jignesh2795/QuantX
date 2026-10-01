@@ -265,6 +265,101 @@ def test_unknown_quality_without_expectations_remains_explicit() -> None:
     assert result.quality.quality is DataQualityStatus.VALID_WITH_WARNINGS
 
 
+def test_dhan_adapter_composes_with_filesystem_catalog_and_sqlite_store(tmp_path) -> None:
+    from quantx.persistence.sqlite import SqliteDatabase
+    from quantx.persistence.sqlite.market_data import SqliteMarketDataStore
+    from quantx.plugins.dhan import DhanInstrumentRef, DhanMarketDataAdapter, InMemoryDhanTransport
+    from quantx.plugins.dhan.models import DhanCandleSnapshot
+    from quantx.research.dataset_catalog import FilesystemDatasetCatalog
+
+    candles = (
+        DhanCandleSnapshot(
+            timeframe="1m",
+            timestamp=T0,
+            open=Decimal("99"),
+            high=Decimal("101"),
+            low=Decimal("98"),
+            close=Decimal("100"),
+            volume=Decimal("1000"),
+        ),
+        DhanCandleSnapshot(
+            timeframe="1m",
+            timestamp=T1,
+            open=Decimal("100"),
+            high=Decimal("102"),
+            low=Decimal("99"),
+            close=Decimal("101"),
+            volume=Decimal("1100"),
+        ),
+    )
+    instrument = _instrument()
+    market_data = DhanMarketDataAdapter(
+        _instruments={
+            INSTRUMENT: (
+                instrument,
+                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
+            )
+        },
+        _transport=InMemoryDhanTransport(
+            candle_snapshots={("1333", "NSE_EQ"): candles}
+        ),
+    )
+    catalog = FilesystemDatasetCatalog(tmp_path / "catalog")
+    catalog.register(_version(source_id="dhan", version="2026-01"))
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        store = SqliteMarketDataStore(database)
+        result = HistoricalDatasetIngestionService(
+            catalog=catalog,
+            market_data=market_data,
+            store=store,
+        ).ingest(
+            dataset_id="nse-equities",
+            version="2026-01",
+            instrument=INSTRUMENT,
+            timeframe="1m",
+            start=T0,
+            end=T1,
+            expected_timestamps=(T0, T1),
+        )
+        retrieved = store.get_candles(
+            INSTRUMENT,
+            timeframe="1m",
+            start=T0,
+            end=T1,
+            source_id="dhan",
+            dataset_version="2026-01",
+        )
+    finally:
+        database.close()
+
+    assert result.inserted_count == 2
+    assert result.quality.quality is DataQualityStatus.VALID
+    assert result.quality.completeness is CompletenessStatus.COMPLETE
+    assert retrieved == (
+        Candle(
+            instrument=INSTRUMENT,
+            timeframe="1m",
+            timestamp=T0,
+            open=Decimal("99"),
+            high=Decimal("101"),
+            low=Decimal("98"),
+            close=Decimal("100"),
+            volume=Decimal("1000"),
+        ),
+        Candle(
+            instrument=INSTRUMENT,
+            timeframe="1m",
+            timestamp=T1,
+            open=Decimal("100"),
+            high=Decimal("102"),
+            low=Decimal("99"),
+            close=Decimal("101"),
+            volume=Decimal("1100"),
+        ),
+    )
+
+
 def test_store_failure_propagates_after_single_read() -> None:
     class FailingStore(_FakeStore):
         def save_candles(self, candles, *, source_id, dataset_version=""):
