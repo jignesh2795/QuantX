@@ -813,7 +813,13 @@ def test_default_pending_reconciliation_requires_scoped_broker_order(tmp_path) -
     database, unit_of_work = _database_and_uow(tmp_path)
     try:
         unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
-        broker_order = _observation(order_id, OrderLifecycleStatus.FILLED, filled="2")
+        broker_order = _observation(
+            order_id,
+            OrderLifecycleStatus.FILLED,
+            filled="2",
+            account=None,
+            connection=None,
+        )
         broker_position = PositionState(
             request.execution_context.account_id,
             request.execution_context.broker_connection_id,
