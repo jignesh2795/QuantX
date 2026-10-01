@@ -9,6 +9,7 @@ DHAN_CAPABILITIES = CapabilitySet(
             BrokerCapability.ORDER_CANCELLATION,
             BrokerCapability.BALANCES,
             BrokerCapability.POSITIONS,
+            BrokerCapability.MARKET_DATA,
         }
     )
 )

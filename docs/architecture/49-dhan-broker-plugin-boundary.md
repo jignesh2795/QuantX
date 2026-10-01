@@ -55,9 +55,34 @@ existing QuantX `BrokerPort` contract:
 - order submission
 - order cancellation
 
-Positions, balances, market-data, replacement, and other Dhan functionality
-remain outside the first adapter slice until QuantX exposes normalized
-contracts for them.
+Positions, balances, replacement, and other Dhan functionality remain
+outside the first adapter slice until QuantX exposes normalized contracts
+for them.
+
+## Market-data composition
+
+```text
+MarketDataPort
+    ↑
+Dhan market-data adapter
+    ↑
+Dhan transport
+```
+
+The Dhan plugin additionally provides a snapshot-only market-data adapter
+implementing the canonical `MarketDataPort`: `quote()` and `candles()` are
+served from normalized Dhan quote/candle snapshots through the same
+transport boundary, using the explicit instrument mappings already present
+in the plugin. The application/domain layers remain unaware of the Dhan
+SDK: vendor imports stay isolated to `transport.py`, and quote/candle
+payloads are normalized to the vendor-neutral `Quote`/`Candle` contracts
+before crossing the plugin boundary.
+
+Streaming is explicitly unsupported: `subscribe()`/`unsubscribe()` fail
+closed rather than pretending to stream, since Dhan market feed would
+require async workers that do not exist in this architecture. Missing
+fields stay missing, malformed payloads are rejected, and no market data
+is fabricated.
 
 ## Order mapping
 
