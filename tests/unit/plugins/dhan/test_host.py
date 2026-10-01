@@ -37,7 +37,7 @@ from quantx.integrations.reconciliation import (
 )
 from quantx.persistence.sqlite import SqliteReceiptRepository
 from quantx.plugins.dhan.host import DhanHostConfig, DhanHostRuntime, build_dhan_host_runtime
-from quantx.plugins.dhan.models import DhanCredentials, DhanInstrumentRef
+from quantx.plugins.dhan.models import DhanCandleSnapshot, DhanCredentials, DhanInstrumentRef
 from quantx.plugins.dhan.transport import DhanSDKTransport, InMemoryDhanTransport
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
@@ -193,6 +193,39 @@ def test_host_registers_exact_account_connection(tmp_path) -> None:
         assert registered.ref.market_context_id == "NSE_EQ"
         assert registered.adapter is host.adapter
         assert host.registry.get(BrokerConnectionId("conn-unknown")) is None
+    finally:
+        host.close()
+
+
+def test_host_wires_market_data_adapter_to_same_transport(tmp_path) -> None:
+    transport = InMemoryDhanTransport(
+        candle_snapshots={
+            ("1333", "NSE_EQ"): (
+                DhanCandleSnapshot(
+                    timeframe="1m",
+                    timestamp=CHECKED_AT,
+                    open=Decimal("99"),
+                    high=Decimal("101"),
+                    low=Decimal("98"),
+                    close=Decimal("100"),
+                    volume=Decimal("1000"),
+                ),
+            )
+        }
+    )
+    host = build_dhan_host_runtime(_config(tmp_path, transport=transport))
+    try:
+        candles = host.market_data.candles(
+            _instrument().instrument_id,
+            timeframe="1m",
+            start=CHECKED_AT,
+            end=CHECKED_AT,
+        )
+
+        assert host.market_data._transport is host.transport
+        assert len(candles) == 1
+        assert candles[0].instrument == _instrument().instrument_id
+        assert candles[0].close == Decimal("100")
     finally:
         host.close()
 
