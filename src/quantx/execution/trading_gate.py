@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from threading import RLock
 from typing import Protocol
@@ -20,6 +22,8 @@ class TradingGateStateStore(Protocol):
 
     def save(self, state: TradingGateState) -> None: ...
 
+    def synchronize(self) -> AbstractContextManager[None]: ...
+
 
 class InMemoryTradingGateStateStore:
     """Process-local state store useful for deterministic tests and simulations."""
@@ -35,6 +39,12 @@ class InMemoryTradingGateStateStore:
     def save(self, state: TradingGateState) -> None:
         with self._lock:
             self._state = state
+
+    @contextmanager
+    def synchronize(self) -> Iterator[None]:
+        """Serialize gate submissions and state changes sharing this store."""
+        with self._lock:
+            yield
 
 
 class TradingGate:
@@ -57,6 +67,15 @@ class TradingGate:
     def allow(self) -> bool:
         with self._lock:
             return self._state.enabled
+
+    @contextmanager
+    def submission_permit(self) -> Iterator[bool]:
+        """Atomically authorize a submission and hold the gate through the call."""
+        with self._lock:
+            if not self._state.enabled:
+                yield False
+                return
+            yield True
 
     def block(self, reason: str) -> TradingGateState:
         reason = reason.strip()
@@ -106,6 +125,21 @@ class DurableTradingGate(TradingGate):
 
     def allow(self) -> bool:
         return self.state().enabled
+
+    @contextmanager
+    def submission_permit(self) -> Iterator[bool]:
+        """Refresh durable state, then hold the gate through broker submission."""
+        with self._lock:
+            with self._state_store.synchronize():
+                persisted = self._state_store.load()
+                if persisted is None:
+                    yield False
+                    return
+                self._state = persisted
+                if not persisted.enabled:
+                    yield False
+                    return
+                yield True
 
     def block(self, reason: str) -> TradingGateState:
         reason = reason.strip()

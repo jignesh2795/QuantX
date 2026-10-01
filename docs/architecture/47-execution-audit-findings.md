@@ -105,6 +105,18 @@ Regression coverage includes simulated process restart, successful resolution th
 
 This remains a one-shot application hook, not a startup daemon. ProductionRuntime now composes the durable store, recovery resolver, runner, and ApplicationRuntime; the host is responsible for explicitly calling start() before serving execution.
 
+## Correctness finding: LIVE startup readiness and gate check-to-submit race — addressed on the current hardening branch
+
+A subsequent adversarial review identified two control-path gaps not represented by the historical 635-test checkpoint above.
+
+First, `ExecutionOrchestrator` previously enforced a durable trading gate but did not require the recovery-backed `ApplicationRuntime` to have completed startup recovery. LIVE execution could therefore be reached before the explicit boot-time recovery lifecycle had run. The orchestrator now requires a supplied `ApplicationRuntime` and rejects LIVE execution until it is started.
+
+Second, the LIVE path had a check-to-submit TOCTOU window: `TradingGate.allow()` could return enabled and the gate could then be blocked before `broker.submit()`. The trading gate now provides a submission permit that re-checks state and holds authorization across durable idempotency reservation and the broker submission. The permit is acquired before reservation, so a denied gate never leaves a new pending reservation behind.
+
+These changes preserve the existing two-scope database rule: no database transaction spans the broker call. The gate permit is an independent in-process synchronization boundary.
+
+Regression coverage on the hardening branch adds unstarted-runtime rejection, final authorization under a blocked gate, and the concurrent block/submission ordering invariant. Independent local full-suite validation remains required before calling this finding resolved.
+
 ## Remaining recovery-boundary questions
 
 The focused adversarial implementation gaps identified for pending recovery are now covered by the current validated checkpoint: malformed persistence is isolated, default all-required evidence can resolve, concurrent resolution is guarded by durable idempotency, broker-order scope is enforced, reconciliation exposes no broker-submit capability, and broker-returned UNKNOWN LIVE receipts remain pending rather than being treated as authoritative completion.

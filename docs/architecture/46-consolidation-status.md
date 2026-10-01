@@ -68,6 +68,12 @@ Existing standalone modules are not automatically wrong. A module remains valid 
 
 Compatibility wrappers are temporary where they exist and must not become permanent duplicate implementations.
 
+## Current LIVE-control hardening
+
+The execution audit identified and addressed two final control-path gaps: LIVE execution now requires the recovery-backed `ApplicationRuntime` to have completed startup, and the trading gate now provides a submission permit that spans durable reservation and broker submission. The permit is synchronized across gate instances sharing the same state store; no database transaction is held across the broker call. Default reconciliation evidence now also requires broker-order account/connection scope, while narrower policies remain explicit opt-outs.
+
+These controls preserve the existing modular boundaries: startup remains application composition, gate state remains execution control, and reconciliation remains evidence-based. No new generic runtime/router abstraction is introduced.
+
 ## Current consolidation gate
 
 The earlier broad inventory/migration checklist is no longer the active next batch. Before introducing a new major subsystem:

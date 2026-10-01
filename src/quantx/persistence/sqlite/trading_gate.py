@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 
 from quantx.execution.trading_gate import TradingGateState, TradingGateStateStore
@@ -24,6 +26,12 @@ class SqliteTradingGateStateStore(TradingGateStateStore):
             return None
         enabled, reason = row
         return TradingGateState(enabled=bool(enabled), reason=reason)
+
+    @contextmanager
+    def synchronize(self) -> Iterator[None]:
+        """Serialize gate submissions and state changes sharing this database."""
+        with self._database.lock:
+            yield
 
     def save(self, state: TradingGateState) -> None:
         with self._database.transaction() as connection:

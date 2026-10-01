@@ -84,8 +84,8 @@ def _order(
     *,
     filled: str = "2",
     broker_order_id: str | None = "dhan-1",
-    account: str | None = None,
-    connection: str | None = None,
+    account: str | None = "acct-1",
+    connection: str | None = "conn-1",
 ) -> OrderObservation:
     return OrderObservation(
         order_id,
@@ -481,7 +481,7 @@ def test_live_recovery_rejects_unscoped_broker_order() -> None:
     outcome = refresher.refresh(
         _receipt(order_id),
         local_order=_order(order_id),
-        broker_order=_order(order_id),
+        broker_order=_order(order_id, account=None, connection=None),
         local_position=_local_position(),
         broker_position=_position(),
         local_account=_account(source=StateSource.PAPER),
@@ -588,6 +588,30 @@ def test_position_refresh_can_use_explicit_instrument_without_existing_position(
     assert provider.position_calls == 1
     assert outcome.result.status is OrderWorkflowStatus.INCOMPLETE
     assert outcome.definitive is False
+
+
+def test_default_policy_requires_scoped_broker_order_for_definitive() -> None:
+    order_id = uuid4()
+    provider = ScriptedProvider()
+    refresher = ReconciliationEvidenceRefresher(refresh_policy=RefreshPolicy(1))
+
+    outcome = refresher.refresh(
+        _receipt(order_id),
+        local_order=_order(order_id),
+        broker_order=_order(order_id, account=None, connection=None),
+        local_position=_local_position(),
+        broker_position=_position(),
+        local_account=_account(source=StateSource.PAPER),
+        broker_account=_account(),
+        checked_at=CHECKED_AT,
+        position_policy=POSITION_POLICY,
+        provider=provider,
+    )
+
+    assert outcome.definitive is False
+    assert outcome.result.status is OrderWorkflowStatus.MISMATCH
+    assert "lacks account/connection binding" in outcome.result.reasons[0]
+    assert provider.order_calls == 0
 
 
 def test_default_policy_requires_all_evidence_for_definitive() -> None:

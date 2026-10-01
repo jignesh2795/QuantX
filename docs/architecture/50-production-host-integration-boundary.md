@@ -94,7 +94,9 @@ There is deliberately no application-level default account or default broker con
 
 Startup ordering is:
 
-**construct → bind explicit identities → recover pending LIVE state → become ready**
+**construct → bind explicit identities → recover pending LIVE state → become ready → permit LIVE submission**
+
+`ExecutionOrchestrator` rejects LIVE execution unless its recovery-backed `ApplicationRuntime` is present and already started. The trading gate then provides the final submission-time authorization permit.
 
 If construction or recovery fails, the host must not advertise execution readiness.
 
