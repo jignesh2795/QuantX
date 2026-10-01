@@ -135,3 +135,67 @@ def test_v1_schema_is_migrated_to_current_version(tmp_path) -> None:
     assert version == SCHEMA_VERSION
     assert "pending_context_json" in columns
     assert "trading_gate_state" in tables
+
+
+def test_v2_schema_is_migrated_to_current_version(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    raw = sqlite3.connect(str(path))
+    try:
+        raw.executescript(
+            """
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            );
+            INSERT INTO schema_version (version, applied_at)
+            VALUES (2, '2026-01-01T00:00:00+00:00');
+            CREATE TABLE idempotency_reservations (
+                client_order_id TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                receipt_id TEXT NULL,
+                created_at TEXT NOT NULL,
+                completed_at TEXT NULL,
+                pending_context_json TEXT NULL
+            );
+            INSERT INTO idempotency_reservations (
+                client_order_id, fingerprint, receipt_id, created_at,
+                completed_at, pending_context_json
+            ) VALUES ('order-1', 'fp', NULL, '2026-01-01T00:00:00+00:00', NULL, NULL);
+            CREATE TABLE receipts (
+                receipt_id TEXT PRIMARY KEY,
+                client_order_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE trading_gate_state (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                reason TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    database = SqliteDatabase(path)
+    try:
+        tables = {
+            row[0]
+            for row in database.connection().execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
+        preserved = database.connection().execute(
+            "SELECT fingerprint FROM idempotency_reservations WHERE client_order_id = 'order-1'"
+        ).fetchone()
+    finally:
+        database.close()
+
+    assert version == SCHEMA_VERSION
+    assert "market_candles" in tables
+    assert "market_quotes" in tables
+    assert preserved is not None
+    assert preserved[0] == "fp"

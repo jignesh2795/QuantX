@@ -8,13 +8,14 @@ retry policy, or cancellation semantics.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.enums import OrderStatus
 
-from quantx.persistence import ReceiptRepository
+if TYPE_CHECKING:
+    from quantx.persistence import ReceiptRepository
 
-from .dispatch import ExecutionDispatchResult, ExecutionDispatcher
+from .dispatch import ExecutionDispatcher, ExecutionDispatchResult
 from .receipts.lifecycle import ExecutionLifecycle
 from .receipts.models import ExecutionReceipt
 
