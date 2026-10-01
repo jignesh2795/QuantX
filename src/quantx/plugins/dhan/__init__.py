@@ -12,6 +12,7 @@ from quantx.plugins import (
 from .adapter import DhanBrokerAdapter
 from .capabilities import DHAN_CAPABILITIES
 from .host import DhanHostConfig, DhanHostRuntime, build_dhan_host_runtime
+from .market_data import DhanMarketDataAdapter
 from .models import (
     DhanCredentials,
     DhanFundsSnapshot,
@@ -48,6 +49,7 @@ __all__ = [
     "DhanHostConfig",
     "DhanHostRuntime",
     "DhanInstrumentRef",
+    "DhanMarketDataAdapter",
     "DhanOrderRequest",
     "DhanOrderResponse",
     "DhanPositionSnapshot",

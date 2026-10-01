@@ -130,3 +130,49 @@ class DhanPositionsSnapshot:
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanQuoteSnapshot:
+    """Normalized broker quote observation; no domain or vendor types."""
+
+    security_id: str
+    exchange_segment: str
+    observed_at: datetime
+    last_price: Decimal | None = None
+    bid_price: Decimal | None = None
+    ask_price: Decimal | None = None
+    bid_size: Decimal | None = None
+    ask_size: Decimal | None = None
+    message: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.security_id.strip():
+            raise ValueError("security_id must not be empty")
+        if not self.exchange_segment.strip():
+            raise ValueError("exchange_segment must not be empty")
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
+        for name in ("last_price", "bid_price", "ask_price", "bid_size", "ask_size"):
+            value = getattr(self, name)
+            if value is not None and value < 0:
+                raise ValueError(f"{name} cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanCandleSnapshot:
+    """Normalized broker candle observation; no domain or vendor types."""
+
+    timeframe: str
+    timestamp: datetime
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: Decimal = Decimal("0")
+
+    def __post_init__(self) -> None:
+        if not self.timeframe.strip():
+            raise ValueError("timeframe must not be empty")
+        if self.timestamp.tzinfo is None or self.timestamp.utcoffset() is None:
+            raise ValueError("timestamp must be timezone-aware")

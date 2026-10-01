@@ -9,9 +9,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Protocol, runtime_checkable
+from zoneinfo import ZoneInfo
 
-from .mapping import decimal_field, extract_filled_quantity
+from .mapping import decimal_field, extract_filled_quantity, parse_dhan_timestamp
 from .models import (
+    DhanCandleSnapshot,
     DhanCredentials,
     DhanFundsSnapshot,
     DhanOrderDetail,
@@ -20,6 +22,7 @@ from .models import (
     DhanPayload,
     DhanPositionSnapshot,
     DhanPositionsSnapshot,
+    DhanQuoteSnapshot,
 )
 
 
@@ -36,6 +39,21 @@ class DhanTransport(Protocol):
     def fund_limits(self) -> DhanFundsSnapshot: ...
 
     def positions(self) -> DhanPositionsSnapshot: ...
+
+    def quote_snapshot(
+        self, security_id: str, exchange_segment: str
+    ) -> DhanQuoteSnapshot | None: ...
+
+    def candles(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        *,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        instrument_type: str = "EQUITY",
+    ) -> tuple[DhanCandleSnapshot, ...]: ...
 
 
 class _DhanClient(Protocol):
@@ -56,16 +74,17 @@ class DhanSDKTransport:
 
     credentials: DhanCredentials
     _client: _DhanClient = field(init=False, repr=False)
+    _context: object = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         from dhanhq import DhanContext, dhanhq  # type: ignore[import-untyped]
 
-        self._client = dhanhq(
-            DhanContext(
-                self.credentials.client_id,
-                self.credentials.access_token,
-            )
+        context = DhanContext(
+            self.credentials.client_id,
+            self.credentials.access_token,
         )
+        self._context = context
+        self._client = dhanhq(context)
 
     def health(self) -> bool:
         try:
@@ -128,6 +147,52 @@ class DhanSDKTransport:
             )
         return _positions_snapshot(response)
 
+    def quote_snapshot(self, security_id: str, exchange_segment: str) -> DhanQuoteSnapshot | None:
+        """Re-observe one quote packet; transport failure means unavailable."""
+        from dhanhq._market_feed import MarketFeed  # type: ignore[import-untyped]
+
+        try:
+            response = MarketFeed(self._context).quote_data({exchange_segment: [security_id]})
+        except Exception:
+            return None
+        return _quote_snapshot(response, security_id, exchange_segment)
+
+    def candles(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        *,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        instrument_type: str = "EQUITY",
+    ) -> tuple[DhanCandleSnapshot, ...]:
+        """Fetch normalized historical candles for one Dhan instrument."""
+        from dhanhq import HistoricalData  # type: ignore[import-untyped]
+
+        history = HistoricalData(self._context)
+        from_date = start.strftime("%Y-%m-%d")
+        to_date = end.strftime("%Y-%m-%d")
+        if timeframe == "1d":
+            response = history.historical_daily_data(
+                security_id,
+                exchange_segment,
+                instrument_type,
+                from_date,
+                to_date,
+            )
+        else:
+            interval = _intraday_interval(timeframe)
+            response = history.intraday_minute_data(
+                security_id,
+                exchange_segment,
+                instrument_type,
+                from_date,
+                to_date,
+                interval=interval,
+            )
+        return _candle_snapshots(response, timeframe=timeframe)
+
 
 @dataclass(slots=True)
 class InMemoryDhanTransport:
@@ -144,6 +209,10 @@ class InMemoryDhanTransport:
     positions_available: bool = True
     position_snapshots: tuple[DhanPositionSnapshot, ...] = ()
     positions_message: str = ""
+    quote_snapshots: dict[tuple[str, str], DhanQuoteSnapshot] = field(default_factory=dict)
+    candle_snapshots: dict[tuple[str, str], tuple[DhanCandleSnapshot, ...]] = field(
+        default_factory=dict
+    )
     _submitted: list[DhanOrderRequest] = field(init=False, default_factory=list)
     _cancelled: list[str] = field(init=False, default_factory=list)
 
@@ -200,6 +269,25 @@ class InMemoryDhanTransport:
             positions=self.position_snapshots,
             available=self.positions_available,
             message=self.positions_message,
+        )
+
+    def quote_snapshot(self, security_id: str, exchange_segment: str) -> DhanQuoteSnapshot | None:
+        return self.quote_snapshots.get((security_id, exchange_segment))
+
+    def candles(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        *,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        instrument_type: str = "EQUITY",
+    ) -> tuple[DhanCandleSnapshot, ...]:
+        return tuple(
+            snapshot
+            for snapshot in self.candle_snapshots.get((security_id, exchange_segment), ())
+            if snapshot.timeframe == timeframe and start <= snapshot.timestamp <= end
         )
 
 
@@ -358,6 +446,135 @@ def _positions_snapshot(response: object) -> DhanPositionsSnapshot:
         available=True,
         message=remarks,
     )
+
+
+_INTRADAY_INTERVALS = {"1m": 1, "5m": 5, "15m": 15, "25m": 25, "60m": 60}
+
+
+def _intraday_interval(timeframe: str) -> int:
+    """Map a minute timeframe onto the Dhan intraday interval parameter."""
+    try:
+        return _INTRADAY_INTERVALS[timeframe]
+    except KeyError as exc:
+        raise ValueError(f"unsupported Dhan intraday timeframe: {timeframe}") from exc
+
+
+def _quote_snapshot(
+    response: object,
+    security_id: str,
+    exchange_segment: str,
+) -> DhanQuoteSnapshot | None:
+    """Normalize one Dhan quote packet; absent data stays unavailable.
+
+    Malformed numeric content raises rather than inventing prices. Timestamp
+    falls back to the snapshot time only when the packet carries no parsable
+    trade time.
+    """
+    try:
+        envelope_status, _, payload = _envelope(response)
+    except (TypeError, ValueError):
+        return None
+    if envelope_status != "success":
+        return None
+    segment = payload.get(exchange_segment)
+    if not isinstance(segment, dict):
+        return None
+    packet = segment.get(security_id)
+    if not isinstance(packet, dict):
+        return None
+    last_price = _money_field(packet, "last_price")
+    bid_price, bid_size = _depth_level(packet, "buy")
+    ask_price, ask_size = _depth_level(packet, "sell")
+    observed_at = parse_dhan_timestamp(packet.get("last_trade_time"))
+    return DhanQuoteSnapshot(
+        security_id=security_id,
+        exchange_segment=exchange_segment,
+        observed_at=observed_at or datetime.now(UTC),
+        last_price=last_price,
+        bid_price=bid_price,
+        ask_price=ask_price,
+        bid_size=bid_size,
+        ask_size=ask_size,
+    )
+
+
+def _depth_level(packet: DhanPayload, side: str) -> tuple[Decimal | None, Decimal | None]:
+    """Read the best depth level; missing depth stays missing, never zero."""
+    depth = packet.get("depth")
+    if not isinstance(depth, dict):
+        return None, None
+    levels = depth.get("buy" if side == "buy" else "sell")
+    if not isinstance(levels, list) or not levels:
+        return None, None
+    best = levels[0]
+    if not isinstance(best, dict):
+        raise ValueError("Dhan market depth level is malformed")
+    return _money_field(best, "price"), _money_field(best, "quantity")
+
+
+def _candle_snapshots(
+    response: object,
+    *,
+    timeframe: str,
+) -> tuple[DhanCandleSnapshot, ...]:
+    """Normalize Dhan chart arrays without lossy float conversions.
+
+    The endpoint returns parallel arrays; unequal lengths or invalid entries
+    raise rather than silently dropping or inventing candles. Exchange epoch
+    timestamps are interpreted in Asia/Kolkata, consistent with
+    ``parse_dhan_timestamp``.
+    """
+    envelope_status, remarks, payload = _envelope(response)
+    if envelope_status != "success":
+        raise ValueError(f"Dhan historical data reported failure: {remarks or 'unknown'}")
+    series = payload.get("data", payload)
+    if not isinstance(series, dict):
+        raise ValueError("Dhan candle payload must be a mapping")
+    columns = {}
+    for key in ("open", "high", "low", "close", "volume", "start_Time"):
+        values = series.get(key)
+        if not isinstance(values, list):
+            raise ValueError(f"Dhan candle series is missing {key!r}")
+        columns[key] = values
+    lengths = {len(values) for values in columns.values()}
+    if len(lengths) != 1:
+        raise ValueError("Dhan candle series lengths do not match")
+    snapshots: list[DhanCandleSnapshot] = []
+    for index in range(lengths.pop()):
+        try:
+            timestamp = _candle_timestamp(columns["start_Time"][index])
+            candle = DhanCandleSnapshot(
+                timeframe=timeframe,
+                timestamp=timestamp,
+                open=_strict_decimal(columns["open"][index], "open"),
+                high=_strict_decimal(columns["high"][index], "high"),
+                low=_strict_decimal(columns["low"][index], "low"),
+                close=_strict_decimal(columns["close"][index], "close"),
+                volume=_strict_decimal(columns["volume"][index], "volume"),
+            )
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValueError(f"Dhan candle entry is malformed: {exc}") from exc
+        snapshots.append(candle)
+    return tuple(snapshots)
+
+
+def _candle_timestamp(value: object) -> datetime:
+    """Interpret a Dhan candle timestamp as a timezone-aware datetime."""
+    if isinstance(value, (int, float)) or (
+        isinstance(value, str) and value.strip().lstrip("-").isdigit()
+    ):
+        return datetime.fromtimestamp(int(str(value).strip()), tz=ZoneInfo("Asia/Kolkata"))
+    parsed = parse_dhan_timestamp(value if isinstance(value, str) else None)
+    if parsed is None:
+        raise ValueError(f"unrecognized Dhan candle timestamp: {value!r}")
+    return parsed
+
+
+def _strict_decimal(value: object, field: str) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError(f"invalid Dhan decimal field: {field}") from exc
 
 
 def _position_snapshot(entry: object) -> DhanPositionSnapshot | None:
