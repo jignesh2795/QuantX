@@ -626,13 +626,10 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
             with lock:
                 calls["orders"] += 1
             barrier.wait(timeout=5)
-            return OrderObservation(
-                order_id,
-                OrderLifecycleStatus.FILLED,
-                "2",
-                "2",
-                "dhan-1",
-            )
+            # Scoped broker evidence, matching the LIVE safety contract
+            # enforced during recovery: unscoped observations are rejected
+            # as mismatches before any resolution is attempted.
+            return _observation(order_id, OrderLifecycleStatus.FILLED, filled="2")
 
         def fetch_broker_position(self, **kwargs):
             return None
@@ -646,12 +643,10 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
         return PendingExecutionRecoveryRunner(
             unit_of_work=uow,
             provider_resolver=lambda _: provider,
-            local_order_provider=lambda recovered: OrderObservation(
+            local_order_provider=lambda recovered: _observation(
                 recovered.order.client_order_id,
                 OrderLifecycleStatus.FILLED,
-                "2",
-                "2",
-                "dhan-1",
+                filled="2",
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
             evidence_policy=DefinitiveEvidencePolicy.order_only(),
