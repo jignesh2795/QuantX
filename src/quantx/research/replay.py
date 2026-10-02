@@ -1,14 +1,20 @@
-"""Deterministic chronological replay over quality-validated historical observations."""
+"""Deterministic chronological replay over quality-validated historical observations.
+
+Replay is payload-neutral: sequencing and point-in-time resolution use only
+the observation instrument and timestamp, so quote-backed and candle-backed
+observations replay unchanged with no Candle-to-Quote conversion.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from quantx.domain.value_objects import InstrumentId
+
 from .data import HistoricalDataSeries, HistoricalObservation
 from .point_in_time import PointInTimeContext, PointInTimeContextResolver
 from .quality import DataQualityReport, DataQualityStatus, HistoricalDataQualityGate
-from quantx.domain.value_objects import InstrumentId
 
 HistoricalDataQualityValidator = HistoricalDataQualityGate
 
@@ -67,7 +73,8 @@ class HistoricalReplay:
             raise ReplayBlockedError("historical dataset is blocked by the data-quality gate")
         if quality.status is DataQualityStatus.INCOMPLETE and not self._allow_incomplete:
             raise ReplayBlockedError(
-                "historical dataset is incomplete; set allow_incomplete=True to run degraded-fidelity replay"
+                "historical dataset is incomplete; "
+                "set allow_incomplete=True to run degraded-fidelity replay"
             )
 
     def frames(self) -> tuple[ReplayFrame, ...]:
@@ -77,8 +84,8 @@ class HistoricalReplay:
             context = None
             if self._point_in_time_resolver is not None:
                 context = self._point_in_time_resolver.resolve(
-                    str(item.snapshot.instrument),
-                    item.snapshot.timestamp,
+                    str(item.instrument),
+                    item.timestamp,
                 )
             frames.append(ReplayFrame(observation=item, index=index, point_in_time=context))
         return tuple(frames)
