@@ -7,27 +7,28 @@ broker SDK or network dependency.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
-from typing import Callable
 
-from quantx.domain.finance import AccountFinancialState, BrokerConstraint
+from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+from quantx.domain.finance import AccountFinancialState, BrokerConstraint
+from quantx.domain.instrument_registry import InstrumentRegistry
+from quantx.domain.market_data import Candle
+from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
-from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.strategy import SignalAction, StrategyResult
-from quantx.domain.market_data import Candle
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.models import CandleFillModel, DataAdaptiveFillModel, FillModel, StopTrigger
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.ports import ExecutionReceipt
-from quantx.domain.instrument_registry import InstrumentRegistry
-from quantx.research.data import HistoricalDataSeries
-from quantx.research.replay import HistoricalReplay, ReplayFrame
+from quantx.research.data import HistoricalDataSeries, HistoricalSnapshot
 from quantx.research.quality import DataQualityStatus
+from quantx.research.replay import HistoricalReplay, ReplayFrame
 from quantx.research.result import ResultQuality
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
@@ -269,7 +270,9 @@ class DeterministicBacktestService:
             raise ValueError("SELL signal must carry a SELL intent")
 
     @staticmethod
-    def _candle_stop_disposition(intent, snapshot) -> str | None:
+    def _candle_stop_disposition(
+        intent: TradeIntent, snapshot: HistoricalSnapshot
+    ) -> str | None:
         """Block candle stop orders whose outcome OHLCV cannot establish.
 
         A stop whose trigger the observed bar cannot confirm would need an
