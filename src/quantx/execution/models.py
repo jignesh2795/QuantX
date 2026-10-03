@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import StrEnum
 from uuid import UUID
 
 from quantx.domain.enums import OrderSide, OrderType
@@ -95,6 +96,23 @@ class QuoteFillModel(FillModel):
         return None
 
 
+class StopTrigger(StrEnum):
+    """What OHLCV evidence establishes about a stop trigger.
+
+    NOT_TRIGGERED means the stop level was never printed in the bar.
+    TRIGGERED means a touch is evidenced and the close confirms a fill price
+    that cannot fabricate price improvement. AMBIGUOUS means a touch is
+    evidenced but any fill price would require inventing the intrabar path:
+    the close sits on the wrong side of the stop, so pricing at the close
+    would buy above nothing or sell below nothing that was observed after
+    the trigger.
+    """
+
+    NOT_TRIGGERED = "NOT_TRIGGERED"
+    TRIGGERED = "TRIGGERED"
+    AMBIGUOUS = "AMBIGUOUS"
+
+
 class CandleFillModel(FillModel):
     """Deterministic bar-level model (BASIC_BAR) for OHLCV-only evidence.
 
@@ -102,16 +120,34 @@ class CandleFillModel(FillModel):
     price established by the existing strategy preparation contract. Limit
     orders use the close-cross rule only: a buy fills when the observed
     close is at or below the limit, a sell when the close is at or above
-    the limit, priced at the close. High/low never trigger fills, and no
-    intrabar path is inferred. Stop and stop-limit orders cannot be
-    evaluated without trigger-timing assumptions, so they never propose a
-    fill. Non-candle snapshots are not priced. Pricing always uses the bar
-    the strategy observed; no other bar is ever read, so no future
-    information can leak into the fill.
+    the limit, priced at the close. A stop is triggered only when the bar
+    range touches the stop level and the close confirms a fill price on the
+    triggered side of the stop; a touch without confirmation is ambiguous
+    because the intrabar order of events is unknowable, so it never
+    proposes a fill. Stop-limit orders always require a post-trigger path
+    that OHLCV cannot supply, so they never propose a fill. Non-candle
+    snapshots are not priced. Pricing always uses the bar the strategy
+    observed; no other bar is ever read, so no future information can leak
+    into the fill.
     """
 
     model_id = "BASIC_BAR"
-    model_version = "basic-bar-v2"
+    model_version = "basic-bar-v3"
+
+    @staticmethod
+    def classify_stop(side: OrderSide, stop_price: Decimal, candle: Candle) -> StopTrigger:
+        """Classify a stop trigger from one observed bar without path inference."""
+        if side is OrderSide.BUY:
+            if candle.high < stop_price:
+                return StopTrigger.NOT_TRIGGERED
+            if candle.close >= stop_price:
+                return StopTrigger.TRIGGERED
+            return StopTrigger.AMBIGUOUS
+        if candle.low > stop_price:
+            return StopTrigger.NOT_TRIGGERED
+        if candle.close <= stop_price:
+            return StopTrigger.TRIGGERED
+        return StopTrigger.AMBIGUOUS
 
     def propose_fill(
         self, request: ApprovedExecutionRequest, snapshot: MarketSnapshot | Candle
@@ -145,6 +181,21 @@ class CandleFillModel(FillModel):
                 order.quantity,
                 snapshot.close,
                 reason,
+                self.model_id,
+                self.model_version,
+            )
+        if order.order_type is OrderType.STOP:
+            if order.stop_price is None:
+                return None
+            trigger = self.classify_stop(order.side, order.stop_price, snapshot)
+            if trigger is not StopTrigger.TRIGGERED:
+                return None
+            side = "buy" if order.side is OrderSide.BUY else "sell"
+            return FillProposal(
+                order.client_order_id,
+                order.quantity,
+                snapshot.close,
+                f"BASIC_BAR stop {side} triggered; filled at observed bar close",
                 self.model_id,
                 self.model_version,
             )
