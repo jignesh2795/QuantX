@@ -25,6 +25,7 @@ from quantx.domain.market_data import Candle, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
+from quantx.execution.paper_engine import PaperSimulationProfile
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.provenance import ResearchProvenance
 from quantx.research.result import ResultQuality
@@ -301,3 +302,45 @@ def test_end_to_end_candle_to_fidelity_metadata() -> None:
     assert result.fidelity.evidence_types == ("CANDLE",)
     assert all(receipt.simulated is True for receipt in result.receipts)
     assert result.ledger[0].quantity == Decimal("3")
+
+
+def _run_with_profile(series, order_type, profile, price=None):
+    return DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=series,
+        strategy=_strategy(order_type, price),
+        financial_state=_financial_state(),
+        execution_profile=profile,
+    )
+
+
+def test_fidelity_records_configured_slippage() -> None:
+    result = _run_with_profile(
+        _candle_series(), OrderType.MARKET, PaperSimulationProfile(slippage_bps=Decimal("10"))
+    )
+
+    assert any("slippage_bps=10" in item for item in result.fidelity.limitations)
+    assert any("modeled" in item for item in result.fidelity.limitations)
+    assert result.fidelity.execution_models == ("BASIC_BAR@basic-bar-v4",)
+    assert result.receipts[0].fills[0].price == Decimal("100") * Decimal("1.001")
+
+
+def test_fidelity_omits_slippage_note_when_disabled() -> None:
+    profiles = (
+        None,
+        PaperSimulationProfile(),
+        PaperSimulationProfile(slippage_bps=Decimal("0")),
+    )
+    for profile in profiles:
+        if profile is None:
+            result = _run(_candle_series(), OrderType.MARKET)
+        else:
+            result = _run_with_profile(_candle_series(), OrderType.MARKET, profile)
+
+        assert all("slippage_bps" not in item for item in result.fidelity.limitations)
+        assert all(
+            not item.startswith("reference_price=")
+            for receipt in result.receipts
+            for item in receipt.assumptions
+        )
