@@ -11,6 +11,7 @@ from uuid import UUID
 from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.market_data import Candle
+from quantx.domain.orders import Order
 
 from .market_data import MarketSnapshot
 
@@ -72,7 +73,11 @@ class QuoteFillModel(FillModel):
 
         if order.order_type is OrderType.LIMIT:
             if order.side is OrderSide.BUY:
-                if snapshot.ask is None or order.limit_price is None or snapshot.ask > order.limit_price:
+                if (
+                    snapshot.ask is None
+                    or order.limit_price is None
+                    or snapshot.ask > order.limit_price
+                ):
                     return None
                 return FillProposal(
                     order.client_order_id,
@@ -82,7 +87,11 @@ class QuoteFillModel(FillModel):
                     self.model_id,
                     self.model_version,
                 )
-            if snapshot.bid is None or order.limit_price is None or snapshot.bid < order.limit_price:
+            if (
+                snapshot.bid is None
+                or order.limit_price is None
+                or snapshot.bid < order.limit_price
+            ):
                 return None
             return FillProposal(
                 order.client_order_id,
@@ -163,7 +172,7 @@ class CandleFillModel(FillModel):
 
     def _sized_proposal(
         self,
-        order,
+        order: Order,
         snapshot: Candle,
         price: Decimal,
         base_reason: str,
