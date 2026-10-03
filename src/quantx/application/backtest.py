@@ -21,6 +21,7 @@ from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.domain.market_data import Candle
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.market_data import MarketSnapshot
+from quantx.execution.models import DataAdaptiveFillModel
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.ports import ExecutionReceipt
 from quantx.domain.instrument_registry import InstrumentRegistry
@@ -158,6 +159,7 @@ class DeterministicBacktestService:
             execution_engine = PaperExecutionEngine(
                 clock=simulation_clock,
                 profile=execution_profile,
+                fill_model=DataAdaptiveFillModel(),
             )
 
         effective_policy = policy_context or PolicyContext()
@@ -318,25 +320,6 @@ class DeterministicBacktestService:
                 continue
 
             snapshot = frame.observation.snapshot
-            if not isinstance(snapshot, MarketSnapshot):
-                # Quote-based paper execution needs bid/ask evidence that a
-                # candle cannot supply without invention. Candle-backed frames
-                # therefore stop here with an explicit disposition instead of
-                # a synthetic quote or an inferred fill.
-                steps.append(
-                    BacktestStep(
-                        frame.index,
-                        timestamp,
-                        strategy_result,
-                        risk,
-                        policy,
-                        None,
-                        BacktestDisposition.BLOCKED,
-                        "candle-backed observations require a bar-based execution model; "
-                        "quote-based paper execution is unsupported without bid/ask evidence",
-                    )
-                )
-                continue
 
             if simulation_clock is not None:
                 simulation_clock.set_time(frame.observation.timestamp)
