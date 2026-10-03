@@ -289,6 +289,7 @@ def test_host_rejects_duplicate_instruments(tmp_path) -> None:
 
 
 def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:
+    pytest.importorskip("dhanhq", reason="optional dhan extra is not installed")
     host = build_dhan_host_runtime(
         _config(
             tmp_path,
