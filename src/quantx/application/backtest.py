@@ -18,6 +18,7 @@ from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDec
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.enums import OrderSide
 from quantx.domain.strategy import SignalAction, StrategyResult
+from quantx.domain.market_data import Candle
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
@@ -78,12 +79,18 @@ class BacktestResult:
 StrategyRunner = Callable[[ReplayFrame], StrategyResult]
 
 
-def _reference_price(snapshot: MarketSnapshot) -> Decimal | None:
-    if snapshot.last is not None:
-        return snapshot.last
-    if snapshot.bid is not None and snapshot.ask is not None:
-        return (snapshot.bid + snapshot.ask) / Decimal("2")
-    return snapshot.ask if snapshot.ask is not None else snapshot.bid
+def _reference_price(snapshot: MarketSnapshot | Candle) -> Decimal | None:
+    if isinstance(snapshot, Candle):
+        # Bar-close reference, mirroring the existing strategy execution
+        # preparation contract; no quote fields are invented.
+        return snapshot.close
+    if isinstance(snapshot, MarketSnapshot):
+        if snapshot.last is not None:
+            return snapshot.last
+        if snapshot.bid is not None and snapshot.ask is not None:
+            return (snapshot.bid + snapshot.ask) / Decimal("2")
+        return snapshot.ask if snapshot.ask is not None else snapshot.bid
+    raise TypeError(f"unsupported backtest observation payload: {type(snapshot).__name__}")
 
 
 class DeterministicBacktestService:
@@ -310,6 +317,27 @@ class DeterministicBacktestService:
                 )
                 continue
 
+            snapshot = frame.observation.snapshot
+            if not isinstance(snapshot, MarketSnapshot):
+                # Quote-based paper execution needs bid/ask evidence that a
+                # candle cannot supply without invention. Candle-backed frames
+                # therefore stop here with an explicit disposition instead of
+                # a synthetic quote or an inferred fill.
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        risk,
+                        policy,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        "candle-backed observations require a bar-based execution model; "
+                        "quote-based paper execution is unsupported without bid/ask evidence",
+                    )
+                )
+                continue
+
             if simulation_clock is not None:
                 simulation_clock.set_time(frame.observation.timestamp)
             request: ApprovedExecutionRequest = ApprovedExecutionRequest(
@@ -320,7 +348,7 @@ class DeterministicBacktestService:
             )
             receipt = execution_engine.execute(
                 request,
-                snapshot=frame.observation.snapshot,
+                snapshot=snapshot,
             )
             receipts.append(receipt)
             for fill in receipt.fills:
