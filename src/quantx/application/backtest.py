@@ -160,6 +160,7 @@ def _fidelity_limitations(
     frames: tuple[ReplayFrame, ...],
     steps: tuple[BacktestStep, ...],
     volume_participation_rate: Decimal | None = None,
+    slippage_bps: Decimal | None = None,
 ) -> tuple[str, ...]:
     limitations = list(_BASE_LIMITATIONS)
     candle_order_types = {
@@ -181,6 +182,11 @@ def _fidelity_limitations(
             "candle fills bounded by configured volume participation "
             f"(rate={volume_participation_rate}); cap is modeled, not observed liquidity"
         )
+    if slippage_bps is not None and slippage_bps != 0:
+        limitations.append(
+            "configured deterministic slippage "
+            f"(slippage_bps={slippage_bps}); modeled price adjustment, not observed liquidity"
+        )
     return tuple(limitations)
 
 
@@ -189,6 +195,7 @@ def _backtest_fidelity(
     steps: tuple[BacktestStep, ...],
     receipts: tuple[ExecutionReceipt, ...],
     volume_participation_rate: Decimal | None = None,
+    slippage_bps: Decimal | None = None,
 ) -> BacktestFidelity:
     blocked = any(step.disposition is BacktestDisposition.BLOCKED for step in steps)
     quality = (
@@ -200,7 +207,9 @@ def _backtest_fidelity(
         quality=quality,
         execution_models=_execution_models(receipts),
         evidence_types=_evidence_types(frames),
-        limitations=_fidelity_limitations(frames, steps, volume_participation_rate),
+        limitations=_fidelity_limitations(
+            frames, steps, volume_participation_rate, slippage_bps
+        ),
     )
 
 
@@ -310,17 +319,20 @@ class DeterministicBacktestService:
         frames = replay.frames()
         execution_engine = self._execution_engine
         simulation_clock = None
+        effective_slippage_bps: Decimal | None = None
         if execution_engine is None:
             from quantx.domain.clock import SimulatedClock
 
             first_timestamp = frames[0].observation.timestamp
             simulation_clock = SimulatedClock(first_timestamp)
+            effective_profile = execution_profile or PaperSimulationProfile()
+            effective_slippage_bps = effective_profile.slippage_bps
             candle_model: FillModel = CandleFillModel(
                 volume_participation_rate=candle_volume_participation_rate
             )
             execution_engine = PaperExecutionEngine(
                 clock=simulation_clock,
-                profile=execution_profile,
+                profile=effective_profile,
                 fill_model=DataAdaptiveFillModel(candle_model=candle_model),
             )
 
@@ -537,6 +549,7 @@ class DeterministicBacktestService:
             steps_tuple,
             receipts_tuple,
             candle_volume_participation_rate,
+            effective_slippage_bps,
         ),
             steps=steps_tuple,
             receipts=receipts_tuple,
