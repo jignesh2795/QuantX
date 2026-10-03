@@ -72,6 +72,20 @@ uv lock
 uv run pytest -q
 ```
 
+The Dhan SDK is an optional extra. The suite passes without it (the one
+SDK-dependent test skips itself), but install it if you work on the Dhan
+plugin:
+
+```powershell
+uv sync --dev --extra dhan
+```
+
+To keep changed-file Ruff errors out of pushes, enable the repo's hook:
+
+```powershell
+git config core.hooksPath scripts/hooks
+```
+
 Useful local checks:
 
 ```powershell
