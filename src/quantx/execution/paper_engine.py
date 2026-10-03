@@ -185,6 +185,7 @@ class PaperExecutionEngine:
                 f"slippage_bps={self._profile.slippage_bps}",
                 f"partial_fill_ratio={self._profile.partial_fill_ratio}",
                 f"fee_bps={self._profile.fee_bps}",
+                f"model_id={proposal.model_id}",
                 proposal.reason,
             ),
             fee=fee,
