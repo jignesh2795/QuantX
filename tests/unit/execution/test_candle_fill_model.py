@@ -160,3 +160,31 @@ def test_candle_proposals_are_deterministic() -> None:
 
     assert first == second
     assert first is not None and first.price == PRECISE_CLOSE
+
+
+def test_quote_proposals_carry_quote_model_identity() -> None:
+    proposal = QuoteFillModel().propose_fill(_request(OrderSide.BUY), _quote())
+
+    assert proposal is not None
+    assert proposal.model_id == "QUOTE"
+    assert proposal.model_version == "paper-core-v0.3"
+
+
+def test_candle_proposals_carry_basic_bar_identity() -> None:
+    proposal = CandleFillModel().propose_fill(_request(OrderSide.BUY), _candle())
+
+    assert proposal is not None
+    assert proposal.model_id == "BASIC_BAR"
+    assert proposal.model_version == "basic-bar-v1"
+
+
+def test_adaptive_proposals_preserve_per_payload_identity() -> None:
+    model = DataAdaptiveFillModel()
+
+    candle = model.propose_fill(_request(OrderSide.BUY), _candle())
+    quote = model.propose_fill(_request(OrderSide.BUY), _quote())
+
+    assert candle is not None
+    assert (candle.model_id, candle.model_version) == ("BASIC_BAR", "basic-bar-v1")
+    assert quote is not None
+    assert (quote.model_id, quote.model_version) == ("QUOTE", "paper-core-v0.3")

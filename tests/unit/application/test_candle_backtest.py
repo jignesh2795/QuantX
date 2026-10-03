@@ -438,6 +438,109 @@ def test_candle_evaluation_is_reproducible() -> None:
     assert first.result.signal.action is second.result.signal.action
 
 
+def test_candle_receipt_records_basic_bar_identity() -> None:
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=_buy_once_strategy(_context()),
+        financial_state=_financial_state(),
+    )
+
+    (receipt,) = result.receipts
+    assert receipt.model_version == "basic-bar-v1"
+    assert "BASIC_BAR" in receipt.message
+    assert any("BASIC_BAR" in item for item in receipt.assumptions)
+    assert any(item.startswith("slippage_bps=") for item in receipt.assumptions)
+    assert receipt.simulated is True
+    assert receipt.source == "paper"
+    assert receipt.fills[0].price == PRECISE["close"]
+
+
+def test_mixed_series_records_identity_per_payload() -> None:
+    quote = Quote(
+        instrument=TCS,
+        timestamp=T0,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+    series = HistoricalDataSeries(
+        (
+            HistoricalObservation(quote, "test", "1", 0),
+            HistoricalObservation.from_candle(
+                _candle(
+                    T1,
+                    open=Decimal("100"),
+                    close=Decimal("101.5"),
+                    high=Decimal("102"),
+                    low=Decimal("100"),
+                ),
+                "test",
+                "v1",
+                1,
+            ),
+        )
+    )
+
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("buy-every-bar"),
+            "1",
+            TCS,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            execution_context=_context(),
+            strategy_id="buy-every-bar",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=series,
+        strategy=strategy,
+        financial_state=_financial_state(),
+    )
+
+    assert result.executed_count == 2
+    quote_receipt, candle_receipt = result.receipts
+    assert quote_receipt.model_version == "paper-core-v0.3"
+    assert quote_receipt.fills[0].price == Decimal("100")
+    assert "BASIC_BAR" not in quote_receipt.message
+    assert candle_receipt.model_version == "basic-bar-v1"
+    assert candle_receipt.fills[0].price == Decimal("101.5")
+    assert "BASIC_BAR" in candle_receipt.message
+
+
+def test_candle_receipt_identity_is_reproducible() -> None:
+    def run_all():
+        return DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+        ).run(
+            series=_candle_series(),
+            strategy=_buy_once_strategy(_context()),
+            financial_state=_financial_state(),
+        )
+
+    first = run_all()
+    second = run_all()
+
+    for left, right in zip(first.receipts, second.receipts, strict=True):
+        assert left.model_version == right.model_version == "basic-bar-v1"
+        assert left.message == right.message
+        assert left.assumptions == right.assumptions
+        assert [fill.price for fill in left.fills] == [fill.price for fill in right.fills]
+        assert left.simulated is True and right.simulated is True
+
+
 def test_quote_backtest_still_executes() -> None:
     result = DeterministicBacktestService(
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
