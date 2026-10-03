@@ -397,7 +397,7 @@ def test_candle_crossed_limit_fills_at_bar_close_end_to_end() -> None:
     filled = [receipt for receipt in result.receipts if receipt.fills]
     unfilled = [receipt for receipt in result.receipts if not receipt.fills]
     assert len(filled) == 2 and len(unfilled) == 1
-    assert all(receipt.model_version == "basic-bar-v3" for receipt in filled)
+    assert all(receipt.model_version == "basic-bar-v4" for receipt in filled)
     assert all("close-cross" in receipt.message for receipt in filled)
     # Unfilled receipts keep the pre-existing generic engine recording.
     assert all(receipt.model_version == "paper-core-v0.3" for receipt in unfilled)
@@ -515,7 +515,7 @@ def test_candle_buy_stop_triggered_and_ambiguous_bars() -> None:
         Decimal("101.5"),
     ]
     assert "intrabar path is unknowable" in result.steps[2].reason
-    assert all(receipt.model_version == "basic-bar-v3" for receipt in result.receipts)
+    assert all(receipt.model_version == "basic-bar-v4" for receipt in result.receipts)
 
 
 def test_candle_sell_stop_triggered_and_ambiguous_bars() -> None:
@@ -686,7 +686,7 @@ def test_candle_receipt_records_basic_bar_identity() -> None:
     )
 
     (receipt,) = result.receipts
-    assert receipt.model_version == "basic-bar-v3"
+    assert receipt.model_version == "basic-bar-v4"
     assert "BASIC_BAR" in receipt.message
     assert any("BASIC_BAR" in item for item in receipt.assumptions)
     assert any(item.startswith("slippage_bps=") for item in receipt.assumptions)
@@ -753,7 +753,7 @@ def test_mixed_series_records_identity_per_payload() -> None:
     assert quote_receipt.model_version == "paper-core-v0.3"
     assert quote_receipt.fills[0].price == Decimal("100")
     assert "BASIC_BAR" not in quote_receipt.message
-    assert candle_receipt.model_version == "basic-bar-v3"
+    assert candle_receipt.model_version == "basic-bar-v4"
     assert candle_receipt.fills[0].price == Decimal("101.5")
     assert "BASIC_BAR" in candle_receipt.message
 
@@ -772,11 +772,100 @@ def test_candle_receipt_identity_is_reproducible() -> None:
     second = run_all()
 
     for left, right in zip(first.receipts, second.receipts, strict=True):
-        assert left.model_version == right.model_version == "basic-bar-v3"
+        assert left.model_version == right.model_version == "basic-bar-v4"
         assert left.message == right.message
         assert left.assumptions == right.assumptions
         assert [fill.price for fill in left.fills] == [fill.price for fill in right.fills]
         assert left.simulated is True and right.simulated is True
+
+
+def _volume_series() -> HistoricalDataSeries:
+    return HistoricalDataSeries(
+        (
+            HistoricalObservation.from_candle(_candle(T0, volume=Decimal("1000")), "test", "v1", 0),
+            HistoricalObservation.from_candle(_candle(T1, volume=Decimal("10")), "test", "v1", 1),
+        )
+    )
+
+
+def _volume_strategy(quantity: Decimal):
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("volume-check"),
+            "1",
+            TCS,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.BUY,
+            quantity=quantity,
+            execution_context=_context(),
+            strategy_id="volume-check",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    return strategy
+
+
+def _volume_run(series, quantity: Decimal, rate: Decimal | None):
+    return DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=series,
+        strategy=_volume_strategy(quantity),
+        financial_state=_financial_state(),
+        candle_volume_participation_rate=rate,
+    )
+
+
+def test_participation_end_to_end_full_and_partial_fills() -> None:
+    result = _volume_run(_volume_series(), Decimal("5"), Decimal("0.10"))
+
+    assert result.executed_count == 2
+    assert len(result.receipts) == 2
+    full, partial = result.receipts
+    assert full.fills[0].quantity == Decimal("5")
+    assert full.fills[0].price == Decimal("100")
+    assert partial.fills[0].quantity == Decimal("1.00")
+    assert partial.fills[0].price == Decimal("100")
+    assert "volume_participation_rate=0.10" in full.message
+    assert "volume_participation_rate=0.10" in partial.message
+    assert all(receipt.model_version == "basic-bar-v4" for receipt in result.receipts)
+    assert result.ledger[0].quantity == Decimal("6.00")
+
+
+def test_participation_fidelity_records_configuration() -> None:
+    result = _volume_run(_volume_series(), Decimal("5"), Decimal("0.10"))
+
+    assert result.fidelity.execution_models == ("BASIC_BAR@basic-bar-v4",)
+    assert result.fidelity.evidence_types == ("CANDLE",)
+    assert any("volume participation" in item for item in result.fidelity.limitations)
+
+
+def test_participation_absent_keeps_prior_fidelity() -> None:
+    result = _volume_run(_volume_series(), Decimal("1"), None)
+
+    assert all("participation" not in item for item in result.receipts[0].assumptions)
+    assert all("participation" not in item for item in result.fidelity.limitations)
+    assert result.fidelity.execution_models == ("BASIC_BAR@basic-bar-v4",)
+
+
+def test_participation_run_is_deterministic() -> None:
+    first = _volume_run(_volume_series(), Decimal("5"), Decimal("0.10"))
+    second = _volume_run(_volume_series(), Decimal("5"), Decimal("0.10"))
+
+    assert [
+        (receipt.model_version, receipt.message, [fill.price for fill in receipt.fills])
+        for receipt in first.receipts
+    ] == [
+        (receipt.model_version, receipt.message, [fill.price for fill in receipt.fills])
+        for receipt in second.receipts
+    ]
+    assert first.fidelity == second.fidelity
 
 
 def test_quote_stop_behavior_unchanged() -> None:

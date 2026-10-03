@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.market_data import Candle
 from .market_data import MarketSnapshot
 from .receipts.models import ExecutionOutcome, ExecutionReceipt
 
@@ -40,7 +41,7 @@ class MarketDataExecutionPort(Protocol):
         self,
         request: ApprovedExecutionRequest,
         *,
-        snapshot: MarketSnapshot,
+        snapshot: MarketSnapshot | Candle,
     ) -> ExecutionReceipt:
         ...
 

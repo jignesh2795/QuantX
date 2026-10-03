@@ -13,6 +13,7 @@ from quantx.domain.enums import OrderStatus
 from quantx.domain.errors import IntegrationError
 from quantx.domain.events import OrderFilled, OrderSubmitted
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.market_data import Candle
 from quantx.domain.orders import Fill
 from quantx.persistence import ReceiptRepository
 
@@ -71,7 +72,7 @@ class PaperExecutionEngine:
         self,
         request: ApprovedExecutionRequest,
         *,
-        snapshot: MarketSnapshot,
+        snapshot: MarketSnapshot | Candle,
     ) -> ExecutionReceipt:
         mode = request.execution_context.execution_mode
         if mode not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
@@ -251,7 +252,7 @@ class PaperExecutionEngine:
         lifecycle: ExecutionLifecycle,
         *,
         risk_result: RiskResult,
-        snapshot: MarketSnapshot,
+        snapshot: MarketSnapshot | Candle,
         requested_quantity: Decimal | None = None,
     ) -> ExecutionReceipt:
         """Execute an evidenced partial remainder under fresh risk approval.
