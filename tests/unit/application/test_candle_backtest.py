@@ -24,7 +24,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide
+from quantx.domain.enums import AssetClass, OrderSide, OrderType
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
@@ -258,9 +258,9 @@ def test_unsupported_payloads_fail_explicitly() -> None:
         _reference_price(object())  # type: ignore[arg-type]
 
 
-# 2/4/6. Candle run: strategy, validation, and risk execute; paper
-# execution is explicitly blocked instead of inventing a fill.
-def test_candle_backtest_run_blocks_execution_explicitly() -> None:
+# Candle MARKET orders fill deterministically at the observed bar close
+# through the BASIC_BAR model; no quote fields are invented.
+def test_candle_market_order_fills_at_bar_close() -> None:
     result = DeterministicBacktestService(
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
     ).run(
@@ -270,18 +270,106 @@ def test_candle_backtest_run_blocks_execution_explicitly() -> None:
     )
 
     assert len(result.steps) == 3
-    blocked = result.steps[0]
-    assert blocked.disposition is BacktestDisposition.BLOCKED
-    assert "bar-based execution model" in blocked.reason
-    assert blocked.risk_result is not None
-    assert blocked.policy_result is not None
+    executed = result.steps[0]
+    assert executed.disposition is BacktestDisposition.EXECUTED
+    assert executed.risk_result is not None
+    assert executed.policy_result is not None
     assert result.steps[1].disposition is BacktestDisposition.NO_ACTION
     assert result.steps[2].disposition is BacktestDisposition.NO_ACTION
-    assert result.executed_count == 0
-    assert result.receipts == ()
+    assert result.executed_count == 1
+    assert len(result.receipts) == 1
+    (fill,) = result.receipts[0].fills
+    assert fill.price == PRECISE["close"]
+    assert str(fill.price) == "100.00000000000001"
+    assert fill.quantity == Decimal("1")
+    assert "BASIC_BAR" in result.receipts[0].message
+    assert any("BASIC_BAR" in item for item in result.receipts[0].assumptions)
+    assert result.ledger[0].quantity == Decimal("1")
     for observation in _candle_series():
         assert isinstance(observation.snapshot, Candle)
         assert not isinstance(observation.snapshot, Quote)
+
+
+def _limit_strategy(context: ExecutionContext):
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("limit-once"),
+            "1",
+            TCS,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("50"),
+            execution_context=context,
+            strategy_id="limit-once",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    return strategy
+
+
+def _stop_strategy(context: ExecutionContext):
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("stop-once"),
+            "1",
+            TCS,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            order_type=OrderType.STOP,
+            stop_price=Decimal("200"),
+            execution_context=context,
+            strategy_id="stop-once",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    return strategy
+
+
+def test_candle_limit_order_produces_no_fill_without_invention() -> None:
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=_limit_strategy(_context()),
+        financial_state=_financial_state(),
+    )
+
+    assert len(result.steps) == 3
+    assert all(step.disposition is BacktestDisposition.EXECUTED for step in result.steps)
+    assert len(result.receipts) == 3
+    assert all(receipt.fills == () for receipt in result.receipts)
+    assert all("no fill was available" in receipt.message for receipt in result.receipts)
+    assert result.ledger == ()
+
+
+def test_candle_stop_order_produces_no_fill_without_invention() -> None:
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=_stop_strategy(_context()),
+        financial_state=_financial_state(),
+    )
+
+    assert len(result.steps) == 3
+    assert all(receipt.fills == () for receipt in result.receipts)
+    assert all("no fill was available" in receipt.message for receipt in result.receipts)
+    assert result.ledger == ()
 
 
 def test_candle_run_is_chronological_deterministic_and_reproducible() -> None:
@@ -362,3 +450,88 @@ def test_quote_backtest_still_executes() -> None:
     assert result.executed_count == 1
     assert len(result.receipts) == 1
     assert result.receipts[0].fills[0].price == Decimal("100")
+
+
+def test_each_candle_fill_uses_its_own_bar_close() -> None:
+    closes: list[Decimal] = []
+
+    def strategy(frame):
+        snapshot = frame.observation.snapshot
+        signal = StrategySignal(
+            StrategyId("buy-every-bar"),
+            "1",
+            TCS,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            execution_context=_context(),
+            strategy_id="buy-every-bar",
+            strategy_version="1",
+        )
+        closes.append(snapshot.close)
+        return StrategyResult(signal, intent)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=strategy,
+        financial_state=_financial_state(),
+    )
+
+    assert result.executed_count == 3
+    assert [fill.price for receipt in result.receipts for fill in receipt.fills] == closes
+    assert closes[0] == PRECISE["close"]
+    assert len(set(closes)) == 3
+
+
+class _CandleParityStrategy:
+    """Context-bearing strategy usable through StrategyEvaluationService."""
+
+    def on_market_data(self, context) -> StrategyResult:
+        event, ir = context.event, context.ir
+        signal = StrategySignal(
+            ir.strategy_id,
+            ir.version,
+            event.instrument,
+            SignalAction.BUY if event.timestamp == T0 else SignalAction.HOLD,
+            1.0,
+            generated_at=event.timestamp,
+        )
+        if signal.action is SignalAction.HOLD:
+            return StrategyResult(signal)
+        intent = TradeIntent(
+            instrument=event.instrument,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            execution_context=_context(),
+            strategy_id=ir.strategy_id.value,
+            strategy_version=ir.version,
+        )
+        return StrategyResult(signal, intent)
+
+
+def test_candle_end_to_end_replay_to_accounting() -> None:
+    ir = StrategyCompiler.compile(StrategyDefinition(StrategyId("candle-e2e"), "1", "Candle E2E"))
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=StrategyEvaluationService(_CandleParityStrategy()),
+        strategy_ir=ir,
+        financial_state=_financial_state(),
+    )
+
+    assert result.executed_count == 1
+    assert result.rejected_count == 0
+    assert len(result.receipts) == 1
+    assert result.receipts[0].fills[0].price == PRECISE["close"]
+    assert result.receipts[0].fills[0].instrument == TCS
+    assert result.steps[0].strategy_result.signal.action is SignalAction.BUY
+    assert result.steps[1].strategy_result.signal.action is SignalAction.HOLD
+    assert result.ledger[0].quantity == Decimal("1")
