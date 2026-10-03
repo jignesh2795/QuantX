@@ -20,6 +20,8 @@ class FillProposal:
     quantity: Decimal
     price: Decimal
     reason: str
+    model_id: str
+    model_version: str
 
 
 class FillModel(ABC):
@@ -40,6 +42,9 @@ class QuoteFillModel(FillModel):
     no fill rather than an invented price.
     """
 
+    model_id = "QUOTE"
+    model_version = "paper-core-v0.3"
+
     def propose_fill(
         self, request: ApprovedExecutionRequest, snapshot: MarketSnapshot | Candle
     ) -> FillProposal | None:
@@ -55,16 +60,37 @@ class QuoteFillModel(FillModel):
                 reason = "market sell at observed bid"
             if price is None:
                 return None
-            return FillProposal(order.client_order_id, order.quantity, price, reason)
+            return FillProposal(
+                order.client_order_id,
+                order.quantity,
+                price,
+                reason,
+                self.model_id,
+                self.model_version,
+            )
 
         if order.order_type is OrderType.LIMIT:
             if order.side is OrderSide.BUY:
                 if snapshot.ask is None or order.limit_price is None or snapshot.ask > order.limit_price:
                     return None
-                return FillProposal(order.client_order_id, order.quantity, snapshot.ask, "limit buy crossed by observed ask")
+                return FillProposal(
+                    order.client_order_id,
+                    order.quantity,
+                    snapshot.ask,
+                    "limit buy crossed by observed ask",
+                    self.model_id,
+                    self.model_version,
+                )
             if snapshot.bid is None or order.limit_price is None or snapshot.bid < order.limit_price:
                 return None
-            return FillProposal(order.client_order_id, order.quantity, snapshot.bid, "limit sell crossed by observed bid")
+            return FillProposal(
+                order.client_order_id,
+                order.quantity,
+                snapshot.bid,
+                "limit sell crossed by observed bid",
+                self.model_id,
+                self.model_version,
+            )
 
         return None
 
@@ -76,9 +102,12 @@ class CandleFillModel(FillModel):
     price established by the existing strategy preparation contract. Limit,
     stop, and stop-limit orders cannot be evaluated without intrabar path
     assumptions, so they never propose a fill. Non-candle snapshots are not
-    priced. Pricing always uses the bar the strategy observed; no other bar
+    priced.     Pricing always uses the bar the strategy observed; no other bar
     is ever read, so no future information can leak into the fill.
     """
+
+    model_id = "BASIC_BAR"
+    model_version = "basic-bar-v1"
 
     def propose_fill(
         self, request: ApprovedExecutionRequest, snapshot: MarketSnapshot | Candle
@@ -94,6 +123,8 @@ class CandleFillModel(FillModel):
             order.quantity,
             snapshot.close,
             f"BASIC_BAR market {side} at observed bar close",
+            self.model_id,
+            self.model_version,
         )
 
 

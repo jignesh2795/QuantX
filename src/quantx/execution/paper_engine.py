@@ -179,7 +179,7 @@ class PaperExecutionEngine:
             order_id=request.order.client_order_id,
             order_quantity=request.order.quantity,
             model_profile=self._profile.name,
-            model_version="paper-core-v0.3",
+            model_version=proposal.model_version,
             assumptions=(
                 f"latency_ms={self._profile.latency_ms}",
                 f"slippage_bps={self._profile.slippage_bps}",
