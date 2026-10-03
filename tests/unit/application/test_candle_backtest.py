@@ -357,6 +357,103 @@ def test_candle_limit_order_produces_no_fill_without_invention() -> None:
     assert result.ledger == ()
 
 
+def test_candle_crossed_limit_fills_at_bar_close_end_to_end() -> None:
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("limit-e2e"),
+            "1",
+            TCS,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("101"),
+            execution_context=_context(),
+            strategy_id="limit-e2e",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=strategy,
+        financial_state=_financial_state(),
+    )
+
+    assert result.executed_count == 3
+    assert len(result.receipts) == 3
+    # closes 100.000...01 and 99.5 cross limit=101; close 101.5 does not.
+    assert [fill.price for receipt in result.receipts for fill in receipt.fills] == [
+        PRECISE["close"],
+        Decimal("99.5"),
+    ]
+    filled = [receipt for receipt in result.receipts if receipt.fills]
+    unfilled = [receipt for receipt in result.receipts if not receipt.fills]
+    assert len(filled) == 2 and len(unfilled) == 1
+    assert all(receipt.model_version == "basic-bar-v2" for receipt in filled)
+    assert all("close-cross" in receipt.message for receipt in filled)
+    # Unfilled receipts keep the pre-existing generic engine recording.
+    assert all(receipt.model_version == "paper-core-v0.3" for receipt in unfilled)
+    assert all(receipt.simulated is True for receipt in result.receipts)
+    assert result.ledger[0].quantity == Decimal("2")
+    assert result.ledger[0].average_price == Decimal("99.750000000000005")
+    assert result.data_quality.value == "COMPLETE"
+
+
+def test_candle_limit_fills_only_crossed_bars() -> None:
+    seen: list[tuple[datetime, Decimal]] = []
+
+    def strategy(frame):
+        snapshot = frame.observation.snapshot
+        seen.append((snapshot.timestamp, snapshot.close))
+        signal = StrategySignal(
+            StrategyId("limit-selective"),
+            "1",
+            TCS,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("100.5"),
+            execution_context=_context(),
+            strategy_id="limit-selective",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=strategy,
+        financial_state=_financial_state(),
+    )
+
+    # closes: 100.000...01 (fill), 101.5 (no fill), 99.5 (fill).
+    assert [fill.price for receipt in result.receipts for fill in receipt.fills] == [
+        PRECISE["close"],
+        Decimal("99.5"),
+    ]
+    assert [step.timestamp for step in result.steps] == [
+        T0.isoformat(),
+        T1.isoformat(),
+        T2.isoformat(),
+    ]
+    assert seen == [(T0, PRECISE["close"]), (T1, Decimal("101.5")), (T2, Decimal("99.5"))]
+
+
 def test_candle_stop_order_produces_no_fill_without_invention() -> None:
     result = DeterministicBacktestService(
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
@@ -448,7 +545,7 @@ def test_candle_receipt_records_basic_bar_identity() -> None:
     )
 
     (receipt,) = result.receipts
-    assert receipt.model_version == "basic-bar-v1"
+    assert receipt.model_version == "basic-bar-v2"
     assert "BASIC_BAR" in receipt.message
     assert any("BASIC_BAR" in item for item in receipt.assumptions)
     assert any(item.startswith("slippage_bps=") for item in receipt.assumptions)
@@ -515,7 +612,7 @@ def test_mixed_series_records_identity_per_payload() -> None:
     assert quote_receipt.model_version == "paper-core-v0.3"
     assert quote_receipt.fills[0].price == Decimal("100")
     assert "BASIC_BAR" not in quote_receipt.message
-    assert candle_receipt.model_version == "basic-bar-v1"
+    assert candle_receipt.model_version == "basic-bar-v2"
     assert candle_receipt.fills[0].price == Decimal("101.5")
     assert "BASIC_BAR" in candle_receipt.message
 
@@ -534,7 +631,7 @@ def test_candle_receipt_identity_is_reproducible() -> None:
     second = run_all()
 
     for left, right in zip(first.receipts, second.receipts, strict=True):
-        assert left.model_version == right.model_version == "basic-bar-v1"
+        assert left.model_version == right.model_version == "basic-bar-v2"
         assert left.message == right.message
         assert left.assumptions == right.assumptions
         assert [fill.price for fill in left.fills] == [fill.price for fill in right.fills]
