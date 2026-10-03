@@ -16,12 +16,12 @@ from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
-from quantx.domain.enums import OrderSide
+from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.domain.market_data import Candle
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.market_data import MarketSnapshot
-from quantx.execution.models import DataAdaptiveFillModel
+from quantx.execution.models import CandleFillModel, DataAdaptiveFillModel, StopTrigger
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.ports import ExecutionReceipt
 from quantx.domain.instrument_registry import InstrumentRegistry
@@ -134,6 +134,40 @@ class DeterministicBacktestService:
             raise ValueError("BUY signal must carry a BUY intent")
         if signal.action is SignalAction.SELL and intent.side is not OrderSide.SELL:
             raise ValueError("SELL signal must carry a SELL intent")
+
+    @staticmethod
+    def _candle_stop_disposition(intent, snapshot) -> str | None:
+        """Block candle stop orders whose outcome OHLCV cannot establish.
+
+        A stop whose trigger the observed bar cannot confirm would need an
+        invented intrabar path to price; a stop-limit additionally needs an
+        unknowable post-trigger limit ordering. Both stop here with an
+        explicit reason instead of a fabricated fill.
+        """
+        if not isinstance(snapshot, Candle):
+            return None
+        if intent.order_type is OrderType.STOP:
+            if intent.stop_price is None:
+                return "stop price is required for stop orders"
+            if (
+                CandleFillModel.classify_stop(intent.side, intent.stop_price, snapshot)
+                is StopTrigger.AMBIGUOUS
+            ):
+                return "stop trigger intrabar path is unknowable from OHLCV; no simulated fill"
+            return None
+        if intent.order_type is OrderType.STOP_LIMIT:
+            if intent.stop_price is None:
+                return "stop price is required for stop-limit orders"
+            trigger = CandleFillModel.classify_stop(intent.side, intent.stop_price, snapshot)
+            if trigger is StopTrigger.AMBIGUOUS:
+                return "stop-limit intrabar path is unknowable from OHLCV; no fill simulated"
+            if trigger is StopTrigger.TRIGGERED:
+                return (
+                    "stop triggered but post-trigger limit execution ordering "
+                    "is unknowable from OHLCV; no simulated fill"
+                )
+            return None
+        return None
 
     def run(
         self,
@@ -320,6 +354,21 @@ class DeterministicBacktestService:
                 continue
 
             snapshot = frame.observation.snapshot
+            blocked_reason = self._candle_stop_disposition(intent, snapshot)
+            if blocked_reason is not None:
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        risk,
+                        policy,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        blocked_reason,
+                    )
+                )
+                continue
 
             if simulation_clock is not None:
                 simulation_clock.set_time(frame.observation.timestamp)

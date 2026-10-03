@@ -29,6 +29,7 @@ from quantx.execution.models import (
     CandleFillModel,
     DataAdaptiveFillModel,
     QuoteFillModel,
+    StopTrigger,
 )
 
 T0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
@@ -185,7 +186,7 @@ def test_candle_proposals_carry_basic_bar_identity() -> None:
 
     assert proposal is not None
     assert proposal.model_id == "BASIC_BAR"
-    assert proposal.model_version == "basic-bar-v2"
+    assert proposal.model_version == "basic-bar-v3"
 
 
 def test_buy_limit_fills_when_close_at_or_below_limit() -> None:
@@ -292,13 +293,179 @@ def test_high_low_variation_with_same_close_is_invariant() -> None:
     )
 
 
-def test_stop_and_stop_limit_never_fill_on_candles() -> None:
+def test_untriggered_stop_proposes_no_fill() -> None:
     candle = _candle()
 
+    # BUY stop=200 never touched (high=101.000...01); SELL stop=50 never touched.
     assert CandleFillModel().propose_fill(_request(OrderSide.BUY, OrderType.STOP), candle) is None
-    stop_limit = _request(OrderSide.BUY, OrderType.STOP_LIMIT)
+    sell = _request(OrderSide.SELL, OrderType.STOP, stop=Decimal("50"))
+    assert CandleFillModel().propose_fill(sell, candle) is None
+
+
+def test_classify_buy_stop_trigger_states() -> None:
+    untouched = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("90"),
+        high=Decimal("95"),
+        low=Decimal("89"),
+        close=Decimal("92"),
+        volume=Decimal("1000"),
+    )
+    assert (
+        CandleFillModel.classify_stop(OrderSide.BUY, Decimal("100"), untouched)
+        is StopTrigger.NOT_TRIGGERED
+    )
+    confirmed = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("99"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("101"),
+        volume=Decimal("1000"),
+    )
+    assert (
+        CandleFillModel.classify_stop(OrderSide.BUY, Decimal("100"), confirmed)
+        is StopTrigger.TRIGGERED
+    )
+    reversal = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("105"),
+        high=Decimal("106"),
+        low=Decimal("95"),
+        close=Decimal("97"),
+        volume=Decimal("1000"),
+    )
+    assert (
+        CandleFillModel.classify_stop(OrderSide.BUY, Decimal("100"), reversal)
+        is StopTrigger.AMBIGUOUS
+    )
+
+
+def test_classify_sell_stop_trigger_states() -> None:
+    untouched = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("110"),
+        high=Decimal("112"),
+        low=Decimal("108"),
+        close=Decimal("111"),
+        volume=Decimal("1000"),
+    )
+    assert (
+        CandleFillModel.classify_stop(OrderSide.SELL, Decimal("100"), untouched)
+        is StopTrigger.NOT_TRIGGERED
+    )
+    confirmed = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("101"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("99"),
+        volume=Decimal("1000"),
+    )
+    assert (
+        CandleFillModel.classify_stop(OrderSide.SELL, Decimal("100"), confirmed)
+        is StopTrigger.TRIGGERED
+    )
+    reversal = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("95"),
+        high=Decimal("105"),
+        low=Decimal("94"),
+        close=Decimal("103"),
+        volume=Decimal("1000"),
+    )
+    assert (
+        CandleFillModel.classify_stop(OrderSide.SELL, Decimal("100"), reversal)
+        is StopTrigger.AMBIGUOUS
+    )
+
+
+def test_triggered_buy_stop_fills_at_bar_close() -> None:
+    candle = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("99"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("101"),
+        volume=Decimal("1000"),
+    )
+    proposal = CandleFillModel().propose_fill(
+        _request(OrderSide.BUY, OrderType.STOP, stop=Decimal("100")), candle
+    )
+
+    assert proposal is not None
+    assert proposal.price == Decimal("101")
+    assert "stop" in proposal.reason
+    assert (proposal.model_id, proposal.model_version) == ("BASIC_BAR", "basic-bar-v3")
+
+
+def test_triggered_sell_stop_fills_at_bar_close() -> None:
+    candle = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("101"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("99"),
+        volume=Decimal("1000"),
+    )
+    proposal = CandleFillModel().propose_fill(
+        _request(OrderSide.SELL, OrderType.STOP, stop=Decimal("100")), candle
+    )
+
+    assert proposal is not None
+    assert proposal.price == Decimal("99")
+
+
+def test_ambiguous_stop_proposes_no_fill() -> None:
+    reversal = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("105"),
+        high=Decimal("106"),
+        low=Decimal("95"),
+        close=Decimal("97"),
+        volume=Decimal("1000"),
+    )
+    assert (
+        CandleFillModel().propose_fill(
+            _request(OrderSide.BUY, OrderType.STOP, stop=Decimal("100")), reversal
+        )
+        is None
+    )
+
+
+def test_stop_limit_never_proposes_even_when_triggered() -> None:
+    candle = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("99"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("101"),
+        volume=Decimal("1000"),
+    )
+    stop_limit = _request(
+        OrderSide.BUY, OrderType.STOP_LIMIT, limit=Decimal("102"), stop=Decimal("100")
+    )
     assert CandleFillModel().propose_fill(stop_limit, candle) is None
-    assert CandleFillModel().propose_fill(_request(OrderSide.SELL, OrderType.STOP), candle) is None
 
 
 def test_adaptive_proposals_preserve_per_payload_identity() -> None:
@@ -308,6 +475,6 @@ def test_adaptive_proposals_preserve_per_payload_identity() -> None:
     quote = model.propose_fill(_request(OrderSide.BUY), _quote())
 
     assert candle is not None
-    assert (candle.model_id, candle.model_version) == ("BASIC_BAR", "basic-bar-v2")
+    assert (candle.model_id, candle.model_version) == ("BASIC_BAR", "basic-bar-v3")
     assert quote is not None
     assert (quote.model_id, quote.model_version) == ("QUOTE", "paper-core-v0.3")
