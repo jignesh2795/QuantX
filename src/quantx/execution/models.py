@@ -128,11 +128,23 @@ class CandleFillModel(FillModel):
     that OHLCV cannot supply, so they never propose a fill. Non-candle
     snapshots are not priced. Pricing always uses the bar the strategy
     observed; no other bar is ever read, so no future information can leak
-    into the fill.
+    into the fill. An optional candle-volume participation rate bounds the
+    proposed quantity by a configured share of the observed bar volume.
+    That bound is an explicit simulation assumption, never observed
+    liquidity: candle volume is total printed market volume, not executable
+    size available to the order.
     """
 
     model_id = "BASIC_BAR"
-    model_version = "basic-bar-v3"
+    model_version = "basic-bar-v4"
+
+    def __init__(self, *, volume_participation_rate: Decimal | None = None) -> None:
+        if volume_participation_rate is not None:
+            if not isinstance(volume_participation_rate, Decimal):
+                raise TypeError("volume_participation_rate must be a Decimal")
+            if not Decimal("0") < volume_participation_rate <= Decimal("1"):
+                raise ValueError("volume_participation_rate must be in (0, 1]")
+        self._volume_participation_rate = volume_participation_rate
 
     @staticmethod
     def classify_stop(side: OrderSide, stop_price: Decimal, candle: Candle) -> StopTrigger:
@@ -149,6 +161,36 @@ class CandleFillModel(FillModel):
             return StopTrigger.TRIGGERED
         return StopTrigger.AMBIGUOUS
 
+    def _sized_proposal(
+        self,
+        order,
+        snapshot: Candle,
+        price: Decimal,
+        base_reason: str,
+    ) -> FillProposal | None:
+        """Apply the configured volume participation cap without touching price."""
+        quantity = order.quantity
+        reason = base_reason
+        if self._volume_participation_rate is not None:
+            cap = snapshot.volume * self._volume_participation_rate
+            quantity = min(quantity, cap)
+            reason = (
+                f"{base_reason}; "
+                f"volume_participation_rate={self._volume_participation_rate}; "
+                f"candle_volume_cap={cap}; "
+                "cap is modeled, not observed liquidity"
+            )
+            if quantity <= 0:
+                return None
+        return FillProposal(
+            order.client_order_id,
+            quantity,
+            price,
+            reason,
+            self.model_id,
+            self.model_version,
+        )
+
     def propose_fill(
         self, request: ApprovedExecutionRequest, snapshot: MarketSnapshot | Candle
     ) -> FillProposal | None:
@@ -157,13 +199,11 @@ class CandleFillModel(FillModel):
         order = request.order
         if order.order_type is OrderType.MARKET:
             side = "buy" if order.side is OrderSide.BUY else "sell"
-            return FillProposal(
-                order.client_order_id,
-                order.quantity,
+            return self._sized_proposal(
+                order,
+                snapshot,
                 snapshot.close,
                 f"BASIC_BAR market {side} at observed bar close",
-                self.model_id,
-                self.model_version,
             )
         if order.order_type is OrderType.LIMIT:
             if order.limit_price is None:
@@ -176,14 +216,7 @@ class CandleFillModel(FillModel):
                 if snapshot.close < order.limit_price:
                     return None
                 reason = "BASIC_BAR limit sell filled at observed bar close (close-cross)"
-            return FillProposal(
-                order.client_order_id,
-                order.quantity,
-                snapshot.close,
-                reason,
-                self.model_id,
-                self.model_version,
-            )
+            return self._sized_proposal(order, snapshot, snapshot.close, reason)
         if order.order_type is OrderType.STOP:
             if order.stop_price is None:
                 return None
@@ -191,13 +224,11 @@ class CandleFillModel(FillModel):
             if trigger is not StopTrigger.TRIGGERED:
                 return None
             side = "buy" if order.side is OrderSide.BUY else "sell"
-            return FillProposal(
-                order.client_order_id,
-                order.quantity,
+            return self._sized_proposal(
+                order,
+                snapshot,
                 snapshot.close,
                 f"BASIC_BAR stop {side} triggered; filled at observed bar close",
-                self.model_id,
-                self.model_version,
             )
         return None
 

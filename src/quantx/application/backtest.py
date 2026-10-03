@@ -21,7 +21,7 @@ from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.domain.market_data import Candle
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.market_data import MarketSnapshot
-from quantx.execution.models import CandleFillModel, DataAdaptiveFillModel, StopTrigger
+from quantx.execution.models import CandleFillModel, DataAdaptiveFillModel, FillModel, StopTrigger
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.ports import ExecutionReceipt
 from quantx.domain.instrument_registry import InstrumentRegistry
@@ -157,7 +157,9 @@ def _execution_models(receipts: tuple[ExecutionReceipt, ...]) -> tuple[str, ...]
 
 
 def _fidelity_limitations(
-    frames: tuple[ReplayFrame, ...], steps: tuple[BacktestStep, ...]
+    frames: tuple[ReplayFrame, ...],
+    steps: tuple[BacktestStep, ...],
+    volume_participation_rate: Decimal | None = None,
 ) -> tuple[str, ...]:
     limitations = list(_BASE_LIMITATIONS)
     candle_order_types = {
@@ -174,6 +176,11 @@ def _fidelity_limitations(
         limitations.append(_CANDLE_LIMITATIONS[2])
     if OrderType.STOP_LIMIT in candle_order_types:
         limitations.append(_CANDLE_LIMITATIONS[3])
+    if volume_participation_rate is not None and candle_order_types:
+        limitations.append(
+            "candle fills bounded by configured volume participation "
+            f"(rate={volume_participation_rate}); cap is modeled, not observed liquidity"
+        )
     return tuple(limitations)
 
 
@@ -181,6 +188,7 @@ def _backtest_fidelity(
     frames: tuple[ReplayFrame, ...],
     steps: tuple[BacktestStep, ...],
     receipts: tuple[ExecutionReceipt, ...],
+    volume_participation_rate: Decimal | None = None,
 ) -> BacktestFidelity:
     blocked = any(step.disposition is BacktestDisposition.BLOCKED for step in steps)
     quality = (
@@ -192,7 +200,7 @@ def _backtest_fidelity(
         quality=quality,
         execution_models=_execution_models(receipts),
         evidence_types=_evidence_types(frames),
-        limitations=_fidelity_limitations(frames, steps),
+        limitations=_fidelity_limitations(frames, steps, volume_participation_rate),
     )
 
 
@@ -296,6 +304,7 @@ class DeterministicBacktestService:
         broker_constraints: tuple[BrokerConstraint, ...] = (),
         allow_incomplete: bool = False,
         execution_profile: PaperSimulationProfile | None = None,
+        candle_volume_participation_rate: Decimal | None = None,
     ) -> BacktestResult:
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
@@ -306,10 +315,13 @@ class DeterministicBacktestService:
 
             first_timestamp = frames[0].observation.timestamp
             simulation_clock = SimulatedClock(first_timestamp)
+            candle_model: FillModel = CandleFillModel(
+                volume_participation_rate=candle_volume_participation_rate
+            )
             execution_engine = PaperExecutionEngine(
                 clock=simulation_clock,
                 profile=execution_profile,
-                fill_model=DataAdaptiveFillModel(),
+                fill_model=DataAdaptiveFillModel(candle_model=candle_model),
             )
 
         effective_policy = policy_context or PolicyContext()
@@ -520,7 +532,12 @@ class DeterministicBacktestService:
         receipts_tuple = tuple(receipts)
         return BacktestResult(
             data_quality=replay.quality.status,
-            fidelity=_backtest_fidelity(frames_tuple, steps_tuple, receipts_tuple),
+            fidelity=_backtest_fidelity(
+            frames_tuple,
+            steps_tuple,
+            receipts_tuple,
+            candle_volume_participation_rate,
+        ),
             steps=steps_tuple,
             receipts=receipts_tuple,
             ledger=accounting.snapshot(),
