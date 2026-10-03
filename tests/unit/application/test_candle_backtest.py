@@ -38,6 +38,7 @@ from quantx.domain.strategy import (
     StrategySignal,
 )
 from quantx.domain.value_objects import InstrumentId, Money
+from quantx.execution.paper_engine import PaperSimulationProfile
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.replay import HistoricalReplay
 from quantx.strategy.compiler import StrategyCompiler
@@ -1003,3 +1004,117 @@ def test_candle_end_to_end_replay_to_accounting() -> None:
     assert result.steps[0].strategy_result.signal.action is SignalAction.BUY
     assert result.steps[1].strategy_result.signal.action is SignalAction.HOLD
     assert result.ledger[0].quantity == Decimal("1")
+
+
+def _slipped_run(series, strategy, profile):
+    return DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=series,
+        strategy=strategy,
+        financial_state=_financial_state(),
+        execution_profile=profile,
+    )
+
+
+def test_candle_market_buy_slippage_applies_to_close() -> None:
+    profile = PaperSimulationProfile(slippage_bps=Decimal("10"))
+    result = _slipped_run(_candle_series(), _buy_once_strategy(_context()), profile)
+
+    assert result.executed_count == 1
+    (receipt,) = result.receipts
+    assert receipt.fills[0].price == PRECISE["close"] * Decimal("1.001")
+    assert "reference_price=100.00000000000001" in receipt.assumptions
+    assert "slippage_bps=10" in receipt.assumptions
+    assert receipt.model_version == "basic-bar-v4"
+
+
+def test_candle_market_sell_slippage_divides_close() -> None:
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("sell-once"),
+            "1",
+            TCS,
+            SignalAction.SELL,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.SELL,
+            quantity=Decimal("1"),
+            execution_context=_context(),
+            strategy_id="sell-once",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    profile = PaperSimulationProfile(slippage_bps=Decimal("10"))
+    result = _slipped_run(_candle_series(), strategy, profile)
+
+    assert result.executed_count == 3
+    closes = (PRECISE["close"], Decimal("101.5"), Decimal("99.5"))
+    expected = [close / Decimal("1.001") for close in closes]
+    assert [fill.price for receipt in result.receipts for fill in receipt.fills] == expected
+    assert str(result.receipts[0].fills[0].price) == str(PRECISE["close"] / Decimal("1.001"))
+
+
+def test_candle_slippage_preserves_triggers_and_quantities() -> None:
+    plain = _slipped_run(_candle_series(), _buy_once_strategy(_context()), PaperSimulationProfile())
+    slipped = _slipped_run(
+        _candle_series(),
+        _buy_once_strategy(_context()),
+        PaperSimulationProfile(slippage_bps=Decimal("25")),
+    )
+
+    assert [step.disposition for step in plain.steps] == [
+        step.disposition for step in slipped.steps
+    ]
+    assert [fill.quantity for receipt in plain.receipts for fill in receipt.fills] == [
+        fill.quantity for receipt in slipped.receipts for fill in receipt.fills
+    ]
+    plain_price = plain.receipts[0].fills[0].price
+    slipped_price = slipped.receipts[0].fills[0].price
+    assert slipped_price == plain_price * Decimal("1.0025")
+    assert slipped_price != plain_price
+
+
+def test_candle_participation_slippage_ratio_stay_independent() -> None:
+    base = _volume_run(_volume_series(), Decimal("5"), Decimal("0.10"))
+    profile = PaperSimulationProfile(slippage_bps=Decimal("10"), partial_fill_ratio=Decimal("0.5"))
+    combined = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_volume_series(),
+        strategy=_volume_strategy(Decimal("5")),
+        financial_state=_financial_state(),
+        execution_profile=profile,
+        candle_volume_participation_rate=Decimal("0.10"),
+    )
+
+    base_quantities = [fill.quantity for receipt in base.receipts for fill in receipt.fills]
+    assert base_quantities == [Decimal("5"), Decimal("1.00")]
+    combined_quantities = [fill.quantity for receipt in combined.receipts for fill in receipt.fills]
+    assert combined_quantities == [Decimal("2.5"), Decimal("0.50")]
+    combined_prices = [fill.price for receipt in combined.receipts for fill in receipt.fills]
+    assert combined_prices == [Decimal("100") * Decimal("1.001"), Decimal("100") * Decimal("1.001")]
+    assert "volume_participation_rate=0.10" in combined.receipts[0].message
+    assert "reference_price=100" in combined.receipts[0].assumptions
+
+
+def test_candle_slippage_run_is_deterministic() -> None:
+    profile = PaperSimulationProfile(slippage_bps=Decimal("10"))
+
+    def run_all():
+        return _slipped_run(_candle_series(), _buy_once_strategy(_context()), profile)
+
+    first = run_all()
+    second = run_all()
+
+    assert [
+        (receipt.message, receipt.assumptions, [fill.price for fill in receipt.fills])
+        for receipt in first.receipts
+    ] == [
+        (receipt.message, receipt.assumptions, [fill.price for fill in receipt.fills])
+        for receipt in second.receipts
+    ]

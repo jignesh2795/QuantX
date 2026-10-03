@@ -42,6 +42,8 @@ class PaperSimulationProfile:
     def __post_init__(self) -> None:
         if self.latency_ms < 0:
             raise ValueError("latency_ms cannot be negative")
+        if not isinstance(self.slippage_bps, Decimal):
+            raise TypeError("slippage_bps must be a Decimal")
         if self.slippage_bps < 0 or self.fee_bps < 0:
             raise ValueError("bps values cannot be negative")
         if not Decimal("0") < self.partial_fill_ratio <= Decimal("1"):
@@ -164,6 +166,9 @@ class PaperExecutionEngine:
             filled_at=executed_at,
         )
         fee = (fill.quantity * fill.price * self._profile.fee_bps) / Decimal("10000")
+        slippage_evidence: tuple[str, ...] = ()
+        if self._profile.slippage_bps != 0:
+            slippage_evidence = (f"reference_price={proposal.price}",)
         receipt = ExecutionReceipt(
             request_id=uuid4(),
             client_order_id=request.order.client_order_id,
@@ -184,6 +189,7 @@ class PaperExecutionEngine:
             assumptions=(
                 f"latency_ms={self._profile.latency_ms}",
                 f"slippage_bps={self._profile.slippage_bps}",
+                *slippage_evidence,
                 f"partial_fill_ratio={self._profile.partial_fill_ratio}",
                 f"fee_bps={self._profile.fee_bps}",
                 f"model_id={proposal.model_id}",

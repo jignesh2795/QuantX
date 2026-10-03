@@ -268,3 +268,70 @@ def test_quote_snapshot_alias_matches_market_snapshot() -> None:
         ask=Decimal("100"),
     )
     assert isinstance(quote, MarketSnapshot)
+
+
+def test_slippage_config_requires_decimal() -> None:
+    PaperSimulationProfile(slippage_bps=Decimal("10"))
+    PaperSimulationProfile(slippage_bps=Decimal("0"))
+
+    with pytest.raises(TypeError, match="slippage_bps must be a Decimal"):
+        PaperSimulationProfile(slippage_bps=0.1)  # type: ignore[arg-type]
+
+
+def test_slippage_config_rejects_negative() -> None:
+    with pytest.raises(ValueError, match="bps values cannot be negative"):
+        PaperSimulationProfile(slippage_bps=Decimal("-1"))
+
+
+def test_market_sell_slippage_divides_reference_price() -> None:
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.SELL,
+        quantity=Decimal("10"),
+        order_type=OrderType.MARKET,
+        execution_context=_request().execution_context,
+    )
+    order = build_order_from_intent(intent)
+    request = ApprovedExecutionRequest(
+        order,
+        _request().execution_context,
+        RiskResult(RiskDecision.APPROVE, "approved"),
+    )
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        profile=PaperSimulationProfile(slippage_bps=Decimal("10")),
+    )
+    receipt = engine.execute(request, snapshot=_snapshot(bid=Decimal("100"), ask=Decimal("101")))
+
+    assert receipt.fills[0].price == Decimal("100") / Decimal("1.001")
+    assert str(receipt.fills[0].price) == "99.90009990009990009990009990"
+
+
+def test_slipped_fill_records_reference_price_deterministically() -> None:
+    first_engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        profile=PaperSimulationProfile(slippage_bps=Decimal("10")),
+    )
+    second_engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        profile=PaperSimulationProfile(slippage_bps=Decimal("10")),
+    )
+    snapshot = _snapshot(bid=Decimal("99"), ask=Decimal("100"))
+    first = first_engine.execute(_request(), snapshot=snapshot)
+    second = second_engine.execute(_request(), snapshot=snapshot)
+
+    for receipt in (first, second):
+        assert "slippage_bps=10" in receipt.assumptions
+        assert "reference_price=100" in receipt.assumptions
+        assert receipt.fills[0].price == Decimal("100.10")
+    assert first.message == second.message
+    assert first.assumptions == second.assumptions
+    assert first.fills[0].price == second.fills[0].price
+
+
+def test_zero_slippage_records_no_reference_price() -> None:
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    receipt = engine.execute(_request(), snapshot=_snapshot(bid=Decimal("99"), ask=Decimal("100")))
+
+    assert receipt.fills[0].price == Decimal("100")
+    assert all(not item.startswith("reference_price=") for item in receipt.assumptions)
