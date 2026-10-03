@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
+from quantx.domain.market_data import Candle, MarketDataEvent, MarketDataType, Quote
 from quantx.domain.strategy import StrategyResult
 from quantx.research.replay import ReplayFrame
 
@@ -38,18 +38,27 @@ class StrategyEvaluationService:
 
 def _event_from_replay_frame(frame: ReplayFrame) -> MarketDataEvent:
     snapshot = frame.observation.snapshot
-    payload = Quote(
-        instrument=snapshot.instrument,
-        timestamp=snapshot.timestamp,
-        bid=snapshot.bid,
-        ask=snapshot.ask,
-        last=snapshot.last,
-        bid_size=snapshot.bid_size,
-        ask_size=snapshot.ask_size,
-    )
-    return MarketDataEvent(
-        data_type=MarketDataType.QUOTE,
-        timestamp=snapshot.timestamp,
-        instrument=snapshot.instrument,
-        payload=payload,
-    )
+    if isinstance(snapshot, Candle):
+        return MarketDataEvent(
+            data_type=MarketDataType.CANDLE,
+            timestamp=snapshot.timestamp,
+            instrument=snapshot.instrument,
+            payload=snapshot,
+        )
+    if isinstance(snapshot, Quote):
+        payload = Quote(
+            instrument=snapshot.instrument,
+            timestamp=snapshot.timestamp,
+            bid=snapshot.bid,
+            ask=snapshot.ask,
+            last=snapshot.last,
+            bid_size=snapshot.bid_size,
+            ask_size=snapshot.ask_size,
+        )
+        return MarketDataEvent(
+            data_type=MarketDataType.QUOTE,
+            timestamp=snapshot.timestamp,
+            instrument=snapshot.instrument,
+            payload=payload,
+        )
+    raise TypeError(f"unsupported replay observation payload: {type(snapshot).__name__}")
