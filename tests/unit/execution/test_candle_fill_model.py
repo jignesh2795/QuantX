@@ -186,7 +186,7 @@ def test_candle_proposals_carry_basic_bar_identity() -> None:
 
     assert proposal is not None
     assert proposal.model_id == "BASIC_BAR"
-    assert proposal.model_version == "basic-bar-v3"
+    assert proposal.model_version == "basic-bar-v4"
 
 
 def test_buy_limit_fills_when_close_at_or_below_limit() -> None:
@@ -410,7 +410,7 @@ def test_triggered_buy_stop_fills_at_bar_close() -> None:
     assert proposal is not None
     assert proposal.price == Decimal("101")
     assert "stop" in proposal.reason
-    assert (proposal.model_id, proposal.model_version) == ("BASIC_BAR", "basic-bar-v3")
+    assert (proposal.model_id, proposal.model_version) == ("BASIC_BAR", "basic-bar-v4")
 
 
 def test_triggered_sell_stop_fills_at_bar_close() -> None:
@@ -468,6 +468,149 @@ def test_stop_limit_never_proposes_even_when_triggered() -> None:
     assert CandleFillModel().propose_fill(stop_limit, candle) is None
 
 
+def test_participation_disabled_preserves_behavior() -> None:
+    default = CandleFillModel().propose_fill(_request(OrderSide.BUY), _candle())
+    explicit = CandleFillModel(volume_participation_rate=None).propose_fill(
+        _request(OrderSide.BUY), _candle()
+    )
+
+    assert default is not None and explicit is not None
+    assert (default.price, default.quantity) == (explicit.price, explicit.quantity)
+    assert "participation" not in default.reason
+
+
+def test_participation_configuration_is_validated() -> None:
+    CandleFillModel(volume_participation_rate=Decimal("1"))
+    CandleFillModel(volume_participation_rate=Decimal("0.000000000000000001"))
+
+    with pytest.raises(ValueError, match="in \\(0, 1\\]"):
+        CandleFillModel(volume_participation_rate=Decimal("0"))
+    with pytest.raises(ValueError, match="in \\(0, 1\\]"):
+        CandleFillModel(volume_participation_rate=Decimal("-0.5"))
+    with pytest.raises(ValueError, match="in \\(0, 1\\]"):
+        CandleFillModel(volume_participation_rate=Decimal("1.000000000000000001"))
+    with pytest.raises(TypeError, match="must be a Decimal"):
+        CandleFillModel(volume_participation_rate=0.1)  # type: ignore[arg-type]
+
+
+def test_participation_caps_quantity_by_candle_volume() -> None:
+    model = CandleFillModel(volume_participation_rate=Decimal("0.10"))
+    proposal = model.propose_fill(_request(OrderSide.BUY), _candle())
+
+    assert proposal is not None
+    assert proposal.price == PRECISE_CLOSE
+    assert proposal.quantity == Decimal("2")
+    assert "volume_participation_rate=0.10" in proposal.reason
+    assert "candle_volume_cap=12345678.91234567890" in proposal.reason
+    assert "cap is modeled, not observed liquidity" in proposal.reason
+
+
+def test_participation_cap_below_order_quantity_partial() -> None:
+    candle = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("99"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("100"),
+        volume=Decimal("10"),
+    )
+    model = CandleFillModel(volume_participation_rate=Decimal("0.10"))
+    proposal = model.propose_fill(_request(OrderSide.BUY), candle)
+
+    assert proposal is not None
+    assert proposal.quantity == Decimal("1.00")
+    assert proposal.price == Decimal("100")
+
+
+def test_participation_cap_exactly_matching_fills_fully() -> None:
+    candle = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("99"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("100"),
+        volume=Decimal("20"),
+    )
+    model = CandleFillModel(volume_participation_rate=Decimal("0.10"))
+    proposal = model.propose_fill(_request(OrderSide.BUY), candle)
+
+    assert proposal is not None
+    assert proposal.quantity == Decimal("2")
+
+
+def test_zero_candle_volume_proposes_no_fill() -> None:
+    candle = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("99"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("100"),
+        volume=Decimal("0"),
+    )
+    model = CandleFillModel(volume_participation_rate=Decimal("0.10"))
+
+    assert model.propose_fill(_request(OrderSide.BUY), candle) is None
+
+
+def test_participation_uses_decimal_arithmetic_only() -> None:
+    rate = Decimal("0.333333333333333333")
+    candle = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("99"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("100"),
+        volume=Decimal("5"),
+    )
+    model = CandleFillModel(volume_participation_rate=rate)
+    proposal = model.propose_fill(_request(OrderSide.BUY), candle)
+
+    assert proposal is not None
+    assert isinstance(proposal.quantity, Decimal)
+    assert not isinstance(proposal.quantity, float)
+    assert proposal.quantity == Decimal("5") * rate
+    assert str(proposal.quantity) == "1.666666666666666665"
+
+
+def test_participation_does_not_apply_to_quotes() -> None:
+    model = CandleFillModel(volume_participation_rate=Decimal("0.000000000000000001"))
+
+    assert model.propose_fill(_request(OrderSide.BUY), _quote()) is None
+    quote_fill = QuoteFillModel().propose_fill(_request(OrderSide.BUY), _quote())
+    assert quote_fill is not None and quote_fill.quantity == Decimal("2")
+
+
+def test_participation_applies_to_limit_and_stop_fills() -> None:
+    model = CandleFillModel(volume_participation_rate=Decimal("0.10"))
+    candle = Candle(
+        instrument=TCS,
+        timeframe="1m",
+        timestamp=T0,
+        open=Decimal("99"),
+        high=Decimal("102"),
+        low=Decimal("98"),
+        close=Decimal("100"),
+        volume=Decimal("10"),
+    )
+    limit = model.propose_fill(
+        _request(OrderSide.BUY, OrderType.LIMIT, limit=Decimal("100")), candle
+    )
+    stop = model.propose_fill(_request(OrderSide.BUY, OrderType.STOP, stop=Decimal("100")), candle)
+
+    assert limit is not None and limit.quantity == Decimal("1.00")
+    assert "close-cross" in limit.reason
+    assert stop is not None and stop.quantity == Decimal("1.00")
+    assert "stop" in stop.reason
+
+
 def test_adaptive_proposals_preserve_per_payload_identity() -> None:
     model = DataAdaptiveFillModel()
 
@@ -475,6 +618,6 @@ def test_adaptive_proposals_preserve_per_payload_identity() -> None:
     quote = model.propose_fill(_request(OrderSide.BUY), _quote())
 
     assert candle is not None
-    assert (candle.model_id, candle.model_version) == ("BASIC_BAR", "basic-bar-v3")
+    assert (candle.model_id, candle.model_version) == ("BASIC_BAR", "basic-bar-v4")
     assert quote is not None
     assert (quote.model_id, quote.model_version) == ("QUOTE", "paper-core-v0.3")

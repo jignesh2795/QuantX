@@ -158,7 +158,7 @@ def _run(series, order_type: OrderType, price: Decimal | None = None):
 def test_basic_bar_result_reports_model_and_evidence() -> None:
     result = _run(_candle_series(), OrderType.MARKET)
 
-    assert result.fidelity.execution_models == ("BASIC_BAR@basic-bar-v3",)
+    assert result.fidelity.execution_models == ("BASIC_BAR@basic-bar-v4",)
     assert result.fidelity.evidence_types == ("CANDLE",)
     assert result.fidelity.deterministic is True
     assert result.fidelity.simulated is True
@@ -237,7 +237,7 @@ def test_mixed_run_does_not_inherit_single_model_label() -> None:
 
     assert result.fidelity.execution_models == (
         "QUOTE@paper-core-v0.3",
-        "BASIC_BAR@basic-bar-v3",
+        "BASIC_BAR@basic-bar-v4",
     )
     assert result.fidelity.evidence_types == ("QUOTE", "CANDLE")
 
@@ -257,13 +257,13 @@ def test_explicit_provenance_uses_existing_machinery() -> None:
         dataset_version="v1",
         instrument_master_version="instr-v3",
         market_rule_version="rules-v2",
-        execution_model_version="basic-bar-v3",
+        execution_model_version="basic-bar-v4",
         simulation_profile="BASIC_BAR",
         code_revision="abc123",
         configuration_revision="cfg9",
     )
 
-    assert provenance.execution_model_version == "basic-bar-v3"
+    assert provenance.execution_model_version == "basic-bar-v4"
     assert (
         provenance.fingerprint()
         == ResearchProvenance(
@@ -271,7 +271,7 @@ def test_explicit_provenance_uses_existing_machinery() -> None:
             dataset_version="v1",
             instrument_master_version="instr-v3",
             market_rule_version="rules-v2",
-            execution_model_version="basic-bar-v3",
+            execution_model_version="basic-bar-v4",
             simulation_profile="BASIC_BAR",
             code_revision="abc123",
             configuration_revision="cfg9",
@@ -297,7 +297,7 @@ def test_end_to_end_candle_to_fidelity_metadata() -> None:
         Decimal("101"),
         Decimal("102"),
     ]
-    assert result.fidelity.execution_models == ("BASIC_BAR@basic-bar-v3",)
+    assert result.fidelity.execution_models == ("BASIC_BAR@basic-bar-v4",)
     assert result.fidelity.evidence_types == ("CANDLE",)
     assert all(receipt.simulated is True for receipt in result.receipts)
     assert result.ledger[0].quantity == Decimal("3")
