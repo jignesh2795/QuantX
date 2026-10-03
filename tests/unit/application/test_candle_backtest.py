@@ -397,7 +397,7 @@ def test_candle_crossed_limit_fills_at_bar_close_end_to_end() -> None:
     filled = [receipt for receipt in result.receipts if receipt.fills]
     unfilled = [receipt for receipt in result.receipts if not receipt.fills]
     assert len(filled) == 2 and len(unfilled) == 1
-    assert all(receipt.model_version == "basic-bar-v2" for receipt in filled)
+    assert all(receipt.model_version == "basic-bar-v3" for receipt in filled)
     assert all("close-cross" in receipt.message for receipt in filled)
     # Unfilled receipts keep the pre-existing generic engine recording.
     assert all(receipt.model_version == "paper-core-v0.3" for receipt in unfilled)
@@ -467,6 +467,147 @@ def test_candle_stop_order_produces_no_fill_without_invention() -> None:
     assert all(receipt.fills == () for receipt in result.receipts)
     assert all("no fill was available" in receipt.message for receipt in result.receipts)
     assert result.ledger == ()
+
+
+def _stop_every_bar_strategy(context: ExecutionContext, side, stop):
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("stop-every-bar"),
+            "1",
+            TCS,
+            SignalAction.BUY if side is OrderSide.BUY else SignalAction.SELL,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=side,
+            quantity=Decimal("1"),
+            order_type=OrderType.STOP,
+            stop_price=stop,
+            execution_context=context,
+            strategy_id="stop-every-bar",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    return strategy
+
+
+def test_candle_buy_stop_triggered_and_ambiguous_bars() -> None:
+    # bar0/bar1 touch stop=100 with confirming closes; bar2 touches but
+    # closes below the stop, so its outcome is unknowable.
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=_stop_every_bar_strategy(_context(), OrderSide.BUY, Decimal("100")),
+        financial_state=_financial_state(),
+    )
+
+    assert [step.disposition for step in result.steps] == [
+        BacktestDisposition.EXECUTED,
+        BacktestDisposition.EXECUTED,
+        BacktestDisposition.BLOCKED,
+    ]
+    assert [fill.price for receipt in result.receipts for fill in receipt.fills] == [
+        PRECISE["close"],
+        Decimal("101.5"),
+    ]
+    assert "intrabar path is unknowable" in result.steps[2].reason
+    assert all(receipt.model_version == "basic-bar-v3" for receipt in result.receipts)
+
+
+def test_candle_sell_stop_triggered_and_ambiguous_bars() -> None:
+    # stop=100: bar0/bar1 touch but close above (ambiguous); bar2 touches
+    # with a confirming close below and fills at the close.
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=_stop_every_bar_strategy(_context(), OrderSide.SELL, Decimal("100")),
+        financial_state=_financial_state(),
+    )
+
+    assert [step.disposition for step in result.steps] == [
+        BacktestDisposition.BLOCKED,
+        BacktestDisposition.BLOCKED,
+        BacktestDisposition.EXECUTED,
+    ]
+    assert [fill.price for receipt in result.receipts for fill in receipt.fills] == [
+        Decimal("99.5")
+    ]
+    assert "intrabar path is unknowable" in result.steps[0].reason
+
+
+def _stop_limit_every_bar_strategy(context: ExecutionContext):
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("stop-limit-every-bar"),
+            "1",
+            TCS,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            order_type=OrderType.STOP_LIMIT,
+            stop_price=Decimal("100"),
+            limit_price=Decimal("101"),
+            execution_context=context,
+            strategy_id="stop-limit-every-bar",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    return strategy
+
+
+def test_candle_stop_limit_never_fills_with_explicit_reasons() -> None:
+    # bar0/bar1 trigger the stop but post-trigger limit ordering is
+    # unknowable; bar2 has an unknowable trigger path.
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_candle_series(),
+        strategy=_stop_limit_every_bar_strategy(_context()),
+        financial_state=_financial_state(),
+    )
+
+    assert [step.disposition for step in result.steps] == [
+        BacktestDisposition.BLOCKED,
+        BacktestDisposition.BLOCKED,
+        BacktestDisposition.BLOCKED,
+    ]
+    assert "post-trigger limit execution ordering" in result.steps[0].reason
+    assert "post-trigger limit execution ordering" in result.steps[1].reason
+    assert "intrabar path is unknowable" in result.steps[2].reason
+    assert result.receipts == ()
+    assert result.ledger == ()
+
+
+def test_candle_stop_run_is_deterministic() -> None:
+    def run_all():
+        return DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+        ).run(
+            series=_candle_series(),
+            strategy=_stop_every_bar_strategy(_context(), OrderSide.BUY, Decimal("100")),
+            financial_state=_financial_state(),
+        )
+
+    first = run_all()
+    second = run_all()
+
+    assert [(step.disposition, step.reason) for step in first.steps] == [
+        (step.disposition, step.reason) for step in second.steps
+    ]
+    assert [fill.price for receipt in first.receipts for fill in receipt.fills] == [
+        fill.price for receipt in second.receipts for fill in receipt.fills
+    ]
 
 
 def test_candle_run_is_chronological_deterministic_and_reproducible() -> None:
@@ -545,7 +686,7 @@ def test_candle_receipt_records_basic_bar_identity() -> None:
     )
 
     (receipt,) = result.receipts
-    assert receipt.model_version == "basic-bar-v2"
+    assert receipt.model_version == "basic-bar-v3"
     assert "BASIC_BAR" in receipt.message
     assert any("BASIC_BAR" in item for item in receipt.assumptions)
     assert any(item.startswith("slippage_bps=") for item in receipt.assumptions)
@@ -612,7 +753,7 @@ def test_mixed_series_records_identity_per_payload() -> None:
     assert quote_receipt.model_version == "paper-core-v0.3"
     assert quote_receipt.fills[0].price == Decimal("100")
     assert "BASIC_BAR" not in quote_receipt.message
-    assert candle_receipt.model_version == "basic-bar-v2"
+    assert candle_receipt.model_version == "basic-bar-v3"
     assert candle_receipt.fills[0].price == Decimal("101.5")
     assert "BASIC_BAR" in candle_receipt.message
 
@@ -631,11 +772,49 @@ def test_candle_receipt_identity_is_reproducible() -> None:
     second = run_all()
 
     for left, right in zip(first.receipts, second.receipts, strict=True):
-        assert left.model_version == right.model_version == "basic-bar-v2"
+        assert left.model_version == right.model_version == "basic-bar-v3"
         assert left.message == right.message
         assert left.assumptions == right.assumptions
         assert [fill.price for fill in left.fills] == [fill.price for fill in right.fills]
         assert left.simulated is True and right.simulated is True
+
+
+def test_quote_stop_behavior_unchanged() -> None:
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("quote-stop"),
+            "1",
+            TCS,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=TCS,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            order_type=OrderType.STOP,
+            stop_price=Decimal("100"),
+            execution_context=_context(),
+            strategy_id="quote-stop",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_quote_series(),
+        strategy=strategy,
+        financial_state=_financial_state(),
+    )
+
+    # Quote STOP orders propose no fill in this engine, as before: the
+    # run completes without inventing trigger semantics.
+    assert len(result.steps) == 2
+    assert all(receipt.fills == () for receipt in result.receipts)
+    assert all("no fill was available" in receipt.message for receipt in result.receipts)
+    assert all(receipt.model_version == "paper-core-v0.3" for receipt in result.receipts)
 
 
 def test_quote_backtest_still_executes() -> None:
