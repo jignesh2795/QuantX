@@ -99,15 +99,19 @@ class CandleFillModel(FillModel):
     """Deterministic bar-level model (BASIC_BAR) for OHLCV-only evidence.
 
     Market orders fill at the observed bar close: the only candle reference
-    price established by the existing strategy preparation contract. Limit,
-    stop, and stop-limit orders cannot be evaluated without intrabar path
-    assumptions, so they never propose a fill. Non-candle snapshots are not
-    priced.     Pricing always uses the bar the strategy observed; no other bar
-    is ever read, so no future information can leak into the fill.
+    price established by the existing strategy preparation contract. Limit
+    orders use the close-cross rule only: a buy fills when the observed
+    close is at or below the limit, a sell when the close is at or above
+    the limit, priced at the close. High/low never trigger fills, and no
+    intrabar path is inferred. Stop and stop-limit orders cannot be
+    evaluated without trigger-timing assumptions, so they never propose a
+    fill. Non-candle snapshots are not priced. Pricing always uses the bar
+    the strategy observed; no other bar is ever read, so no future
+    information can leak into the fill.
     """
 
     model_id = "BASIC_BAR"
-    model_version = "basic-bar-v1"
+    model_version = "basic-bar-v2"
 
     def propose_fill(
         self, request: ApprovedExecutionRequest, snapshot: MarketSnapshot | Candle
@@ -115,17 +119,36 @@ class CandleFillModel(FillModel):
         if not isinstance(snapshot, Candle):
             return None
         order = request.order
-        if order.order_type is not OrderType.MARKET:
-            return None
-        side = "buy" if order.side is OrderSide.BUY else "sell"
-        return FillProposal(
-            order.client_order_id,
-            order.quantity,
-            snapshot.close,
-            f"BASIC_BAR market {side} at observed bar close",
-            self.model_id,
-            self.model_version,
-        )
+        if order.order_type is OrderType.MARKET:
+            side = "buy" if order.side is OrderSide.BUY else "sell"
+            return FillProposal(
+                order.client_order_id,
+                order.quantity,
+                snapshot.close,
+                f"BASIC_BAR market {side} at observed bar close",
+                self.model_id,
+                self.model_version,
+            )
+        if order.order_type is OrderType.LIMIT:
+            if order.limit_price is None:
+                return None
+            if order.side is OrderSide.BUY:
+                if snapshot.close > order.limit_price:
+                    return None
+                reason = "BASIC_BAR limit buy filled at observed bar close (close-cross)"
+            else:
+                if snapshot.close < order.limit_price:
+                    return None
+                reason = "BASIC_BAR limit sell filled at observed bar close (close-cross)"
+            return FillProposal(
+                order.client_order_id,
+                order.quantity,
+                snapshot.close,
+                reason,
+                self.model_id,
+                self.model_version,
+            )
+        return None
 
 
 class DataAdaptiveFillModel(FillModel):
