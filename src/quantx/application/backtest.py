@@ -28,6 +28,7 @@ from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.research.data import HistoricalDataSeries
 from quantx.research.replay import HistoricalReplay, ReplayFrame
 from quantx.research.quality import DataQualityStatus
+from quantx.research.result import ResultQuality
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
 
@@ -54,8 +55,30 @@ class BacktestStep:
 
 
 @dataclass(frozen=True, slots=True)
+class BacktestFidelity:
+    """Experiment-level fidelity record for one deterministic backtest run.
+
+    This reuses the research ResultQuality vocabulary: simulated fills
+    derived deterministically from observed market data are
+    COMPLETE_WITH_DETERMINISTIC_DERIVATIONS, while a run that declined to
+    simulate something is INCOMPLETE. Observed broker execution is never
+    claimed. Research-provenance inputs the backtest does not possess
+    (dataset identity, code/configuration revisions) are not fabricated
+    here; see ResearchProvenance for the immutable experiment identity.
+    """
+
+    quality: ResultQuality
+    execution_models: tuple[str, ...]
+    evidence_types: tuple[str, ...]
+    deterministic: bool = True
+    simulated: bool = True
+    limitations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class BacktestResult:
     data_quality: DataQualityStatus
+    fidelity: BacktestFidelity
     steps: tuple[BacktestStep, ...]
     receipts: tuple[ExecutionReceipt, ...]
     ledger: tuple[PositionLedgerEntry, ...]
@@ -78,6 +101,99 @@ class BacktestResult:
 
 
 StrategyRunner = Callable[[ReplayFrame], StrategyResult]
+
+_MODEL_ID_PREFIX = "model_id="
+
+_BASE_LIMITATIONS = (
+    "fills are simulated executions, not observed broker executions",
+    "no intrabar path is modeled",
+    "no liquidity or depth is modeled",
+)
+
+_CANDLE_LIMITATIONS = (
+    "candle market orders fill at the observed bar close",
+    "candle limit orders use the close-cross rule only; high/low never trigger fills",
+    "candle stop triggers require close confirmation; ambiguous intrabar paths are blocked",
+    "stop-limit post-trigger limit ordering is unknowable from OHLCV; never filled",
+)
+
+
+def _evidence_types(frames: tuple[ReplayFrame, ...]) -> tuple[str, ...]:
+    ordered: list[str] = []
+    for frame in frames:
+        snapshot = frame.observation.snapshot
+        if isinstance(snapshot, Candle):
+            label = "CANDLE"
+        elif isinstance(snapshot, MarketSnapshot):
+            label = "QUOTE"
+        else:
+            raise TypeError(
+                f"unsupported backtest observation payload: {type(snapshot).__name__}"
+            )
+        if label not in ordered:
+            ordered.append(label)
+    return tuple(ordered)
+
+
+def _execution_models(receipts: tuple[ExecutionReceipt, ...]) -> tuple[str, ...]:
+    ordered: list[str] = []
+    for receipt in receipts:
+        if not receipt.fills:
+            continue
+        model_id = next(
+            (
+                item[len(_MODEL_ID_PREFIX):]
+                for item in receipt.assumptions
+                if item.startswith(_MODEL_ID_PREFIX)
+            ),
+            None,
+        )
+        if model_id is None:
+            continue
+        label = f"{model_id}@{receipt.model_version}"
+        if label not in ordered:
+            ordered.append(label)
+    return tuple(ordered)
+
+
+def _fidelity_limitations(
+    frames: tuple[ReplayFrame, ...], steps: tuple[BacktestStep, ...]
+) -> tuple[str, ...]:
+    limitations = list(_BASE_LIMITATIONS)
+    candle_order_types = {
+        step.strategy_result.intent.order_type
+        for frame, step in zip(frames, steps, strict=True)
+        if isinstance(frame.observation.snapshot, Candle)
+        and step.strategy_result.intent is not None
+    }
+    if OrderType.MARKET in candle_order_types:
+        limitations.append(_CANDLE_LIMITATIONS[0])
+    if OrderType.LIMIT in candle_order_types:
+        limitations.append(_CANDLE_LIMITATIONS[1])
+    if OrderType.STOP in candle_order_types:
+        limitations.append(_CANDLE_LIMITATIONS[2])
+    if OrderType.STOP_LIMIT in candle_order_types:
+        limitations.append(_CANDLE_LIMITATIONS[3])
+    return tuple(limitations)
+
+
+def _backtest_fidelity(
+    frames: tuple[ReplayFrame, ...],
+    steps: tuple[BacktestStep, ...],
+    receipts: tuple[ExecutionReceipt, ...],
+) -> BacktestFidelity:
+    blocked = any(step.disposition is BacktestDisposition.BLOCKED for step in steps)
+    quality = (
+        ResultQuality.INCOMPLETE
+        if blocked
+        else ResultQuality.COMPLETE_WITH_DETERMINISTIC_DERIVATIONS
+    )
+    return BacktestFidelity(
+        quality=quality,
+        execution_models=_execution_models(receipts),
+        evidence_types=_evidence_types(frames),
+        limitations=_fidelity_limitations(frames, steps),
+    )
 
 
 def _reference_price(snapshot: MarketSnapshot | Candle) -> Decimal | None:
@@ -399,9 +515,13 @@ class DeterministicBacktestService:
                 )
             )
 
+        frames_tuple = tuple(frames)
+        steps_tuple = tuple(steps)
+        receipts_tuple = tuple(receipts)
         return BacktestResult(
             data_quality=replay.quality.status,
-            steps=tuple(steps),
-            receipts=tuple(receipts),
+            fidelity=_backtest_fidelity(frames_tuple, steps_tuple, receipts_tuple),
+            steps=steps_tuple,
+            receipts=receipts_tuple,
             ledger=accounting.snapshot(),
         )
