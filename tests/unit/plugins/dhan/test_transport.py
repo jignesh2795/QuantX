@@ -28,7 +28,7 @@ def test_in_memory_transport_is_runtime_usable_as_transport() -> None:
 
 def test_in_memory_transport_records_submission_and_returns_response() -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
-    response = transport.submit(_request())
+    response = transport.submit(_request(), timeout=5.0)
 
     assert response.order_id == "dhan-test-order"
     assert response.order_status == "PENDING"
@@ -44,8 +44,8 @@ def test_in_memory_transport_supports_cancel_and_reconcile() -> None:
     )
     correlation_id = dhan_correlation_id("client-order-1")
 
-    cancel = transport.cancel(correlation_id)
-    detail = transport.reconcile(correlation_id)
+    cancel = transport.cancel(correlation_id, timeout=5.0)
+    detail = transport.reconcile(correlation_id, timeout=5.0)
 
     assert cancel.order_status == "CANCELLED"
     assert transport.cancelled == (correlation_id,)

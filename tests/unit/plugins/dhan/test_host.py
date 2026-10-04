@@ -73,6 +73,9 @@ def _config(tmp_path, **overrides) -> DhanHostConfig:
         instruments=overrides.pop("instruments", ((_instrument(), _instrument_ref()),)),
         transport=overrides.pop("transport", InMemoryDhanTransport()),
         credentials=overrides.pop("credentials", None),
+        submit_timeout_seconds=overrides.pop("submit_timeout_seconds", 5.0),
+        cancel_timeout_seconds=overrides.pop("cancel_timeout_seconds", 5.0),
+        reconcile_timeout_seconds=overrides.pop("reconcile_timeout_seconds", 5.0),
         **overrides,
     )
 
@@ -141,6 +144,9 @@ def _resolving_config(tmp_path, approved: ApprovedExecutionRequest) -> DhanHostC
         market_context_id="NSE_EQ",
         instruments=((_instrument(), _instrument_ref()),),
         transport=_filled_transport(),
+        submit_timeout_seconds=5.0,
+        cancel_timeout_seconds=5.0,
+        reconcile_timeout_seconds=5.0,
         local_order_provider=lambda request: OrderObservation(
             order_id,
             OrderLifecycleStatus.FILLED,
@@ -288,6 +294,31 @@ def test_host_rejects_duplicate_instruments(tmp_path) -> None:
         _config(tmp_path, instruments=(instrument, instrument))
 
 
+def test_host_rejects_invalid_submit_timeout(tmp_path) -> None:
+    with pytest.raises(ValueError, match="submit_timeout_seconds must be a positive number"):
+        _config(tmp_path, submit_timeout_seconds=0)
+    with pytest.raises(ValueError, match="submit_timeout_seconds must be a positive number"):
+        _config(tmp_path, submit_timeout_seconds=-1)
+    with pytest.raises(ValueError, match="submit_timeout_seconds must be a positive number"):
+        _config(tmp_path, submit_timeout_seconds="invalid")
+    with pytest.raises(ValueError, match="submit_timeout_seconds must be a positive number"):
+        _config(tmp_path, submit_timeout_seconds=True)
+
+
+def test_host_rejects_invalid_cancel_timeout(tmp_path) -> None:
+    with pytest.raises(ValueError, match="cancel_timeout_seconds must be a positive number"):
+        _config(tmp_path, cancel_timeout_seconds=0)
+    with pytest.raises(ValueError, match="cancel_timeout_seconds must be a positive number"):
+        _config(tmp_path, cancel_timeout_seconds=True)
+
+
+def test_host_rejects_invalid_reconcile_timeout(tmp_path) -> None:
+    with pytest.raises(ValueError, match="reconcile_timeout_seconds must be a positive number"):
+        _config(tmp_path, reconcile_timeout_seconds=0)
+    with pytest.raises(ValueError, match="reconcile_timeout_seconds must be a positive number"):
+        _config(tmp_path, reconcile_timeout_seconds=False)
+
+
 def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:
     pytest.importorskip("dhanhq", reason="optional dhan extra is not installed")
     host = build_dhan_host_runtime(
@@ -295,6 +326,9 @@ def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:
             tmp_path,
             transport=None,
             credentials=DhanCredentials("client-id", "access-token"),
+            submit_timeout_seconds=5.0,
+            cancel_timeout_seconds=5.0,
+            reconcile_timeout_seconds=5.0,
         )
     )
     try:

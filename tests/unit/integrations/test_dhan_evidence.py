@@ -56,6 +56,9 @@ def _adapter(transport: InMemoryDhanTransport) -> DhanBrokerAdapter:
             )
         },
         _transport=transport,
+        _submit_timeout=5.0,
+        _cancel_timeout=5.0,
+        _reconcile_timeout=5.0,
     )
 
 

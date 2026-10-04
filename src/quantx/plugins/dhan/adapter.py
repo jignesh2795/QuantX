@@ -31,7 +31,7 @@ from .mapping import (
     parse_dhan_timestamp,
 )
 from .models import DhanInstrumentRef, DhanOrderDetail
-from .transport import DhanTransport
+from .transport import DhanTimeoutError, DhanTransport
 
 
 @dataclass(slots=True)
@@ -41,12 +41,22 @@ class DhanBrokerAdapter:
     _connection: BrokerConnectionRef
     _instruments: dict[InstrumentId, tuple[Instrument, DhanInstrumentRef]]
     _transport: DhanTransport
+    _submit_timeout: float
+    _cancel_timeout: float
+    _reconcile_timeout: float
     _capabilities: CapabilitySet = DHAN_CAPABILITIES
     _adapter_version: str = "dhan-0.1"
 
     def __post_init__(self) -> None:
         if self._connection.broker_id != "dhan":
             raise ValueError("Dhan adapter requires a Dhan broker connection")
+        for name, value in (
+            ("_submit_timeout", self._submit_timeout),
+            ("_cancel_timeout", self._cancel_timeout),
+            ("_reconcile_timeout", self._reconcile_timeout),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+                raise ValueError(f"{name} must be a positive number")
 
     @property
     def descriptor(self) -> BrokerDescriptor:
@@ -93,7 +103,9 @@ class DhanBrokerAdapter:
             correlation_id=request.correlation_id,
         )
         try:
-            response = self._transport.submit(wire)
+            response = self._transport.submit(wire, timeout=self._submit_timeout)
+        except DhanTimeoutError as exc:
+            return self._unknown_receipt(request, f"Dhan submit timed out after {exc.timeout}s")
         except Exception as exc:
             return self._unknown_receipt(request, f"Dhan transport failure: {exc}")
         outcome, status = normalize_status(response.order_status)
@@ -116,7 +128,11 @@ class DhanBrokerAdapter:
     def cancel(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
         self._validate_connection(request)
         try:
-            response = self._transport.cancel(dhan_correlation_id(request.correlation_id))
+            response = self._transport.cancel(
+                dhan_correlation_id(request.correlation_id), timeout=self._cancel_timeout
+            )
+        except DhanTimeoutError as exc:
+            return self._unknown_receipt(request, f"Dhan cancel timed out after {exc.timeout}s")
         except Exception as exc:
             return self._unknown_receipt(request, f"Dhan cancel transport failure: {exc}")
         outcome, status = normalize_status(response.order_status)
@@ -139,7 +155,11 @@ class DhanBrokerAdapter:
     def reconcile(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
         self._validate_connection(request)
         try:
-            detail = self._transport.reconcile(dhan_correlation_id(request.correlation_id))
+            detail = self._transport.reconcile(
+                dhan_correlation_id(request.correlation_id), timeout=self._reconcile_timeout
+            )
+        except DhanTimeoutError as exc:
+            return self._unknown_receipt(request, f"Dhan reconcile timed out after {exc.timeout}s")
         except Exception as exc:
             return self._unknown_receipt(request, f"Dhan reconciliation failure: {exc}")
         if detail.correlation_id is not None:
@@ -179,7 +199,7 @@ class DhanBrokerAdapter:
         This performs no submission or cancellation; it only re-observes
         broker state through the transport boundary.
         """
-        return self._transport.reconcile(correlation_id)
+        return self._transport.reconcile(correlation_id, timeout=self._reconcile_timeout)
 
     def _resolve(
         self,

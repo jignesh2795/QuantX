@@ -119,6 +119,9 @@ def _adapter(
         },
         _transport=transport or InMemoryDhanTransport(),
         _capabilities=DHAN_CAPABILITIES,
+        _submit_timeout=5.0,
+        _cancel_timeout=5.0,
+        _reconcile_timeout=5.0,
     )
 
 
@@ -211,8 +214,8 @@ def test_fetch_with_wrong_order_rejected() -> None:
 
 def test_mismatched_correlation_rejected() -> None:
     class MismatchedTransport(InMemoryDhanTransport):
-        def reconcile(self, correlation_id: str):
-            detail = super().reconcile(correlation_id)
+        def reconcile(self, correlation_id: str, *, timeout: float):
+            detail = super().reconcile(correlation_id, timeout=timeout)
             return DhanOrderDetail(
                 order_id=detail.order_id,
                 correlation_id="some-other-correlation",
@@ -235,7 +238,7 @@ def test_mismatched_correlation_rejected() -> None:
 
 def test_transport_failure_surfaces_as_unavailable() -> None:
     class FailingTransport(InMemoryDhanTransport):
-        def reconcile(self, correlation_id: str):
+        def reconcile(self, correlation_id: str, *, timeout: float):
             raise RuntimeError("broker unreachable")
 
     provider = _provider(transport=FailingTransport())

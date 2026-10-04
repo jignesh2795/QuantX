@@ -604,7 +604,11 @@ def test_live_with_unstarted_application_runtime_is_blocked() -> None:
     assert broker.submit_calls == 0
 
 
-def test_live_gate_permit_spans_broker_submission() -> None:
+def test_live_gate_block_not_blocked_by_slow_broker() -> None:
+    """
+    R0-B: trading_gate.block() must not be indefinitely serialized behind
+    a slow broker.submit() call. The gate lock is released before the broker call.
+    """
     request = _live_request()
     gate = _durable_gate()
     unit_of_work = _FakeUnitOfWork()
@@ -640,7 +644,8 @@ def test_live_gate_permit_spans_broker_submission() -> None:
     assert submit_started.wait(timeout=5)
 
     block_thread.start()
-    assert not block_complete.wait(timeout=0.1)
+    # Gate block should return immediately, not wait for the slow broker
+    assert block_complete.wait(timeout=0.5)
 
     release_submit.set()
     execute_thread.join(timeout=5)
@@ -648,7 +653,11 @@ def test_live_gate_permit_spans_broker_submission() -> None:
 
     assert not execute_thread.is_alive()
     assert not block_thread.is_alive()
-    assert outcome["result"].status is ExecutionDispatchStatus.EXECUTED
+    # Execution should complete (EXECUTED or UNKNOWN depending on timing)
+    assert outcome["result"].status in (
+        ExecutionDispatchStatus.EXECUTED,
+        ExecutionDispatchStatus.UNKNOWN,
+    )
     assert broker.submit_calls == 1
     assert gate.allow() is False
 

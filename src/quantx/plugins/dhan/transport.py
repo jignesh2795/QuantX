@@ -5,6 +5,8 @@ Only this module may import the third-party DhanHQ SDK.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -26,15 +28,33 @@ from .models import (
 )
 
 
+class DhanTimeoutError(Exception):
+    """Raised when a Dhan transport call exceeds its configured timeout."""
+
+    def __init__(self, operation: str, timeout: float) -> None:
+        self.operation = operation
+        self.timeout = timeout
+        super().__init__(f"Dhan {operation} timed out after {timeout}s")
+
+
 @runtime_checkable
 class DhanTransport(Protocol):
+    """Dhan wire boundary.
+
+    R0-B bounds only the safety-critical control path: ``submit``, ``cancel``,
+    and ``reconcile`` take an explicit ``timeout``. The read-only observations
+    (``health``, ``fund_limits``, ``positions``, ``quote_snapshot``,
+    ``candles``) remain unbounded in this slice and are outside the R0-B
+    bounded-call contract; a later transport-timeout slice may bound them.
+    """
+
     def health(self) -> bool: ...
 
-    def submit(self, request: DhanOrderRequest) -> DhanOrderResponse: ...
+    def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse: ...
 
-    def cancel(self, correlation_id: str) -> DhanOrderResponse: ...
+    def cancel(self, correlation_id: str, *, timeout: float) -> DhanOrderResponse: ...
 
-    def reconcile(self, correlation_id: str) -> DhanOrderDetail: ...
+    def reconcile(self, correlation_id: str, *, timeout: float) -> DhanOrderDetail: ...
 
     def fund_limits(self) -> DhanFundsSnapshot: ...
 
@@ -55,6 +75,8 @@ class DhanTransport(Protocol):
         instrument_type: str = "EQUITY",
     ) -> tuple[DhanCandleSnapshot, ...]: ...
 
+    def close(self) -> None: ...
+
 
 class _DhanClient(Protocol):
     def get_fund_limits(self) -> object: ...
@@ -70,14 +92,27 @@ class _DhanClient(Protocol):
 
 @dataclass(slots=True)
 class DhanSDKTransport:
-    """Official DhanHQ SDK wrapper; vendor types never leave this class."""
+    """Official DhanHQ SDK wrapper; vendor types never leave this class.
+
+    Timeout enforcement runs each blocking SDK call on a single shared worker
+    thread, so concurrent calls through one transport instance are
+    single-flight (serialized), not concurrent. The timeout bounds the
+    caller's wait; a slow SDK call may still complete in the background after
+    the timeout, in which case its late result is discarded and the caller
+    observes UNKNOWN/reconciliation-required (never a locally invented
+    REJECTED, retry, or resubmission).
+    """
 
     credentials: DhanCredentials
     _client: _DhanClient = field(init=False, repr=False)
     _context: object = field(init=False, repr=False)
+    _executor: ThreadPoolExecutor = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        from dhanhq import DhanContext, dhanhq  # type: ignore[import-untyped]
+        try:
+            from dhanhq import DhanContext, dhanhq  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError("dhanhq SDK is not installed") from exc
 
         context = DhanContext(
             self.credentials.client_id,
@@ -85,6 +120,22 @@ class DhanSDKTransport:
         )
         self._context = context
         self._client = dhanhq(context)
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dhan-sdk")
+
+    def _call_with_timeout(
+        self,
+        func: Callable[..., object],
+        *args: object,
+        timeout: float,
+        operation: str,
+        **kwargs: object,
+    ) -> object:
+        future: Future[object] = self._executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except TimeoutError as exc:
+            future.cancel()
+            raise DhanTimeoutError(operation, timeout) from exc
 
     def health(self) -> bool:
         try:
@@ -94,8 +145,9 @@ class DhanSDKTransport:
         status, _, _ = _envelope(response)
         return status == "success"
 
-    def submit(self, request: DhanOrderRequest) -> DhanOrderResponse:
-        response = self._client.place_order(
+    def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse:
+        response = self._call_with_timeout(
+            self._client.place_order,
             security_id=request.security_id,
             exchange_segment=request.exchange_segment,
             transaction_type=request.transaction_type,
@@ -106,11 +158,19 @@ class DhanSDKTransport:
             trigger_price=float(request.trigger_price),
             validity=request.validity,
             tag=request.correlation_id,
+            timeout=timeout,
+            operation="submit",
         )
         return _order_response(response)
 
-    def cancel(self, correlation_id: str) -> DhanOrderResponse:
-        detail = self.reconcile(correlation_id)
+    def cancel(self, correlation_id: str, *, timeout: float) -> DhanOrderResponse:
+        """Cancel bounded by up to two sequential timeout windows.
+
+        ``cancel`` first reconciles (one ``timeout`` window) and then issues
+        the vendor cancel (a second ``timeout`` window), so the worst-case
+        broker interaction is approximately ``2 * timeout``.
+        """
+        detail = self.reconcile(correlation_id, timeout=timeout)
         if detail.order_id is None:
             return DhanOrderResponse(
                 order_id=None,
@@ -118,11 +178,21 @@ class DhanSDKTransport:
                 observed_at=datetime.now(UTC),
                 message="Dhan order could not be resolved by correlation id",
             )
-        response = self._client.cancel_order(detail.order_id)
+        response = self._call_with_timeout(
+            self._client.cancel_order,
+            detail.order_id,
+            timeout=timeout,
+            operation="cancel",
+        )
         return _order_response(response)
 
-    def reconcile(self, correlation_id: str) -> DhanOrderDetail:
-        response = self._client.get_order_by_correlationID(correlation_id)
+    def reconcile(self, correlation_id: str, *, timeout: float) -> DhanOrderDetail:
+        response = self._call_with_timeout(
+            self._client.get_order_by_correlationID,
+            correlation_id,
+            timeout=timeout,
+            operation="reconcile",
+        )
         return _order_detail(response)
 
     def fund_limits(self) -> DhanFundsSnapshot:
@@ -149,7 +219,10 @@ class DhanSDKTransport:
 
     def quote_snapshot(self, security_id: str, exchange_segment: str) -> DhanQuoteSnapshot | None:
         """Re-observe one quote packet; transport failure means unavailable."""
-        from dhanhq._market_feed import MarketFeed  # type: ignore[import-untyped]
+        try:
+            from dhanhq._market_feed import MarketFeed  # type: ignore[import-not-found]
+        except ImportError:  # pragma: no cover - optional dependency
+            return None
 
         try:
             response = MarketFeed(self._context).quote_data({exchange_segment: [security_id]})
@@ -168,7 +241,10 @@ class DhanSDKTransport:
         instrument_type: str = "EQUITY",
     ) -> tuple[DhanCandleSnapshot, ...]:
         """Fetch normalized historical candles for one Dhan instrument."""
-        from dhanhq import HistoricalData  # type: ignore[import-untyped]
+        try:
+            from dhanhq import HistoricalData
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError("dhanhq SDK is not installed") from exc
 
         history = HistoricalData(self._context)
         from_date = start.strftime("%Y-%m-%d")
@@ -192,6 +268,29 @@ class DhanSDKTransport:
                 interval=interval,
             )
         return _candle_snapshots(response, timeframe=timeframe)
+
+    def close(self) -> None:
+        """Shut down the internal executor deterministically.
+
+        Explicit lifecycle ownership lives with the host
+        (``DhanHostRuntime.close`` calls this); ``__del__`` is only a
+        best-effort fallback and never blocks.
+        """
+        executor = getattr(self, "_executor", None)
+        if executor is None:
+            return
+        try:
+            executor.shutdown(wait=True, cancel_futures=True)
+        except RuntimeError:
+            pass
+
+    def __del__(self) -> None:  # pragma: no cover - defensive fallback only
+        try:
+            executor = getattr(self, "_executor", None)
+            if executor is not None:
+                executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
 
 
 @dataclass(slots=True)
@@ -227,7 +326,10 @@ class InMemoryDhanTransport:
     def health(self) -> bool:
         return True
 
-    def submit(self, request: DhanOrderRequest) -> DhanOrderResponse:
+    def close(self) -> None:
+        """No-op lifecycle hook so the host can close any transport uniformly."""
+
+    def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse:
         self._submitted.append(request)
         return DhanOrderResponse(
             order_id=self.order_id,
@@ -235,7 +337,7 @@ class InMemoryDhanTransport:
             observed_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-    def cancel(self, correlation_id: str) -> DhanOrderResponse:
+    def cancel(self, correlation_id: str, *, timeout: float) -> DhanOrderResponse:
         self._cancelled.append(correlation_id)
         return DhanOrderResponse(
             order_id=self.order_id,
@@ -243,7 +345,7 @@ class InMemoryDhanTransport:
             observed_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-    def reconcile(self, correlation_id: str) -> DhanOrderDetail:
+    def reconcile(self, correlation_id: str, *, timeout: float) -> DhanOrderDetail:
         return DhanOrderDetail(
             order_id=self.order_id,
             correlation_id=correlation_id,
