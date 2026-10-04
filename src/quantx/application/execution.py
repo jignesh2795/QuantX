@@ -23,6 +23,7 @@ from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.trading_gate import TradingGate
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.session_calendar import (
     IndiaSessionDecision,
     IndiaSessionResult,
@@ -147,12 +148,22 @@ class ExecutionOrchestrator:
                     ExecutionDispatchStatus.BLOCKED,
                     reason=f"india session/calendar evaluation failed closed: {exc}",
                 )
+            expected_segment = {
+                "EQUITY": IndianSegment.EQUITY,
+                "DERIVATIVES": IndianSegment.DERIVATIVES,
+                "FX": IndianSegment.CURRENCY,
+                "COMMODITIES": IndianSegment.COMMODITY,
+            }.get(request.execution_context.market.family.value)
             if (
                 not india_session.calendar_evaluated
                 or not india_session.calendar_version.strip()
                 or not india_session.provenance.strip()
                 or india_session.evaluated_at.tzinfo is None
                 or india_session.evaluated_at.utcoffset() is None
+                or india_session.exchange.value
+                != request.execution_context.market.venue
+                or expected_segment is None
+                or india_session.segment is not expected_segment
             ):
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
