@@ -9,6 +9,7 @@ from enum import StrEnum
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.instruments import MarketRegion
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import (
     IdempotencyStore,
@@ -43,6 +44,19 @@ class ExecutionResult:
     @property
     def executed(self) -> bool:
         return self.status is ExecutionDispatchStatus.EXECUTED
+
+
+def _is_india_live_request(request: ApprovedExecutionRequest) -> bool:
+    """Detect India-market LIVE requests that must pass India rule evaluation.
+
+    Region (not venue text or broker identity) is the authority, so no
+    broker-specific naming convention can silently opt a request out of the
+    boundary. Non-India and non-LIVE requests are unaffected.
+    """
+    return (
+        request.execution_context.execution_mode is ExecutionMode.LIVE
+        and request.execution_context.market.region is MarketRegion.INDIA
+    )
 
 
 class ExecutionOrchestrator:
@@ -186,6 +200,14 @@ class ExecutionOrchestrator:
                 reason="broker instrument market does not match execution request market",
             )
 
+        if self._india_rule_evaluator is None and _is_india_live_request(request):
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=(
+                    "live execution for India-market requests requires "
+                    "an explicitly configured india rule evaluator"
+                ),
+            )
         if self._india_rule_evaluator is not None:
             try:
                 india_rules = self._india_rule_evaluator(request)

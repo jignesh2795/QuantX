@@ -14,7 +14,13 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderType, TimeInForce
+from quantx.domain.enums import (
+    AssetClass,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    TimeInForce,
+)
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import (
     Instrument,
@@ -27,6 +33,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency.fingerprint import request_fingerprint
+from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import (
     IndianExchange,
@@ -39,7 +46,10 @@ from quantx.india.execution_rules import (
     IndiaRuleDecision,
     IndiaRuleResult,
 )
-from quantx.integrations.brokers import BrokerConnectionRef
+from quantx.integrations.brokers import (
+    BrokerConnectionRef,
+    CapabilitySet,
+)
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteReceiptRepository,
@@ -192,6 +202,34 @@ def test_india_rejection_blocks_before_reservation_and_submit(tmp_path) -> None:
         database.close()
 
 
+def test_india_live_without_evaluator_fails_closed(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        unit_of_work = SqliteUnitOfWork(database)
+        orchestrator = _orchestrator(database, unit_of_work)
+        request = _request()
+        result = orchestrator.execute(request, broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "india rule evaluator" in result.reason
+        assert transport.submitted == ()
+        fingerprint = request_fingerprint(request)
+        with SqliteUnitOfWork(database) as check_uow:
+            decision = check_uow.idempotency.check(request.order.client_order_id, fingerprint)
+            assert decision.reservation_pending is False
+            assert decision.existing_receipt_id is None
+            assert decision.operator_resolved is False
+        assert SqliteReceiptRepository(database).get_by_client_order(
+            request.order.client_order_id
+        ) is None
+        assert unit_of_work.idempotency.get_operator_resolution(
+            request.order.client_order_id, fingerprint
+        ) is None
+    finally:
+        database.close()
+
+
 def test_india_approval_keeps_submission_reachable(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
@@ -274,13 +312,82 @@ def test_india_rejection_precedes_risk_evaluation(tmp_path) -> None:
         database.close()
 
 
-def test_unconfigured_orchestrator_preserves_legacy_behavior(tmp_path) -> None:
-    transport = InMemoryDhanTransport(response_status="PENDING")
+def test_non_india_live_without_evaluator_preserves_legacy_behavior(tmp_path) -> None:
+    from uuid import uuid4
+
+    us_market = MarketContext(MarketRegion.NORTH_AMERICA, MarketFamily.EQUITY, "NYSE", "US")
+    us_instrument = Instrument(
+        InstrumentId("NYSE", "AAPL"),
+        "AAPL",
+        AssetClass.EQUITY,
+        us_market,
+        "USD",
+        Decimal("0.01"),
+        Decimal("1"),
+    )
+
+    class UsBroker:
+        def __init__(self) -> None:
+            self.submit_calls = 0
+            self._connection = BrokerConnectionRef(
+                AccountId("acct-1"), BrokerConnectionId("conn-1"), "us", "NYSE"
+            )
+
+        @property
+        def connection(self):
+            return self._connection
+
+        def health(self) -> bool:
+            return True
+
+        def capabilities(self):
+            return CapabilitySet(frozenset())
+
+        def instrument(self, instrument_id):
+            return us_instrument if instrument_id == us_instrument.instrument_id else None
+
+        def submit(self, request):
+            self.submit_calls += 1
+            return ExecutionReceipt(
+                request_id=uuid4(),
+                client_order_id=request.order.client_order_id,
+                outcome=ExecutionOutcome.ACCEPTED,
+                order_status=OrderStatus.ACCEPTED,
+                executed_at=request.order.created_at,
+                simulated=False,
+                source="us-broker",
+                account_id=self._connection.account_id,
+                connection_id=self._connection.connection_id,
+            )
+
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=us_market,
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+    )
+    intent = TradeIntent(
+        instrument=us_instrument.instrument_id,
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        execution_context=context,
+    )
+    request = ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "upstream approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+    )
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+        broker = UsBroker()
         orchestrator = _orchestrator(database, SqliteUnitOfWork(database))
-        result = orchestrator.execute(_request(), broker=_adapter(transport))
+        result = orchestrator.execute(request, broker=broker)
 
         assert result.status is ExecutionDispatchStatus.EXECUTED
+        assert broker.submit_calls == 1
     finally:
         database.close()

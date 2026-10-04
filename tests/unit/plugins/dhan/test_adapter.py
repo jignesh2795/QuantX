@@ -37,6 +37,7 @@ from quantx.execution.receipts.models import (
     ExecutionReceipt,
 )
 from quantx.execution.trading_gate import DurableTradingGate
+from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.persistence.sqlite import (
     SqliteDatabase,
@@ -95,6 +96,15 @@ def _request(
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
     )
+
+
+def _approving_india_evaluator():
+    """India layer is not under test here; approve explicitly to reach it."""
+
+    def approve(request) -> IndiaRuleResult:
+        return IndiaRuleResult(IndiaRuleDecision.APPROVE, "india rules approved for test")
+
+    return approve
 
 
 def _started_runtime() -> ApplicationRuntime:
@@ -333,6 +343,7 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
             application_runtime=_started_runtime(),
+            india_rule_evaluator=_approving_india_evaluator(),
         ).execute(_request(), broker=adapter)
     finally:
         database.close()
