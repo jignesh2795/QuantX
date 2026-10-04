@@ -22,8 +22,8 @@ from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDat
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.trading_gate import TradingGate
+from quantx.india.domain import IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
-from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.session_calendar import (
     IndiaSessionDecision,
     IndiaSessionResult,
