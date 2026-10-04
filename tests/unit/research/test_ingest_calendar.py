@@ -47,7 +47,7 @@ def test_normalizer_preserves_session_classification() -> None:
 
     observation = normalizer.normalize(record)
 
-    assert observation.snapshot.last == Decimal("1.5")
+    assert observation.snapshot.close == Decimal("1.5")
     assert observation.source_id == "source-1"
 
 
