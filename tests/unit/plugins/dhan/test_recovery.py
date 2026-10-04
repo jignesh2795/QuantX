@@ -30,6 +30,7 @@ from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.integrations.brokers import BrokerConnectionRef
+from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidenceStatus
 from quantx.plugins.dhan.adapter import DhanBrokerAdapter
 from quantx.plugins.dhan.capabilities import DHAN_CAPABILITIES
 from quantx.plugins.dhan.models import DhanInstrumentRef, DhanOrderDetail, DhanPositionSnapshot
@@ -141,12 +142,14 @@ def test_traded_detail_maps_to_filled_observation() -> None:
     )
     provider = _provider(transport=transport)
 
-    observation = provider.fetch_broker_order(
+    evidence = provider.fetch_broker_order(
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
         order_id=provider._order_id,
     )
 
+    assert evidence.status is BrokerOrderEvidenceStatus.FOUND
+    observation = evidence.observation
     assert observation is not None
     assert observation.status is OrderLifecycleStatus.FILLED
     assert observation.requested_quantity == "2"
@@ -159,12 +162,14 @@ def test_traded_detail_maps_to_filled_observation() -> None:
 def test_pending_detail_maps_to_acknowledged_observation() -> None:
     provider = _provider()
 
-    observation = provider.fetch_broker_order(
+    evidence = provider.fetch_broker_order(
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
         order_id=provider._order_id,
     )
 
+    assert evidence.status is BrokerOrderEvidenceStatus.FOUND
+    observation = evidence.observation
     assert observation is not None
     assert observation.status is OrderLifecycleStatus.ACKNOWLEDGED
 
@@ -173,12 +178,14 @@ def test_unknown_broker_status_maps_to_unknown_observation() -> None:
     transport = InMemoryDhanTransport(response_status="SOMETHING_NEW")
     provider = _provider(transport=transport)
 
-    observation = provider.fetch_broker_order(
+    evidence = provider.fetch_broker_order(
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
         order_id=provider._order_id,
     )
 
+    assert evidence.status is BrokerOrderEvidenceStatus.FOUND
+    observation = evidence.observation
     assert observation is not None
     assert observation.status is OrderLifecycleStatus.UNKNOWN
 
@@ -243,14 +250,14 @@ def test_transport_failure_surfaces_as_unavailable() -> None:
 
     provider = _provider(transport=FailingTransport())
 
-    assert (
-        provider.fetch_broker_order(
-            account_id=AccountId("acct-1"),
-            connection_id=BrokerConnectionId("conn-1"),
-            order_id=provider._order_id,
-        )
-        is None
+    evidence = provider.fetch_broker_order(
+        account_id=AccountId("acct-1"),
+        connection_id=BrokerConnectionId("conn-1"),
+        order_id=provider._order_id,
     )
+
+    assert evidence.status is BrokerOrderEvidenceStatus.UNKNOWN
+    assert evidence.observation is None
 
 
 def test_position_selects_bound_instrument() -> None:

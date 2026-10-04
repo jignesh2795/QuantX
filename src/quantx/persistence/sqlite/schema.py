@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -37,6 +37,19 @@ CREATE TABLE IF NOT EXISTS receipts (
 _RECEIPTS_CLIENT_ORDER_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_receipts_client_order
 ON receipts (client_order_id)
+"""
+
+_OPERATOR_RESOLUTIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS operator_resolutions (
+    client_order_id TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    operator_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    resolved_at TEXT NOT NULL,
+    action TEXT NOT NULL,
+    evidence_reference TEXT NULL,
+    created_at TEXT NOT NULL
+)
 """
 
 _TRADING_GATE_TABLE = """
@@ -116,6 +129,7 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
     connection.execute(_IDEMPOTENCY_TABLE)
     connection.execute(_RECEIPTS_TABLE)
     connection.execute(_RECEIPTS_CLIENT_ORDER_INDEX)
+    connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
     connection.execute(_TRADING_GATE_TABLE)
     _create_market_tables(connection)
 
@@ -154,6 +168,7 @@ def init_schema(connection: sqlite3.Connection) -> None:
                 "ADD COLUMN pending_context_json TEXT NULL"
             )
         connection.execute(_TRADING_GATE_TABLE)
+        connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
         _create_market_tables(connection)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 1",
@@ -164,8 +179,18 @@ def init_schema(connection: sqlite3.Connection) -> None:
 
     if version == 2:
         _create_market_tables(connection)
+        connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 2",
+            (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
+        )
+        connection.commit()
+        return
+
+    if version == 3:
+        connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
+        connection.execute(
+            "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 3",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
         )
         connection.commit()

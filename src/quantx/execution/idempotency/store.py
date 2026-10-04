@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from threading import RLock
 from typing import Protocol
 from uuid import UUID
@@ -189,6 +190,45 @@ class PendingExecutionRecoveryRecord:
 
 
 
+class OperatorResolutionAction(StrEnum):
+    """The only explicit operator closure for an unresolvable PENDING reservation."""
+
+    CLOSE_UNRESOLVED = "CLOSE_UNRESOLVED"
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorResolution:
+    """Durable, auditable operator closure of an unresolved PENDING reservation.
+
+    This is not a broker execution outcome and never produces an
+    ExecutionReceipt. It records that automated evidence could not resolve
+    the submission and an authorized operator explicitly closed it.
+    """
+
+    client_order_id: UUID
+    request_fingerprint: str
+    operator_id: str
+    reason: str
+    resolved_at: datetime
+    action: OperatorResolutionAction = OperatorResolutionAction.CLOSE_UNRESOLVED
+    evidence_reference: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.request_fingerprint, str) or not self.request_fingerprint.strip():
+            raise ValueError("operator resolution fingerprint must not be empty")
+        if not isinstance(self.operator_id, str) or not self.operator_id.strip():
+            raise ValueError("operator identity must not be empty")
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("operator resolution reason must not be empty")
+        if self.resolved_at.tzinfo is None or self.resolved_at.utcoffset() is None:
+            raise ValueError("resolved_at must be timezone-aware")
+        if (
+            self.evidence_reference is not None
+            and not self.evidence_reference.strip()
+        ):
+            raise ValueError("evidence reference must not be blank")
+
+
 @dataclass(frozen=True, slots=True)
 class IdempotencyDecision:
     client_order_id: UUID
@@ -197,6 +237,12 @@ class IdempotencyDecision:
     reservation_pending: bool = False
     reservation_acquired: bool = False
     pending_context: PendingExecutionContext | None = None
+    operator_resolved: bool = False
+    operator_resolution: OperatorResolution | None = None
+
+    def __post_init__(self) -> None:
+        if self.operator_resolved != (self.operator_resolution is not None):
+            raise ValueError("operator-resolved decision requires its resolution record")
 
 
 class IdempotencyStore(Protocol):
@@ -220,6 +266,22 @@ class IdempotencyStore(Protocol):
         receipt_id: UUID,
     ) -> None: ...
 
+    def resolve_operator(
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        *,
+        operator_id: str,
+        reason: str,
+        resolved_at: datetime,
+        action: OperatorResolutionAction = OperatorResolutionAction.CLOSE_UNRESOLVED,
+        evidence_reference: str | None = None,
+    ) -> OperatorResolution: ...
+
+    def get_operator_resolution(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> OperatorResolution | None: ...
+
     def list_pending_recovery_records(self) -> tuple[PendingExecutionRecoveryRecord, ...]: ...
 
     def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]: ...
@@ -233,18 +295,28 @@ class InMemoryIdempotencyStore:
         self._fingerprints: dict[UUID, str] = {}
         self._receipts: dict[UUID, UUID] = {}
         self._contexts: dict[UUID, PendingExecutionContext] = {}
+        self._resolutions: dict[UUID, OperatorResolution] = {}
 
     def check(self, client_order_id: UUID, request_fingerprint: str) -> IdempotencyDecision:
         with self._lock:
             existing = self._fingerprints.get(client_order_id)
             if existing is not None and existing != request_fingerprint:
                 raise ValueError("client_order_id was reused with a different request")
+            resolution = self._resolutions.get(client_order_id)
+            if resolution is not None and resolution.request_fingerprint != request_fingerprint:
+                raise ValueError("client_order_id was reused with a different request")
             return IdempotencyDecision(
                 client_order_id=client_order_id,
                 request_fingerprint=request_fingerprint,
                 existing_receipt_id=self._receipts.get(client_order_id),
-                reservation_pending=existing is not None and client_order_id not in self._receipts,
+                reservation_pending=(
+                    existing is not None
+                    and client_order_id not in self._receipts
+                    and client_order_id not in self._resolutions
+                ),
                 pending_context=self._contexts.get(client_order_id),
+                operator_resolved=resolution is not None,
+                operator_resolution=resolution,
             )
 
     def reserve_or_get(
@@ -255,7 +327,11 @@ class InMemoryIdempotencyStore:
     ) -> IdempotencyDecision:
         with self._lock:
             decision = self.check(client_order_id, request_fingerprint)
-            if decision.existing_receipt_id is not None or decision.reservation_pending:
+            if (
+                decision.existing_receipt_id is not None
+                or decision.reservation_pending
+                or decision.operator_resolved
+            ):
                 return decision
             self._fingerprints[client_order_id] = request_fingerprint
             if pending_context is not None:
@@ -275,6 +351,8 @@ class InMemoryIdempotencyStore:
                 raise ValueError("cannot complete an unreserved client_order_id")
             if existing != request_fingerprint:
                 raise ValueError("client_order_id was reused with a different request")
+            if client_order_id in self._resolutions:
+                raise ValueError("cannot complete an operator-resolved reservation")
             if client_order_id in self._receipts:
                 raise ValueError("cannot complete an already completed client_order_id")
             self._receipts[client_order_id] = receipt_id
@@ -287,11 +365,57 @@ class InMemoryIdempotencyStore:
     ) -> None:
         with self._lock:
             decision = self.check(client_order_id, request_fingerprint)
+            if decision.operator_resolved:
+                raise ValueError("cannot resolve an operator-resolved reservation")
             if not decision.reservation_pending:
                 raise ValueError("cannot resolve a non-pending idempotency reservation")
             if self._receipts.get(client_order_id) is not None:
                 raise ValueError("cannot overwrite an existing receipt")
             self._receipts[client_order_id] = receipt_id
+
+    def resolve_operator(
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        *,
+        operator_id: str,
+        reason: str,
+        resolved_at: datetime,
+        action: OperatorResolutionAction = OperatorResolutionAction.CLOSE_UNRESOLVED,
+        evidence_reference: str | None = None,
+    ) -> OperatorResolution:
+        with self._lock:
+            existing = self._fingerprints.get(client_order_id)
+            if existing is None:
+                raise ValueError("cannot resolve an unreserved client_order_id")
+            if existing != request_fingerprint:
+                raise ValueError("client_order_id was reused with a different request")
+            if client_order_id in self._receipts:
+                raise ValueError("cannot operator-resolve a completed reservation")
+            if client_order_id in self._resolutions:
+                raise ValueError("reservation is already operator-resolved")
+            resolution = OperatorResolution(
+                client_order_id=client_order_id,
+                request_fingerprint=request_fingerprint,
+                operator_id=operator_id,
+                reason=reason,
+                resolved_at=resolved_at,
+                action=action,
+                evidence_reference=evidence_reference,
+            )
+            self._resolutions[client_order_id] = resolution
+            return resolution
+
+    def get_operator_resolution(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> OperatorResolution | None:
+        with self._lock:
+            resolution = self._resolutions.get(client_order_id)
+            if resolution is None:
+                return None
+            if resolution.request_fingerprint != request_fingerprint:
+                raise ValueError("client_order_id was reused with a different request")
+            return resolution
 
     def list_pending_recovery_records(self) -> tuple[PendingExecutionRecoveryRecord, ...]:
         with self._lock:
@@ -303,6 +427,7 @@ class InMemoryIdempotencyStore:
                 )
                 for client_order_id, context in self._contexts.items()
                 if client_order_id not in self._receipts
+                and client_order_id not in self._resolutions
             )
 
     def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]:

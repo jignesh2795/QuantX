@@ -19,12 +19,21 @@ from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.ports import ExecutionReceipt
 from quantx.integrations.reconciliation.account import AccountFinancialState
+from quantx.integrations.reconciliation.broker_evidence import (
+    BrokerOrderEvidence,
+    BrokerOrderEvidenceStatus,
+)
 from quantx.integrations.reconciliation.orders import OrderObservation
 from quantx.integrations.reconciliation.positions import (
     PositionState,
     ReconciliationPolicy,
 )
 
+from .not_found_policy import (
+    NotFoundResolution,
+    NotFoundResolutionPolicy,
+    evaluate_not_found_resolution,
+)
 from .reconciliation import (
     OrderStateReconciliationResult,
     OrderStateReconciliationWorkflow,
@@ -33,7 +42,11 @@ from .reconciliation import (
 
 
 class ReconciliationEvidenceProvider(Protocol):
-    """Explicit seam for re-observing broker evidence, offline-testable."""
+    """Explicit seam for re-observing broker evidence, offline-testable.
+
+    Broker-order lookup returns explicit FOUND/NOT_FOUND/UNKNOWN evidence so
+    that authoritative absence can never be conflated with lookup failure.
+    """
 
     def fetch_broker_order(
         self,
@@ -41,7 +54,7 @@ class ReconciliationEvidenceProvider(Protocol):
         account_id: AccountId | None,
         connection_id: BrokerConnectionId | None,
         order_id: UUID | None,
-    ) -> OrderObservation | None: ...
+    ) -> BrokerOrderEvidence: ...
 
     def fetch_broker_position(
         self,
@@ -110,7 +123,12 @@ class DefinitiveEvidencePolicy:
 
 @dataclass(frozen=True, slots=True)
 class EvidenceRefreshOutcome:
-    """Latest canonical result plus the refresh trail that produced it."""
+    """Latest canonical result plus the refresh trail that produced it.
+
+    ``not_found_eligibility`` surfaces the conservative NOT_FOUND policy
+    verdict when broker absence was observed. It is informational only:
+    eligibility never resolves anything by itself.
+    """
 
     result: OrderStateReconciliationResult
     attempts: int
@@ -120,6 +138,7 @@ class EvidenceRefreshOutcome:
     broker_order: OrderObservation | None = None
     broker_position: PositionState | None = None
     broker_account: AccountFinancialState | None = None
+    not_found_eligibility: NotFoundResolution | None = None
 
 
 class ReconciliationIdempotencyResolver:
@@ -181,13 +200,35 @@ class ReconciliationEvidenceRefresher:
         position_policy: ReconciliationPolicy | None = None,
         instrument_id: str | None = None,
         provider: ReconciliationEvidenceProvider,
+        pending_age: timedelta | None = None,
+        secondary_absence_confirmed: bool | None = None,
+        not_found_policy: NotFoundResolutionPolicy | None = None,
     ) -> EvidenceRefreshOutcome:
+        """Refresh evidence; optionally surface NOT_FOUND policy eligibility.
+
+        ``pending_age`` is the age of the pending reservation and
+        ``secondary_absence_confirmed`` reports an adapter-level secondary
+        absence check (``None`` when the adapter exposes none). Both feed
+        only the informational ``not_found_eligibility`` verdict; they never
+        resolve anything.
+        """
         policy = position_policy or ReconciliationPolicy(timedelta(seconds=30))
         refreshed: list[str] = []
+        absence_notes: list[str] = []
         attempts = 0
         current_broker_order = broker_order
         current_broker_position = broker_position
         current_broker_account = broker_account
+
+        def absence_eligibility() -> NotFoundResolution | None:
+            if not absence_notes:
+                return None
+            return evaluate_not_found_resolution(
+                evidence_status=BrokerOrderEvidenceStatus.NOT_FOUND,
+                pending_age=pending_age or timedelta(0),
+                secondary_absence_confirmed=secondary_absence_confirmed,
+                policy=not_found_policy,
+            )
 
         while True:
             result = self._workflow.reconcile(
@@ -223,6 +264,7 @@ class ReconciliationEvidenceRefresher:
                     current_broker_order,
                     current_broker_position,
                     current_broker_account,
+                    absence_eligibility(),
                 )
             if attempts >= self._refresh.max_attempts:
                 return EvidenceRefreshOutcome(
@@ -230,10 +272,14 @@ class ReconciliationEvidenceRefresher:
                     attempts,
                     tuple(refreshed),
                     False,
-                    ("refresh budget exhausted; last unresolved evidence preserved",),
+                    (
+                        "refresh budget exhausted; last unresolved evidence preserved",
+                        *absence_notes,
+                    ),
                     current_broker_order,
                     current_broker_position,
                     current_broker_account,
+                    absence_eligibility(),
                 )
             targets = self._refresh_targets(result)
             if not targets:
@@ -246,6 +292,7 @@ class ReconciliationEvidenceRefresher:
                     current_broker_order,
                     current_broker_position,
                     current_broker_account,
+                    absence_eligibility(),
                 )
             for domain in targets:
                 fetched_any = False
@@ -256,8 +303,12 @@ class ReconciliationEvidenceRefresher:
                         order_id=result.order_id,
                     )
                     fetched_any = True
-                    if fetched is not None:
-                        current_broker_order = fetched
+                    if fetched.status is BrokerOrderEvidenceStatus.FOUND:
+                        assert fetched.observation is not None
+                        current_broker_order = fetched.observation
+                    elif fetched.status is BrokerOrderEvidenceStatus.NOT_FOUND:
+                        if "broker reports order absent" not in absence_notes:
+                            absence_notes.append("broker reports order absent")
                 elif domain == "position":
                     instrument_id_for_refresh = self._position_instrument(
                         instrument_id,

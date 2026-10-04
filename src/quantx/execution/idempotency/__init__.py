@@ -5,6 +5,8 @@ from .store import (
     IdempotencyDecision,
     IdempotencyStore,
     InMemoryIdempotencyStore,
+    OperatorResolution,
+    OperatorResolutionAction,
     PendingExecutionContext,
     PendingExecutionRecoveryRecord,
 )
@@ -13,6 +15,8 @@ __all__ = [
     "IdempotencyDecision",
     "IdempotencyStore",
     "InMemoryIdempotencyStore",
+    "OperatorResolution",
+    "OperatorResolutionAction",
     "PendingExecutionContext",
     "PendingExecutionRecoveryRecord",
     "request_fingerprint",

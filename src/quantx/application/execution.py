@@ -307,6 +307,15 @@ class ExecutionOrchestrator:
                     ExecutionDispatchStatus.UNKNOWN,
                     reason="submission outcome is unknown; reconciliation is required",
                 )
+            if existing.operator_resolved:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=(
+                        "reservation was explicitly closed by an operator; "
+                        "implicit resubmission is prohibited, "
+                        "use a new client_order_id for another attempt"
+                    ),
+                )
 
         # The permit is acquired before creating the pending reservation.
         # The lock is released BEFORE the broker call so that block() cannot
@@ -346,6 +355,15 @@ class ExecutionOrchestrator:
                     return ExecutionResult(
                         ExecutionDispatchStatus.UNKNOWN,
                         reason="submission outcome is unknown; reconciliation is required",
+                    )
+                if decision.operator_resolved:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=(
+                            "reservation was explicitly closed by an operator; "
+                            "implicit resubmission is prohibited, "
+                            "use a new client_order_id for another attempt"
+                        ),
                     )
                 if not decision.reservation_acquired:
                     return ExecutionResult(

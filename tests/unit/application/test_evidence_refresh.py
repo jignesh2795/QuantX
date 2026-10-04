@@ -23,6 +23,7 @@ from quantx.integrations.reconciliation import (
     ReconciliationPolicy,
     StateSource,
 )
+from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidence
 
 CHECKED_AT = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 POSITION_POLICY = ReconciliationPolicy(timedelta(seconds=30))
@@ -45,11 +46,12 @@ class ScriptedProvider:
         self.position_calls = 0
         self.account_calls = 0
 
-    def fetch_broker_order(self, **kwargs: object) -> OrderObservation | None:
+    def fetch_broker_order(self, **kwargs: object) -> BrokerOrderEvidence:
         self.order_calls += 1
-        if self._orders:
-            return self._orders.pop(0)
-        return None
+        raw = self._orders.pop(0) if self._orders else None
+        if raw is None:
+            return BrokerOrderEvidence.unknown("no broker observation scripted")
+        return BrokerOrderEvidence.found(raw)
 
     def fetch_broker_position(self, **kwargs: object) -> PositionState | None:
         self.position_calls += 1
