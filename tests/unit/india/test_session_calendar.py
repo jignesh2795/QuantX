@@ -1,7 +1,6 @@
 from datetime import UTC, date, datetime, time
 from types import SimpleNamespace
 
-
 import pytest
 
 from quantx.domain.clock import FixedClock
