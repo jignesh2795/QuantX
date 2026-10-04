@@ -39,6 +39,7 @@ from quantx.domain.risk import (
 from quantx.domain.value_objects import Money
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.trading_gate import DurableTradingGate
+from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.persistence.sqlite import (
     SqliteDatabase,
@@ -182,6 +183,15 @@ def _adapter(transport: InMemoryDhanTransport) -> DhanBrokerAdapter:
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
     )
+
+
+def _approving_india_evaluator():
+    """India layer is not under test here; approve explicitly to reach it."""
+
+    def approve(request) -> IndiaRuleResult:
+        return IndiaRuleResult(IndiaRuleDecision.APPROVE, "india rules approved for test")
+
+    return approve
 
 
 def _started_runtime() -> ApplicationRuntime:
@@ -640,6 +650,7 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            india_rule_evaluator=_approving_india_evaluator(),
             application_runtime=_started_runtime(),
             live_risk_evaluator=_evaluator(limits=_limits(max_order_notional=Decimal("1"))),
         )
@@ -674,6 +685,7 @@ def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            india_rule_evaluator=_approving_india_evaluator(),
             application_runtime=_started_runtime(),
             live_risk_evaluator=_evaluator(),
         )
@@ -692,6 +704,7 @@ def test_upstream_approve_cannot_bypass_authoritative_risk(tmp_path) -> None:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            india_rule_evaluator=_approving_india_evaluator(),
             application_runtime=_started_runtime(),
             live_risk_evaluator=_evaluator(
                 limits=_limits(max_daily_loss=Decimal("1")),
@@ -721,6 +734,7 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            india_rule_evaluator=_approving_india_evaluator(),
             application_runtime=_started_runtime(),
             live_risk_evaluator=exploding,
         )

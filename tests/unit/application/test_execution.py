@@ -38,6 +38,7 @@ from quantx.execution.trading_gate import (
     InMemoryTradingGateStateStore,
     TradingGate,
 )
+from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
 from quantx.integrations.brokers import (
     BrokerCapability,
     BrokerConnectionRef,
@@ -225,6 +226,15 @@ def _durable_gate() -> DurableTradingGate:
     return DurableTradingGate(InMemoryTradingGateStateStore())
 
 
+def _approving_india_evaluator():
+    """India layer is not under test here; approve explicitly to reach it."""
+
+    def approve(request) -> IndiaRuleResult:
+        return IndiaRuleResult(IndiaRuleDecision.APPROVE, "india rules approved for test")
+
+    return approve
+
+
 def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
         def run(self, *, checked_at=None) -> PendingRecoveryRun:
@@ -288,6 +298,7 @@ def test_live_requires_a_broker() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(request)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "broker adapter" in result.reason
@@ -303,6 +314,7 @@ def test_live_blocks_account_mismatch() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(request, broker=broker)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "account" in result.reason
@@ -317,6 +329,7 @@ def test_live_blocks_connection_mismatch() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(request, broker=broker)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "connection" in result.reason
@@ -330,6 +343,7 @@ def test_live_blocks_unhealthy_broker() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(
         request,
         broker=FakeBroker(healthy=False),
@@ -352,6 +366,7 @@ def test_live_blocks_missing_required_capability() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(
         request, broker=FakeBroker()
     )
@@ -371,6 +386,7 @@ def test_live_blocks_broker_instrument_market_mismatch() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(
         request,
         broker=FakeBroker(instrument=wrong_market_instrument),
@@ -389,6 +405,7 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(
         request,
         broker=FakeBroker(),
@@ -408,6 +425,7 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     )
 
     first = orchestrator.execute(request, broker=broker)
@@ -436,6 +454,7 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     )
 
     result = orchestrator.execute(request, broker=broker)
@@ -469,6 +488,7 @@ def test_live_unknown_receipt_preserves_pending_reservation() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     )
 
     first = orchestrator.execute(request, broker=broker)
@@ -498,6 +518,7 @@ def test_live_unit_of_work_groups_receipt_and_completion() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     )
 
     result = orchestrator.execute(request, broker=broker)
@@ -534,6 +555,7 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     )
 
     result = orchestrator.execute(request, broker=broker)
@@ -575,6 +597,7 @@ def test_live_without_application_runtime_is_blocked() -> None:
     result = ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -596,6 +619,7 @@ def test_live_with_unstarted_application_runtime_is_blocked() -> None:
     result = ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
         application_runtime=runtime,
     ).execute(request, broker=broker)
 
@@ -629,6 +653,7 @@ def test_live_gate_block_not_blocked_by_slow_broker() -> None:
         unit_of_work=unit_of_work,
         trading_gate=gate,
         application_runtime=_started_runtime(),
+        india_rule_evaluator=_approving_india_evaluator(),
     )
 
     def run_execution() -> None:
@@ -669,6 +694,7 @@ def test_live_without_unit_of_work_is_blocked() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -700,6 +726,7 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     )
 
     first = orchestrator.execute(request, broker=broker)
@@ -720,6 +747,7 @@ def _sqlite_setup(tmp_path):
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+        india_rule_evaluator=_approving_india_evaluator(),
     )
     return database, unit_of_work, orchestrator
 
@@ -810,6 +838,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
             application_runtime=_started_runtime(),
             unit_of_work=SqliteUnitOfWork(database_a),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_a)),
+            india_rule_evaluator=_approving_india_evaluator(),
         )
         first = orchestrator_a.execute(request, broker=FakeBroker())
         assert first.status is ExecutionDispatchStatus.EXECUTED
@@ -822,6 +851,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
             application_runtime=_started_runtime(),
             unit_of_work=SqliteUnitOfWork(database_b),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_b)),
+            india_rule_evaluator=_approving_india_evaluator(),
         )
         second = orchestrator_b.execute(request, broker=broker_b)
         assert second.status is ExecutionDispatchStatus.EXECUTED
@@ -868,6 +898,7 @@ def test_live_without_unit_of_work_does_not_submit() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        india_rule_evaluator=_approving_india_evaluator(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED

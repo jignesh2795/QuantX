@@ -9,6 +9,7 @@ from enum import StrEnum
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.instruments import MarketRegion
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import (
     IdempotencyStore,
@@ -21,6 +22,7 @@ from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDat
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.trading_gate import TradingGate
+from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 
@@ -44,6 +46,19 @@ class ExecutionResult:
         return self.status is ExecutionDispatchStatus.EXECUTED
 
 
+def _is_india_live_request(request: ApprovedExecutionRequest) -> bool:
+    """Detect India-market LIVE requests that must pass India rule evaluation.
+
+    Region (not venue text or broker identity) is the authority, so no
+    broker-specific naming convention can silently opt a request out of the
+    boundary. Non-India and non-LIVE requests are unaffected.
+    """
+    return (
+        request.execution_context.execution_mode is ExecutionMode.LIVE
+        and request.execution_context.market.region is MarketRegion.INDIA
+    )
+
+
 class ExecutionOrchestrator:
     """Fail-closed dispatcher between approved requests and execution adapters."""
 
@@ -57,6 +72,8 @@ class ExecutionOrchestrator:
         application_runtime: ApplicationRuntime | None = None,
         session_guard: SessionExecutionGuard | None = None,
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
+        india_rule_evaluator: Callable[[ApprovedExecutionRequest], IndiaRuleResult]
+        | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._idempotency = idempotency or InMemoryIdempotencyStore()
@@ -66,6 +83,7 @@ class ExecutionOrchestrator:
         self._application_runtime = application_runtime
         self._session_guard = session_guard
         self._live_risk_evaluator = live_risk_evaluator
+        self._india_rule_evaluator = india_rule_evaluator
 
     def execute(
         self,
@@ -181,6 +199,28 @@ class ExecutionOrchestrator:
                 ExecutionDispatchStatus.BLOCKED,
                 reason="broker instrument market does not match execution request market",
             )
+
+        if self._india_rule_evaluator is None and _is_india_live_request(request):
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=(
+                    "live execution for India-market requests requires "
+                    "an explicitly configured india rule evaluator"
+                ),
+            )
+        if self._india_rule_evaluator is not None and _is_india_live_request(request):
+            try:
+                india_rules = self._india_rule_evaluator(request)
+            except Exception as exc:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"india execution-rule evaluation failed closed: {exc}",
+                )
+            if india_rules.decision is not IndiaRuleDecision.APPROVE:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"india execution rules rejected the request: {india_rules.reason}",
+                )
 
         required_capabilities = request.order.required_capabilities
         if required_capabilities and not broker.capabilities().require(required_capabilities):
