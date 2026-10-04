@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
 
-from quantx.application.evidence_refresh import DefinitiveEvidencePolicy
+from quantx.application.evidence_refresh import (
+    DefinitiveEvidencePolicy,
+    ReconciliationEvidenceRefresher,
+    RefreshPolicy,
+)
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.application.not_found_policy import (
     NotFoundResolutionPolicy,
@@ -25,7 +30,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderType, TimeInForce
+from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType, TimeInForce
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import (
     Instrument,
@@ -41,6 +46,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
+from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.integrations.reconciliation import (
@@ -711,5 +717,256 @@ def test_no_implicit_retry_after_resolution(tmp_path) -> None:
         assert first.status is ExecutionDispatchStatus.BLOCKED
         assert second.status is ExecutionDispatchStatus.BLOCKED
         assert transport.submitted == ()
+    finally:
+        database.close()
+
+
+def _refresh_receipt(order_id) -> ExecutionReceipt:
+    return ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=order_id,
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=CHECKED_AT,
+        broker_order_id="dhan-1",
+        order_id=order_id,
+        account_id=AccountId("acct-1"),
+        connection_id=BrokerConnectionId("conn-1"),
+    )
+
+
+def test_eligible_policy_verdict_surfaces_without_resolving(tmp_path) -> None:
+    """Policy wiring: an eligible verdict is informational, never resolving."""
+    database, unit_of_work = _uow(tmp_path)
+    try:
+        request = _request()
+        order_id = request.order.client_order_id
+        fingerprint = _reserve(unit_of_work, request)
+        refresher = ReconciliationEvidenceRefresher(
+            refresh_policy=RefreshPolicy(max_attempts=1),
+            evidence_policy=DefinitiveEvidencePolicy.order_only(),
+        )
+        outcome = refresher.refresh(
+            _refresh_receipt(order_id),
+            local_order=None,
+            broker_order=None,
+            checked_at=CHECKED_AT,
+            provider=NotFoundProvider(),
+            pending_age=timedelta(hours=2),
+            secondary_absence_confirmed=True,
+        )
+
+        assert not outcome.definitive
+        assert outcome.not_found_eligibility is not None
+        assert outcome.not_found_eligibility.eligible is True
+        decision = unit_of_work.idempotency.check(order_id, fingerprint)
+        assert decision.reservation_pending is True
+        assert decision.existing_receipt_id is None
+        assert decision.operator_resolved is False
+        assert SqliteReceiptRepository(database).get_by_client_order(order_id) is None
+        assert (
+            unit_of_work.idempotency.get_operator_resolution(order_id, fingerprint)
+            is None
+        )
+    finally:
+        database.close()
+
+
+def test_reconcile_path_surfaces_ineligible_verdict(tmp_path) -> None:
+    """Policy wiring: the reconcile entry point exposes eligibility too."""
+    database, unit_of_work = _uow(tmp_path)
+    try:
+        request = _request()
+        order_id = request.order.client_order_id
+        fingerprint = _reserve(unit_of_work, request)
+
+        outcome = reconcile_pending_execution(
+            request,
+            fingerprint=fingerprint,
+            local_order=None,
+            broker_order=None,
+            provider=NotFoundProvider(),
+            unit_of_work=unit_of_work,
+            checked_at=CHECKED_AT,
+            evidence_policy=DefinitiveEvidencePolicy.order_only(),
+        )
+
+        assert not outcome.definitive
+        assert outcome.not_found_eligibility is not None
+        assert outcome.not_found_eligibility.eligible is False
+        decision = unit_of_work.idempotency.check(order_id, fingerprint)
+        assert decision.reservation_pending is True
+    finally:
+        database.close()
+
+
+def test_sqlite_v3_to_v4_migration_preserves_reservations(tmp_path) -> None:
+    """Migration is additive: pending/completed rows survive, none resolve."""
+    path = tmp_path / "quantx.db"
+    raw = sqlite3.connect(str(path))
+    try:
+        raw.execute(
+            "CREATE TABLE schema_version "
+            "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        raw.execute(
+            "CREATE TABLE idempotency_reservations (client_order_id TEXT PRIMARY KEY, "
+            "fingerprint TEXT NOT NULL, receipt_id TEXT NULL, created_at TEXT NOT NULL, "
+            "completed_at TEXT NULL, pending_context_json TEXT NULL)"
+        )
+        raw.execute(
+            "CREATE TABLE receipts (receipt_id TEXT PRIMARY KEY, "
+            "client_order_id TEXT NOT NULL, payload TEXT NOT NULL, "
+            "created_at TEXT NOT NULL)"
+        )
+        request = _request()
+        fingerprint = request_fingerprint(request)
+        context_json = PendingExecutionContext.from_request(request, fingerprint).to_json()
+        raw.execute(
+            "INSERT INTO idempotency_reservations VALUES (?,?,?,?,?,?)",
+            (
+                str(request.order.client_order_id),
+                fingerprint,
+                None,
+                "2026-01-01T00:00:00+00:00",
+                None,
+                context_json,
+            ),
+        )
+        completed_id = uuid4()
+        completed_receipt = uuid4()
+        raw.execute(
+            "INSERT INTO idempotency_reservations VALUES (?,?,?,?,?,?)",
+            (
+                str(completed_id),
+                "fp-done",
+                str(completed_receipt),
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T01:00:00+00:00",
+                None,
+            ),
+        )
+        raw.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (3, ?)",
+            ("2026-01-01T00:00:00+00:00",),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    database = SqliteDatabase(path)
+    try:
+        version = database.connection().execute("SELECT version FROM schema_version")
+        assert version.fetchone()[0] == 4
+        tables = {
+            row[0]
+            for row in database.connection().execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "operator_resolutions" in tables
+        count = database.connection().execute("SELECT COUNT(*) FROM operator_resolutions")
+        assert count.fetchone()[0] == 0
+
+        store = SqliteUnitOfWork(database).idempotency
+        pending = store.check(request.order.client_order_id, fingerprint)
+        assert pending.reservation_pending is True
+        assert pending.operator_resolved is False
+        done = store.check(completed_id, "fp-done")
+        assert done.existing_receipt_id == completed_receipt
+        assert done.reservation_pending is False
+        assert done.operator_resolved is False
+    finally:
+        database.close()
+
+    reopened = SqliteDatabase(path)
+    try:
+        version = reopened.connection().execute("SELECT version FROM schema_version")
+        assert version.fetchone()[0] == 4
+        pending = (
+            SqliteUnitOfWork(reopened)
+            .idempotency.check(request.order.client_order_id, fingerprint)
+        )
+        assert pending.reservation_pending is True
+    finally:
+        reopened.close()
+
+
+def test_failed_resolution_writes_no_audit_record(tmp_path) -> None:
+    """Atomicity: rejected resolution attempts leave no audit residue."""
+    database, unit_of_work = _uow(tmp_path)
+    try:
+        request = _request()
+        order_id = request.order.client_order_id
+        fingerprint = _reserve(unit_of_work, request)
+        with pytest.raises(ValueError, match="different request"):
+            resolve_pending_operator(
+                unit_of_work=unit_of_work,
+                client_order_id=order_id,
+                request_fingerprint="wrong-fingerprint",
+                operator_id="ops-1",
+                reason="broker never received this",
+                resolved_at=RESOLVED_AT,
+            )
+        count = database.connection().execute("SELECT COUNT(*) FROM operator_resolutions")
+        assert count.fetchone()[0] == 0
+        assert unit_of_work.idempotency.get_operator_resolution(order_id, fingerprint) is None
+        decision = unit_of_work.idempotency.check(order_id, fingerprint)
+        assert decision.reservation_pending is True
+    finally:
+        database.close()
+
+
+def test_recovery_skips_operator_resolved(tmp_path) -> None:
+    """Resolved reservations never re-enter the recovery workflow."""
+    database, unit_of_work = _uow(tmp_path)
+    try:
+        request = _request()
+        order_id = request.order.client_order_id
+        fingerprint = _reserve(unit_of_work, request)
+        resolve_pending_operator(
+            unit_of_work=unit_of_work,
+            client_order_id=order_id,
+            request_fingerprint=fingerprint,
+            operator_id="ops-1",
+            reason="broker never received this",
+            resolved_at=RESOLVED_AT,
+        )
+        run = PendingExecutionRecoveryRunner(
+            unit_of_work=unit_of_work,
+            provider_resolver=lambda _: UnknownProvider(),
+        ).run(checked_at=CHECKED_AT)
+
+        assert run.attempted == 0
+        assert run.failed == 0
+        decision = unit_of_work.idempotency.check(order_id, fingerprint)
+        assert decision.operator_resolved is True
+        assert decision.reservation_pending is False
+    finally:
+        database.close()
+
+
+def test_complete_and_resolve_pending_reject_resolved(tmp_path) -> None:
+    """No completion path can reopen an operator-resolved reservation."""
+    database, unit_of_work = _uow(tmp_path)
+    try:
+        request = _request()
+        order_id = request.order.client_order_id
+        fingerprint = _reserve(unit_of_work, request)
+        resolve_pending_operator(
+            unit_of_work=unit_of_work,
+            client_order_id=order_id,
+            request_fingerprint=fingerprint,
+            operator_id="ops-1",
+            reason="broker never received this",
+            resolved_at=RESOLVED_AT,
+        )
+        with pytest.raises(ValueError, match="operator-resolved"):
+            unit_of_work.idempotency.complete(order_id, fingerprint, uuid4())
+        with pytest.raises(ValueError, match="operator-resolved"):
+            unit_of_work.idempotency.resolve_pending(order_id, fingerprint, uuid4())
+        decision = unit_of_work.idempotency.check(order_id, fingerprint)
+        assert decision.operator_resolved is True
+        assert decision.existing_receipt_id is None
     finally:
         database.close()

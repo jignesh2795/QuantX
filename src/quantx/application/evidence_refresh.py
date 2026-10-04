@@ -29,6 +29,11 @@ from quantx.integrations.reconciliation.positions import (
     ReconciliationPolicy,
 )
 
+from .not_found_policy import (
+    NotFoundResolution,
+    NotFoundResolutionPolicy,
+    evaluate_not_found_resolution,
+)
 from .reconciliation import (
     OrderStateReconciliationResult,
     OrderStateReconciliationWorkflow,
@@ -118,7 +123,12 @@ class DefinitiveEvidencePolicy:
 
 @dataclass(frozen=True, slots=True)
 class EvidenceRefreshOutcome:
-    """Latest canonical result plus the refresh trail that produced it."""
+    """Latest canonical result plus the refresh trail that produced it.
+
+    ``not_found_eligibility`` surfaces the conservative NOT_FOUND policy
+    verdict when broker absence was observed. It is informational only:
+    eligibility never resolves anything by itself.
+    """
 
     result: OrderStateReconciliationResult
     attempts: int
@@ -128,6 +138,7 @@ class EvidenceRefreshOutcome:
     broker_order: OrderObservation | None = None
     broker_position: PositionState | None = None
     broker_account: AccountFinancialState | None = None
+    not_found_eligibility: NotFoundResolution | None = None
 
 
 class ReconciliationIdempotencyResolver:
@@ -189,7 +200,18 @@ class ReconciliationEvidenceRefresher:
         position_policy: ReconciliationPolicy | None = None,
         instrument_id: str | None = None,
         provider: ReconciliationEvidenceProvider,
+        pending_age: timedelta | None = None,
+        secondary_absence_confirmed: bool | None = None,
+        not_found_policy: NotFoundResolutionPolicy | None = None,
     ) -> EvidenceRefreshOutcome:
+        """Refresh evidence; optionally surface NOT_FOUND policy eligibility.
+
+        ``pending_age`` is the age of the pending reservation and
+        ``secondary_absence_confirmed`` reports an adapter-level secondary
+        absence check (``None`` when the adapter exposes none). Both feed
+        only the informational ``not_found_eligibility`` verdict; they never
+        resolve anything.
+        """
         policy = position_policy or ReconciliationPolicy(timedelta(seconds=30))
         refreshed: list[str] = []
         absence_notes: list[str] = []
@@ -197,6 +219,16 @@ class ReconciliationEvidenceRefresher:
         current_broker_order = broker_order
         current_broker_position = broker_position
         current_broker_account = broker_account
+
+        def absence_eligibility() -> NotFoundResolution | None:
+            if not absence_notes:
+                return None
+            return evaluate_not_found_resolution(
+                evidence_status=BrokerOrderEvidenceStatus.NOT_FOUND,
+                pending_age=pending_age or timedelta(0),
+                secondary_absence_confirmed=secondary_absence_confirmed,
+                policy=not_found_policy,
+            )
 
         while True:
             result = self._workflow.reconcile(
@@ -232,6 +264,7 @@ class ReconciliationEvidenceRefresher:
                     current_broker_order,
                     current_broker_position,
                     current_broker_account,
+                    absence_eligibility(),
                 )
             if attempts >= self._refresh.max_attempts:
                 return EvidenceRefreshOutcome(
@@ -246,6 +279,7 @@ class ReconciliationEvidenceRefresher:
                     current_broker_order,
                     current_broker_position,
                     current_broker_account,
+                    absence_eligibility(),
                 )
             targets = self._refresh_targets(result)
             if not targets:
@@ -258,6 +292,7 @@ class ReconciliationEvidenceRefresher:
                     current_broker_order,
                     current_broker_position,
                     current_broker_account,
+                    absence_eligibility(),
                 )
             for domain in targets:
                 fetched_any = False

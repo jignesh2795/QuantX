@@ -9,7 +9,7 @@ transaction. Non-definitive evidence leaves PENDING untouched.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from quantx.domain.enums import OrderStatus
@@ -35,6 +35,7 @@ from .evidence_refresh import (
     ReconciliationIdempotencyResolver,
     RefreshPolicy,
 )
+from .not_found_policy import NotFoundResolutionPolicy
 from .uncertain_submission import UncertainSubmissionReceiptRecovery
 
 
@@ -56,9 +57,21 @@ def reconcile_pending_execution(
     local_account: AccountFinancialState | None = None,
     broker_account: AccountFinancialState | None = None,
     instrument_id: str | None = None,
+    not_found_policy: NotFoundResolutionPolicy | None = None,
+    secondary_absence_confirmed: bool | None = None,
 ) -> EvidenceRefreshOutcome:
-    """Reconcile one pending execution; resolve it only on definitive evidence."""
+    """Reconcile one pending execution; resolve it only on definitive evidence.
+
+    ``secondary_absence_confirmed`` reports an adapter-level secondary
+    absence check (``None`` when the adapter exposes none, as with Dhan).
+    Both it and the pending age derived from the order feed only the
+    informational NOT_FOUND eligibility verdict; they never resolve.
+    """
     observed_at = checked_at or datetime.now(UTC)
+    try:
+        pending_age = observed_at - request.order.created_at
+    except TypeError:
+        pending_age = timedelta(0)
     broker_reference: str | None
     if local_order is not None and local_order.broker_order_id is not None:
         broker_reference = local_order.broker_order_id
@@ -92,6 +105,9 @@ def reconcile_pending_execution(
         position_policy=position_policy,
         instrument_id=instrument_id,
         provider=provider,
+        pending_age=pending_age,
+        secondary_absence_confirmed=secondary_absence_confirmed,
+        not_found_policy=not_found_policy,
     )
     if not outcome.definitive or outcome.broker_order is None:
         return outcome
