@@ -181,9 +181,14 @@ def test_india_rejection_blocks_before_reservation_and_submit(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         unit_of_work = SqliteUnitOfWork(database)
-        specs = {InstrumentId("NSE", "TCS"): _spec(lot_size=Decimal("25"))}
         orchestrator = _orchestrator(
-            database, unit_of_work, india_rule_evaluator=_compat_evaluator(_venue_rules(), product=ProductType.CNC)
+            database,
+            unit_of_work,
+            india_rule_evaluator=_compat_evaluator(
+                _venue_rules(),
+                product=ProductType.CNC,
+                spec=_spec(lot_size=Decimal("25")),
+            ),
         )
         request = _request()
         result = orchestrator.execute(request, broker=_adapter(transport))
@@ -260,8 +265,14 @@ def test_upstream_approve_cannot_bypass_india_rules(tmp_path) -> None:
             database,
             SqliteUnitOfWork(database),
             india_rule_evaluator=_compat_evaluator(
-                _venue_rules(),
+                _venue_rules(
+                    scope=IndiaRuleScope(
+                        exchange=IndianExchange.NSE,
+                        segment=IndianSegment.DERIVATIVES,
+                    )
+                ),
                 product=ProductType.CNC,
+                spec=_spec(segment=IndianSegment.DERIVATIVES),
             ),
         )
         request = _request()
@@ -307,6 +318,7 @@ def test_india_rejection_precedes_risk_evaluation(tmp_path) -> None:
             india_rule_evaluator=_compat_evaluator(
                 _venue_rules(quantity_freeze=Decimal("1")),
                 product=ProductType.CNC,
+                spec=_spec(lot_size=Decimal("25")),
             ),
             live_risk_evaluator=permissive_risk,
         )
@@ -435,12 +447,17 @@ def _venue_rules(**overrides) -> IndiaVenueRuleSnapshot:
     return IndiaVenueRuleSnapshot(**values)
 
 
-def _compat_evaluator(rules=None, product: ProductType | None = ProductType.CNC):
+def _compat_evaluator(
+    rules=None,
+    product: ProductType | None = ProductType.CNC,
+    spec: IndianInstrumentSpec | None = None,
+):
     snapshot = rules if rules is not None else _venue_rules()
+    instrument_spec = spec if spec is not None else _spec()
 
     def run(request: ApprovedExecutionRequest) -> IndiaRuleResult:
         return IndiaExecutionRuleEngine().validate_compatibility(
-            _spec(),
+            instrument_spec,
             request.order,
             product=product,
             venue_rules=snapshot,
