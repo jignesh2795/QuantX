@@ -137,7 +137,7 @@ class IndiaSessionEvaluator:
         self._calendar = calendar
         self._clock = clock
 
-    def __call__(self, request) -> IndiaSessionResult:
+    def __call__(self, _request: object) -> IndiaSessionResult:
         return self._calendar.evaluate(
             self._clock.now(),
             permission=IndiaSessionPermission.ORDER_SUBMISSION,
@@ -242,10 +242,8 @@ class IndiaSessionCalendar:
 
         if local_date in self._snapshot.holidays and not current_windows:
             reason = "india trading calendar holiday"
-        elif current_windows:
-            reason = "india trading session is closed"
         else:
-            reason = "INDIA_SESSION_DATA_UNAVAILABLE: session schedule is unknown"
+            reason = "india trading session is closed"
         return self._blocked(evaluated_at, reason)
 
     def _blocked(
