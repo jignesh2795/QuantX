@@ -38,6 +38,11 @@ from quantx.execution.receipts.models import (
 )
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.india.session_calendar import (
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionResult,
+)
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.persistence.sqlite import (
     SqliteDatabase,
@@ -113,6 +118,24 @@ def _approving_india_evaluator():
 
     return approve
 
+
+
+def _approving_india_session_evaluator():
+    """B4 boundary is not under test here; provide explicit session evidence."""
+
+    def allow(request) -> IndiaSessionResult:
+        return IndiaSessionResult(
+            IndiaSessionDecision.ALLOW,
+            "india session approved for test",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=datetime(2026, 1, 5, 10, 0, tzinfo=UTC),
+            session_id="regular",
+            granted_permissions=frozenset({IndiaSessionPermission.ORDER_SUBMISSION}),
+            calendar_evaluated=True,
+        )
+
+    return allow
 
 def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
@@ -351,6 +374,7 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
             application_runtime=_started_runtime(),
             india_rule_evaluator=_approving_india_evaluator(),
+            india_session_evaluator=_approving_india_session_evaluator(),
         ).execute(_request(), broker=adapter)
     finally:
         database.close()
