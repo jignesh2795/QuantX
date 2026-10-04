@@ -129,6 +129,9 @@ def _adapter(transport: InMemoryDhanTransport | None = None) -> DhanBrokerAdapte
             )
         },
         _transport=transport or InMemoryDhanTransport(),
+        _submit_timeout=5.0,
+        _cancel_timeout=5.0,
+        _reconcile_timeout=5.0,
     )
 
 
@@ -186,8 +189,8 @@ def test_submit_rejects_unsupported_dhan_validity_before_transport() -> None:
 
 def test_reconcile_rejects_mismatched_broker_correlation_id() -> None:
     class MismatchedCorrelationTransport(InMemoryDhanTransport):
-        def reconcile(self, correlation_id):  # type: ignore[no-untyped-def]
-            detail = super().reconcile(correlation_id)
+        def reconcile(self, correlation_id, *, timeout):  # type: ignore[no-untyped-def]
+            detail = super().reconcile(correlation_id, timeout=timeout)
             return replace(detail, correlation_id="some-other-correlation")
 
     receipt = _adapter(
@@ -265,7 +268,7 @@ def test_cancel_uses_dhan_safe_correlation_identifier() -> None:
 
 def test_unknown_transport_failure_fails_closed() -> None:
     class FailingTransport(InMemoryDhanTransport):
-        def submit(self, request):  # type: ignore[no-untyped-def]
+        def submit(self, request, *, timeout):  # type: ignore[no-untyped-def]
             raise RuntimeError("network unavailable")
 
     receipt = _adapter(FailingTransport()).submit(_request())
@@ -313,6 +316,9 @@ def test_market_segment_mismatch_is_rejected() -> None:
             )
         },
         _transport=InMemoryDhanTransport(),
+        _submit_timeout=5.0,
+        _cancel_timeout=5.0,
+        _reconcile_timeout=5.0,
     )
 
     with pytest.raises(ValueError, match="market venue"):

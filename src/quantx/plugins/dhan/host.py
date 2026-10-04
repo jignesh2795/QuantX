@@ -53,6 +53,9 @@ class DhanHostConfig:
     connection_id: BrokerConnectionId
     market_context_id: str
     instruments: tuple[tuple[Instrument, DhanInstrumentRef], ...]
+    submit_timeout_seconds: float
+    cancel_timeout_seconds: float
+    reconcile_timeout_seconds: float
     credentials: DhanCredentials | None = None
     transport: DhanTransport | None = None
     local_order_provider: LocalOrderProvider | None = None
@@ -74,6 +77,13 @@ class DhanHostConfig:
             raise ValueError("host instruments contain a duplicate instrument id")
         if (self.credentials is None) == (self.transport is None):
             raise ValueError("host requires exactly one of credentials or transport")
+        for name, value in (
+            ("submit_timeout_seconds", self.submit_timeout_seconds),
+            ("cancel_timeout_seconds", self.cancel_timeout_seconds),
+            ("reconcile_timeout_seconds", self.reconcile_timeout_seconds),
+        ):
+            if not isinstance(value, (int, float)) or value <= 0:
+                raise ValueError(f"{name} must be a positive number")
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +148,9 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
             for instrument, instrument_ref in config.instruments
         },
         _transport=transport,
+        _submit_timeout=config.submit_timeout_seconds,
+        _cancel_timeout=config.cancel_timeout_seconds,
+        _reconcile_timeout=config.reconcile_timeout_seconds,
     )
 
     def configure(registry: AccountConnectionRegistry) -> None:

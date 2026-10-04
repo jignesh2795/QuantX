@@ -271,9 +271,8 @@ class ExecutionOrchestrator:
         """Live execution in two scopes so no transaction spans broker submit.
 
         Scope A commits the PENDING reservation; the broker submission runs
-        outside any transaction; Scope B atomically saves the receipt and
-        completes the reservation. The coordinator is not used here because
-        its single execute() call cannot release the transaction mid-flow.
+        outside any transaction and outside the trading-gate lock; Scope B
+        atomically saves the receipt and completes the reservation.
         """
         fingerprint = request_fingerprint(request)
         client_order_id = request.order.client_order_id
@@ -302,10 +301,10 @@ class ExecutionOrchestrator:
                     reason="submission outcome is unknown; reconciliation is required",
                 )
 
-        # The permit is acquired before creating the pending reservation and
-        # held until broker.submit() returns. This closes the gate check ->
-        # submit TOCTOU window without leaving a reservation behind when the
-        # gate is blocked.
+        # The permit is acquired before creating the pending reservation.
+        # The lock is released BEFORE the broker call so that block() cannot
+        # be delayed by a slow/unbounded broker submission.
+        # The gate check + reservation creation remain atomic under the lock.
         with self._trading_gate.submission_permit() as permitted:
             if not permitted:
                 state = self._trading_gate.state()
@@ -350,13 +349,16 @@ class ExecutionOrchestrator:
                         ),
                     )
 
-            try:
-                receipt = broker.submit(request)
-            except Exception as exc:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.UNKNOWN,
-                    reason=f"submission outcome is unknown; reconciliation is required: {exc}",
-                )
+        # Broker call happens OUTSIDE the trading-gate lock.
+        # Timeout is enforced by the broker adapter; any timeout/exception
+        # produces UNKNOWN outcome, never REJECTED, and no automatic retry.
+        try:
+            receipt = broker.submit(request)
+        except Exception as exc:
+            return ExecutionResult(
+                ExecutionDispatchStatus.UNKNOWN,
+                reason=f"submission outcome is unknown; reconciliation is required: {exc}",
+            )
         if receipt.outcome is ExecutionOutcome.UNKNOWN:
             return ExecutionResult(
                 ExecutionDispatchStatus.UNKNOWN,
