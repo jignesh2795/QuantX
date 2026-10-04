@@ -200,6 +200,61 @@ def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
     )
 
 
+def test_india_live_without_session_calendar_fails_closed(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_session_evaluator=None,
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "India session calendar" in result.reason
+        assert transport.submitted == ()
+    finally:
+        database.close()
+
+
+def test_india_live_closed_session_blocks_before_india_rules(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        calls = []
+
+        def closed_session(request) -> IndiaSessionResult:
+            return IndiaSessionResult(
+                IndiaSessionDecision.BLOCK,
+                "india trading session is closed",
+                calendar_version="test-calendar-v1",
+                provenance="test-calendar",
+                evaluated_at=CHECKED_AT,
+                session_id=None,
+                calendar_evaluated=True,
+            )
+
+        def must_not_run(request) -> IndiaRuleResult:
+            calls.append(request)
+            raise AssertionError("B3 rules must not run when the India session is closed")
+
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_session_evaluator=closed_session,
+            india_rule_evaluator=must_not_run,
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "session/calendar blocked" in result.reason
+        assert calls == []
+        assert transport.submitted == ()
+    finally:
+        database.close()
+
+
 def test_india_rejection_blocks_before_reservation_and_submit(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
