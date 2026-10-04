@@ -238,21 +238,32 @@ def test_valid_future_metadata() -> None:
     assert _validate(spec, order).decision is IndiaRuleDecision.APPROVE
 
 
+def _future_order(**overrides) -> Order:
+    values: dict = {
+        "instrument": InstrumentId("NSE", "NIFTY26JANFUT"),
+        "quantity": Decimal("25"),
+    }
+    values.update(overrides)
+    return _order(**values)
+
+
 def test_future_missing_expiry_rejected() -> None:
-    result = _validate(_derivative_spec(AssetClass.FUTURE, expiry=None), _order())
+    result = _validate(_derivative_spec(AssetClass.FUTURE, expiry=None), _future_order())
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
 
 
 def test_future_missing_underlying_rejected() -> None:
-    result = _validate(_derivative_spec(AssetClass.FUTURE, underlying=None), _order())
+    result = _validate(
+        _derivative_spec(AssetClass.FUTURE, underlying=None), _future_order()
+    )
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
 
 
 def test_future_with_strike_rejected() -> None:
     result = _validate(
-        _derivative_spec(AssetClass.FUTURE, strike=Decimal("100")), _order()
+        _derivative_spec(AssetClass.FUTURE, strike=Decimal("100")), _future_order()
     )
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
@@ -260,7 +271,7 @@ def test_future_with_strike_rejected() -> None:
 
 def test_future_with_option_type_rejected() -> None:
     result = _validate(
-        _derivative_spec(AssetClass.FUTURE, option_type="CALL"), _order()
+        _derivative_spec(AssetClass.FUTURE, option_type="CALL"), _future_order()
     )
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
@@ -274,6 +285,15 @@ def test_valid_option_metadata() -> None:
     assert _validate(spec, order).decision is IndiaRuleDecision.APPROVE
 
 
+def _option_order(**overrides) -> Order:
+    values: dict = {
+        "instrument": InstrumentId("NSE", "NIFTY26JAN100CE"),
+        "quantity": Decimal("25"),
+    }
+    values.update(overrides)
+    return _order(**values)
+
+
 def test_option_missing_fields_rejected() -> None:
     base = _derivative_spec(AssetClass.OPTION)
     for field in ("expiry", "underlying", "strike"):
@@ -285,14 +305,14 @@ def test_option_missing_fields_rejected() -> None:
             field: None,
         }
         spec = _derivative_spec(AssetClass.OPTION, **kwargs)
-        result = _validate(spec, _order())
+        result = _validate(spec, _option_order())
         assert result.decision is IndiaRuleDecision.REJECT
         assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
 
 
 def test_option_invalid_type_rejected() -> None:
     result = _validate(
-        _derivative_spec(AssetClass.OPTION, option_type="WEIRD"), _order()
+        _derivative_spec(AssetClass.OPTION, option_type="WEIRD"), _option_order()
     )
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
@@ -438,6 +458,7 @@ def test_result_is_deterministic_and_ordered() -> None:
     assert first.decision is second.decision is IndiaRuleDecision.REJECT
     assert first.reason == second.reason
     assert [check.name for check in first.checks] == [
+        "instrument_identity",
         "order_type",
         "quantity",
         "price_tick",
@@ -445,3 +466,20 @@ def test_result_is_deterministic_and_ordered() -> None:
         "segment",
         "product",
     ]
+
+
+def test_matching_ids_validate_normally() -> None:
+    result = _validate(_spec(), _order())
+    assert result.decision is IndiaRuleDecision.APPROVE
+    assert result.checks[0].name == "instrument_identity"
+    assert result.checks[0].passed is True
+
+
+def test_mismatched_ids_reject_without_approve() -> None:
+    spec = _spec()
+    order = _order(instrument=InstrumentId("NSE", "INFY"))
+    result = _validate(spec, order)
+    assert result.decision is IndiaRuleDecision.REJECT
+    assert result.decision is not IndiaRuleDecision.APPROVE
+    assert "INDIA_INSTRUMENT_MISMATCH" in result.reason
+    assert [check.name for check in result.checks] == ["instrument_identity"]

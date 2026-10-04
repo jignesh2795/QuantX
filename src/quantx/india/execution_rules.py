@@ -111,8 +111,22 @@ class IndiaExecutionRuleEngine:
         product: ProductType | None = None,
     ) -> IndiaRuleResult:
         """Run every India rule in fixed order, collecting all violations."""
+        if spec.instrument_id != order.instrument:
+            message = (
+                "INDIA_INSTRUMENT_MISMATCH: specification instrument "
+                f"{spec.instrument_id} does not match order instrument "
+                f"{order.instrument}"
+            )
+            check = IndiaRuleCheck("instrument_identity", False, message)
+            return IndiaRuleResult(IndiaRuleDecision.REJECT, message, (check,))
         violations: list[str] = []
-        checks: list[IndiaRuleCheck] = []
+        checks: list[IndiaRuleCheck] = [
+            IndiaRuleCheck(
+                "instrument_identity",
+                True,
+                "specification instrument matches order instrument",
+            )
+        ]
 
         def reject(name: str, message: str) -> None:
             violations.append(message)
