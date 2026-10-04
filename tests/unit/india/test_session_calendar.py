@@ -30,6 +30,19 @@ def _window(
     )
 
 
+def _calendar_snapshot(**overrides):
+    values = dict(
+        version="v1",
+        provenance="p1",
+        timezone=IST,
+        valid_from=date(2026, 1, 1),
+        valid_through=date(2026, 12, 31),
+        windows_by_weekday=(),
+    )
+    values.update(overrides)
+    return IndiaSessionCalendarSnapshot(**values)
+
+
 def _calendar(
     *,
     windows_by_weekday=(
