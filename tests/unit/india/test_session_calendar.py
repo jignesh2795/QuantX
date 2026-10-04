@@ -1,7 +1,11 @@
 from datetime import UTC, date, datetime, time
+from types import SimpleNamespace
+
 
 import pytest
 
+from quantx.domain.clock import FixedClock
+from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.session_calendar import (
     IndiaSessionCalendar,
@@ -192,6 +196,53 @@ def test_naive_evaluation_timestamp_blocks_fail_closed() -> None:
     result = _calendar().evaluate(datetime(2026, 1, 5, 10, 0), permission=SUBMIT)
     assert result.decision is IndiaSessionDecision.BLOCK
     assert "DATA_UNAVAILABLE" in result.reason
+
+
+def test_clock_backed_evaluator_allows_matching_scope() -> None:
+    calendar = _calendar()
+    evaluator = IndiaSessionEvaluator(
+        calendar,
+        FixedClock(datetime(2026, 1, 5, 5, 0, tzinfo=UTC)),
+    )
+    request = SimpleNamespace(
+        execution_context=SimpleNamespace(
+            market=MarketContext(
+                MarketRegion.INDIA,
+                MarketFamily.EQUITY,
+                "NSE",
+                "IN",
+            )
+        )
+    )
+
+    result = evaluator(request)
+
+    assert result.decision is IndiaSessionDecision.ALLOW
+    assert result.exchange is IndianExchange.NSE
+    assert result.segment is IndianSegment.EQUITY
+
+
+def test_clock_backed_evaluator_blocks_mismatched_scope() -> None:
+    calendar = _calendar()
+    evaluator = IndiaSessionEvaluator(
+        calendar,
+        FixedClock(datetime(2026, 1, 5, 5, 0, tzinfo=UTC)),
+    )
+    request = SimpleNamespace(
+        execution_context=SimpleNamespace(
+            market=MarketContext(
+                MarketRegion.INDIA,
+                MarketFamily.EQUITY,
+                "BSE",
+                "IN",
+            )
+        )
+    )
+
+    result = evaluator(request)
+
+    assert result.decision is IndiaSessionDecision.BLOCK
+    assert "SCOPE_MISMATCH" in result.reason
 
 
 def test_calendar_evaluation_is_deterministic() -> None:
