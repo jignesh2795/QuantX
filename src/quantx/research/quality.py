@@ -18,12 +18,21 @@ from .data import HistoricalObservation
 
 
 class DataQualityStatus(StrEnum):
-    """Structural quality of historical input."""
+    """Structural quality of historical input.
+
+    COMPLETE/INCOMPLETE/BLOCKED remain aliases for the former replay-facing
+    vocabulary so existing callers continue to resolve to the same canonical
+    enum members.
+    """
 
     VALID = "VALID"
     VALID_WITH_WARNINGS = "VALID_WITH_WARNINGS"
     DEGRADED = "DEGRADED"
     REJECTED = "REJECTED"
+
+    COMPLETE = "VALID"
+    INCOMPLETE = "DEGRADED"
+    BLOCKED = "REJECTED"
 
 
 class CompletenessStatus(StrEnum):
@@ -224,7 +233,7 @@ class HistoricalDataQualityGate:
                         )
                     )
 
-        if not values:
+        if not values and expected != ():
             issues.append(DataIssue(DataIssueType.NO_DATA, "no observations supplied"))
 
         blocking_types = {
