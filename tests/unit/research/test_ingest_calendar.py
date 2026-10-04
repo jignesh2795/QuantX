@@ -35,7 +35,14 @@ def test_normalizer_preserves_session_classification() -> None:
         timestamp=datetime(2026, 8, 20, 5, 0, tzinfo=ZoneInfo("UTC")),
         instrument="NIFTY",
         sequence=1,
-        fields={"open": 1, "high": 2, "low": 0.5, "close": 1.5},
+        fields={
+            "open": 1,
+            "high": 2,
+            "low": 0.5,
+            "close": 1.5,
+            "volume": 1000,
+        },
+        timeframe="5m",
     )
 
     observation = normalizer.normalize(record)
@@ -50,7 +57,14 @@ def test_normalizer_rejects_naive_timestamp() -> None:
         timestamp=datetime(2026, 8, 20, 10, 0),
         instrument="NIFTY",
         sequence=1,
-        fields={"open": 1, "high": 2, "low": 0.5, "close": 1.5},
+        fields={
+            "open": 1,
+            "high": 2,
+            "low": 0.5,
+            "close": 1.5,
+            "volume": 1000,
+        },
+        timeframe="5m",
     )
 
     try:
