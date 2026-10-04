@@ -16,6 +16,15 @@ from .execution_rules import (
 from .historical import IndianHistoricalOHLCVNormalizer
 from .instrument_catalog import IndianInstrumentCatalog
 from .rule_data import IndiaRuleScope, IndiaVenueRuleSnapshot, PriceBandRuleSnapshot
+from .session_calendar import (
+    IndiaSessionCalendar,
+    IndiaSessionCalendarSnapshot,
+    IndiaSessionDayOverride,
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionResult,
+    IndiaSessionWindow,
+)
 
 __all__ = [
     "IndiaExecutionRuleEngine",
@@ -32,4 +41,11 @@ __all__ = [
     "OptionContractSpec",
     "PriceBandRuleSnapshot",
     "ProductType",
+    "IndiaSessionCalendar",
+    "IndiaSessionCalendarSnapshot",
+    "IndiaSessionDayOverride",
+    "IndiaSessionDecision",
+    "IndiaSessionPermission",
+    "IndiaSessionResult",
+    "IndiaSessionWindow",
 ]

@@ -39,7 +39,13 @@ from quantx.domain.risk import (
 from quantx.domain.value_objects import Money
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.trading_gate import DurableTradingGate
+from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.india.session_calendar import (
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionResult,
+)
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.persistence.sqlite import (
     SqliteDatabase,
@@ -200,6 +206,26 @@ def _approving_india_evaluator():
 
     return approve
 
+
+
+def _approving_india_session_evaluator():
+    """B4 boundary is not under test here; provide explicit session evidence."""
+
+    def allow(request) -> IndiaSessionResult:
+        return IndiaSessionResult(
+            IndiaSessionDecision.ALLOW,
+            "india session approved for test",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=datetime(2026, 1, 5, 10, 0, tzinfo=UTC),
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
+            session_id="regular",
+            granted_permissions=frozenset({IndiaSessionPermission.ORDER_SUBMISSION}),
+            calendar_evaluated=True,
+        )
+
+    return allow
 
 def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
@@ -658,6 +684,7 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
             unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
             india_rule_evaluator=_approving_india_evaluator(),
+            india_session_evaluator=_approving_india_session_evaluator(),
             application_runtime=_started_runtime(),
             live_risk_evaluator=_evaluator(limits=_limits(max_order_notional=Decimal("1"))),
         )
@@ -693,6 +720,7 @@ def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
             india_rule_evaluator=_approving_india_evaluator(),
+            india_session_evaluator=_approving_india_session_evaluator(),
             application_runtime=_started_runtime(),
             live_risk_evaluator=_evaluator(),
         )
@@ -712,6 +740,7 @@ def test_upstream_approve_cannot_bypass_authoritative_risk(tmp_path) -> None:
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
             india_rule_evaluator=_approving_india_evaluator(),
+            india_session_evaluator=_approving_india_session_evaluator(),
             application_runtime=_started_runtime(),
             live_risk_evaluator=_evaluator(
                 limits=_limits(max_daily_loss=Decimal("1")),
@@ -742,6 +771,7 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
             india_rule_evaluator=_approving_india_evaluator(),
+            india_session_evaluator=_approving_india_session_evaluator(),
             application_runtime=_started_runtime(),
             live_risk_evaluator=exploding,
         )

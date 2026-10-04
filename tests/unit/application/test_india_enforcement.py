@@ -51,6 +51,11 @@ from quantx.india.rule_data import (
     IndiaVenueRuleSnapshot,
     PriceBandRuleSnapshot,
 )
+from quantx.india.session_calendar import (
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionResult,
+)
 from quantx.integrations.brokers import (
     BrokerConnectionRef,
     CapabilitySet,
@@ -167,13 +172,174 @@ def _evaluator(specs=None, product: ProductType | None = ProductType.CNC):
     return run
 
 
+def _approving_india_session_evaluator():
+    def allow(request) -> IndiaSessionResult:
+        return IndiaSessionResult(
+            IndiaSessionDecision.ALLOW,
+            "india session approved for test",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=CHECKED_AT,
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
+            session_id="regular",
+            granted_permissions=frozenset({IndiaSessionPermission.ORDER_SUBMISSION}),
+            calendar_evaluated=True,
+        )
+
+    return allow
+
+
 def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
+    overrides.setdefault(
+        "india_session_evaluator", _approving_india_session_evaluator()
+    )
     return ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
         application_runtime=_started_runtime(),
         **overrides,
     )
+
+
+def test_india_live_without_session_calendar_fails_closed(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_session_evaluator=None,
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "India session calendar" in result.reason
+        assert transport.submitted == ()
+    finally:
+        database.close()
+
+
+def test_india_live_incomplete_session_evidence_fails_closed(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        def incomplete(request) -> IndiaSessionResult:
+            return IndiaSessionResult(
+                IndiaSessionDecision.ALLOW,
+                "fabricated approval",
+                calendar_version="test-calendar-v1",
+                provenance="test-calendar",
+                evaluated_at=CHECKED_AT,
+                exchange=IndianExchange.NSE,
+                segment=IndianSegment.EQUITY,
+                calendar_evaluated=False,
+            )
+
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_session_evaluator=incomplete,
+            india_rule_evaluator=_compat_evaluator(),
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative India session/calendar evidence" in result.reason
+        assert transport.submitted == ()
+    finally:
+        database.close()
+
+
+def test_india_live_session_evaluator_exception_fails_closed(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        def exploding(request) -> IndiaSessionResult:
+            raise RuntimeError("calendar provider unavailable")
+
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_session_evaluator=exploding,
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "session/calendar evaluation failed closed" in result.reason
+        assert transport.submitted == ()
+    finally:
+        database.close()
+
+
+def test_india_live_session_scope_mismatch_fails_closed(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        def mismatched(request) -> IndiaSessionResult:
+            return IndiaSessionResult(
+                IndiaSessionDecision.ALLOW,
+                "wrong exchange approval",
+                calendar_version="test-calendar-v1",
+                provenance="test-calendar",
+                evaluated_at=CHECKED_AT,
+                exchange=IndianExchange.BSE,
+                segment=IndianSegment.EQUITY,
+                calendar_evaluated=True,
+            )
+
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_session_evaluator=mismatched,
+            india_rule_evaluator=_compat_evaluator(),
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative India session/calendar evidence" in result.reason
+        assert transport.submitted == ()
+    finally:
+        database.close()
+
+
+def test_india_live_closed_session_blocks_before_india_rules(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        calls = []
+
+        def closed_session(request) -> IndiaSessionResult:
+            return IndiaSessionResult(
+                IndiaSessionDecision.BLOCK,
+                "india trading session is closed",
+                calendar_version="test-calendar-v1",
+                provenance="test-calendar",
+                evaluated_at=CHECKED_AT,
+                exchange=IndianExchange.NSE,
+                segment=IndianSegment.EQUITY,
+                session_id=None,
+                calendar_evaluated=True,
+            )
+
+        def must_not_run(request) -> IndiaRuleResult:
+            calls.append(request)
+            raise AssertionError("B3 rules must not run when the India session is closed")
+
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_session_evaluator=closed_session,
+            india_rule_evaluator=must_not_run,
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "session/calendar blocked" in result.reason
+        assert calls == []
+        assert transport.submitted == ()
+    finally:
+        database.close()
 
 
 def test_india_rejection_blocks_before_reservation_and_submit(tmp_path) -> None:
