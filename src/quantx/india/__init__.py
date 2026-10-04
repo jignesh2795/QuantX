@@ -21,7 +21,6 @@ from .session_calendar import (
     IndiaSessionCalendarSnapshot,
     IndiaSessionDayOverride,
     IndiaSessionDecision,
-    IndiaSessionEvaluator,
     IndiaSessionPermission,
     IndiaSessionResult,
     IndiaSessionWindow,
