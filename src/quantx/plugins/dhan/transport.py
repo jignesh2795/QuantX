@@ -5,11 +5,12 @@ Only this module may import the third-party DhanHQ SDK.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, Future
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Callable, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from zoneinfo import ZoneInfo
 
 from .mapping import decimal_field, extract_filled_quantity, parse_dhan_timestamp
@@ -38,6 +39,15 @@ class DhanTimeoutError(Exception):
 
 @runtime_checkable
 class DhanTransport(Protocol):
+    """Dhan wire boundary.
+
+    R0-B bounds only the safety-critical control path: ``submit``, ``cancel``,
+    and ``reconcile`` take an explicit ``timeout``. The read-only observations
+    (``health``, ``fund_limits``, ``positions``, ``quote_snapshot``,
+    ``candles``) remain unbounded in this slice and are outside the R0-B
+    bounded-call contract; a later transport-timeout slice may bound them.
+    """
+
     def health(self) -> bool: ...
 
     def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse: ...
@@ -65,6 +75,8 @@ class DhanTransport(Protocol):
         instrument_type: str = "EQUITY",
     ) -> tuple[DhanCandleSnapshot, ...]: ...
 
+    def close(self) -> None: ...
+
 
 class _DhanClient(Protocol):
     def get_fund_limits(self) -> object: ...
@@ -80,7 +92,16 @@ class _DhanClient(Protocol):
 
 @dataclass(slots=True)
 class DhanSDKTransport:
-    """Official DhanHQ SDK wrapper; vendor types never leave this class."""
+    """Official DhanHQ SDK wrapper; vendor types never leave this class.
+
+    Timeout enforcement runs each blocking SDK call on a single shared worker
+    thread, so concurrent calls through one transport instance are
+    single-flight (serialized), not concurrent. The timeout bounds the
+    caller's wait; a slow SDK call may still complete in the background after
+    the timeout, in which case its late result is discarded and the caller
+    observes UNKNOWN/reconciliation-required (never a locally invented
+    REJECTED, retry, or resubmission).
+    """
 
     credentials: DhanCredentials
     _client: _DhanClient = field(init=False, repr=False)
@@ -143,6 +164,12 @@ class DhanSDKTransport:
         return _order_response(response)
 
     def cancel(self, correlation_id: str, *, timeout: float) -> DhanOrderResponse:
+        """Cancel bounded by up to two sequential timeout windows.
+
+        ``cancel`` first reconciles (one ``timeout`` window) and then issues
+        the vendor cancel (a second ``timeout`` window), so the worst-case
+        broker interaction is approximately ``2 * timeout``.
+        """
         detail = self.reconcile(correlation_id, timeout=timeout)
         if detail.order_id is None:
             return DhanOrderResponse(
@@ -243,11 +270,27 @@ class DhanSDKTransport:
         return _candle_snapshots(response, timeframe=timeframe)
 
     def close(self) -> None:
-        """Shutdown the internal executor."""
-        self._executor.shutdown(wait=True, cancel_futures=True)
+        """Shut down the internal executor deterministically.
 
-    def __del__(self) -> None:
-        self.close()
+        Explicit lifecycle ownership lives with the host
+        (``DhanHostRuntime.close`` calls this); ``__del__`` is only a
+        best-effort fallback and never blocks.
+        """
+        executor = getattr(self, "_executor", None)
+        if executor is None:
+            return
+        try:
+            executor.shutdown(wait=True, cancel_futures=True)
+        except RuntimeError:
+            pass
+
+    def __del__(self) -> None:  # pragma: no cover - defensive fallback only
+        try:
+            executor = getattr(self, "_executor", None)
+            if executor is not None:
+                executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
 
 
 @dataclass(slots=True)
@@ -282,6 +325,9 @@ class InMemoryDhanTransport:
 
     def health(self) -> bool:
         return True
+
+    def close(self) -> None:
+        """No-op lifecycle hook so the host can close any transport uniformly."""
 
     def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse:
         self._submitted.append(request)

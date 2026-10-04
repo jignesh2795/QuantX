@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import threading
-import time
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
-from uuid import uuid4
 
 import pytest
 
-from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
+from quantx.application.execution import (
+    ExecutionDispatchStatus,
+    ExecutionOrchestrator,
+    ExecutionResult,
+)
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
@@ -30,39 +33,62 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.idempotency.fingerprint import request_fingerprint
+from quantx.execution.receipts.models import ExecutionOutcome
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.integrations.brokers import BrokerConnectionRef
-from quantx.ports.broker import BrokerPort
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
-from quantx.plugins.dhan.transport import DhanTimeoutError
 from quantx.plugins.dhan.host import DhanHostConfig, build_dhan_host_runtime
+from quantx.plugins.dhan.models import DhanOrderDetail
+from quantx.plugins.dhan.transport import DhanSDKTransport, DhanTimeoutError
 
 
 class SlowTransport(InMemoryDhanTransport):
-    """Transport that blocks for a configurable duration on submit."""
+    """Transport whose submit/health block on events until released."""
 
-    def __init__(self, delay_seconds: float = 1.0, **kwargs):
+    def __init__(
+        self,
+        delay_seconds: float = 1.0,
+        *,
+        block_health: bool = False,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._delay_seconds = delay_seconds
+        self._block_health = block_health
         self._submit_started = threading.Event()
         self._submit_can_proceed = threading.Event()
+        self._health_entered = threading.Event()
+        self._health_release = threading.Event()
 
     def submit(self, request, *, timeout: float):
         self._submit_started.set()
-        self._submit_can_proceed.wait(timeout=self._delay_seconds + 0.5)
+        self._submit_can_proceed.wait(timeout=self._delay_seconds + 5.0)
         return super().submit(request, timeout=timeout)
 
-    def wait_for_submit_start(self, timeout: float = 1.0) -> bool:
+    def health(self) -> bool:
+        if not self._block_health:
+            return True
+        self._health_entered.set()
+        assert self._health_release.wait(timeout=10.0)
+        return True
+
+    def wait_for_submit_start(self, timeout: float = 5.0) -> bool:
         return self._submit_started.wait(timeout=timeout)
+
+    def wait_for_health_entered(self, timeout: float = 5.0) -> bool:
+        return self._health_entered.wait(timeout=timeout)
 
     def release_submit(self) -> None:
         self._submit_can_proceed.set()
+
+    def release_health(self) -> None:
+        self._health_release.set()
 
 
 class FailingTransport(InMemoryDhanTransport):
@@ -72,6 +98,36 @@ class FailingTransport(InMemoryDhanTransport):
         # Track the submission before raising
         self._submitted.append(request)
         raise DhanTimeoutError("submit", timeout)
+
+
+class LateSuccessTransport(InMemoryDhanTransport):
+    """Submit times out, but reconcile later observes the broker TRADED."""
+
+    def submit(self, request, *, timeout: float):
+        self._submitted.append(request)
+        raise DhanTimeoutError("submit", timeout)
+
+    def reconcile(self, correlation_id: str, *, timeout: float) -> DhanOrderDetail:
+        return DhanOrderDetail(
+            order_id=self.order_id,
+            correlation_id=correlation_id,
+            order_status="TRADED",
+            average_traded_price=Decimal("100"),
+            filled_quantity=Decimal("2"),
+            exchange_time="2026-01-01 10:00:00",
+            update_time="2026-01-01 10:00:00",
+        )
+
+
+class TrackingCloseTransport(InMemoryDhanTransport):
+    """Transport that records lifecycle shutdown for host-ownership tests."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 def _instrument() -> Instrument:
@@ -113,7 +169,13 @@ def _request() -> ApprovedExecutionRequest:
     )
 
 
-def _adapter(transport: InMemoryDhanTransport) -> DhanBrokerAdapter:
+def _adapter(
+    transport: InMemoryDhanTransport,
+    *,
+    submit_timeout: float = 5.0,
+    cancel_timeout: float = 5.0,
+    reconcile_timeout: float = 5.0,
+) -> DhanBrokerAdapter:
     instrument = _instrument()
     connection = BrokerConnectionRef(
         AccountId("acct-1"),
@@ -135,9 +197,9 @@ def _adapter(transport: InMemoryDhanTransport) -> DhanBrokerAdapter:
             )
         },
         _transport=transport,
-        _submit_timeout=5.0,
-        _cancel_timeout=5.0,
-        _reconcile_timeout=5.0,
+        _submit_timeout=submit_timeout,
+        _cancel_timeout=cancel_timeout,
+        _reconcile_timeout=reconcile_timeout,
     )
 
 
@@ -152,10 +214,13 @@ def _started_runtime() -> ApplicationRuntime:
     return runtime
 
 
-def test_gate_block_not_blocked_by_slow_broker_submit(tmp_path) -> None:
-    """
-    R0-B: trading_gate.block() must not be indefinitely serialized behind
-    a slow broker.submit() call.
+def test_gate_block_completes_while_broker_submit_blocked(tmp_path) -> None:
+    """R0-B: ``block()`` completes while a broker submit is still blocked.
+
+    Deterministic proof without wall-clock thresholds: the submit thread
+    signals entry into the blocked broker call, the block thread must finish
+    while the submit thread is still waiting, and only then is the broker
+    released.
     """
     transport = SlowTransport(delay_seconds=2.0, response_status="PENDING")
     adapter = _adapter(transport)
@@ -168,7 +233,6 @@ def test_gate_block_not_blocked_by_slow_broker_submit(tmp_path) -> None:
             application_runtime=_started_runtime(),
         )
 
-        # Start a slow submission in a background thread
         submit_done = threading.Event()
         submit_result: ExecutionDispatchStatus | None = None
         submit_error: Exception | None = None
@@ -183,59 +247,49 @@ def test_gate_block_not_blocked_by_slow_broker_submit(tmp_path) -> None:
             finally:
                 submit_done.set()
 
+        block_done = threading.Event()
+        block_states: list = []
+
+        def do_block() -> None:
+            block_states.append(orchestrator._trading_gate.block("test kill switch"))
+            block_done.set()
+
         submit_thread = threading.Thread(target=do_submit)
         submit_thread.start()
+        assert transport.wait_for_submit_start(), "broker submit did not start"
 
-        # Wait for the broker call to start (gate lock should be released by now)
-        assert transport.wait_for_submit_start(timeout=2.0), "broker submit did not start"
+        block_thread = threading.Thread(target=do_block)
+        block_thread.start()
+        assert block_done.wait(timeout=10.0), "block() did not complete"
+        assert not submit_done.is_set(), "block() waited for the broker call"
+        assert block_states[0].enabled is False
+        assert block_states[0].reason == "test kill switch"
 
-        # Now block the gate - this should return immediately, not wait for the slow broker
-        block_start = time.monotonic()
-        gate_state = orchestrator._trading_gate.block("test kill switch")
-        block_elapsed = time.monotonic() - block_start
-
-        # Gate block should be fast (< 100ms), not blocked by the 2s broker call
-        assert block_elapsed < 0.5, f"gate.block() took {block_elapsed:.3f}s, expected < 0.5s"
-        assert gate_state.enabled is False
-        assert gate_state.reason == "test kill switch"
-
-        # Release the slow broker call and wait for submission to complete
         transport.release_submit()
-        submit_thread.join(timeout=5.0)
-        assert not submit_thread.is_alive(), "submit thread did not complete"
+        assert submit_done.wait(timeout=10.0), "submit thread did not complete"
+        submit_thread.join(timeout=10.0)
+        block_thread.join(timeout=10.0)
+        assert not submit_thread.is_alive()
+        assert not block_thread.is_alive()
 
-        # Submission should have succeeded (or at least completed)
         assert submit_error is None
-        # Note: status could be EXECUTED or UNKNOWN depending on timing
-        assert submit_result in (ExecutionDispatchStatus.EXECUTED, ExecutionDispatchStatus.UNKNOWN)
-
-        # Gate should remain blocked
+        assert submit_result in (
+            ExecutionDispatchStatus.EXECUTED,
+            ExecutionDispatchStatus.UNKNOWN,
+        )
         assert orchestrator._trading_gate.allow() is False
     finally:
         database.close()
 
 
-def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
+def test_slow_health_probe_does_not_serialize_block(tmp_path) -> None:
+    """R0-B scope audit: ``health()`` never holds the submission permit.
+
+    A blocked health probe must not serialize ``block()``. Read-only
+    observations stay outside the R0-B bounded-call contract.
     """
-    R0-B: broker timeout must produce UNKNOWN outcome, never REJECTED.
-    No automatic retry, no second submission.
-    """
-    transport = FailingTransport(response_status="PENDING")
-    adapter = DhanBrokerAdapter(
-        _connection=BrokerConnectionRef(
-            AccountId("acct-1"), BrokerConnectionId("conn-1"), "dhan", "NSE_EQ"
-        ),
-        _instruments={
-            _instrument().instrument_id: (
-                _instrument(),
-                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
-            )
-        },
-        _transport=transport,
-        _submit_timeout=0.1,
-        _cancel_timeout=5.0,
-        _reconcile_timeout=5.0,
-    )
+    transport = SlowTransport(block_health=True, response_status="PENDING")
+    adapter = _adapter(transport)
 
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -245,20 +299,143 @@ def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
             application_runtime=_started_runtime(),
         )
 
-        # Use the SAME request object to test idempotency
+        submit_done = threading.Event()
+
+        def do_submit() -> None:
+            try:
+                orchestrator.execute(_request(), broker=adapter)
+            finally:
+                submit_done.set()
+
+        block_done = threading.Event()
+
+        def do_block() -> None:
+            orchestrator._trading_gate.block("health-path audit")
+            block_done.set()
+
+        submit_thread = threading.Thread(target=do_submit)
+        submit_thread.start()
+        assert transport.wait_for_health_entered(), "health probe did not start"
+
+        block_thread = threading.Thread(target=do_block)
+        block_thread.start()
+        assert block_done.wait(timeout=10.0), "block() waited for health probe"
+        assert not submit_done.is_set(), "block() serialized behind health()"
+
+        transport.release_health()
+        assert submit_done.wait(timeout=10.0)
+        submit_thread.join(timeout=10.0)
+        block_thread.join(timeout=10.0)
+    finally:
+        database.close()
+
+
+def test_blocked_gate_creates_no_reservation_or_submission(tmp_path) -> None:
+    """Case A: gate blocked before authorization means no work happens."""
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    adapter = _adapter(transport)
+
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate = DurableTradingGate(SqliteTradingGateStateStore(database))
+        gate.block("pre-authorized stop")
+        orchestrator = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database),
+            trading_gate=gate,
+            application_runtime=_started_runtime(),
+        )
+
         request = _request()
         result = orchestrator.execute(request, broker=adapter)
 
-        # Must be UNKNOWN, never BLOCKED (which would imply REJECTED)
-        assert result.status is ExecutionDispatchStatus.UNKNOWN, f"expected UNKNOWN, got {result.status}"
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert transport.submitted == ()
+        fingerprint = request_fingerprint(request)
+        with SqliteUnitOfWork(database) as uow:
+            decision = uow.idempotency.check(request.order.client_order_id, fingerprint)
+            assert decision.reservation_pending is False
+            assert decision.existing_receipt_id is None
+    finally:
+        database.close()
+
+
+def test_authorized_reservation_continues_after_block(tmp_path) -> None:
+    """Case B (accepted invariant): auth + reservation pre-block may submit.
+
+    The gate prevents new authorization after blocking; it does not
+    retroactively cancel an already-authorized broker submission. This is
+    the necessary consequence of decoupling kill-switch latency from
+    broker latency.
+    """
+    transport = SlowTransport(delay_seconds=2.0, response_status="PENDING")
+    adapter = _adapter(transport)
+
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate = DurableTradingGate(SqliteTradingGateStateStore(database))
+        orchestrator = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database),
+            trading_gate=gate,
+            application_runtime=_started_runtime(),
+        )
+        request = _request()
+        submit_done = threading.Event()
+        submit_result: ExecutionResult | None = None
+
+        def do_submit() -> None:
+            nonlocal submit_result
+            try:
+                submit_result = orchestrator.execute(request, broker=adapter)
+            finally:
+                submit_done.set()
+
+        submit_thread = threading.Thread(target=do_submit)
+        submit_thread.start()
+        assert transport.wait_for_submit_start(), "broker submit did not start"
+
+        fingerprint = request_fingerprint(request)
+        with SqliteUnitOfWork(database) as uow:
+            decision = uow.idempotency.check(request.order.client_order_id, fingerprint)
+            assert decision.reservation_pending is True
+
+        gate.block("post-authorization stop")
+        assert gate.allow() is False
+
+        transport.release_submit()
+        assert submit_done.wait(timeout=10.0)
+        submit_thread.join(timeout=10.0)
+
+        assert submit_result is not None
+        assert submit_result.status is ExecutionDispatchStatus.EXECUTED
+        assert len(transport.submitted) == 1
+        assert gate.allow() is False
+    finally:
+        database.close()
+
+
+def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
+    """R0-B: broker timeout must produce UNKNOWN outcome, never REJECTED."""
+    transport = FailingTransport(response_status="PENDING")
+    adapter = _adapter(transport, submit_timeout=0.1)
+
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        orchestrator = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database),
+            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            application_runtime=_started_runtime(),
+        )
+
+        request = _request()
+        result = orchestrator.execute(request, broker=adapter)
+
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is None or result.receipt.outcome is ExecutionOutcome.UNKNOWN
         assert "reconciliation is required" in result.reason.lower()
+        assert len(transport.submitted) == 1, (
+            f"expected 1 submission, got {len(transport.submitted)}"
+        )
 
-        # Verify only ONE submission was attempted (no auto-retry)
-        assert len(transport.submitted) == 1, f"expected 1 submission, got {len(transport.submitted)}"
-
-        # Verify PENDING reservation exists for reconciliation
-        from quantx.execution.idempotency.fingerprint import request_fingerprint
         fingerprint = request_fingerprint(request)
         with SqliteUnitOfWork(database) as uow:
             decision = uow.idempotency.check(request.order.client_order_id, fingerprint)
@@ -271,27 +448,72 @@ def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
 def test_dhan_adapter_timeout_normalized_to_unknown() -> None:
     """DhanBrokerAdapter normalizes DhanTimeoutError to UNKNOWN receipt."""
     transport = FailingTransport(response_status="PENDING")
-    adapter = DhanBrokerAdapter(
-        _connection=BrokerConnectionRef(
-            AccountId("acct-1"), BrokerConnectionId("conn-1"), "dhan", "NSE_EQ"
-        ),
-        _instruments={
-            _instrument().instrument_id: (
-                _instrument(),
-                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
-            )
-        },
-        _transport=transport,
-        _submit_timeout=0.05,
-        _cancel_timeout=5.0,
-        _reconcile_timeout=5.0,
-    )
+    adapter = _adapter(transport, submit_timeout=0.05)
 
     receipt = adapter.submit(_request())
 
     assert receipt.outcome is ExecutionOutcome.UNKNOWN
     assert receipt.order_status.name == "UNKNOWN"
     assert "timed out" in receipt.message.lower()
+
+
+def test_call_with_timeout_enforces_bounded_wait() -> None:
+    """The real executor wrapper times out a blocked callable via events."""
+    transport = object.__new__(DhanSDKTransport)
+    executor = ThreadPoolExecutor(max_workers=1)
+    transport._executor = executor
+    try:
+        entered = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        def slow() -> str:
+            entered.set()
+            assert release.wait(timeout=10.0)
+            finished.set()
+            return "late-success"
+
+        with pytest.raises(DhanTimeoutError):
+            transport._call_with_timeout(slow, timeout=0.05, operation="submit")
+        assert entered.is_set()
+
+        release.set()
+        assert finished.wait(timeout=10.0), "worker did not finish after release"
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_late_broker_success_reconciles_without_resubmission(tmp_path) -> None:
+    """Timeout is UNKNOWN; a later broker success reconciles, never rejects."""
+    transport = LateSuccessTransport(response_status="PENDING")
+    adapter = _adapter(transport, submit_timeout=0.05)
+
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        orchestrator = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database),
+            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            application_runtime=_started_runtime(),
+        )
+        request = _request()
+
+        result = orchestrator.execute(request, broker=adapter)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+
+        receipt = adapter.reconcile(request)
+        assert receipt.outcome is ExecutionOutcome.FILLED
+        assert receipt.order_status.name != "REJECTED"
+        assert len(transport.submitted) == 1, (
+            f"expected 1 submission, got {len(transport.submitted)}"
+        )
+
+        fingerprint = request_fingerprint(request)
+        with SqliteUnitOfWork(database) as uow:
+            decision = uow.idempotency.check(request.order.client_order_id, fingerprint)
+            assert decision.reservation_pending is True
+            assert decision.existing_receipt_id is None
+    finally:
+        database.close()
 
 
 def test_host_config_rejects_invalid_timeouts(tmp_path) -> None:
@@ -311,19 +533,28 @@ def test_host_config_rejects_invalid_timeouts(tmp_path) -> None:
         "reconcile_timeout_seconds": 5.0,
     }
 
-    for field in ("submit_timeout_seconds", "cancel_timeout_seconds", "reconcile_timeout_seconds"):
-        # Test zero
-        kwargs = {**base_kwargs, **valid_timeouts, field: 0}
-        with pytest.raises(ValueError, match=f"{field} must be a positive number"):
-            DhanHostConfig(**kwargs)
-        # Test negative
-        kwargs = {**base_kwargs, **valid_timeouts, field: -1}
-        with pytest.raises(ValueError, match=f"{field} must be a positive number"):
-            DhanHostConfig(**kwargs)
-        # Test invalid type
-        kwargs = {**base_kwargs, **valid_timeouts, field: "invalid"}
-        with pytest.raises(ValueError, match=f"{field} must be a positive number"):
-            DhanHostConfig(**kwargs)
+    fields = (
+        "submit_timeout_seconds",
+        "cancel_timeout_seconds",
+        "reconcile_timeout_seconds",
+    )
+    for field in fields:
+        for bad in (0, -1, "invalid", True, False):
+            kwargs = {**base_kwargs, **valid_timeouts, field: bad}
+            with pytest.raises(ValueError, match=f"{field} must be a positive number"):
+                DhanHostConfig(**kwargs)
+
+
+def test_adapter_rejects_bool_timeouts() -> None:
+    """Bool is not an acceptable timeout even though bool is an int."""
+    transport = InMemoryDhanTransport()
+    for kwargs in (
+        {"submit_timeout": True},
+        {"cancel_timeout": True},
+        {"reconcile_timeout": False},
+    ):
+        with pytest.raises(ValueError, match="must be a positive number"):
+            _adapter(transport, **kwargs)
 
 
 def test_host_config_accepts_valid_timeouts(tmp_path) -> None:
@@ -349,27 +580,30 @@ def test_host_config_accepts_valid_timeouts(tmp_path) -> None:
         host.close()
 
 
-def test_idempotency_preserved_after_timeout(tmp_path) -> None:
-    """
-    R0-B: After a timeout, the PENDING reservation remains for reconciliation.
-    Duplicate submission with same client_order_id + fingerprint is prevented.
-    """
-    transport = FailingTransport(response_status="PENDING")
-    adapter = DhanBrokerAdapter(
-        _connection=BrokerConnectionRef(
-            AccountId("acct-1"), BrokerConnectionId("conn-1"), "dhan", "NSE_EQ"
-        ),
-        _instruments={
-            _instrument().instrument_id: (
-                _instrument(),
-                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
-            )
-        },
-        _transport=transport,
-        _submit_timeout=0.05,
-        _cancel_timeout=5.0,
-        _reconcile_timeout=5.0,
+def test_host_close_shuts_down_transport(tmp_path) -> None:
+    """Host shutdown owns transport lifecycle; double close stays safe."""
+    transport = TrackingCloseTransport()
+    config = DhanHostConfig(
+        database_path=tmp_path / "quantx.db",
+        account_id=AccountId("acct-1"),
+        connection_id=BrokerConnectionId("conn-1"),
+        market_context_id="NSE_EQ",
+        instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC")),),
+        transport=transport,
+        submit_timeout_seconds=5.0,
+        cancel_timeout_seconds=5.0,
+        reconcile_timeout_seconds=5.0,
     )
+    host = build_dhan_host_runtime(config)
+    host.close()
+    host.close()
+    assert transport.close_calls == 2
+
+
+def test_idempotency_preserved_after_timeout(tmp_path) -> None:
+    """After a timeout the PENDING reservation blocks duplicate submission."""
+    transport = FailingTransport(response_status="PENDING")
+    adapter = _adapter(transport, submit_timeout=0.05)
 
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -378,92 +612,22 @@ def test_idempotency_preserved_after_timeout(tmp_path) -> None:
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
             application_runtime=_started_runtime(),
         )
-
-        # Use the SAME request object to test idempotency
         request = _request()
 
-        # First submission times out
         result1 = orchestrator.execute(request, broker=adapter)
         assert result1.status is ExecutionDispatchStatus.UNKNOWN
 
-        # Second submission with same client_order_id should NOT submit again
         result2 = orchestrator.execute(request, broker=adapter)
         assert result2.status is ExecutionDispatchStatus.UNKNOWN
         assert "unknown" in result2.reason.lower()
+        assert len(transport.submitted) == 1, (
+            f"expected 1 submission, got {len(transport.submitted)}"
+        )
 
-        # Only ONE broker submission should have occurred
-        assert len(transport.submitted) == 1, f"expected 1 submission, got {len(transport.submitted)}"
-
-        # PENDING reservation should still exist
-        from quantx.execution.idempotency.fingerprint import request_fingerprint
         fingerprint = request_fingerprint(request)
         with SqliteUnitOfWork(database) as uow:
             decision = uow.idempotency.check(request.order.client_order_id, fingerprint)
             assert decision.reservation_pending is True
             assert decision.existing_receipt_id is None
-    finally:
-        database.close()
-
-
-def test_sdk_transport_timeout_wrapper() -> None:
-    """DhanSDKTransport._call_with_timeout raises DhanTimeoutError on timeout."""
-    from quantx.plugins.dhan.transport import DhanSDKTransport, DhanCredentials
-
-    # We can't easily test the real SDK without credentials, but we can verify
-    # the DhanTimeoutError is properly defined and raised by the wrapper logic
-    exc = DhanTimeoutError("submit", 5.0)
-    assert exc.operation == "submit"
-    assert exc.timeout == 5.0
-    assert "submit timed out after 5.0s" in str(exc)
-
-
-def test_gate_block_during_slow_broker_call_does_not_deadlock(tmp_path) -> None:
-    """
-    R0-B: Verify no deadlock when block() is called while broker.submit()
-    is in progress. The gate lock is released before the broker call.
-    """
-    transport = SlowTransport(delay_seconds=1.0, response_status="PENDING")
-    adapter = _adapter(transport)
-
-    database = SqliteDatabase(tmp_path / "quantx.db")
-    try:
-        gate = DurableTradingGate(SqliteTradingGateStateStore(database))
-        orchestrator = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=gate,
-            application_runtime=_started_runtime(),
-        )
-
-        # Start submission
-        submit_started = threading.Event()
-        submit_result: ExecutionResult | None = None
-
-        def do_submit() -> None:
-            nonlocal submit_result
-            submit_result = orchestrator.execute(_request(), broker=adapter)
-            submit_started.set()
-
-        submit_thread = threading.Thread(target=do_submit)
-        submit_thread.start()
-
-        # Wait for submission to start (gate lock released)
-        assert transport.wait_for_submit_start(timeout=2.0)
-
-        # Block gate from another thread - should not deadlock
-        block_result = []
-        def do_block():
-            block_result.append(gate.block("emergency stop"))
-
-        block_thread = threading.Thread(target=do_block)
-        block_thread.start()
-        block_thread.join(timeout=1.0)
-
-        assert not block_thread.is_alive(), "gate.block() deadlocked on slow broker call"
-        assert len(block_result) == 1
-        assert block_result[0].enabled is False
-
-        # Clean up
-        transport.release_submit()
-        submit_thread.join(timeout=5.0)
     finally:
         database.close()

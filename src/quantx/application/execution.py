@@ -273,6 +273,13 @@ class ExecutionOrchestrator:
         Scope A commits the PENDING reservation; the broker submission runs
         outside any transaction and outside the trading-gate lock; Scope B
         atomically saves the receipt and completes the reservation.
+
+        R0-B scope: only the safety-critical submit/cancel/reconcile broker
+        operations carry bounded timeouts. ``broker.health()`` (checked in
+        ``execute`` before this method) never holds the submission permit,
+        so an unbounded health probe cannot serialize ``block()``; the
+        remaining read-only observations (fund limits, positions, quotes,
+        candles) are outside the R0-B bounded-call contract.
         """
         fingerprint = request_fingerprint(request)
         client_order_id = request.order.client_order_id

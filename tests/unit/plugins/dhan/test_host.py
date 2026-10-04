@@ -301,16 +301,22 @@ def test_host_rejects_invalid_submit_timeout(tmp_path) -> None:
         _config(tmp_path, submit_timeout_seconds=-1)
     with pytest.raises(ValueError, match="submit_timeout_seconds must be a positive number"):
         _config(tmp_path, submit_timeout_seconds="invalid")
+    with pytest.raises(ValueError, match="submit_timeout_seconds must be a positive number"):
+        _config(tmp_path, submit_timeout_seconds=True)
 
 
 def test_host_rejects_invalid_cancel_timeout(tmp_path) -> None:
     with pytest.raises(ValueError, match="cancel_timeout_seconds must be a positive number"):
         _config(tmp_path, cancel_timeout_seconds=0)
+    with pytest.raises(ValueError, match="cancel_timeout_seconds must be a positive number"):
+        _config(tmp_path, cancel_timeout_seconds=True)
 
 
 def test_host_rejects_invalid_reconcile_timeout(tmp_path) -> None:
     with pytest.raises(ValueError, match="reconcile_timeout_seconds must be a positive number"):
         _config(tmp_path, reconcile_timeout_seconds=0)
+    with pytest.raises(ValueError, match="reconcile_timeout_seconds must be a positive number"):
+        _config(tmp_path, reconcile_timeout_seconds=False)
 
 
 def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:

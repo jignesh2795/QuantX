@@ -55,7 +55,7 @@ class DhanBrokerAdapter:
             ("_cancel_timeout", self._cancel_timeout),
             ("_reconcile_timeout", self._reconcile_timeout),
         ):
-            if not isinstance(value, (int, float)) or value <= 0:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise ValueError(f"{name} must be a positive number")
 
     @property

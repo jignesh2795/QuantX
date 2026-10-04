@@ -7,7 +7,7 @@ name = "quantx"
 version = "0.1.0.dev0"
 description = "Modular, event-driven trading platform for Indian markets."
 readme = "README.md"
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "QuantX Contributors" }]
 dependencies = ["tzdata>=2024.1"]
