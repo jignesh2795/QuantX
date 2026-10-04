@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
-from quantx.execution.market_data import MarketSnapshot
 from quantx.research.calendar import MarketCalendar
 from quantx.research.data import HistoricalObservation
 from quantx.research.ingest import CanonicalOHLCVNormalizer, RawMarketRecord
@@ -39,14 +39,18 @@ class IndianHistoricalOHLCVNormalizer:
             calendar=self.calendar,
         ).normalize(record)
         snapshot = observation.snapshot
-        canonical_snapshot = MarketSnapshot(
+        if not isinstance(snapshot, Candle):
+            raise TypeError("historical OHLCV normalization must produce a Candle")
+
+        canonical_snapshot = Candle(
             instrument=instrument.instrument_id,
+            timeframe=snapshot.timeframe,
             timestamp=snapshot.timestamp,
-            bid=snapshot.bid,
-            ask=snapshot.ask,
-            last=snapshot.last,
-            bid_size=snapshot.bid_size,
-            ask_size=snapshot.ask_size,
+            open=snapshot.open,
+            high=snapshot.high,
+            low=snapshot.low,
+            close=snapshot.close,
+            volume=snapshot.volume,
         )
         return HistoricalObservation(
             snapshot=canonical_snapshot,
