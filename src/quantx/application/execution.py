@@ -23,6 +23,10 @@ from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.trading_gate import TradingGate
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.india.session_calendar import (
+    IndiaSessionDecision,
+    IndiaSessionResult,
+)
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 
@@ -71,6 +75,8 @@ class ExecutionOrchestrator:
         trading_gate: TradingGate | None = None,
         application_runtime: ApplicationRuntime | None = None,
         session_guard: SessionExecutionGuard | None = None,
+        india_session_evaluator: Callable[[ApprovedExecutionRequest], IndiaSessionResult]
+        | None = None,
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
         india_rule_evaluator: Callable[[ApprovedExecutionRequest], IndiaRuleResult]
         | None = None,
@@ -82,6 +88,7 @@ class ExecutionOrchestrator:
         self._trading_gate_explicit = trading_gate is not None
         self._application_runtime = application_runtime
         self._session_guard = session_guard
+        self._india_session_evaluator = india_session_evaluator
         self._live_risk_evaluator = live_risk_evaluator
         self._india_rule_evaluator = india_rule_evaluator
 
@@ -123,7 +130,44 @@ class ExecutionOrchestrator:
                 reason=f"trading is blocked: {state.reason}",
             )
 
-        if self._session_guard is not None:
+        india_live = _is_india_live_request(request)
+        if india_live:
+            if self._india_session_evaluator is None:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=(
+                        "live execution for India-market requests requires "
+                        "an explicitly configured India session calendar"
+                    ),
+                )
+            try:
+                india_session = self._india_session_evaluator(request)
+            except Exception as exc:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"india session/calendar evaluation failed closed: {exc}",
+                )
+            if (
+                not india_session.calendar_evaluated
+                or not india_session.calendar_version.strip()
+                or not india_session.provenance.strip()
+                or india_session.evaluated_at.tzinfo is None
+                or india_session.evaluated_at.utcoffset() is None
+            ):
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=(
+                        "india LIVE execution requires authoritative India "
+                        "session/calendar evidence"
+                    ),
+                )
+            if india_session.decision is not IndiaSessionDecision.ALLOW:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"india session/calendar blocked the request: {india_session.reason}",
+                )
+
+        if self._session_guard is not None and not india_live:
             session = self._session_guard.check(mode)
             if not session.allowed:
                 return ExecutionResult(
