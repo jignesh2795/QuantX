@@ -236,7 +236,9 @@ class IndiaExecutionRuleEngine:
         self._check_quantity(spec, order, reject, accept)
         self._check_quantity_freeze(order, venue_rules, usable, reject, accept)
         self._check_ticks(spec, order, reject, accept)
-        self._check_price_band(order, venue_rules, usable, reject, accept)
+        self._check_price_band(
+            order, venue_rules, usable, evaluated_at, reject, accept
+        )
         self._check_derivative_metadata(spec, reject, accept)
         self._check_segment(spec, reject, accept)
         if product is not None:
@@ -523,6 +525,7 @@ class IndiaExecutionRuleEngine:
         order: Order,
         venue_rules: IndiaVenueRuleSnapshot,
         usable: bool,
+        evaluated_at: datetime,
         reject: _Check,
         accept: _Check,
     ) -> None:
@@ -539,7 +542,14 @@ class IndiaExecutionRuleEngine:
         band = venue_rules.price_band
         lower = _is_number(band.lower_bound) if band is not None else None
         upper = _is_number(band.upper_bound) if band is not None else None
-        if not usable or lower is None or upper is None or lower > upper:
+        band_usable = band is not None and band.effective_at <= evaluated_at
+        if (
+            not usable
+            or not band_usable
+            or lower is None
+            or upper is None
+            or lower > upper
+        ):
             reject(
                 "price_band",
                 "INDIA_RULE_DATA_UNAVAILABLE: applicable price band is unknown",
