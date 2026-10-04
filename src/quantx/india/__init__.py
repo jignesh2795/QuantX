@@ -19,6 +19,7 @@ from .rule_data import IndiaRuleScope, IndiaVenueRuleSnapshot, PriceBandRuleSnap
 from .session_calendar import (
     IndiaSessionCalendar,
     IndiaSessionCalendarSnapshot,
+    IndiaSessionEvaluator,
     IndiaSessionDayOverride,
     IndiaSessionDecision,
     IndiaSessionPermission,
