@@ -44,6 +44,7 @@ class IndiaRuleResult:
     rule_set_version: str | None = None
     provenance: str | None = None
     evaluated_at: datetime | None = None
+    compatibility_evaluated: bool = False
 
 
 _SEGMENTS_BY_ASSET: tuple[tuple[AssetClass, str], ...] = (
@@ -185,6 +186,7 @@ class IndiaExecutionRuleEngine:
                 venue_rules.version,
                 venue_rules.provenance,
                 evaluated_at,
+                compatibility_evaluated=True,
             )
         identity = self._check_instrument_identity(spec, order)
         if identity is not None:
@@ -195,6 +197,7 @@ class IndiaExecutionRuleEngine:
                 venue_rules.version,
                 venue_rules.provenance,
                 evaluated_at,
+                compatibility_evaluated=True,
             )
         usable = venue_rules.effective_at <= evaluated_at
         violations: list[str] = []
@@ -222,6 +225,7 @@ class IndiaExecutionRuleEngine:
                 venue_rules.version,
                 venue_rules.provenance,
                 evaluated_at,
+                compatibility_evaluated=True,
             )
         checks.append(
             IndiaRuleCheck("rule_scope", True, "venue rule scope applies")
@@ -247,6 +251,7 @@ class IndiaExecutionRuleEngine:
                 venue_rules.version,
                 venue_rules.provenance,
                 evaluated_at,
+                compatibility_evaluated=True,
             )
         return IndiaRuleResult(
             IndiaRuleDecision.APPROVE,
