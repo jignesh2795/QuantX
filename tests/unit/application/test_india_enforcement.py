@@ -312,9 +312,45 @@ def test_india_rejection_precedes_risk_evaluation(tmp_path) -> None:
         database.close()
 
 
-def test_non_india_live_without_evaluator_preserves_legacy_behavior(tmp_path) -> None:
-    from uuid import uuid4
+class UsBroker:
+    def __init__(self, instrument) -> None:
+        self.submit_calls = 0
+        self._instrument = instrument
+        self._connection = BrokerConnectionRef(
+            AccountId("acct-1"), BrokerConnectionId("conn-1"), "us", "NYSE"
+        )
 
+    @property
+    def connection(self):
+        return self._connection
+
+    def health(self) -> bool:
+        return True
+
+    def capabilities(self):
+        return CapabilitySet(frozenset())
+
+    def instrument(self, instrument_id):
+        return self._instrument if instrument_id == self._instrument.instrument_id else None
+
+    def submit(self, request):
+        from uuid import uuid4
+
+        self.submit_calls += 1
+        return ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=request.order.client_order_id,
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=request.order.created_at,
+            simulated=False,
+            source="us-broker",
+            account_id=self._connection.account_id,
+            connection_id=self._connection.connection_id,
+        )
+
+
+def _us_request() -> tuple[ApprovedExecutionRequest, Instrument]:
     us_market = MarketContext(MarketRegion.NORTH_AMERICA, MarketFamily.EQUITY, "NYSE", "US")
     us_instrument = Instrument(
         InstrumentId("NYSE", "AAPL"),
@@ -325,41 +361,6 @@ def test_non_india_live_without_evaluator_preserves_legacy_behavior(tmp_path) ->
         Decimal("0.01"),
         Decimal("1"),
     )
-
-    class UsBroker:
-        def __init__(self) -> None:
-            self.submit_calls = 0
-            self._connection = BrokerConnectionRef(
-                AccountId("acct-1"), BrokerConnectionId("conn-1"), "us", "NYSE"
-            )
-
-        @property
-        def connection(self):
-            return self._connection
-
-        def health(self) -> bool:
-            return True
-
-        def capabilities(self):
-            return CapabilitySet(frozenset())
-
-        def instrument(self, instrument_id):
-            return us_instrument if instrument_id == us_instrument.instrument_id else None
-
-        def submit(self, request):
-            self.submit_calls += 1
-            return ExecutionReceipt(
-                request_id=uuid4(),
-                client_order_id=request.order.client_order_id,
-                outcome=ExecutionOutcome.ACCEPTED,
-                order_status=OrderStatus.ACCEPTED,
-                executed_at=request.order.created_at,
-                simulated=False,
-                source="us-broker",
-                account_id=self._connection.account_id,
-                connection_id=self._connection.connection_id,
-            )
-
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -375,18 +376,48 @@ def test_non_india_live_without_evaluator_preserves_legacy_behavior(tmp_path) ->
         order_type=OrderType.MARKET,
         execution_context=context,
     )
-    request = ApprovedExecutionRequest(
-        order=build_order_from_intent(intent),
-        execution_context=context,
-        risk_result=RiskResult(RiskDecision.APPROVE, "upstream approved"),
-        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+    return (
+        ApprovedExecutionRequest(
+            order=build_order_from_intent(intent),
+            execution_context=context,
+            risk_result=RiskResult(RiskDecision.APPROVE, "upstream approved"),
+            policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        ),
+        us_instrument,
     )
+
+
+def test_non_india_live_without_evaluator_preserves_legacy_behavior(tmp_path) -> None:
+    request, us_instrument = _us_request()
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        broker = UsBroker()
+        broker = UsBroker(us_instrument)
         orchestrator = _orchestrator(database, SqliteUnitOfWork(database))
         result = orchestrator.execute(request, broker=broker)
 
+        assert result.status is ExecutionDispatchStatus.EXECUTED
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_non_india_live_skips_configured_india_evaluator(tmp_path) -> None:
+    request, us_instrument = _us_request()
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        broker = UsBroker(us_instrument)
+        calls: list = []
+
+        def recording_evaluator(evaluated):
+            calls.append(evaluated)
+            return IndiaRuleResult(IndiaRuleDecision.REJECT, "must not run for US orders")
+
+        orchestrator = _orchestrator(
+            database, SqliteUnitOfWork(database), india_rule_evaluator=recording_evaluator
+        )
+        result = orchestrator.execute(request, broker=broker)
+
+        assert calls == []
         assert result.status is ExecutionDispatchStatus.EXECUTED
         assert broker.submit_calls == 1
     finally:

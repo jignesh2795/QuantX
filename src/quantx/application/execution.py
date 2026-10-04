@@ -208,7 +208,7 @@ class ExecutionOrchestrator:
                     "an explicitly configured india rule evaluator"
                 ),
             )
-        if self._india_rule_evaluator is not None:
+        if self._india_rule_evaluator is not None and _is_india_live_request(request):
             try:
                 india_rules = self._india_rule_evaluator(request)
             except Exception as exc:
