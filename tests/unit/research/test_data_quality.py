@@ -91,7 +91,7 @@ def test_out_of_order_observation() -> None:
 
     assert result.quality is DataQualityStatus.DEGRADED
     assert result.out_of_order is True
-    assert "observations are not in chronological order" in result.issues
+    assert any(issue.message == "observations are not chronologically ordered" for issue in result.issues)
 
 
 def test_missing_and_unexpected_together() -> None:
@@ -152,7 +152,7 @@ def test_naive_expected_timestamp_rejected() -> None:
     assert result.quality is DataQualityStatus.REJECTED
     assert result.completeness is CompletenessStatus.UNKNOWN
     assert result.expected_count == 1
-    assert result.issues == ("expected timestamps must be timezone-aware datetimes",)
+    assert tuple(issue.message for issue in result.issues) == ("expected timestamp must be timezone-aware",)
 
 
 def test_timezone_equivalent_instants_compare_equal() -> None:
@@ -180,10 +180,10 @@ def test_issue_ordering_deterministic() -> None:
     second = assess_candles((_candle(T1), _candle(T1), _candle(T2)), (T0,))
 
     assert first.issues == second.issues
-    assert first.issues == (
-        "duplicate candle timestamps detected",
-        "expected timestamps are missing from observations",
-        "observed timestamps were not present in expected set",
+    assert tuple(issue.message for issue in first.issues) == (
+        "duplicate observation timestamp",
+        "expected timestamp is missing from observations",
+        "observed timestamp was not in expected set",
     )
 
 
