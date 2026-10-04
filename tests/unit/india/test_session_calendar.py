@@ -10,6 +10,7 @@ from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.session_calendar import (
     IndiaSessionCalendar,
     IndiaSessionCalendarSnapshot,
+    IndiaSessionEvaluator,
     IndiaSessionDayOverride,
     IndiaSessionDecision,
     IndiaSessionPermission,
@@ -19,7 +20,6 @@ from quantx.india.session_calendar import (
 IST = "Asia/Kolkata"
 SUBMIT = IndiaSessionPermission.ORDER_SUBMISSION
 CANCEL = IndiaSessionPermission.ORDER_CANCELLATION
-REGULAR = _window("regular", (9, 15), (15, 30), SUBMIT)
 
 
 def _window(
@@ -34,6 +34,9 @@ def _window(
         end=time(*end),
         permissions=frozenset(permissions or (SUBMIT,)),
     )
+
+
+REGULAR = _window("regular", (9, 15), (15, 30), SUBMIT)
 
 
 def _calendar_snapshot(**overrides):
