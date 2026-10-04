@@ -83,7 +83,14 @@ def _approving_india_evaluator():
     """India layer is not under test here; approve explicitly to reach it."""
 
     def approve(request) -> IndiaRuleResult:
-        return IndiaRuleResult(IndiaRuleDecision.APPROVE, "india rules approved for test")
+        return IndiaRuleResult(
+            IndiaRuleDecision.APPROVE,
+            "india compatibility approved for test",
+            rule_set_version="test-b3",
+            provenance="test-b3",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
 
     return approve
 
