@@ -233,7 +233,7 @@ class HistoricalDataQualityGate:
                         )
                     )
 
-        if not values and expected != ():
+        if not values and expected not in (None, ()):
             issues.append(DataIssue(DataIssueType.NO_DATA, "no observations supplied"))
 
         blocking_types = {
@@ -253,10 +253,11 @@ class HistoricalDataQualityGate:
 
         if expected is None:
             completeness = CompletenessStatus.UNKNOWN
+        elif any(issue.issue_type is DataIssueType.INVALID_TIMESTAMP for issue in issues):
+            completeness = CompletenessStatus.UNKNOWN
         elif any(
             issue.issue_type
             in {
-                DataIssueType.INVALID_TIMESTAMP,
                 DataIssueType.MISSING_EXPECTED_TIMESTAMP,
                 DataIssueType.UNEXPECTED_TIMESTAMP,
                 DataIssueType.GAP,
