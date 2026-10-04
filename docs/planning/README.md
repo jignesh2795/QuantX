@@ -7,7 +7,9 @@ These documents are not implementation contracts. For current implementation sta
 ## Contents
 
 - `research-and-direction.md` — research summary, OpenAlgo comparison, priorities, and flexibility stance
+- `quantumtrade-transfer-map.md` — what was taken from QuantumTrade (reflected / partial / deferred)
 
-Related top-level document:
+Related documents:
 
-- `VISION.md` — project vision and core vs plugin boundary rules
+- `VISION.md` (repo root) — project vision and core vs plugin boundary rules
+- `docs/architecture/control-and-safety-path.md` — ordered control and safety path draft
