@@ -46,6 +46,11 @@ from quantx.india.execution_rules import (
     IndiaRuleDecision,
     IndiaRuleResult,
 )
+from quantx.india.rule_data import (
+    IndiaRuleScope,
+    IndiaVenueRuleSnapshot,
+    PriceBandRuleSnapshot,
+)
 from quantx.integrations.brokers import (
     BrokerConnectionRef,
     CapabilitySet,
@@ -176,9 +181,14 @@ def test_india_rejection_blocks_before_reservation_and_submit(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         unit_of_work = SqliteUnitOfWork(database)
-        specs = {InstrumentId("NSE", "TCS"): _spec(lot_size=Decimal("25"))}
         orchestrator = _orchestrator(
-            database, unit_of_work, india_rule_evaluator=_evaluator(specs)
+            database,
+            unit_of_work,
+            india_rule_evaluator=_compat_evaluator(
+                _venue_rules(),
+                product=ProductType.CNC,
+                spec=_spec(lot_size=Decimal("25")),
+            ),
         )
         request = _request()
         result = orchestrator.execute(request, broker=_adapter(transport))
@@ -237,7 +247,7 @@ def test_india_approval_keeps_submission_reachable(tmp_path) -> None:
         orchestrator = _orchestrator(
             database,
             SqliteUnitOfWork(database),
-            india_rule_evaluator=_evaluator(),
+            india_rule_evaluator=_compat_evaluator(),
         )
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 
@@ -254,8 +264,15 @@ def test_upstream_approve_cannot_bypass_india_rules(tmp_path) -> None:
         orchestrator = _orchestrator(
             database,
             SqliteUnitOfWork(database),
-            india_rule_evaluator=_evaluator(
-                {InstrumentId("NSE", "TCS"): _spec(segment=IndianSegment.DERIVATIVES)}
+            india_rule_evaluator=_compat_evaluator(
+                _venue_rules(
+                    scope=IndiaRuleScope(
+                        exchange=IndianExchange.NSE,
+                        segment=IndianSegment.DERIVATIVES,
+                    )
+                ),
+                product=ProductType.CNC,
+                spec=_spec(segment=IndianSegment.DERIVATIVES),
             ),
         )
         request = _request()
@@ -298,8 +315,10 @@ def test_india_rejection_precedes_risk_evaluation(tmp_path) -> None:
         orchestrator = _orchestrator(
             database,
             SqliteUnitOfWork(database),
-            india_rule_evaluator=_evaluator(
-                {InstrumentId("NSE", "TCS"): _spec(lot_size=Decimal("25"))}
+            india_rule_evaluator=_compat_evaluator(
+                _venue_rules(quantity_freeze=Decimal("1")),
+                product=ProductType.CNC,
+                spec=_spec(lot_size=Decimal("25")),
             ),
             live_risk_evaluator=permissive_risk,
         )
@@ -397,6 +416,134 @@ def test_non_india_live_without_evaluator_preserves_legacy_behavior(tmp_path) ->
 
         assert result.status is ExecutionDispatchStatus.EXECUTED
         assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def _venue_rules(**overrides) -> IndiaVenueRuleSnapshot:
+    values: dict = {
+        "version": "NSE-EQ-2026-01",
+        "provenance": "test-venue-rules",
+        "effective_at": datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
+        "scope": IndiaRuleScope(
+            exchange=IndianExchange.NSE, segment=IndianSegment.EQUITY
+        ),
+        "allowed_order_types": frozenset(
+            {OrderType.MARKET, OrderType.LIMIT, OrderType.STOP, OrderType.STOP_LIMIT}
+        ),
+        "allowed_time_in_force": frozenset({TimeInForce.DAY, TimeInForce.IOC}),
+        "allowed_products": frozenset({ProductType.CNC, ProductType.MIS}),
+        "quantity_freeze": Decimal("10000"),
+        "price_band": PriceBandRuleSnapshot(
+            lower_bound=Decimal("90"),
+            upper_bound=Decimal("110"),
+            rule_type="OPERATING_RANGE",
+            effective_at=datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
+            source="test-venue",
+            version="band-1",
+        ),
+    }
+    values.update(overrides)
+    return IndiaVenueRuleSnapshot(**values)
+
+
+def _compat_evaluator(
+    rules=None,
+    product: ProductType | None = ProductType.CNC,
+    spec: IndianInstrumentSpec | None = None,
+):
+    snapshot = rules if rules is not None else _venue_rules()
+    instrument_spec = spec if spec is not None else _spec()
+
+    def run(request: ApprovedExecutionRequest) -> IndiaRuleResult:
+        return IndiaExecutionRuleEngine().validate_compatibility(
+            instrument_spec,
+            request.order,
+            product=product,
+            venue_rules=snapshot,
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+        )
+
+    return run
+
+
+def test_india_live_b1_only_result_cannot_bypass_b3(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_rule_evaluator=_evaluator(),
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative B3 compatibility evidence" in result.reason
+        assert transport.submitted == ()
+    finally:
+        database.close()
+
+
+def test_compat_freeze_rejection_blocks_before_reservation(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        unit_of_work = SqliteUnitOfWork(database)
+        orchestrator = _orchestrator(
+            database,
+            unit_of_work,
+            india_rule_evaluator=_compat_evaluator(_venue_rules(quantity_freeze=Decimal("1"))),
+        )
+        request = _request()
+        result = orchestrator.execute(request, broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "INDIA_QUANTITY_FREEZE_INVALID" in result.reason
+        assert transport.submitted == ()
+        fingerprint = request_fingerprint(request)
+        with SqliteUnitOfWork(database) as check_uow:
+            decision = check_uow.idempotency.check(request.order.client_order_id, fingerprint)
+            assert decision.reservation_pending is False
+            assert decision.existing_receipt_id is None
+        assert SqliteReceiptRepository(database).get_by_client_order(
+            request.order.client_order_id
+        ) is None
+    finally:
+        database.close()
+
+
+def test_compat_missing_rule_data_blocks(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_rule_evaluator=_compat_evaluator(_venue_rules(quantity_freeze=None)),
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "INDIA_RULE_DATA_UNAVAILABLE" in result.reason
+        assert transport.submitted == ()
+    finally:
+        database.close()
+
+
+def test_compat_approval_reaches_submission(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_rule_evaluator=_compat_evaluator(),
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.EXECUTED
+        assert len(transport.submitted) == 1
     finally:
         database.close()
 
