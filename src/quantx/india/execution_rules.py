@@ -213,6 +213,19 @@ class IndiaExecutionRuleEngine:
         def accept(name: str, message: str) -> None:
             checks.append(IndiaRuleCheck(name, True, message))
 
+        scope_failure = self._check_rule_scope(spec, venue_rules)
+        if scope_failure is not None:
+            return IndiaRuleResult(
+                IndiaRuleDecision.REJECT,
+                scope_failure,
+                tuple(checks) + (IndiaRuleCheck("rule_scope", False, scope_failure),),
+                venue_rules.version,
+                venue_rules.provenance,
+                evaluated_at,
+            )
+        checks.append(
+            IndiaRuleCheck("rule_scope", True, "venue rule scope applies")
+        )
         self._check_order_type(order, reject, accept)
         self._check_snapshot_order_type(order, venue_rules, usable, reject, accept)
         self._check_time_in_force(order, venue_rules, usable, reject, accept)
@@ -393,6 +406,36 @@ class IndiaExecutionRuleEngine:
                 f"INDIA_PRODUCT_INVALID: product {product.value} is not compatible "
                 f"with asset class {spec.asset_class.value}",
             )
+
+    @staticmethod
+    def _check_rule_scope(
+        spec: IndianInstrumentSpec, venue_rules: IndiaVenueRuleSnapshot
+    ) -> str | None:
+        """Return a rejection reason unless the snapshot scope applies.
+
+        An absent or entirely empty scope is unknown and fails closed; any
+        set scope field that disagrees with the evaluated specification is a
+        scope mismatch. ``None`` means the scope applies.
+        """
+        scope = venue_rules.scope
+        if scope is None or scope.is_unspecified():
+            return "INDIA_RULE_DATA_UNAVAILABLE: venue rule scope is unknown"
+        if scope.exchange is not None and scope.exchange is not spec.exchange:
+            return (
+                "INDIA_RULE_SCOPE_MISMATCH: venue rule scope exchange "
+                f"{scope.exchange.value} does not apply to {spec.exchange.value}"
+            )
+        if scope.segment is not None and scope.segment is not spec.segment:
+            return (
+                "INDIA_RULE_SCOPE_MISMATCH: venue rule scope segment "
+                f"{scope.segment.value} does not apply to {spec.segment.value}"
+            )
+        if scope.instrument_id is not None and scope.instrument_id != spec.instrument_id:
+            return (
+                "INDIA_RULE_SCOPE_MISMATCH: venue rule scope instrument "
+                f"{scope.instrument_id} does not apply to {spec.instrument_id}"
+            )
+        return None
 
     @classmethod
     def _check_snapshot_order_type(

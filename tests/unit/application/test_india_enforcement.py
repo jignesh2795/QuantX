@@ -46,7 +46,11 @@ from quantx.india.execution_rules import (
     IndiaRuleDecision,
     IndiaRuleResult,
 )
-from quantx.india.rule_data import IndiaVenueRuleSnapshot, PriceBandRuleSnapshot
+from quantx.india.rule_data import (
+    IndiaRuleScope,
+    IndiaVenueRuleSnapshot,
+    PriceBandRuleSnapshot,
+)
 from quantx.integrations.brokers import (
     BrokerConnectionRef,
     CapabilitySet,
@@ -407,6 +411,9 @@ def _venue_rules(**overrides) -> IndiaVenueRuleSnapshot:
         "version": "NSE-EQ-2026-01",
         "provenance": "test-venue-rules",
         "effective_at": datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
+        "scope": IndiaRuleScope(
+            exchange=IndianExchange.NSE, segment=IndianSegment.EQUITY
+        ),
         "allowed_order_types": frozenset(
             {OrderType.MARKET, OrderType.LIMIT, OrderType.STOP, OrderType.STOP_LIMIT}
         ),

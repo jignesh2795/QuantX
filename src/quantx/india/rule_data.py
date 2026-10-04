@@ -14,8 +14,9 @@ from datetime import datetime
 from decimal import Decimal
 
 from quantx.domain.enums import OrderType, TimeInForce
+from quantx.domain.value_objects import InstrumentId
 
-from .domain import ProductType
+from .domain import IndianExchange, IndianSegment, ProductType
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,27 @@ class PriceBandRuleSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class IndiaRuleScope:
+    """Applicability scope for one venue rule snapshot.
+
+    Each set field must match the evaluated instrument; an entirely empty
+    scope is unknown (never a wildcard) and fails closed. A set field with
+    ``None`` on the other two is an explicit venue-wide scope, not unknown.
+    """
+
+    exchange: IndianExchange | None = None
+    segment: IndianSegment | None = None
+    instrument_id: InstrumentId | None = None
+
+    def is_unspecified(self) -> bool:
+        return (
+            self.exchange is None
+            and self.segment is None
+            and self.instrument_id is None
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class IndiaVenueRuleSnapshot:
     """Versioned venue rule data governing one compatibility evaluation.
 
@@ -52,6 +74,7 @@ class IndiaVenueRuleSnapshot:
     version: str
     provenance: str
     effective_at: datetime
+    scope: IndiaRuleScope | None = None
     allowed_order_types: frozenset[OrderType] | None = None
     allowed_time_in_force: frozenset[TimeInForce] | None = None
     allowed_products: frozenset[ProductType] | None = None
@@ -67,4 +90,4 @@ class IndiaVenueRuleSnapshot:
             raise ValueError("effective_at must be timezone-aware")
 
 
-__all__ = ["IndiaVenueRuleSnapshot", "PriceBandRuleSnapshot"]
+__all__ = ["IndiaRuleScope", "IndiaVenueRuleSnapshot", "PriceBandRuleSnapshot"]

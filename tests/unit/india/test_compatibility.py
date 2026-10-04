@@ -17,7 +17,11 @@ from quantx.india.domain import (
     ProductType,
 )
 from quantx.india.execution_rules import IndiaExecutionRuleEngine, IndiaRuleDecision
-from quantx.india.rule_data import IndiaVenueRuleSnapshot, PriceBandRuleSnapshot
+from quantx.india.rule_data import (
+    IndiaRuleScope,
+    IndiaVenueRuleSnapshot,
+    PriceBandRuleSnapshot,
+)
 
 EVALUATED_AT = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
 EFFECTIVE_AT = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
@@ -67,6 +71,9 @@ def _rules(**overrides) -> IndiaVenueRuleSnapshot:
         "version": "NSE-EQ-2026-01",
         "provenance": "test-venue-rules",
         "effective_at": EFFECTIVE_AT,
+        "scope": IndiaRuleScope(
+            exchange=IndianExchange.NSE, segment=IndianSegment.EQUITY
+        ),
         "allowed_order_types": frozenset(
             {OrderType.MARKET, OrderType.LIMIT, OrderType.STOP, OrderType.STOP_LIMIT}
         ),
@@ -97,6 +104,7 @@ def test_valid_compatibility_approves_with_provenance() -> None:
     assert result.evaluated_at == EVALUATED_AT
     assert [check.name for check in result.checks] == [
         "instrument_identity",
+        "rule_scope",
         "order_type",
         "order_type_snapshot",
         "time_in_force",
@@ -231,6 +239,7 @@ def test_no_product_skips_product_checks() -> None:
     assert result.decision is IndiaRuleDecision.APPROVE
     assert [check.name for check in result.checks] == [
         "instrument_identity",
+        "rule_scope",
         "order_type",
         "order_type_snapshot",
         "time_in_force",
@@ -249,6 +258,53 @@ def test_compatibility_is_deterministic() -> None:
     assert first.decision is second.decision is IndiaRuleDecision.APPROVE
     assert first.reason == second.reason
     assert first.rule_set_version == second.rule_set_version
+
+
+def test_matching_scope_approves() -> None:
+    result = _compat()
+    assert result.decision is IndiaRuleDecision.APPROVE
+    assert [check.name for check in result.checks][1] == "rule_scope"
+
+
+def test_instrument_specific_scope_approves() -> None:
+    rules = _rules(
+        scope=IndiaRuleScope(
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
+            instrument_id=InstrumentId("NSE", "TCS"),
+        )
+    )
+    assert _compat(rules=rules).decision is IndiaRuleDecision.APPROVE
+
+
+def test_mismatched_exchange_scope_rejects() -> None:
+    rules = _rules(scope=IndiaRuleScope(exchange=IndianExchange.BSE))
+    result = _compat(rules=rules)
+    assert result.decision is IndiaRuleDecision.REJECT
+    assert "INDIA_RULE_SCOPE_MISMATCH" in result.reason
+
+
+def test_mismatched_segment_scope_rejects() -> None:
+    rules = _rules(scope=IndiaRuleScope(segment=IndianSegment.DERIVATIVES))
+    result = _compat(rules=rules)
+    assert result.decision is IndiaRuleDecision.REJECT
+    assert "INDIA_RULE_SCOPE_MISMATCH" in result.reason
+
+
+def test_mismatched_instrument_scope_rejects() -> None:
+    rules = _rules(
+        scope=IndiaRuleScope(instrument_id=InstrumentId("NSE", "INFY"))
+    )
+    result = _compat(rules=rules)
+    assert result.decision is IndiaRuleDecision.REJECT
+    assert "INDIA_RULE_SCOPE_MISMATCH" in result.reason
+
+
+def test_unknown_scope_fails_closed() -> None:
+    for scope in (None, IndiaRuleScope()):
+        result = _compat(rules=_rules(scope=scope))
+        assert result.decision is IndiaRuleDecision.REJECT
+        assert "INDIA_RULE_DATA_UNAVAILABLE" in result.reason
 
 
 def test_snapshot_validation_rejects_blank_identity() -> None:

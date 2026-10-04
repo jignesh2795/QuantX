@@ -15,13 +15,14 @@ from .execution_rules import (
 )
 from .historical import IndianHistoricalOHLCVNormalizer
 from .instrument_catalog import IndianInstrumentCatalog
-from .rule_data import IndiaVenueRuleSnapshot, PriceBandRuleSnapshot
+from .rule_data import IndiaRuleScope, IndiaVenueRuleSnapshot, PriceBandRuleSnapshot
 
 __all__ = [
     "IndiaExecutionRuleEngine",
     "IndiaRuleCheck",
     "IndiaRuleDecision",
     "IndiaRuleResult",
+    "IndiaRuleScope",
     "IndiaVenueRuleSnapshot",
     "IndianExchange",
     "IndianHistoricalOHLCVNormalizer",
