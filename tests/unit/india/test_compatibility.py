@@ -102,6 +102,7 @@ def test_valid_compatibility_approves_with_provenance() -> None:
     assert result.rule_set_version == "NSE-EQ-2026-01"
     assert result.provenance == "test-venue-rules"
     assert result.evaluated_at == EVALUATED_AT
+    assert result.compatibility_evaluated is True
     assert [check.name for check in result.checks] == [
         "instrument_identity",
         "rule_scope",
@@ -221,6 +222,22 @@ def test_naive_evaluation_timestamp_blocks() -> None:
 
 def test_incoherent_band_blocks() -> None:
     rules = _rules(price_band=_band(lower="110", upper="90"))
+    order = _order(order_type=OrderType.LIMIT, limit_price=Decimal("100.00"))
+    result = _compat(order=order, rules=rules)
+    assert result.decision is IndiaRuleDecision.REJECT
+    assert "INDIA_RULE_DATA_UNAVAILABLE" in result.reason
+
+def test_future_effective_price_band_blocks() -> None:
+    future_band = _band()
+    future_band = PriceBandRuleSnapshot(
+        lower_bound=future_band.lower_bound,
+        upper_bound=future_band.upper_bound,
+        rule_type=future_band.rule_type,
+        effective_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+        source=future_band.source,
+        version=future_band.version,
+    )
+    rules = _rules(price_band=future_band)
     order = _order(order_type=OrderType.LIMIT, limit_price=Decimal("100.00"))
     result = _compat(order=order, rules=rules)
     assert result.decision is IndiaRuleDecision.REJECT
