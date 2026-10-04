@@ -8,15 +8,15 @@ market-calendar classification is preserved with each observation.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
 
+from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
-from quantx.execution.market_data import MarketSnapshot
 
-from .calendar import MarketCalendar, SessionClassification
+from .calendar import MarketCalendar
 from .data import HistoricalDataSeries, HistoricalObservation
 
 
@@ -28,6 +28,7 @@ class RawMarketRecord:
     instrument: str
     sequence: int
     fields: Mapping[str, object]
+    timeframe: str = field(kw_only=True)
 
 
 class HistoricalDataSource(Protocol):
@@ -42,7 +43,7 @@ class HistoricalNormalizer(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class CanonicalOHLCVNormalizer:
-    """Strict normalizer for sources that provide OHLCV fields."""
+    """Strict normalizer that preserves OHLCV as a canonical Candle."""
 
     dataset_id: str
     dataset_version: str
@@ -52,32 +53,35 @@ class CanonicalOHLCVNormalizer:
         if record.timestamp.tzinfo is None or record.timestamp.utcoffset() is None:
             raise ValueError("historical timestamp must be timezone-aware")
 
-        required = ("open", "high", "low", "close")
+        required = ("open", "high", "low", "close", "volume")
         missing = [name for name in required if name not in record.fields]
         if missing:
-            raise ValueError(f"missing required historical fields: {', '.join(missing)}")
+            raise ValueError(
+                f"missing required historical fields: {', '.join(missing)}"
+            )
 
-        values = {name: Decimal(str(record.fields[name])) for name in required}
-        volume = None
-        if "volume" in record.fields and record.fields["volume"] is not None:
-            volume = Decimal(str(record.fields["volume"]))
+        values = {
+            name: Decimal(str(record.fields[name]))
+            for name in ("open", "high", "low", "close")
+        }
+        volume = Decimal(str(record.fields["volume"]))
 
-        session: SessionClassification | None = None
         if self.calendar is not None:
-            session = self.calendar.classify(record.timestamp)
+            self.calendar.classify(record.timestamp)
 
-        # Canonical observation uses a Quote snapshot; preserve close as last
-        # without inventing bid/ask. Instrument identity preserves the source
-        # symbol verbatim under a SOURCE venue to avoid inventing venue semantics.
-        _ = (values, volume, session)
         instrument_id = InstrumentId("SOURCE", str(record.instrument))
-        snapshot = MarketSnapshot(
+        candle = Candle(
             instrument=instrument_id,
+            timeframe=record.timeframe,
             timestamp=record.timestamp,
-            last=Decimal(str(record.fields["close"])),
+            open=values["open"],
+            high=values["high"],
+            low=values["low"],
+            close=values["close"],
+            volume=volume,
         )
         return HistoricalObservation(
-            snapshot=snapshot,
+            snapshot=candle,
             source_id=self.dataset_id,
             dataset_version=self.dataset_version,
             sequence=record.sequence,
