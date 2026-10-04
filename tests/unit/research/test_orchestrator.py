@@ -53,3 +53,4 @@ def test_research_orchestrator_runs_without_quality_argument_mismatch() -> None:
     )
     assert result.replayed_frames == 1
     assert result.result is not None
+    assert result.runnable
