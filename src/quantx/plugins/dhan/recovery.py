@@ -15,6 +15,7 @@ from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.integrations.reconciliation.account import AccountFinancialState
+from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidence
 from quantx.integrations.reconciliation.orders import OrderObservation
 from quantx.integrations.reconciliation.positions import PositionState
 
@@ -84,27 +85,36 @@ class DhanRecoveryEvidenceProvider:
         account_id: AccountId | None,
         connection_id: BrokerConnectionId | None,
         order_id: UUID | None,
-    ) -> OrderObservation | None:
-        """Re-observe one broker order; identity mismatch fails closed."""
+    ) -> BrokerOrderEvidence:
+        """Re-observe one broker order; identity mismatch fails closed.
+
+        Transport failure, unavailable endpoints, and ambiguous responses map
+        to UNKNOWN evidence, never to NOT_FOUND. The Dhan adapter currently
+        exposes no verified authoritative absence signal (failure envelopes
+        cannot distinguish "order does not exist" from "lookup failed"), so
+        this provider never emits NOT_FOUND; absence stays conservative.
+        """
         self._check_scope(account_id, connection_id, order_id)
         try:
             detail = self._adapter.order_detail(
                 correlation_id=dhan_correlation_id(self._correlation_id),
             )
-        except Exception:
-            return None
+        except Exception as exc:
+            return BrokerOrderEvidence.unknown(f"Dhan order lookup failed: {exc}")
         if detail.correlation_id is not None and detail.correlation_id != dhan_correlation_id(
             self._correlation_id
         ):
             raise ValueError("Dhan order evidence correlation does not match recovery request")
-        return OrderObservation(
-            order_id=self._order_id,
-            status=_lifecycle_status(detail.order_status),
-            requested_quantity=str(self._order_quantity),
-            filled_quantity=str(detail.filled_quantity),
-            broker_order_id=detail.order_id,
-            account_id=self._account_id,
-            connection_id=self._connection_id,
+        return BrokerOrderEvidence.found(
+            OrderObservation(
+                order_id=self._order_id,
+                status=_lifecycle_status(detail.order_status),
+                requested_quantity=str(self._order_quantity),
+                filled_quantity=str(detail.filled_quantity),
+                broker_order_id=detail.order_id,
+                account_id=self._account_id,
+                connection_id=self._connection_id,
+            )
         )
 
     def fetch_broker_position(

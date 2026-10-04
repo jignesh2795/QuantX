@@ -8,12 +8,15 @@ mechanics live here; the later adapter implements these protocols.
 
 from __future__ import annotations
 
+from datetime import datetime
 from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
 from quantx.execution.idempotency import (
     IdempotencyDecision,
+    OperatorResolution,
+    OperatorResolutionAction,
     PendingExecutionContext,
     PendingExecutionRecoveryRecord,
 )
@@ -39,6 +42,20 @@ class PersistentIdempotencyStore(Protocol):
         request_fingerprint: str,
         receipt_id: UUID,
     ) -> None: ...
+    def resolve_operator(
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        *,
+        operator_id: str,
+        reason: str,
+        resolved_at: datetime,
+        action: OperatorResolutionAction = OperatorResolutionAction.CLOSE_UNRESOLVED,
+        evidence_reference: str | None = None,
+    ) -> OperatorResolution: ...
+    def get_operator_resolution(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> OperatorResolution | None: ...
 
     def list_pending_recovery_records(
         self,

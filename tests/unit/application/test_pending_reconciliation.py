@@ -38,6 +38,7 @@ from quantx.integrations.reconciliation import (
     PositionState,
     StateSource,
 )
+from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidence
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteIdempotencyStore,
@@ -59,9 +60,10 @@ class ScriptedProvider:
 
     def fetch_broker_order(self, **kwargs):
         self.order_calls += 1
-        if self._orders:
-            return self._orders.pop(0)
-        return None
+        raw = self._orders.pop(0) if self._orders else None
+        if raw is None:
+            return BrokerOrderEvidence.unknown("no broker observation scripted")
+        return BrokerOrderEvidence.found(raw)
 
     def fetch_broker_position(self, **kwargs):
         self.position_calls += 1
@@ -629,7 +631,9 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
             # Scoped broker evidence, matching the LIVE safety contract
             # enforced during recovery: unscoped observations are rejected
             # as mismatches before any resolution is attempted.
-            return _observation(order_id, OrderLifecycleStatus.FILLED, filled="2")
+            return BrokerOrderEvidence.found(
+                _observation(order_id, OrderLifecycleStatus.FILLED, filled="2")
+            )
 
         def fetch_broker_position(self, **kwargs):
             return None

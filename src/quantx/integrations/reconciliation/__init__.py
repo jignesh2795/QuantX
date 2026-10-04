@@ -12,6 +12,7 @@ from .account import (
 from .account import (
     ReconciliationStatus as AccountReconciliationStatus,
 )
+from .broker_evidence import BrokerOrderEvidence, BrokerOrderEvidenceStatus
 from .orders import (
     OrderObservation,
     OrderReconciler,
@@ -37,6 +38,8 @@ __all__ = [
     "AccountReconciler",
     "AccountReconciliationFinding",
     "AccountReconciliationStatus",
+    "BrokerOrderEvidence",
+    "BrokerOrderEvidenceStatus",
     "OrderObservation",
     "OrderReconciliationResult",
     "OrderReconciliationStatus",

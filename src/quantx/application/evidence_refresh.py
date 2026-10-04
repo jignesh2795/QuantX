@@ -19,6 +19,10 @@ from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.ports import ExecutionReceipt
 from quantx.integrations.reconciliation.account import AccountFinancialState
+from quantx.integrations.reconciliation.broker_evidence import (
+    BrokerOrderEvidence,
+    BrokerOrderEvidenceStatus,
+)
 from quantx.integrations.reconciliation.orders import OrderObservation
 from quantx.integrations.reconciliation.positions import (
     PositionState,
@@ -33,7 +37,11 @@ from .reconciliation import (
 
 
 class ReconciliationEvidenceProvider(Protocol):
-    """Explicit seam for re-observing broker evidence, offline-testable."""
+    """Explicit seam for re-observing broker evidence, offline-testable.
+
+    Broker-order lookup returns explicit FOUND/NOT_FOUND/UNKNOWN evidence so
+    that authoritative absence can never be conflated with lookup failure.
+    """
 
     def fetch_broker_order(
         self,
@@ -41,7 +49,7 @@ class ReconciliationEvidenceProvider(Protocol):
         account_id: AccountId | None,
         connection_id: BrokerConnectionId | None,
         order_id: UUID | None,
-    ) -> OrderObservation | None: ...
+    ) -> BrokerOrderEvidence: ...
 
     def fetch_broker_position(
         self,
@@ -184,6 +192,7 @@ class ReconciliationEvidenceRefresher:
     ) -> EvidenceRefreshOutcome:
         policy = position_policy or ReconciliationPolicy(timedelta(seconds=30))
         refreshed: list[str] = []
+        absence_notes: list[str] = []
         attempts = 0
         current_broker_order = broker_order
         current_broker_position = broker_position
@@ -230,7 +239,10 @@ class ReconciliationEvidenceRefresher:
                     attempts,
                     tuple(refreshed),
                     False,
-                    ("refresh budget exhausted; last unresolved evidence preserved",),
+                    (
+                        "refresh budget exhausted; last unresolved evidence preserved",
+                        *absence_notes,
+                    ),
                     current_broker_order,
                     current_broker_position,
                     current_broker_account,
@@ -256,8 +268,12 @@ class ReconciliationEvidenceRefresher:
                         order_id=result.order_id,
                     )
                     fetched_any = True
-                    if fetched is not None:
-                        current_broker_order = fetched
+                    if fetched.status is BrokerOrderEvidenceStatus.FOUND:
+                        assert fetched.observation is not None
+                        current_broker_order = fetched.observation
+                    elif fetched.status is BrokerOrderEvidenceStatus.NOT_FOUND:
+                        if "broker reports order absent" not in absence_notes:
+                            absence_notes.append("broker reports order absent")
                 elif domain == "position":
                     instrument_id_for_refresh = self._position_instrument(
                         instrument_id,
