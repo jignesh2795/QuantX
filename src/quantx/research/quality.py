@@ -81,9 +81,16 @@ class HistoricalDataQuality:
 
     @property
     def status(self) -> DataQualityStatus:
-        """Compatibility alias for callers that used the former status field."""
+        """Compatibility view using the former replay-facing vocabulary."""
 
-        return self.quality
+        if self.quality in {
+            DataQualityStatus.VALID,
+            DataQualityStatus.VALID_WITH_WARNINGS,
+        }:
+            return DataQualityStatus.COMPLETE
+        if self.quality is DataQualityStatus.DEGRADED:
+            return DataQualityStatus.INCOMPLETE
+        return DataQualityStatus.BLOCKED
 
     @property
     def can_replay(self) -> bool:
