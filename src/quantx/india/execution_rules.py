@@ -262,6 +262,7 @@ class IndiaExecutionRuleEngine:
             venue_rules.version,
             venue_rules.provenance,
             evaluated_at,
+            compatibility_evaluated=True,
         )
 
     @staticmethod
