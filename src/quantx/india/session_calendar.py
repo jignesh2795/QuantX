@@ -176,6 +176,29 @@ class IndiaSessionCalendar:
     def __init__(self, snapshot: IndiaSessionCalendarSnapshot) -> None:
         self._snapshot = snapshot
 
+    @property
+    def exchange(self) -> IndianExchange:
+        return self._snapshot.exchange
+
+    @property
+    def segment(self) -> IndianSegment:
+        return self._snapshot.segment
+
+    def blocked(
+        self,
+        evaluated_at: datetime,
+        reason: str,
+        *,
+        session_id: str | None = None,
+        granted_permissions: frozenset[IndiaSessionPermission] = frozenset(),
+    ) -> IndiaSessionResult:
+        return self._blocked(
+            evaluated_at,
+            reason,
+            session_id=session_id,
+            granted_permissions=granted_permissions,
+        )
+
     def evaluate(
         self,
         evaluated_at: datetime,
