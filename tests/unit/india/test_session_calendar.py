@@ -1,0 +1,250 @@
+from datetime import date, datetime, time, timezone
+
+import pytest
+
+from quantx.india.session_calendar import (
+    IndiaSessionCalendar,
+    IndiaSessionCalendarSnapshot,
+    IndiaSessionDayOverride,
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionWindow,
+)
+
+IST = "Asia/Kolkata"
+SUBMIT = IndiaSessionPermission.ORDER_SUBMISSION
+CANCEL = IndiaSessionPermission.ORDER_CANCELLATION
+
+
+def _window(
+    session_id: str,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    *permissions: IndiaSessionPermission,
+) -> IndiaSessionWindow:
+    return IndiaSessionWindow(
+        session_id=session_id,
+        start=time(*start),
+        end=time(*end),
+        permissions=frozenset(permissions or (SUBMIT,)),
+    )
+
+
+def _calendar(
+    *,
+    windows_by_weekday=(
+        (
+            0,
+            (
+                _window("regular", (9, 15), (15, 30), SUBMIT),
+            ),
+        ),
+        (
+            1,
+            (
+                _window("regular", (9, 15), (15, 30), SUBMIT),
+            ),
+        ),
+        (
+            2,
+            (
+                _window("regular", (9, 15), (15, 30), SUBMIT),
+            ),
+        ),
+        (
+            3,
+            (
+                _window("regular", (9, 15), (15, 30), SUBMIT),
+            ),
+        ),
+        (
+            4,
+            (
+                _window("regular", (9, 15), (15, 30), SUBMIT),
+            ),
+        ),
+    ),
+    holidays=frozenset(),
+    overrides=(),
+    valid_from=date(2026, 1, 1),
+    valid_through=date(2026, 12, 31),
+) -> IndiaSessionCalendar:
+    return IndiaSessionCalendar(
+        IndiaSessionCalendarSnapshot(
+            version="india-calendar-test-v1",
+            provenance="test-fixture",
+            timezone=IST,
+            valid_from=valid_from,
+            valid_through=valid_through,
+            windows_by_weekday=windows_by_weekday,
+            holidays=holidays,
+            overrides=overrides,
+        )
+    )
+
+
+def _at_ist(day: int, hour: int, minute: int = 0) -> datetime:
+    return datetime(2026, 1, day, hour, minute, tzinfo=timezone.utc)
+
+
+def test_regular_session_allows_order_submission() -> None:
+    result = _calendar().evaluate(_at_ist(5, 5, 0), permission=SUBMIT)
+    assert result.decision is IndiaSessionDecision.ALLOW
+    assert result.session_id == "regular"
+    assert result.calendar_version == "india-calendar-test-v1"
+    assert result.provenance == "test-fixture"
+    assert result.calendar_evaluated is True
+
+
+def test_closed_time_blocks() -> None:
+    result = _calendar().evaluate(_at_ist(5, 11, 0), permission=SUBMIT)
+    assert result.decision is IndiaSessionDecision.BLOCK
+    assert "closed" in result.reason
+
+
+def test_weekend_blocks_without_becoming_unknown() -> None:
+    result = _calendar().evaluate(_at_ist(4, 5, 0), permission=SUBMIT)
+    assert result.decision is IndiaSessionDecision.BLOCK
+    assert "closed" in result.reason
+
+
+def test_explicit_holiday_blocks() -> None:
+    result = _calendar(
+        holidays=frozenset({date(2026, 1, 5)}),
+    ).evaluate(_at_ist(5, 5, 0), permission=SUBMIT)
+    assert result.decision is IndiaSessionDecision.BLOCK
+    assert "holiday" in result.reason
+
+
+def test_partial_day_override_replaces_weekly_schedule() -> None:
+    result = _calendar(
+        overrides=(
+            IndiaSessionDayOverride(
+                date(2026, 1, 5),
+                (_window("partial", (9, 15), (12, 0), SUBMIT),),
+            ),
+        ),
+    ).evaluate(_at_ist(5, 12, 30), permission=SUBMIT)
+    assert result.decision is IndiaSessionDecision.BLOCK
+
+
+def test_special_override_can_open_a_holiday() -> None:
+    result = _calendar(
+        holidays=frozenset({date(2026, 1, 5)}),
+        overrides=(
+            IndiaSessionDayOverride(
+                date(2026, 1, 5),
+                (_window("muhurat", (18, 0), (19, 0), SUBMIT),),
+            ),
+        ),
+    ).evaluate(_at_ist(5, 12, 30), permission=SUBMIT)
+    assert result.decision is IndiaSessionDecision.BLOCK
+
+    special = _calendar(
+        holidays=frozenset({date(2026, 1, 5)}),
+        overrides=(
+            IndiaSessionDayOverride(
+                date(2026, 1, 5),
+                (_window("muhurat", (18, 0), (19, 0), SUBMIT),),
+            ),
+        ),
+    ).evaluate(_at_ist(5, 12, 30), permission=CANCEL)
+    assert special.decision is IndiaSessionDecision.BLOCK
+
+    opened = _calendar(
+        holidays=frozenset({date(2026, 1, 5)}),
+        overrides=(
+            IndiaSessionDayOverride(
+                date(2026, 1, 5),
+                (_window("muhurat", (18, 0), (19, 0), SUBMIT),),
+            ),
+        ),
+    ).evaluate(datetime(2026, 1, 5, 12, 30, tzinfo=timezone.utc), permission=SUBMIT)
+    assert opened.decision is IndiaSessionDecision.ALLOW
+    assert opened.session_id == "muhurat"
+
+
+def test_session_permission_can_deny_submission_inside_open_session() -> None:
+    result = _calendar(
+        overrides=(
+            IndiaSessionDayOverride(
+                date(2026, 1, 5),
+                (_window("cancel-only", (9, 0), (9, 30), CANCEL),),
+            ),
+        ),
+    ).evaluate(datetime(2026, 1, 5, 3, 45, tzinfo=timezone.utc), permission=SUBMIT)
+    assert result.decision is IndiaSessionDecision.BLOCK
+    assert "permission" in result.reason
+
+
+def test_midnight_crossing_session_is_active_before_and_after_midnight() -> None:
+    overnight = _window("overnight", (17, 0), (1, 0), SUBMIT)
+    calendar = _calendar(
+        windows_by_weekday=(
+            (0, (overnight,)),
+            (1, (overnight,)),
+            (2, (overnight,)),
+            (3, (overnight,)),
+            (4, (overnight,)),
+        ),
+    )
+
+    before = calendar.evaluate(
+        datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc),
+        permission=SUBMIT,
+    )
+    after = calendar.evaluate(
+        datetime(2026, 1, 6, 0, 30, tzinfo=timezone.utc),
+        permission=SUBMIT,
+    )
+
+    assert before.decision is IndiaSessionDecision.ALLOW
+    assert after.decision is IndiaSessionDecision.ALLOW
+    assert before.session_id == after.session_id == "overnight"
+
+
+def test_unknown_calendar_coverage_blocks_fail_closed() -> None:
+    result = _calendar(
+        valid_from=date(2026, 1, 5),
+        valid_through=date(2026, 1, 9),
+    ).evaluate(datetime(2026, 1, 10, 5, 0, tzinfo=timezone.utc), permission=SUBMIT)
+    assert result.decision is IndiaSessionDecision.BLOCK
+    assert "DATA_UNAVAILABLE" in result.reason
+    assert result.calendar_evaluated is True
+
+
+def test_naive_evaluation_timestamp_blocks_fail_closed() -> None:
+    result = _calendar().evaluate(datetime(2026, 1, 5, 10, 0), permission=SUBMIT)
+    assert result.decision is IndiaSessionDecision.BLOCK
+    assert "DATA_UNAVAILABLE" in result.reason
+
+
+def test_calendar_evaluation_is_deterministic() -> None:
+    calendar = _calendar()
+    timestamp = datetime(2026, 1, 5, 5, 0, tzinfo=timezone.utc)
+    first = calendar.evaluate(timestamp, permission=SUBMIT)
+    second = calendar.evaluate(timestamp, permission=SUBMIT)
+    assert first == second
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"version": " "}, "version"),
+        ({"provenance": " "}, "provenance"),
+        ({"timezone": "Not/AZone"}, "No time zone found"),
+        ({"valid_from": date(2026, 1, 2), "valid_through": date(2026, 1, 1)}, "ordered"),
+    ],
+)
+def test_invalid_calendar_snapshot_rejected(kwargs, message) -> None:
+    base = dict(
+        version="v1",
+        provenance="p1",
+        timezone=IST,
+        valid_from=date(2026, 1, 1),
+        valid_through=date(2026, 12, 31),
+        windows_by_weekday=(),
+    )
+    base.update(kwargs)
+    with pytest.raises((ValueError, Exception), match=message):
+        IndiaSessionCalendarSnapshot(**base)
