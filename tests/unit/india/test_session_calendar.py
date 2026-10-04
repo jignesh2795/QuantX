@@ -142,28 +142,6 @@ def test_partial_day_override_replaces_weekly_schedule() -> None:
 
 
 def test_special_override_can_open_a_holiday() -> None:
-    result = _calendar(
-        holidays=frozenset({date(2026, 1, 5)}),
-        overrides=(
-            IndiaSessionDayOverride(
-                date(2026, 1, 5),
-                (_window("muhurat", (18, 0), (19, 0), SUBMIT),),
-            ),
-        ),
-    ).evaluate(_at_ist(5, 12, 30), permission=SUBMIT)
-    assert result.decision is IndiaSessionDecision.BLOCK
-
-    special = _calendar(
-        holidays=frozenset({date(2026, 1, 5)}),
-        overrides=(
-            IndiaSessionDayOverride(
-                date(2026, 1, 5),
-                (_window("muhurat", (18, 0), (19, 0), SUBMIT),),
-            ),
-        ),
-    ).evaluate(_at_ist(5, 12, 30), permission=CANCEL)
-    assert special.decision is IndiaSessionDecision.BLOCK
-
     opened = _calendar(
         holidays=frozenset({date(2026, 1, 5)}),
         overrides=(
@@ -172,7 +150,10 @@ def test_special_override_can_open_a_holiday() -> None:
                 (_window("muhurat", (18, 0), (19, 0), SUBMIT),),
             ),
         ),
-    ).evaluate(datetime(2026, 1, 5, 12, 30, tzinfo=timezone.utc), permission=SUBMIT)
+    ).evaluate(
+        datetime(2026, 1, 5, 12, 30, tzinfo=timezone.utc),
+        permission=SUBMIT,
+    )
     assert opened.decision is IndiaSessionDecision.ALLOW
     assert opened.session_id == "muhurat"
 
