@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 
 from quantx.domain.clock import Clock
 
+from .domain import IndianExchange, IndianSegment
+
 
 class IndiaSessionPermission(StrEnum):
     """Operations a venue session may permit."""
@@ -73,6 +75,8 @@ class IndiaSessionCalendarSnapshot:
     version: str
     provenance: str
     timezone: str
+    exchange: IndianExchange
+    segment: IndianSegment
     valid_from: date
     valid_through: date
     windows_by_weekday: tuple[tuple[int, tuple[IndiaSessionWindow, ...]], ...]
