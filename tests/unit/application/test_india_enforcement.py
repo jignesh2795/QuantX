@@ -183,7 +183,7 @@ def test_india_rejection_blocks_before_reservation_and_submit(tmp_path) -> None:
         unit_of_work = SqliteUnitOfWork(database)
         specs = {InstrumentId("NSE", "TCS"): _spec(lot_size=Decimal("25"))}
         orchestrator = _orchestrator(
-            database, unit_of_work, india_rule_evaluator=_evaluator(specs)
+            database, unit_of_work, india_rule_evaluator=_compat_evaluator(_venue_rules(), product=ProductType.CNC)
         )
         request = _request()
         result = orchestrator.execute(request, broker=_adapter(transport))
@@ -242,7 +242,7 @@ def test_india_approval_keeps_submission_reachable(tmp_path) -> None:
         orchestrator = _orchestrator(
             database,
             SqliteUnitOfWork(database),
-            india_rule_evaluator=_evaluator(),
+            india_rule_evaluator=_compat_evaluator(),
         )
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 
@@ -259,8 +259,9 @@ def test_upstream_approve_cannot_bypass_india_rules(tmp_path) -> None:
         orchestrator = _orchestrator(
             database,
             SqliteUnitOfWork(database),
-            india_rule_evaluator=_evaluator(
-                {InstrumentId("NSE", "TCS"): _spec(segment=IndianSegment.DERIVATIVES)}
+            india_rule_evaluator=_compat_evaluator(
+                _venue_rules(),
+                product=ProductType.CNC,
             ),
         )
         request = _request()
@@ -303,8 +304,9 @@ def test_india_rejection_precedes_risk_evaluation(tmp_path) -> None:
         orchestrator = _orchestrator(
             database,
             SqliteUnitOfWork(database),
-            india_rule_evaluator=_evaluator(
-                {InstrumentId("NSE", "TCS"): _spec(lot_size=Decimal("25"))}
+            india_rule_evaluator=_compat_evaluator(
+                _venue_rules(quantity_freeze=Decimal("1")),
+                product=ProductType.CNC,
             ),
             live_risk_evaluator=permissive_risk,
         )
@@ -446,6 +448,24 @@ def _compat_evaluator(rules=None, product: ProductType | None = ProductType.CNC)
         )
 
     return run
+
+
+def test_india_live_b1_only_result_cannot_bypass_b3(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_rule_evaluator=_evaluator(),
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative B3 compatibility evidence" in result.reason
+        assert transport.submitted == ()
+    finally:
+        database.close()
 
 
 def test_compat_freeze_rejection_blocks_before_reservation(tmp_path) -> None:
