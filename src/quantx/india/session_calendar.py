@@ -125,7 +125,7 @@ class IndiaSessionResult:
     evaluated_at: datetime
     session_id: str | None = None
     granted_permissions: frozenset[IndiaSessionPermission] = frozenset()
-    calendar_evaluated: bool = True
+    calendar_evaluated: bool = False
 
 
 class IndiaSessionCalendar:
