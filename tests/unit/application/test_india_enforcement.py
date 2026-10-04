@@ -51,6 +51,11 @@ from quantx.india.rule_data import (
     IndiaVenueRuleSnapshot,
     PriceBandRuleSnapshot,
 )
+from quantx.india.session_calendar import (
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionResult,
+)
 from quantx.integrations.brokers import (
     BrokerConnectionRef,
     CapabilitySet,
@@ -167,7 +172,26 @@ def _evaluator(specs=None, product: ProductType | None = ProductType.CNC):
     return run
 
 
+def _approving_india_session_evaluator():
+    def allow(request) -> IndiaSessionResult:
+        return IndiaSessionResult(
+            IndiaSessionDecision.ALLOW,
+            "india session approved for test",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=CHECKED_AT,
+            session_id="regular",
+            granted_permissions=frozenset({IndiaSessionPermission.ORDER_SUBMISSION}),
+            calendar_evaluated=True,
+        )
+
+    return allow
+
+
 def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
+    overrides.setdefault(
+        "india_session_evaluator", _approving_india_session_evaluator()
+    )
     return ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
