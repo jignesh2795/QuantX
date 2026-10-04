@@ -21,6 +21,7 @@ from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDat
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.trading_gate import TradingGate
+from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 
@@ -57,6 +58,8 @@ class ExecutionOrchestrator:
         application_runtime: ApplicationRuntime | None = None,
         session_guard: SessionExecutionGuard | None = None,
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
+        india_rule_evaluator: Callable[[ApprovedExecutionRequest], IndiaRuleResult]
+        | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._idempotency = idempotency or InMemoryIdempotencyStore()
@@ -66,6 +69,7 @@ class ExecutionOrchestrator:
         self._application_runtime = application_runtime
         self._session_guard = session_guard
         self._live_risk_evaluator = live_risk_evaluator
+        self._india_rule_evaluator = india_rule_evaluator
 
     def execute(
         self,
@@ -181,6 +185,20 @@ class ExecutionOrchestrator:
                 ExecutionDispatchStatus.BLOCKED,
                 reason="broker instrument market does not match execution request market",
             )
+
+        if self._india_rule_evaluator is not None:
+            try:
+                india_rules = self._india_rule_evaluator(request)
+            except Exception as exc:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"india execution-rule evaluation failed closed: {exc}",
+                )
+            if india_rules.decision is not IndiaRuleDecision.APPROVE:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"india execution rules rejected the request: {india_rules.reason}",
+                )
 
         required_capabilities = request.order.required_capabilities
         if required_capabilities and not broker.capabilities().require(required_capabilities):
