@@ -14,7 +14,7 @@ from quantx.domain.value_objects import InstrumentId
 
 from .data import HistoricalDataSeries, HistoricalObservation
 from .point_in_time import PointInTimeContext, PointInTimeContextResolver
-from .quality import DataQualityReport, DataQualityStatus, HistoricalDataQualityGate
+from .quality import DataQualityStatus, HistoricalDataQuality, HistoricalDataQualityGate
 
 HistoricalDataQualityValidator = HistoricalDataQualityGate
 
@@ -54,7 +54,7 @@ class HistoricalReplay:
         self._point_in_time_resolver = point_in_time_resolver
         self._expected_instrument = expected_instrument
         self._expected_interval_seconds = expected_interval_seconds
-        self._quality: DataQualityReport | None = None
+        self._quality: HistoricalDataQuality | None = None
 
     @property
     def quality(self) -> DataQualityReport:
