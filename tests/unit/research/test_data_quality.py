@@ -64,7 +64,7 @@ def test_missing_expected_timestamp() -> None:
     assert result.completeness is CompletenessStatus.INCOMPLETE
     assert result.missing_timestamps == (T1,)
     assert result.unexpected_timestamps == ()
-    assert "expected timestamps are missing from observations" in result.issues
+    assert any(issue.message == "expected timestamp is missing from observations" for issue in result.issues)
 
 
 def test_unexpected_observed_timestamp() -> None:
@@ -74,7 +74,7 @@ def test_unexpected_observed_timestamp() -> None:
     assert result.completeness is CompletenessStatus.INCOMPLETE
     assert result.missing_timestamps == (T1,)
     assert result.unexpected_timestamps == (T2,)
-    assert "observed timestamps were not present in expected set" in result.issues
+    assert any(issue.message == "observed timestamp was not in expected set" for issue in result.issues)
 
 
 def test_duplicate_timestamp() -> None:
@@ -83,7 +83,7 @@ def test_duplicate_timestamp() -> None:
     assert result.quality is DataQualityStatus.DEGRADED
     assert result.completeness is CompletenessStatus.INCOMPLETE
     assert result.duplicate_timestamps == (T0,)
-    assert "duplicate candle timestamps detected" in result.issues
+    assert any(issue.message == "duplicate observation timestamp" for issue in result.issues)
 
 
 def test_out_of_order_observation() -> None:
@@ -116,7 +116,7 @@ def test_clean_data_without_expectations_warns() -> None:
 
     assert result.quality is DataQualityStatus.VALID_WITH_WARNINGS
     assert result.completeness is CompletenessStatus.UNKNOWN
-    assert "expected timestamp set was not supplied; completeness is unknown" in result.issues
+    assert any(issue.message == "expected timestamp set was not supplied; completeness is unknown" for issue in result.issues)
 
 
 def test_empty_data_without_expectations() -> None:
@@ -221,7 +221,7 @@ def test_non_candle_input_rejected_explicitly() -> None:
     assert result.quality is DataQualityStatus.REJECTED
     assert result.completeness is CompletenessStatus.UNKNOWN
     assert result.observation_count == 1
-    assert result.issues == ("observations must be canonical candles",)
+    assert tuple(issue.message for issue in result.issues) == ("observations must be canonical historical observations",)
 
 
 def test_quality_classification_deterministic() -> None:
