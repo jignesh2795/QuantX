@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.risk import RiskResult
+from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import (
     IdempotencyStore,
     InMemoryIdempotencyStore,
@@ -55,6 +56,7 @@ class ExecutionOrchestrator:
         trading_gate: TradingGate | None = None,
         application_runtime: ApplicationRuntime | None = None,
         session_guard: SessionExecutionGuard | None = None,
+        live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._idempotency = idempotency or InMemoryIdempotencyStore()
@@ -63,6 +65,7 @@ class ExecutionOrchestrator:
         self._trading_gate_explicit = trading_gate is not None
         self._application_runtime = application_runtime
         self._session_guard = session_guard
+        self._live_risk_evaluator = live_risk_evaluator
 
     def execute(
         self,
@@ -192,6 +195,19 @@ class ExecutionOrchestrator:
                 ExecutionDispatchStatus.BLOCKED,
                 reason="live execution requires a durable UnitOfWork",
             )
+        if self._live_risk_evaluator is not None:
+            try:
+                live_risk = self._live_risk_evaluator(request)
+            except Exception as exc:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"live pre-trade risk evaluation failed closed: {exc}",
+                )
+            if live_risk.decision is not RiskDecision.APPROVE:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"live pre-trade risk rejected the request: {live_risk.reason}",
+                )
         return self._execute_live_transactional(request, broker, unit_of_work)
 
     def continue_partial(
