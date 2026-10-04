@@ -157,12 +157,16 @@ class IndiaSessionCalendar:
             )
 
         current_windows = self._snapshot.windows_for(local_date)
-        active = [
+        current_active = [
             window
             for window in current_windows
-            if window.contains(local.time())
-            and permission in window.permissions
+            if permission in window.permissions
+            and (
+                window.contains(local.time())
+                and (not window.crosses_midnight or local.time() >= window.start)
+            )
         ]
+        active = current_active
         if active:
             window = active[0]
             return IndiaSessionResult(
@@ -180,6 +184,7 @@ class IndiaSessionCalendar:
             window
             for window in current_windows
             if window.contains(local.time())
+            and (not window.crosses_midnight or local.time() >= window.start)
         ]
 
         if self._snapshot.known_on(previous_date):
@@ -188,7 +193,7 @@ class IndiaSessionCalendar:
                 window
                 for window in previous_windows
                 if window.crosses_midnight
-                and window.contains(local.time())
+                and local.time() < window.end
                 and permission in window.permissions
             ]
             if active_previous:
@@ -206,7 +211,7 @@ class IndiaSessionCalendar:
             active_any.extend(
                 window
                 for window in previous_windows
-                if window.crosses_midnight and window.contains(local.time())
+                if window.crosses_midnight and local.time() < window.end
             )
 
         if active_any:
