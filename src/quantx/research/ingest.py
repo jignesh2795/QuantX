@@ -1,8 +1,8 @@
 """Canonical historical-data ingestion boundary.
 
 Adapters normalize raw CSV/JSON/vendor payloads into QuantX historical
-observations without fabricating missing values or market metadata. Optional
-market-calendar classification is preserved with each observation.
+observations without fabricating missing values or market metadata. An
+optional market calendar may be consulted during normalization.
 """
 
 from __future__ import annotations
