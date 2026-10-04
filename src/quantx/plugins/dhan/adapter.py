@@ -30,7 +30,7 @@ from .mapping import (
     normalize_status,
     parse_dhan_timestamp,
 )
-from .models import DhanInstrumentRef, DhanOrderDetail
+from .models import DhanInstrumentRef, DhanOrderDetail, DhanPositionSnapshot
 from .transport import DhanTimeoutError, DhanTransport
 
 
@@ -245,17 +245,55 @@ class DhanBrokerAdapter:
                     f"{position.security_id}/{position.exchange_segment}"
                 )
             states.append(
-                PositionState(
-                    account_id=self._connection.account_id,
-                    connection_id=self._connection.connection_id,
-                    instrument_id=str(instrument_id),
-                    quantity=position.net_quantity,
-                    average_price=position.average_price,
-                    observed_at=snapshot.observed_at,
-                    source=StateSource.BROKER,
-                )
+                self._position_state(position, str(instrument_id), snapshot.observed_at)
             )
         return tuple(states)
+
+    def position_state_for(self, instrument_id: str) -> PositionState | None:
+        """Return the broker position for one canonical instrument id string.
+
+        Only the requested instrument is evaluated: stray or manual positions
+        in other symbols (including symbols with no canonical mapping) are not
+        target evidence and never block this lookup. An unavailable position
+        book still fails closed, and absence of the target instrument stays
+        missing (``None``) rather than inferred as anything else.
+
+        The Dhan positions endpoint reports open positions only; delivered
+        (CNC) holdings are not observed here. Absence of a position must
+        never be inferred as delivery or settlement. A future read-only
+        holdings observation (e.g. ``holding_state_for`` backed by a broker
+        holdings endpoint, consumed as corroborating evidence only) is the
+        correct boundary for settled-holdings questions.
+        """
+        snapshot = self._transport.positions()
+        if not snapshot.available:
+            raise ValueError(f"Dhan position observation unavailable: {snapshot.message}")
+        reverse: dict[tuple[str, str], InstrumentId] = {
+            (ref.security_id, ref.exchange_segment): instrument_id
+            for instrument_id, (_, ref) in self._instruments.items()
+        }
+        for position in snapshot.positions:
+            mapped = reverse.get((position.security_id, position.exchange_segment))
+            if mapped is None or str(mapped) != instrument_id:
+                continue
+            return self._position_state(position, str(mapped), snapshot.observed_at)
+        return None
+
+    def _position_state(
+        self,
+        position: DhanPositionSnapshot,
+        instrument_id: str,
+        observed_at: datetime,
+    ) -> PositionState:
+        return PositionState(
+            account_id=self._connection.account_id,
+            connection_id=self._connection.connection_id,
+            instrument_id=instrument_id,
+            quantity=position.net_quantity,
+            average_price=position.average_price,
+            observed_at=observed_at,
+            source=StateSource.BROKER,
+        )
 
     @staticmethod
     def _validate_market(

@@ -124,16 +124,22 @@ class DhanRecoveryEvidenceProvider:
         connection_id: BrokerConnectionId | None,
         instrument_id: str,
     ) -> PositionState | None:
-        """Return the bound broker position for one instrument, if present."""
+        """Return the bound broker position for one instrument, if present.
+
+        Only the requested instrument is evaluated through the adapter's
+        target-scoped lookup, so stray or manual positions in other symbols
+        cannot block recovery of the target order. Account/connection scope
+        is still verified on the returned state.
+        """
         self._check_scope(account_id, connection_id, self._order_id)
-        for state in self._adapter.position_states():
-            if str(state.instrument_id) == instrument_id:
-                if state.account_id != self._account_id:
-                    raise ValueError("Dhan position account does not match recovery account")
-                if state.connection_id != self._connection_id:
-                    raise ValueError("Dhan position connection does not match recovery connection")
-                return state
-        return None
+        state = self._adapter.position_state_for(instrument_id)
+        if state is None:
+            return None
+        if state.account_id != self._account_id:
+            raise ValueError("Dhan position account does not match recovery account")
+        if state.connection_id != self._connection_id:
+            raise ValueError("Dhan position connection does not match recovery connection")
+        return state
 
     def fetch_broker_account(
         self,
