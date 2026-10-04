@@ -62,6 +62,7 @@ class OrderStateReconciliationResult:
     account: ReconciliationReport | None
     status: OrderWorkflowStatus
     reasons: tuple[str, ...] = ()
+    identity_error: str | None = None
 
     @property
     def definitive(self) -> bool:
@@ -153,6 +154,7 @@ class OrderStateReconciliationWorkflow:
             account=account,
             status=status,
             reasons=tuple(reasons),
+            identity_error=identity_reason,
         )
 
     @staticmethod

@@ -23,7 +23,10 @@ from quantx.integrations.reconciliation.broker_evidence import (
     BrokerOrderEvidence,
     BrokerOrderEvidenceStatus,
 )
-from quantx.integrations.reconciliation.orders import OrderObservation
+from quantx.integrations.reconciliation.orders import (
+    OrderObservation,
+    OrderReconciliationStatus,
+)
 from quantx.integrations.reconciliation.positions import (
     PositionState,
     ReconciliationPolicy,
@@ -90,11 +93,20 @@ class DefinitiveEvidencePolicy:
     The default is conservative: order, position, and account evidence must
     all be definitively matched, and broker-order evidence must carry matching
     account/connection scope. Narrower workflows opt out explicitly.
+
+    ``advisory_account_amounts`` keeps account evidence collected and visible
+    while treating pure balance deltas (cash/equity/margin amounts that differ
+    on both sides) as contextual rather than resolution-blocking. Account
+    identity, availability, and staleness findings still block. The semantic
+    basis is that balances are not order-identity evidence: intraday cash
+    movement, fees, or margin drift must not veto an otherwise definitively
+    identified broker order.
     """
 
     require_position: bool = True
     require_account: bool = True
     require_order_scope: bool = True
+    advisory_account_amounts: bool = False
 
     @classmethod
     def all_required(cls) -> DefinitiveEvidencePolicy:
@@ -118,6 +130,7 @@ class DefinitiveEvidencePolicy:
             require_position=True,
             require_account=True,
             require_order_scope=True,
+            advisory_account_amounts=True,
         )
 
 
@@ -139,6 +152,11 @@ class EvidenceRefreshOutcome:
     broker_position: PositionState | None = None
     broker_account: AccountFinancialState | None = None
     not_found_eligibility: NotFoundResolution | None = None
+
+
+_ADVISORY_ACCOUNT_AMOUNT_FIELDS = frozenset(
+    {"available_cash", "equity", "margin_used", "margin_available"}
+)
 
 
 class ReconciliationIdempotencyResolver:
@@ -338,17 +356,53 @@ class ReconciliationEvidenceRefresher:
             attempts += 1
 
     def _is_definitive(self, result: OrderStateReconciliationResult) -> bool:
-        if result.status is not OrderWorkflowStatus.MATCHED:
+        if result.status is OrderWorkflowStatus.MATCHED:
+            if self._evidence.require_position and (
+                result.position is None or result.position.status.value != "MATCHED"
+            ):
+                return False
+            if self._evidence.require_account and not self._account_satisfies(result):
+                return False
+            return True
+        # With advisory account amounts, a MISMATCH aggregate caused solely by
+        # balance deltas (order and position matched, no identity failure)
+        # still permits a definitive outcome. Identity failures always block.
+        if result.status is not OrderWorkflowStatus.MISMATCH:
+            return False
+        if not self._evidence.advisory_account_amounts:
+            return False
+        if result.identity_error is not None:
+            return False
+        if result.order is None or result.order.status is not OrderReconciliationStatus.MATCHED:
             return False
         if self._evidence.require_position and (
             result.position is None or result.position.status.value != "MATCHED"
         ):
             return False
-        if self._evidence.require_account and (
-            result.account is None or result.account.status.value != "MATCHED"
-        ):
+        return self._account_satisfies(result)
+
+    def _account_satisfies(self, result: OrderStateReconciliationResult) -> bool:
+        """Decide whether account evidence permits a definitive outcome.
+
+        Exact MATCHED always satisfies. Otherwise only pure balance deltas
+        are advisory, and only when the policy opts in: every finding must
+        concern a both-sides-present amount field. Identity, availability,
+        currency, and staleness findings always block.
+        """
+        account = result.account
+        if account is None:
             return False
-        return True
+        if account.status.value == "MATCHED":
+            return True
+        if not self._evidence.advisory_account_amounts:
+            return False
+        if not account.findings:
+            return False
+        return all(
+            finding.field in _ADVISORY_ACCOUNT_AMOUNT_FIELDS
+            and finding.observed is not None
+            for finding in account.findings
+        )
 
     @staticmethod
     def _is_definitive_mismatch(result: OrderStateReconciliationResult) -> bool:
