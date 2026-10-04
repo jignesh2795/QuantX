@@ -15,6 +15,7 @@ from quantx.domain.events import OrderFilled, OrderSubmitted
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.market_data import Candle
 from quantx.domain.orders import Fill
+from quantx.domain.risk import RiskResult
 from quantx.persistence import ReceiptRepository
 
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
@@ -22,7 +23,6 @@ from .market_data import MarketSnapshot
 from .models import FillModel, QuoteFillModel, SlippageModel
 from .ports import ExecutionOutcome, ExecutionReceipt
 from .receipts.lifecycle import ExecutionLifecycle
-from quantx.domain.risk import RiskResult
 
 QuoteSnapshot = MarketSnapshot
 

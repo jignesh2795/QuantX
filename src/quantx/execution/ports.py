@@ -6,6 +6,7 @@ from typing import Protocol
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.market_data import Candle
+
 from .market_data import MarketSnapshot
 from .receipts.models import ExecutionOutcome, ExecutionReceipt
 
