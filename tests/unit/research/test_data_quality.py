@@ -262,10 +262,12 @@ def test_no_filesystem_network_broker_imports() -> None:
 
 
 def test_protocol_and_vendor_neutrality() -> None:
-    import quantx.research.data_quality as module
+    import quantx.research.data_quality as compatibility
+    import quantx.research.quality as canonical
 
-    assert hasattr(module, "assess_candles")
-    assert hasattr(module, "HistoricalDataQuality")
+    assert compatibility.assess_candles is canonical.assess_candles
+    assert compatibility.HistoricalDataQuality is canonical.HistoricalDataQuality
+    assert compatibility.HistoricalDataQualityGate is canonical.HistoricalDataQualityGate
 
 
 def test_dataset_access_integration() -> None:
