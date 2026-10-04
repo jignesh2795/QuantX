@@ -180,6 +180,8 @@ def _approving_india_session_evaluator():
             calendar_version="test-calendar-v1",
             provenance="test-calendar",
             evaluated_at=CHECKED_AT,
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
             session_id="regular",
             granted_permissions=frozenset({IndiaSessionPermission.ORDER_SUBMISSION}),
             calendar_evaluated=True,
@@ -231,6 +233,8 @@ def test_india_live_closed_session_blocks_before_india_rules(tmp_path) -> None:
                 calendar_version="test-calendar-v1",
                 provenance="test-calendar",
                 evaluated_at=CHECKED_AT,
+                exchange=IndianExchange.NSE,
+                segment=IndianSegment.EQUITY,
                 session_id=None,
                 calendar_evaluated=True,
             )
