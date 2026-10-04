@@ -272,6 +272,37 @@ def test_india_live_session_evaluator_exception_fails_closed(tmp_path) -> None:
         database.close()
 
 
+def test_india_live_session_scope_mismatch_fails_closed(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        def mismatched(request) -> IndiaSessionResult:
+            return IndiaSessionResult(
+                IndiaSessionDecision.ALLOW,
+                "wrong exchange approval",
+                calendar_version="test-calendar-v1",
+                provenance="test-calendar",
+                evaluated_at=CHECKED_AT,
+                exchange=IndianExchange.BSE,
+                segment=IndianSegment.EQUITY,
+                calendar_evaluated=True,
+            )
+
+        orchestrator = _orchestrator(
+            database,
+            SqliteUnitOfWork(database),
+            india_session_evaluator=mismatched,
+            india_rule_evaluator=_compat_evaluator(),
+        )
+        result = orchestrator.execute(_request(), broker=_adapter(transport))
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative India session/calendar evidence" in result.reason
+        assert transport.submitted == ()
+    finally:
+        database.close()
+
+
 def test_india_live_closed_session_blocks_before_india_rules(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
