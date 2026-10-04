@@ -15,3 +15,4 @@ These documents are not implementation contracts. For current implementation sta
 - `docs/architecture/control-and-safety-path.md` — ordered control and safety path draft
 - `docs/roadmap/PHASES.md` — tight near-term phases with exit criteria
 - `docs/roadmap/README.md` — milestone map (M0–M6) plus link to tight phases
+- `docs/implementation/engineering-practices.md` — checklists, phase sign-off, ADR-lite, boundaries

@@ -2,11 +2,14 @@
 
 ## Canonical documents
 
+- `engineering-practices.md` — fail-closed checklist, phase sign-off, ADR-lite, boundary hygiene.
 - `v0.1-build-order.md` — implementation sequence and release gates.
 - `p0-canonical-contracts.md` — stable internal vocabulary and invariants.
 - `v0.1-repository-tree.md` — historical v0.1 target tree; it is not the current source tree.
 
 For the actual current package layout, use `docs/architecture/41-current-package-map.md`.
+
+For near-term sequencing, use `docs/roadmap/PHASES.md`.
 
 ## Implementation discipline
 
@@ -17,12 +20,15 @@ For the actual current package layout, use `docs/architecture/41-current-package
 5. Run focused and full validation.
 6. Run Ruff/format/mypy where applicable.
 7. Leave no unintended content changes.
+8. Update STATUS when claims or non-claims change.
 
 OpenCode is the local validation harness; implementation changes are made on the project branch.
 
 ## Current focus
 
 Execution integrity and reconciliation. Do not start a broad package migration or UI/AI subsystem while an existing boundary can be hardened incrementally.
+
+Use the fail-closed checklist in `engineering-practices.md` for execution/recovery PRs.
 
 ## Batch history
 
