@@ -1,4 +1,4 @@
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 
 import pytest
 
@@ -15,6 +15,7 @@ from quantx.india.session_calendar import (
 IST = "Asia/Kolkata"
 SUBMIT = IndiaSessionPermission.ORDER_SUBMISSION
 CANCEL = IndiaSessionPermission.ORDER_CANCELLATION
+REGULAR = _window("regular", (9, 15), (15, 30), SUBMIT)
 
 
 def _window(
@@ -49,36 +50,11 @@ def _calendar_snapshot(**overrides):
 def _calendar(
     *,
     windows_by_weekday=(
-        (
-            0,
-            (
-                _window("regular", (9, 15), (15, 30), SUBMIT),
-            ),
-        ),
-        (
-            1,
-            (
-                _window("regular", (9, 15), (15, 30), SUBMIT),
-            ),
-        ),
-        (
-            2,
-            (
-                _window("regular", (9, 15), (15, 30), SUBMIT),
-            ),
-        ),
-        (
-            3,
-            (
-                _window("regular", (9, 15), (15, 30), SUBMIT),
-            ),
-        ),
-        (
-            4,
-            (
-                _window("regular", (9, 15), (15, 30), SUBMIT),
-            ),
-        ),
+        (0, (REGULAR,)),
+        (1, (REGULAR,)),
+        (2, (REGULAR,)),
+        (3, (REGULAR,)),
+        (4, (REGULAR,)),
     ),
     holidays=frozenset(),
     overrides=(),
@@ -102,7 +78,7 @@ def _calendar(
 
 
 def _at_ist(day: int, hour: int, minute: int = 0) -> datetime:
-    return datetime(2026, 1, day, hour, minute, tzinfo=timezone.utc)
+    return datetime(2026, 1, day, hour, minute, tzinfo=UTC)
 
 
 def test_regular_session_allows_order_submission() -> None:
@@ -156,7 +132,7 @@ def test_special_override_can_open_a_holiday() -> None:
             ),
         ),
     ).evaluate(
-        datetime(2026, 1, 5, 12, 30, tzinfo=timezone.utc),
+        datetime(2026, 1, 5, 12, 30, tzinfo=UTC),
         permission=SUBMIT,
     )
     assert opened.decision is IndiaSessionDecision.ALLOW
@@ -171,9 +147,9 @@ def test_session_permission_can_deny_submission_inside_open_session() -> None:
                 (_window("cancel-only", (9, 0), (9, 30), CANCEL),),
             ),
         ),
-    ).evaluate(datetime(2026, 1, 5, 3, 45, tzinfo=timezone.utc), permission=SUBMIT)
+    ).evaluate(datetime(2026, 1, 5, 3, 45, tzinfo=UTC), permission=SUBMIT)
     assert result.decision is IndiaSessionDecision.BLOCK
-    assert "permission" in result.reason
+    assert "PERMISSION" in result.reason
 
 
 def test_midnight_crossing_session_is_active_before_and_after_midnight() -> None:
@@ -189,11 +165,11 @@ def test_midnight_crossing_session_is_active_before_and_after_midnight() -> None
     )
 
     before = calendar.evaluate(
-        datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 5, 17, 0, tzinfo=UTC),
         permission=SUBMIT,
     )
     after = calendar.evaluate(
-        datetime(2026, 1, 5, 19, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 5, 19, 0, tzinfo=UTC),
         permission=SUBMIT,
     )
 
@@ -206,7 +182,7 @@ def test_unknown_calendar_coverage_blocks_fail_closed() -> None:
     result = _calendar(
         valid_from=date(2026, 1, 5),
         valid_through=date(2026, 1, 9),
-    ).evaluate(datetime(2026, 1, 10, 5, 0, tzinfo=timezone.utc), permission=SUBMIT)
+    ).evaluate(datetime(2026, 1, 10, 5, 0, tzinfo=UTC), permission=SUBMIT)
     assert result.decision is IndiaSessionDecision.BLOCK
     assert "DATA_UNAVAILABLE" in result.reason
     assert result.calendar_evaluated is True
@@ -220,7 +196,7 @@ def test_naive_evaluation_timestamp_blocks_fail_closed() -> None:
 
 def test_calendar_evaluation_is_deterministic() -> None:
     calendar = _calendar()
-    timestamp = datetime(2026, 1, 5, 5, 0, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 1, 5, 5, 0, tzinfo=UTC)
     first = calendar.evaluate(timestamp, permission=SUBMIT)
     second = calendar.evaluate(timestamp, permission=SUBMIT)
     assert first == second
