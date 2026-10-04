@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timezone
 
 import pytest
 
+from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.session_calendar import (
     IndiaSessionCalendar,
     IndiaSessionCalendarSnapshot,
@@ -35,6 +36,8 @@ def _calendar_snapshot(**overrides):
         version="v1",
         provenance="p1",
         timezone=IST,
+        exchange=IndianExchange.NSE,
+        segment=IndianSegment.EQUITY,
         valid_from=date(2026, 1, 1),
         valid_through=date(2026, 12, 31),
         windows_by_weekday=(),
@@ -87,6 +90,8 @@ def _calendar(
             version="india-calendar-test-v1",
             provenance="test-fixture",
             timezone=IST,
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
             valid_from=valid_from,
             valid_through=valid_through,
             windows_by_weekday=windows_by_weekday,
