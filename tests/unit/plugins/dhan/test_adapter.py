@@ -37,6 +37,7 @@ from quantx.execution.receipts.models import (
     ExecutionReceipt,
 )
 from quantx.execution.trading_gate import DurableTradingGate
+from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
 from quantx.india.session_calendar import (
     IndiaSessionDecision,
@@ -130,6 +131,8 @@ def _approving_india_session_evaluator():
             calendar_version="test-calendar-v1",
             provenance="test-calendar",
             evaluated_at=datetime(2026, 1, 5, 10, 0, tzinfo=UTC),
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
             session_id="regular",
             granted_permissions=frozenset({IndiaSessionPermission.ORDER_SUBMISSION}),
             calendar_evaluated=True,
