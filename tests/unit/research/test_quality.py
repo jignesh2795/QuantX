@@ -32,7 +32,7 @@ def test_complete_interval_series_is_replayable_but_completeness_is_unknown():
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
     observations = (_obs(start), _obs(start + timedelta(seconds=60), 1))
     report = HistoricalDataQualityGate().validate(observations, expected_interval_seconds=60)
-    assert report.status is DataQualityStatus.COMPLETE
+    assert report.status is DataQualityStatus.VALID_WITH_WARNINGS
     assert report.completeness is CompletenessStatus.UNKNOWN
     assert report.can_replay
 
