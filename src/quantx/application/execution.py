@@ -216,6 +216,19 @@ class ExecutionOrchestrator:
                     ExecutionDispatchStatus.BLOCKED,
                     reason=f"india execution-rule evaluation failed closed: {exc}",
                 )
+            if (
+                not india_rules.compatibility_evaluated
+                or india_rules.rule_set_version is None
+                or india_rules.provenance is None
+                or india_rules.evaluated_at is None
+            ):
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=(
+                        "india LIVE execution requires authoritative B3 "
+                        "compatibility evidence"
+                    ),
+                )
             if india_rules.decision is not IndiaRuleDecision.APPROVE:
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
