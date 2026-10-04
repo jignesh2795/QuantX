@@ -7,6 +7,8 @@ from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
+from quantx.domain.clock import Clock
+
 
 class IndiaSessionPermission(StrEnum):
     """Operations a venue session may permit."""
@@ -126,6 +128,20 @@ class IndiaSessionResult:
     session_id: str | None = None
     granted_permissions: frozenset[IndiaSessionPermission] = frozenset()
     calendar_evaluated: bool = False
+
+
+class IndiaSessionEvaluator:
+    """Clock-backed callable adapter for the India LIVE session boundary."""
+
+    def __init__(self, calendar: IndiaSessionCalendar, clock: Clock) -> None:
+        self._calendar = calendar
+        self._clock = clock
+
+    def __call__(self, request) -> IndiaSessionResult:
+        return self._calendar.evaluate(
+            self._clock.now(),
+            permission=IndiaSessionPermission.ORDER_SUBMISSION,
+        )
 
 
 class IndiaSessionCalendar:
@@ -257,6 +273,7 @@ __all__ = [
     "IndiaSessionCalendarSnapshot",
     "IndiaSessionDayOverride",
     "IndiaSessionDecision",
+    "IndiaSessionEvaluator",
     "IndiaSessionPermission",
     "IndiaSessionResult",
     "IndiaSessionWindow",
