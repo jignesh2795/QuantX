@@ -190,11 +190,11 @@ def test_midnight_crossing_session_is_active_before_and_after_midnight() -> None
     )
 
     before = calendar.evaluate(
-        datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc),
         permission=SUBMIT,
     )
     after = calendar.evaluate(
-        datetime(2026, 1, 6, 0, 30, tzinfo=timezone.utc),
+        datetime(2026, 1, 5, 19, 0, tzinfo=timezone.utc),
         permission=SUBMIT,
     )
 
@@ -227,24 +227,24 @@ def test_calendar_evaluation_is_deterministic() -> None:
     assert first == second
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "message"),
-    [
-        ({"version": " "}, "version"),
-        ({"provenance": " "}, "provenance"),
-        ({"timezone": "Not/AZone"}, "No time zone found"),
-        ({"valid_from": date(2026, 1, 2), "valid_through": date(2026, 1, 1)}, "ordered"),
-    ],
-)
-def test_invalid_calendar_snapshot_rejected(kwargs, message) -> None:
-    base = dict(
-        version="v1",
-        provenance="p1",
-        timezone=IST,
-        valid_from=date(2026, 1, 1),
-        valid_through=date(2026, 12, 31),
-        windows_by_weekday=(),
-    )
-    base.update(kwargs)
-    with pytest.raises((ValueError, Exception), match=message):
-        IndiaSessionCalendarSnapshot(**base)
+def test_blank_version_rejected() -> None:
+    with pytest.raises(ValueError, match="version"):
+        _calendar_snapshot(version=" ")
+
+
+def test_blank_provenance_rejected() -> None:
+    with pytest.raises(ValueError, match="provenance"):
+        _calendar_snapshot(provenance=" ")
+
+
+def test_invalid_timezone_rejected() -> None:
+    with pytest.raises(Exception, match="No time zone found"):
+        _calendar_snapshot(timezone="Not/AZone")
+
+
+def test_invalid_calendar_range_rejected() -> None:
+    with pytest.raises(ValueError, match="ordered"):
+        _calendar_snapshot(
+            valid_from=date(2026, 1, 2),
+            valid_through=date(2026, 1, 1),
+        )
