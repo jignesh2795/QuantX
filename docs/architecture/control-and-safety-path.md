@@ -1,161 +1,271 @@
-# Control and Safety Path (Draft)
+# Control and Safety Path
 
 This document describes the intended ordered control path for QuantX execution.
 
-It is adapted from QuantumTrade's multi-layer safety thinking, rewritten for QuantX's current architecture (execution integrity, recovery, trading gates, fail-closed LIVE).
+It is adapted from QuantumTrade's multi-layer safety thinking, rewritten for QuantX's architecture: execution integrity, recovery, trading gates, fail-closed LIVE, ports-and-adapters, and Indian-market-aware domain modeling.
 
-Status: **draft / target with implemented anchors**. Where behavior is already implemented, it is marked. Where it is still partial, that is stated.
+**Status:** Draft / target architecture with implemented anchors.  
+Where behavior is already implemented (per `docs/STATUS.md`), it is marked. Where partial, that is stated explicitly.
 
 ---
 
-## Purpose
+## 1. Purpose
 
-Make the control path obvious:
+Make the control path obvious and testable:
 
 - What must happen before a broker submit is allowed
-- What is persisted
+- What is persisted and why
 - What happens on uncertain or failed outcomes
-- What recovery is allowed to do (and not do)
+- What recovery is allowed to do — and forbidden from doing
 
-Principle: **prefer fail-closed and authoritative evidence over inference**.
+**Governing principle:** Prefer fail-closed behavior and authoritative evidence over inference.
 
 ---
 
-## Ordered path (conceptual)
+## 2. Ordered path (canonical)
 
 ```
 Strategy / application intent
         |
         v
 [1] Domain validation
-    - Instrument, side, quantity, order type, account/connection identity
-    - Capability checks (adapter/broker supports the requested operation)
+    - Instrument, side, quantity, order type
+    - Account / connection identity
+    - Capability checks (adapter supports the operation)
         |
         v
-[2] Pre-trade risk / policy checks  (partial today)
-    - Stateless or narrowly scoped risk decisions
+[2] Pre-trade risk / policy checks          (partial today)
+    - Stateless or narrowly scoped decisions
     - Reject without side effects when possible
         |
         v
-[3] Trading gate + reservation  (implemented direction)
+[3] Trading gate + reservation               (implemented direction)
     - Durable trading-gate authorization
     - Idempotency / pending LIVE reservation context
-    - No submit without a started recovery-backed runtime where required
+    - Runtime must be recovery-backed and started where required
         |
         v
-[4] Broker submit (adapter boundary)
-    - Only through approved dispatcher/adapter path
-    - Direct LIVE dispatcher/adapter bypasses blocked
+[4] Broker submit (adapter boundary only)
+    - Approved dispatcher/adapter path only
+    - Direct LIVE bypasses blocked
         |
         v
 [5] Receipt capture
     - Durable execution receipt
-    - Completed submissions retain a receipt even when idempotency completion is uncertain
-    - Broker-returned UNKNOWN remains durably PENDING for reconciliation
+    - Retain receipt even when idempotency completion is uncertain
+    - Broker UNKNOWN remains durably PENDING
         |
         v
 [6] Fill / continuation handling
-    - Partial-fill continuation and lineage where applicable
-    - Continuation claims validated against authoritative receipt identity
+    - Partial-fill continuation and lineage
+    - Claims validated against authoritative receipt identity
         |
         v
-[7] Reconciliation and recovery  (strong focus)
+[7] Reconciliation and recovery              (strong focus)
     - Reconstruct from authoritative evidence
-    - Pending context isolatable per failure
-    - Concurrent recovery resolves a pending reservation at most once
-    - No broker-submit capability inside pure recovery runners
+    - Isolate malformed contexts
+    - At-most-once resolution of pending reservations
+    - Recovery runners do not submit to brokers
         |
         v
 [8] Portfolio / position state update
-    - Driven by accepted evidence, not guessed outcomes
+    - Driven by accepted evidence only
 ```
 
 ---
 
-## Layer notes
+## 3. Layer detail
 
-### 1. Domain validation
+### 3.1 Domain validation
 
-Core domain contracts should reject invalid intents early.
+**Intent:** Reject invalid or unsupported intents before any reservation or submit.
 
-Adapters must not be the first place basic identity and capability rules are enforced.
+Should cover:
 
-### 2. Pre-trade risk / policy
+- Structural validity of the intent (fields, types, bounds)
+- Instrument and market-segment rules relevant to the domain (including F&O-aware rules where applicable)
+- Account and connection identity binding
+- Capability checks (does this adapter/broker support this order type, product, or path?)
 
-Target: keep risk decisions explicit and testable.
+**Rule:** Adapters must not be the first place basic identity and capability rules are enforced.
 
-Avoid turning this into a full retail "safety product." Prefer clear contracts that plugins or hosts can extend.
+### 3.2 Pre-trade risk / policy checks
 
-### 3. Trading gate + reservation
+**Intent:** Explicit, testable risk decisions without becoming a full retail "safety product."
 
-Implemented direction in current STATUS:
+Target characteristics:
 
-- Durable trading-gate state
+- Prefer pure/stateless checks where possible
+- Clear approve/reject outcomes with reasons
+- No hidden mutation of portfolio state on reject
+
+**Current state:** Partial. Trading gates and domain foundations exist; a full QuantumTrade-style ladder (RiskEngine → LiveSafetyMonitor → KillSwitch → PortfolioManager) is not assembled as one product surface — and should not be copied wholesale.
+
+**Direction:** Strengthen contracts; allow hosts/plugins to add policy layers without polluting core.
+
+### 3.3 Trading gate + reservation
+
+**Intent:** No LIVE submit without durable authorization and recoverable context.
+
+Implemented direction (see STATUS):
+
+- Durable trading-gate state behind a pluggable state-store boundary
 - Versioned pending LIVE execution context with idempotency reservations
-- LIVE execution depends on recovery-backed application runtime startup where required
+- Reconstructible pending context across restart
+- LIVE execution depends on a started recovery-backed `ApplicationRuntime` where required
 - Submission-time authorization spanning reservation and broker call
+- Direct LIVE dispatcher/adapter bypasses blocked
 
-### 4. Broker submit
+**Rules:**
 
-Adapter boundary only.
+- Reservation without submit must be recoverable
+- Submit without reservation/gate must be impossible on the protected path
+- Gate state must survive process restart
 
-Production host composition (e.g. Dhan host slice) should construct credentials/transport and register identity without inventing new execution semantics in the host layer.
+### 3.4 Broker submit (adapter boundary)
 
-### 5. Receipt capture
+**Intent:** All external submits cross a single, auditable boundary.
 
-Receipts are the source of truth for what was submitted and what the system believes happened.
+- Host composition constructs credentials/transport and registers identity
+- Host must not invent new execution semantics
+- Adapter translates domain orders to broker-specific requests and normalizes responses upward
 
-UNKNOWN outcomes stay pending for reconciliation rather than being completed optimistically.
+**Current concrete slice:** Dhan production host composition (`DhanHostConfig` / `DhanHostRuntime`) as the implemented pattern to extend.
 
-### 6. Fill / continuation
+### 3.5 Receipt capture
 
-Continuation must be identity-bound (receipt, quantity, account, connection).
+**Intent:** Receipts are the system's durable record of what was attempted and what is known.
 
-Reuse of claims must match authoritative evidence.
+- Completed broker submissions retain a durable receipt even when idempotency completion is uncertain
+- Broker-returned `UNKNOWN` remains durably `PENDING` for reconciliation
+- Receipts carry enough identity to support continuation and recovery checks
 
-### 7. Reconciliation and recovery
+**Rule:** Do not complete idempotency or advance critical state on UNKNOWN.
 
-Recovery is conservative:
+### 3.6 Fill / continuation handling
 
-- Reconstruct from evidence
-- Isolate malformed contexts
-- Do not invent fills or completions
-- Pure recovery services should not submit to brokers
+**Intent:** Partial progress is explicit and identity-bound.
 
-Startup recovery should be an explicit one-shot lifecycle step before the runtime is marked started.
+- Continuation-chain lineage and aggregate fill validation
+- Idempotent continuation dispatch claims
+- Reused claims must match authoritative receipt identity, quantity, account, and broker connection
 
-### 8. Portfolio / position updates
+**Rule:** Continuation is reconstruction from evidence, not a best-guess retry policy.
 
-State changes should follow accepted domain events / receipts.
+### 3.7 Reconciliation and recovery
 
-Do not advance portfolio state on uncertain submissions.
+**Intent:** After restart, crash, or uncertain broker outcomes, restore safe state without inventing history.
+
+Implemented direction:
+
+- Deterministic pending LIVE recovery with per-context failure isolation
+- Malformed persisted contexts isolated with reservation/context identity checks
+- Concurrent recovery resolves a pending reservation at most once
+- `PendingExecutionRecoveryRunner` remains without broker-submit capability
+- Explicit one-shot startup lifecycle: recovery runs before runtime is marked started; failed recovery leaves startup failed
+
+**Rules:**
+
+- Reconstruct from authoritative evidence only
+- Prefer leaving work PENDING over optimistic completion
+- Recovery must not become a hidden second execution path
+
+### 3.8 Portfolio / position state update
+
+**Intent:** Portfolio and position state move only on accepted evidence.
+
+- Event-driven updates preferred
+- No advancement on uncertain submissions
+- Keep managers consistent with receipt/continuation outcomes
+
+**Current state:** Domain foundations exist; full QuantumTrade-style event reaction surface may still be thinner — extend only as needed for consistency.
 
 ---
 
-## Research / paper path alignment
+## 4. Research and paper path alignment
 
 Backtest and paper paths should reuse the same domain meaning where practical.
 
-Fill models must remain explicit:
+### Fill-model honesty
 
-- Model identity recorded on receipts where applicable
-- Limitations and assumptions visible in fidelity reporting
-- No synthetic bid/ask invented to force quote semantics onto candle data
+- Record selecting model identity on receipts where applicable (e.g. QUOTE vs BASIC_BAR families)
+- Surface limitations in fidelity reporting
+- Prefer `BLOCKED` dispositions when data cannot support a safe fill assumption
+- Do not synthesize bid/ask merely to force quote semantics onto candle data
 
-Blocked dispositions are preferable to hidden approximations.
+### Determinism
 
----
-
-## Non-goals for this document
-
-- Defining a full strategy product workflow
-- Defining notification channels
-- Defining a multi-broker UI
-- Claiming end-to-end production-broker execution that has not been validated
+- Research replay should be deterministic given the same inputs and model configuration
+- Provenance and point-in-time assumptions should be explicit
 
 ---
 
-## Related documents
+## 5. Startup and runtime composition
+
+### ApplicationRuntime
+
+- Requires a recovery hook
+- Runs recovery synchronously before marking started
+- Rejects repeated starts
+- Leaves startup failed if recovery infrastructure raises
+
+### ProductionRuntime
+
+- Owns durable SQLite lifecycle
+- Accepts explicit registry configuration
+- Delegates to recovery-backed ApplicationRuntime
+- Closes persistence on composition failure
+- Does not construct credentials, broker transports, or deployment-specific services itself
+
+This is **validated production composition**, not a claim of full end-to-end production-broker trading.
+
+---
+
+## 6. Mapping to QuantumTrade safety ladder
+
+QuantumTrade packaged a visible ladder:
+
+`RiskEngine → LiveSafetyMonitor → KillSwitch → PortfolioManager → Balance Reconciler`
+
+QuantX maps the *intent* of that ladder onto a recovery-centric control path:
+
+| QT layer idea | QuantX analogue |
+|---------------|-----------------|
+| RiskEngine | Domain validation + pre-trade risk/policy contracts |
+| LiveSafetyMonitor / rate / loss limits | Policy checks + trading gate (extend carefully) |
+| KillSwitch | Fail-closed gates, blocked paths, startup refusal on recovery failure |
+| Portfolio constraint | Portfolio/position domain rules |
+| Balance reconciler | Receipt-based reconciliation + pending recovery |
+
+QuantX should not blindly re-implement QT's product ladder. It should keep the **ordered, fail-closed control idea** and implement it with QuantX's receipt/recovery model.
+
+---
+
+## 7. Non-goals
+
+This document does **not**:
+
+- Define a full strategy product workflow
+- Define notification channels
+- Define a multi-broker UI
+- Claim production-broker end-to-end execution beyond what STATUS validates
+- Require a QuantumTrade-identical class hierarchy
+
+---
+
+## 8. Evolution rules
+
+When changing execution behavior:
+
+1. State which layer of the path is affected
+2. State whether the change is fail-closed or fail-open
+3. State what evidence is required after the change
+4. Update STATUS with validation evidence and explicit non-claims
+5. If the change is audience-specific or product-shaped, prefer a plugin/host extension over core growth
+
+---
+
+## 9. Related documents
 
 - `docs/STATUS.md` — implemented recovery and LIVE-control evidence
 - `docs/planning/quantumtrade-transfer-map.md` — what was taken from QuantumTrade
