@@ -8,6 +8,8 @@ from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from quantx.domain.clock import Clock
+from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.instruments import MarketFamily
 
 from .domain import IndianExchange, IndianSegment
 
@@ -129,6 +131,8 @@ class IndiaSessionResult:
     calendar_version: str
     provenance: str
     evaluated_at: datetime
+    exchange: IndianExchange
+    segment: IndianSegment
     session_id: str | None = None
     granted_permissions: frozenset[IndiaSessionPermission] = frozenset()
     calendar_evaluated: bool = False
@@ -141,9 +145,27 @@ class IndiaSessionEvaluator:
         self._calendar = calendar
         self._clock = clock
 
-    def __call__(self, _request: object) -> IndiaSessionResult:
+    def __call__(self, request: ApprovedExecutionRequest) -> IndiaSessionResult:
+        market = request.execution_context.market
+        segment = {
+            MarketFamily.EQUITY: IndianSegment.EQUITY,
+            MarketFamily.DERIVATIVES: IndianSegment.DERIVATIVES,
+            MarketFamily.FX: IndianSegment.CURRENCY,
+            MarketFamily.COMMODITIES: IndianSegment.COMMODITY,
+        }.get(market.family)
+        now = self._clock.now()
+        if market.venue != self._calendar.exchange.value:
+            return self._calendar.blocked(
+                now,
+                "INDIA_SESSION_SCOPE_MISMATCH: calendar exchange does not match request market",
+            )
+        if segment is not self._calendar.segment:
+            return self._calendar.blocked(
+                now,
+                "INDIA_SESSION_SCOPE_MISMATCH: calendar segment does not match request market",
+            )
         return self._calendar.evaluate(
-            self._clock.now(),
+            now,
             permission=IndiaSessionPermission.ORDER_SUBMISSION,
         )
 
@@ -195,6 +217,8 @@ class IndiaSessionCalendar:
                 self._snapshot.version,
                 self._snapshot.provenance,
                 evaluated_at,
+                self._snapshot.exchange,
+                self._snapshot.segment,
                 window.session_id,
                 window.permissions,
                 True,
@@ -224,6 +248,8 @@ class IndiaSessionCalendar:
                     self._snapshot.version,
                     self._snapshot.provenance,
                     evaluated_at,
+                    self._snapshot.exchange,
+                    self._snapshot.segment,
                     window.session_id,
                     window.permissions,
                     True,
@@ -264,6 +290,8 @@ class IndiaSessionCalendar:
             self._snapshot.version,
             self._snapshot.provenance,
             evaluated_at,
+            self._snapshot.exchange,
+            self._snapshot.segment,
             session_id,
             granted_permissions,
             True,
