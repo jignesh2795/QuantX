@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from quantx.domain.enums import OrderStatus
 from quantx.domain.orders import Fill, Order
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
+from quantx.execution.charges import ChargeBreakdown
 
 
 class ExecutionOutcome(StrEnum):
@@ -38,6 +39,7 @@ class ExecutionReceipt:
     model_version: str = ""
     assumptions: tuple[str, ...] = ()
     fee: Decimal = Decimal("0")
+    charges: ChargeBreakdown | None = None
     broker_order_id: str | None = None
     raw_reference: str | None = None
     correlation_id: str | None = None
@@ -64,6 +66,7 @@ class ExecutionReceipt:
         model_version: str = "",
         assumptions: tuple[str, ...] = (),
         fee: Decimal = Decimal("0"),
+        charges: ChargeBreakdown | None = None,
         broker_order_id: str | None = None,
         raw_reference: str | None = None,
         correlation_id: str | None = None,
@@ -87,6 +90,7 @@ class ExecutionReceipt:
             model_version=model_version,
             assumptions=assumptions,
             fee=fee,
+            charges=charges,
             broker_order_id=broker_order_id,
             raw_reference=raw_reference,
             correlation_id=correlation_id,
@@ -144,6 +148,8 @@ class ExecutionReceipt:
             raise ValueError("executed_at must be timezone-aware")
         if self.fee < 0:
             raise ValueError("fee cannot be negative")
+        if self.charges is not None and self.charges.total != self.fee:
+            raise ValueError("charges total must equal receipt fee")
         if self.order_quantity is not None and self.order_quantity <= 0:
             raise ValueError("order_quantity must be positive when provided")
         if any(fill.client_order_id != self.client_order_id for fill in self.fills):
@@ -166,3 +172,4 @@ class ExecutionReceipt:
 ExecutionReceiptRecord = ExecutionReceipt
 ReceiptState = ExecutionOutcome
 ReceiptOutcome = ExecutionOutcome
+
