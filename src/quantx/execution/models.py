@@ -18,12 +18,37 @@ from .market_data import MarketSnapshot
 
 @dataclass(frozen=True, slots=True)
 class FillProposal:
+    """Deterministic proposed realization of one execution attempt."""
+
     order_id: UUID
     quantity: Decimal
     price: Decimal
     reason: str
     model_id: str
     model_version: str
+    reference_price: Decimal | None = None
+    evidence: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.quantity, Decimal):
+            raise TypeError("fill proposal quantity must be a Decimal")
+        if self.quantity <= 0:
+            raise ValueError("fill proposal quantity must be positive")
+        if not isinstance(self.price, Decimal):
+            raise TypeError("fill proposal price must be a Decimal")
+        if self.price <= 0:
+            raise ValueError("fill proposal price must be positive")
+        if self.reference_price is not None:
+            if not isinstance(self.reference_price, Decimal):
+                raise TypeError("fill proposal reference_price must be a Decimal")
+            if self.reference_price <= 0:
+                raise ValueError("fill proposal reference_price must be positive")
+        if not self.reason.strip():
+            raise ValueError("fill proposal reason must not be empty")
+        if not self.model_id.strip():
+            raise ValueError("fill proposal model_id must not be empty")
+        if not self.model_version.strip():
+            raise ValueError("fill proposal model_version must not be empty")
 
 
 class FillModel(ABC):
