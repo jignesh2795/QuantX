@@ -129,7 +129,6 @@ class HistoricalAccountStateSnapshot:
         ):
             raise ValueError("incomplete account state requires explicit evidence")
 
-
     @property
     def net_pnl(self) -> Money | None:
         """Return realized + unrealized P&L less modeled fees when valuation is complete."""
