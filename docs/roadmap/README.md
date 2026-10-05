@@ -18,13 +18,14 @@ Sandbox, paper execution, canonical backtesting, optimization, walk-forward, rob
 
 The current execution/research hardening sequence is:
 
-`C1 canonical historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar-aware gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution price/fill fidelity ✅ → C7 time-indexed account-state sampling ✅`
+`C1 canonical historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar-aware gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution price/fill fidelity ✅ → C7 time-indexed account-state sampling ✅ → C8 account-state valuation provenance ✅`
 
-R1-C1 through R1-C7 are merged and externally revalidated. The next slice is selected from the remaining deterministic-research/account-state gaps rather than opening UI, AI, or broad broker-matrix work.
+R1-C1 through R1-C8 are merged and externally revalidated. The next slice is selected from the remaining deterministic-research/account-state gaps rather than opening UI, AI, or broad broker-matrix work.
 
 The R1-C6 planning and implementation record is in `r1-c6-execution-fidelity.md`.
 The R1-C7 planning and implementation record is in `r1-c7-time-indexed-account-state.md`.
-The selected next slice is documented in `r1-c8-account-state-valuation-provenance.md`.
+The R1-C8 planning and implementation record is in `r1-c8-account-state-valuation-provenance.md`.
+The selected next slice is documented in `r1-c9-multi-instrument-account-state-synchronization.md`.
 
 ## M4 — Strategy Platform
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals.
@@ -49,8 +50,14 @@ The series is sampled at replay-frame timestamps before the current frame's stra
 
 ### R1-C8 — Account-state valuation provenance
 
-The next deterministic-research slice strengthens the evidence carried by historical account-state snapshots.
+R1-C8 made the evidence carried by historical account-state snapshots explicitly auditable.
 
-C8 will make the explicit market marks used by a snapshot auditable at the snapshot boundary, including their instrument identity, source, observation timestamp, and whether valuation evidence was unavailable. It will reuse the existing mark and tracker boundaries rather than adding a second valuation/accounting path.
+R1-C8 is complete: immutable valuation evidence records identify the instrument, mark, source, observation time, snapshot selection time, availability, and explicit unavailability reason. C8 reused the existing mark/tracker boundary and did not alter valuation selection rules.
 
 C8 is research/backtest only. It does not change LIVE execution, risk, broker, reconciliation, retry, UNKNOWN, recovery, or capital semantics.
+
+### R1-C9 — Multi-instrument account-state synchronization
+
+The next deterministic-research slice will define and implement an explicit synchronization policy for time-indexed account-state sampling when a replay frame updates only one of several open-position instruments. The policy must distinguish exact-current evidence from deterministic as-of evidence and must never hide mark age or silently use future data.
+
+C9 is research/backtest only. It does not change LIVE execution, risk, broker, reconciliation, retry, UNKNOWN, recovery, or capital semantics.
