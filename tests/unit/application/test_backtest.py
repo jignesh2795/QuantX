@@ -539,6 +539,7 @@ def test_backtest_exposes_time_indexed_account_state_series() -> None:
 
     assert len(result.account_states) == 1
     assert len(result.account_state_series) == 2
+    assert result.account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
 
     first = result.account_state_series[0]
     second = result.account_state_series[1]
