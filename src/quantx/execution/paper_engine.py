@@ -187,9 +187,7 @@ class PaperExecutionEngine:
                 )
             )
         fee = Decimal("0") if charges is None else charges.total
-        slippage_evidence: tuple[str, ...] = ()
-        if self._profile.slippage_bps != 0:
-            slippage_evidence = (f"reference_price={proposal.price}",)
+        remaining_quantity = request.order.quantity - fill_quantity
         receipt = ExecutionReceipt(
             request_id=uuid4(),
             client_order_id=request.order.client_order_id,
@@ -210,7 +208,16 @@ class PaperExecutionEngine:
             assumptions=(
                 f"latency_ms={self._profile.latency_ms}",
                 f"slippage_bps={self._profile.slippage_bps}",
-                *slippage_evidence,
+                f"reference_price={proposal.reference_price}",
+                f"realized_price={fill.price}",
+                f"realized_quantity={fill.quantity}",
+                f"remaining_quantity={remaining_quantity}",
+                f"execution_model_id={proposal.model_id}",
+                f"execution_model_version={proposal.model_version}",
+                *proposal.evidence,
+                f"slippage_model_id={self._slippage_model.model_id}",
+                f"slippage_model_version={self._slippage_model.model_version}",
+                *self._slippage_model.provenance,
                 f"partial_fill_ratio={self._profile.partial_fill_ratio}",
                 f"fee_bps={self._profile.fee_bps}",
                 *(
