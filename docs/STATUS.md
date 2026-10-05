@@ -1,9 +1,9 @@
 # QuantX Status
 
 ## Current state
-**Phase:** v0.1 implementation / execution-integrity, recovery, and LIVE-control hardening.
+**Phase:** v0.1 implementation / execution-integrity, recovery, LIVE-control, and deterministic research hardening.
 
-The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution-integrity hardening, developer-validation integrity, and stack integration.
+The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution-integrity hardening, developer-validation integrity, deterministic research/account-state fidelity, and stack integration.
 
 **Latest externally validated recovery milestone:** `feat/production-recovery-entrypoint` at `efa4798a76d3576f31b5a2127381fb990c6a0915` with 665 passed, 0 failed, 0 errors, 0 skipped. The earlier 635-test checkpoint remains the last independently documented baseline on the pre-entrypoint recovery branch.
 
@@ -13,7 +13,7 @@ The LIVE startup/readiness and trading-gate hardening merged in PR #33. Claude's
 
 ## Validation baseline
 
-The current externally reported validation evidence for the production-recovery stack is **665 passed, 0 failed, 0 errors, 0 skipped** at `efa4798a76d3576f31b5a2127381fb990c6a0915`. This validation was run externally with OpenCode on `feat/production-recovery-entrypoint`; changed-file Ruff and `git diff --check` were clean. Repo-wide Ruff still reports 272 pre-existing errors. No production-broker end-to-end execution was claimed.
+The current externally reported validation evidence for the production-recovery stack remains **665 passed, 0 failed, 0 errors, 0 skipped** at `efa4798a76d3576f31b5a2127381fb990c6a0915`. This validation was run externally with OpenCode on `feat/production-recovery-entrypoint`; changed-file Ruff and `git diff --check` were clean. Repo-wide Ruff still reports 272 pre-existing errors. No production-broker end-to-end execution was claimed.
 
 This checkpoint validates the LIVE durability hardening, pending-recovery corruption isolation, and explicit startup lifecycle: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; pending LIVE reservation context is persisted and reconstructible across a simulated process restart; malformed pending contexts are isolated as per-context recovery failures; the default all-required recovery path can resolve with local position/account evidence; concurrent recovery passes resolve a pending reservation at most once; and an explicit application runtime runs pending recovery once before startup completes. The 635-test suite completed with zero failures, errors, or skipped tests.
 
@@ -67,8 +67,12 @@ The latest review of the 20-commit recovery sequence identified two additional L
 
 Architecture documents distinguish implemented/current behavior, target architecture, and roadmap/future capabilities. Historical batch records should not be treated as current implementation state unless explicitly marked as historical.
 
+## R1-C6 milestone
+
+R1-C6 execution-fidelity hardening is implemented and merged in PR #65. The final validated implementation head was `5a58318c3978b3a78da32847d717e8bc842a8ac8`; it was squash-merged to main as `8067e5f3b81344698b818d950373bbcc477c170a`. External revalidation reported **1168 passed, 0 failed, 0 errors, 1 skipped** (the optional Dhan SDK test). Changed-file Ruff, strict mypy for the two changed production files, and `git diff --check` all passed. The final C6 implementation touched only the paper/research execution-fidelity path and test/docs surfaces; it did not expand LIVE, reconciliation, retry, UNKNOWN, recovery, broker SDK, persistence, or integration boundaries.
+
 ## Next direction
 
-Before adding UI, AI, or a broad broker matrix, keep the current package boundaries stable. The LIVE/recovery boundary and production composition are implemented and externally validated. Issue #22 is now implemented as the Dhan production host slice on this branch: the production host/deployment boundary is documented in `docs/architecture/50-production-host-integration-boundary.md`; `ProductionRuntime` is implemented; Dhan host composition (`DhanHostConfig`/`DhanHostRuntime`/`build_dhan_host_runtime`) is the current implementation slice with 678/678 local tests passing. GitHub Actions is not treated as validation evidence in this repository; OpenCode/local validation is the current execution gate. No production-broker end-to-end execution has been performed.
+Before adding UI, AI, or a broad broker matrix, keep the current package boundaries stable. The next implementation slice should close a concrete deterministic research/account-state gap identified by the existing C4/C6 contracts, rather than expanding simulation realism broadly. The LIVE/recovery boundary and production composition are implemented and externally validated. Issue #22 is now implemented as the Dhan production host slice on this branch: the production host/deployment boundary is documented in `docs/architecture/50-production-host-integration-boundary.md`; `ProductionRuntime` is implemented; Dhan host composition (`DhanHostConfig`/`DhanHostRuntime`/`build_dhan_host_runtime`) is the current implementation slice with 678/678 local tests passing. GitHub Actions is not treated as validation evidence in this repository; OpenCode/local validation is the current execution gate. No production-broker end-to-end execution has been performed.
 
 `uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change. GitHub Actions runs observed for this branch fail before executing workflow steps, so they are not treated as code-validation evidence.
