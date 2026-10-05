@@ -326,7 +326,7 @@ def test_fidelity_records_configured_slippage() -> None:
     assert result.receipts[0].fills[0].price == Decimal("100") * Decimal("1.001")
 
 
-def test_fidelity_omits_slippage_note_when_disabled() -> None:
+def test_fidelity_records_reference_price_when_slippage_disabled() -> None:
     profiles = (
         None,
         PaperSimulationProfile(),
@@ -340,7 +340,12 @@ def test_fidelity_omits_slippage_note_when_disabled() -> None:
 
         assert all("slippage_bps" not in item for item in result.fidelity.limitations)
         assert all(
-            not item.startswith("reference_price=")
+            "reference_price=" in item
             for receipt in result.receipts
             for item in receipt.assumptions
+            if item.startswith("reference_price=")
+        )
+        assert all(
+            any(item.startswith("reference_price=") for item in receipt.assumptions)
+            for receipt in result.receipts
         )
