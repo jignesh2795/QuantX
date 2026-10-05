@@ -329,9 +329,61 @@ def test_slipped_fill_records_reference_price_deterministically() -> None:
     assert first.fills[0].price == second.fills[0].price
 
 
+def test_configured_charge_model_is_recorded_with_deterministic_provenance() -> None:
+    from quantx.execution.charges import PercentageBpsChargeModel
+
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        profile=PaperSimulationProfile(
+            charge_model=PercentageBpsChargeModel(
+                Decimal("10"),
+                component_name="simulated_brokerage",
+                model_id="test.paper.charges",
+                model_version="7",
+                provenance=("test_configuration",),
+            )
+        ),
+    )
+
+    receipt = engine.execute(
+        _request(),
+        snapshot=_snapshot(ask=Decimal("100")),
+    )
+
+    assert receipt.fee == Decimal("1")
+    assert receipt.charges is not None
+    assert receipt.charges.total == Decimal("1")
+    assert receipt.charges.currency is None
+    assert receipt.charges.components[0].name == "simulated_brokerage"
+    assert receipt.charges.components[0].amount == Decimal("1")
+    assert receipt.charges.model_id == "test.paper.charges"
+    assert receipt.charges.model_version == "7"
+    assert receipt.charges.provenance == ("test_configuration",)
+    assert "charge_model_id=test.paper.charges" in receipt.assumptions
+    assert "charge_model_version=7" in receipt.assumptions
+    assert "test_configuration" in receipt.assumptions
+    assert "charge_total=1" in receipt.assumptions
+
+
+def test_fee_bps_is_kept_decimal_only_and_rejects_float() -> None:
+    with pytest.raises(TypeError, match="fee_bps must be a Decimal"):
+        PaperSimulationProfile(fee_bps=0.1)  # type: ignore[arg-type]
+
+
+def test_charge_model_and_fee_bps_cannot_be_ambiguous() -> None:
+    from quantx.execution.charges import PercentageBpsChargeModel
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        PaperSimulationProfile(
+            fee_bps=Decimal("10"),
+            charge_model=PercentageBpsChargeModel(Decimal("5")),
+        )
+
+
 def test_zero_slippage_records_no_reference_price() -> None:
     engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     receipt = engine.execute(_request(), snapshot=_snapshot(bid=Decimal("99"), ask=Decimal("100")))
 
     assert receipt.fills[0].price == Decimal("100")
     assert all(not item.startswith("reference_price=") for item in receipt.assumptions)
+
