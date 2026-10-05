@@ -312,6 +312,13 @@ def test_tracker_time_indexed_snapshot_uses_exact_current_mark() -> None:
     assert result.market_value == Money(Decimal("110"), "INR")
     assert result.equity == Money(Decimal("1010"), "INR")
     assert result.unrealized_pnl == Money(Decimal("10"), "INR")
+    evidence = result.valuation_evidence[0]
+    assert evidence.instrument_id == str(INSTRUMENT)
+    assert evidence.mark_price == Decimal("110")
+    assert evidence.source == "historical-replay-last"
+    assert evidence.observed_at == T1
+    assert evidence.selected_at == T1
+    assert evidence.unavailable is False
 
 
 def test_tracker_records_c4_as_of_mark_selection() -> None:
