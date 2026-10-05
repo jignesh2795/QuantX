@@ -57,7 +57,7 @@ def test_research_orchestrator_runs_without_quality_argument_mismatch() -> None:
 
 
 def test_degraded_duplicate_data_requires_explicit_opt_in() -> None:
-    timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
     snapshot = MarketSnapshot(
         instrument=InstrumentId("NSE", "TCS"),
         timestamp=timestamp,
