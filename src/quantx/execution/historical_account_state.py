@@ -153,12 +153,12 @@ class HistoricalAccountStateTracker:
                 f"unsupported historical snapshot type: {type(snapshot).__name__}"
             )
 
-        if price is not None:
-            self._marks[snapshot.instrument] = Mark(
-                instrument_id=str(snapshot.instrument),
-                price=price,
-                source=source,
-            )
+        self._marks[snapshot.instrument] = Mark(
+            instrument_id=str(snapshot.instrument),
+            price=price,
+            source=source,
+            observed_at=snapshot.timestamp,
+        )
 
     def record(
         self,
@@ -217,7 +217,32 @@ class HistoricalAccountStateTracker:
         self._snapshots[receipt.receipt_id] = result
         return result
 
-    def _snapshot(self, timestamp: datetime) -> HistoricalAccountStateSnapshot:
+    def snapshot_at(
+        self,
+        timestamp: datetime,
+        *,
+        require_current_marks: bool = False,
+    ) -> HistoricalAccountStateSnapshot:
+        """Return the current simulated state at a deterministic timestamp.
+
+        When require_current_marks is true, every open position must have
+        an explicit mark observed at exactly timestamp. Older marks are not
+        reused for a time-indexed research sample, preventing stale
+        valuation from masquerading as current market evidence.
+        """
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ValueError("timestamp must be timezone-aware")
+        return self._snapshot(
+            timestamp,
+            require_current_marks=require_current_marks,
+        )
+
+    def _snapshot(
+        self,
+        timestamp: datetime,
+        *,
+        require_current_marks: bool = False,
+    ) -> HistoricalAccountStateSnapshot:
         positions = self._accounting.snapshot()
         realized = Money(
             sum((entry.realized_pnl for entry in positions), Decimal("0")),
@@ -234,7 +259,16 @@ class HistoricalAccountStateTracker:
         for entry in positions:
             instrument = self._instrument_registry.resolve(entry.instrument)
             mark = self._marks.get(entry.instrument)
-            if instrument is None or mark is None or mark.price is None:
+            if instrument is None or mark is None:
+                unavailable.append(str(entry.instrument))
+                continue
+            if mark.price is None or mark.observed_at is None:
+                unavailable.append(str(entry.instrument))
+                continue
+            if mark.observed_at > timestamp:
+                unavailable.append(str(entry.instrument))
+                continue
+            if require_current_marks and mark.observed_at != timestamp:
                 unavailable.append(str(entry.instrument))
                 continue
 

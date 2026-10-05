@@ -88,6 +88,7 @@ class BacktestResult:
     receipts: tuple[ExecutionReceipt, ...]
     ledger: tuple[PositionLedgerEntry, ...]
     account_states: tuple[HistoricalAccountStateSnapshot, ...] = ()
+    account_state_series: tuple[HistoricalAccountStateSnapshot, ...] = ()
 
     @property
     def executed_count(self) -> int:
@@ -354,9 +355,16 @@ class DeterministicBacktestService:
             instrument_registry=self._instrument_registry,
         )
         account_states: list[HistoricalAccountStateSnapshot] = []
+        account_state_series: list[HistoricalAccountStateSnapshot] = []
 
         for frame in frames:
             account_state_tracker.observe_mark(frame.observation.snapshot)
+            account_state_series.append(
+                account_state_tracker.snapshot_at(
+                    frame.observation.timestamp,
+                    require_current_marks=True,
+                )
+            )
             if isinstance(strategy, StrategyEvaluationService):
                 if strategy_ir is None:
                     raise ValueError("strategy_ir is required for StrategyEvaluationService")
@@ -571,4 +579,5 @@ class DeterministicBacktestService:
             receipts=receipts_tuple,
             ledger=accounting.snapshot(),
             account_states=tuple(account_states),
+            account_state_series=tuple(account_state_series),
         )

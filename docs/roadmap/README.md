@@ -18,7 +18,7 @@ Sandbox, paper execution, canonical backtesting, optimization, walk-forward, rob
 
 The current execution/research hardening sequence is:
 
-`C1 canonical historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar-aware gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution price/fill fidelity ✅`
+`C1 canonical historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar-aware gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution price/fill fidelity ✅ → C7 time-indexed account-state sampling ⏳`
 
 R1-C6 is merged and externally revalidated. The next slice is selected from the remaining deterministic-research/account-state gaps rather than opening UI, AI, or broad broker-matrix work.
 
@@ -36,3 +36,11 @@ Options analytics, AI/agents, multi-account, security hardening, plugin registry
 ## Release philosophy
 
 Start with a useful, local-first engine and grow platform breadth without moving responsibilities into the core unnecessarily.
+
+
+### R1-C7 — Time-indexed account-state sampling
+
+The next deterministic-research slice adds a separate time-indexed account-state series to backtests without changing the existing execution-event snapshots.
+
+The series is sampled at replay-frame timestamps before the current frame's strategy/execution effects, uses only explicit current-frame marks for complete valuation, and becomes incomplete rather than reusing a stale mark. Existing C4 receipt-driven account-state snapshots remain unchanged.
+

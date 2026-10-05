@@ -68,7 +68,7 @@ For each supplied historical observation:
 
 No price is inferred from unrelated data.
 
-The tracker retains the most recent explicit mark for an instrument when later account events occur. The state remains incomplete when an open position has no retained mark.
+Marks now carry their explicit observation timestamp. Receipt-driven account-state snapshots may use the latest known mark that is not in the future relative to the snapshot timestamp, preserving the existing latency-aware event-state behavior. Time-indexed research samples use an exact-current-mark policy and therefore do not reuse an older mark as though it were current; missing current evidence makes the valuation incomplete.
 
 ## Capital boundary
 
@@ -78,7 +78,7 @@ Margin, leverage, buying-power formulas, and broker-specific capital rules are i
 
 ## Backtest integration
 
-DeterministicBacktestService exposes one post-event account-state snapshot for each execution receipt.
+DeterministicBacktestService retains one post-event account-state snapshot for each execution receipt and now also exposes a separate time-indexed account-state series with one sample per replay frame. The series is sampled after the frame's explicit market mark is observed but before that frame's strategy/risk/execution effects, so a sample cannot include the current frame's future execution result. Existing receipt-driven snapshots remain unchanged.
 
 The existing strategy, risk, policy, execution, and position-accounting semantics remain unchanged. C4 does not feed the derived account-state trajectory back into pre-trade risk in this slice.
 

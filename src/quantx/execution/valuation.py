@@ -7,6 +7,7 @@ explicitly modelled market price for each position being valued.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 from quantx.domain.positions import Position
@@ -34,6 +35,7 @@ class Mark:
     instrument_id: str
     price: Decimal | None
     source: str
+    observed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.instrument_id.strip():
@@ -42,6 +44,10 @@ class Mark:
             raise ValueError("source must not be empty")
         if self.price is not None and self.price <= 0:
             raise ValueError("mark price must be positive when supplied")
+        if self.observed_at is not None and (
+            self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None
+        ):
+            raise ValueError("observed_at must be timezone-aware")
 
 
 class MarkToMarketValuator:
