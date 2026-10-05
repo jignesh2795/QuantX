@@ -276,3 +276,69 @@ def test_invalid_calendar_range_rejected() -> None:
             valid_from=date(2026, 1, 2),
             valid_through=date(2026, 1, 1),
         )
+
+
+def test_historical_timestamp_expectation_uses_trading_windows() -> None:
+    calendar = _calendar()
+    open_timestamp = datetime(2026, 1, 5, 5, 0, tzinfo=UTC)
+    closed_timestamp = datetime(2026, 1, 5, 11, 0, tzinfo=UTC)
+
+    assert calendar.historical_timestamp_expected(open_timestamp) is True
+    assert calendar.historical_timestamp_expected(closed_timestamp) is False
+
+
+def test_historical_timestamp_expectation_ignores_order_permissions() -> None:
+    calendar = _calendar(
+        overrides=(
+            IndiaSessionDayOverride(
+                date(2026, 1, 5),
+                (_window("cancel-only", (9, 0), (9, 30), CANCEL),),
+            ),
+        ),
+    )
+
+    result = calendar.historical_timestamp_expected(
+        datetime(2026, 1, 5, 3, 45, tzinfo=UTC)
+    )
+
+    assert result is True
+
+
+def test_historical_timestamp_expectation_preserves_holiday_and_unknown_states() -> None:
+    calendar = _calendar(
+        holidays=frozenset({date(2026, 1, 5)}),
+        valid_from=date(2026, 1, 1),
+        valid_through=date(2026, 1, 9),
+    )
+
+    assert (
+        calendar.historical_timestamp_expected(
+            datetime(2026, 1, 5, 5, 0, tzinfo=UTC)
+        )
+        is False
+    )
+    assert (
+        calendar.historical_timestamp_expected(
+            datetime(2026, 1, 10, 5, 0, tzinfo=UTC)
+        )
+        is None
+    )
+
+
+def test_historical_timestamp_expectation_handles_previous_overnight_session() -> None:
+    overnight = _window("overnight", (17, 0), (1, 0), SUBMIT)
+    calendar = _calendar(
+        windows_by_weekday=(
+            (0, (overnight,)),
+            (1, (overnight,)),
+            (2, (overnight,)),
+            (3, (overnight,)),
+            (4, (overnight,)),
+        ),
+    )
+
+    result = calendar.historical_timestamp_expected(
+        datetime(2026, 1, 6, 0, 30, tzinfo=UTC)
+    )
+
+    assert result is True
