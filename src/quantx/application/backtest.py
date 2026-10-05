@@ -32,7 +32,7 @@ from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.ports import ExecutionReceipt
 from quantx.research.data import HistoricalDataSeries, HistoricalSnapshot
 from quantx.research.quality import DataQualityStatus
-from quantx.research.replay import HistoricalReplay, ReplayFrame
+from quantx.research.replay import HistoricalReplay, MultiSeries, ReplayFrame
 from quantx.research.result import ResultQuality
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
@@ -322,7 +322,7 @@ class DeterministicBacktestService:
     def run(
         self,
         *,
-        series: HistoricalDataSeries,
+        series: HistoricalDataSeries | MultiSeries,
         strategy: StrategyRunner | StrategyEvaluationService,
         financial_state: AccountFinancialState,
         strategy_ir: StrategyIR | None = None,
@@ -374,8 +374,7 @@ class DeterministicBacktestService:
                 account_state_tracker.snapshot_at(
                     frame.observation.timestamp,
                     require_current_marks=(
-                        account_state_sampling_policy
-                        is AccountStateSamplingPolicy.EXACT_CURRENT
+                        account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
                     ),
                 )
             )

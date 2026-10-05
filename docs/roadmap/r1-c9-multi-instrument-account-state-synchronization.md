@@ -1,6 +1,6 @@
 # R1-C9 Multi-Instrument Account-State Synchronization
 
-**Implementation status:** implementation complete on `feat/r1c9-multi-instrument-account-state-synchronization`; external OpenCode validation is required before merge.
+**Implementation status:** implementation with replay-boundary remediation on `feat/r1c9-remediation`; external OpenCode validation is required before merge.
 
 ## Goal
 
@@ -17,6 +17,8 @@ C9 is limited to the existing historical account-state sampling path:
 `HistoricalReplay -> HistoricalAccountStateTracker -> account_state_series`
 
 Introduce an explicit sampling policy in the backtest application boundary, mapped onto the existing tracker behavior.
+
+Multi-instrument input is composed from multiple valid per-instrument series: the replay boundary accepts one `HistoricalDataSeries` per instrument and merges them deterministically. The single-instrument `HistoricalDataSeries` contract is preserved, not weakened: interleaving belongs to `HistoricalReplay`, never to the instrument-scoped research contract.
 
 Supported policies:
 
@@ -101,3 +103,5 @@ The application result now records the selected `AccountStateSamplingPolicy`.
 `EXACT_CURRENT` is the default and preserves C7 behavior.
 
 `AS_OF_OBSERVED` reuses the tracker's existing as-of behavior without introducing a second valuation engine. C8 provenance records the observation timestamp separately from the sample timestamp so mark age remains explicit.
+
+The replay boundary accepts multiple single-instrument series and merges them deterministically (timestamp, then sequence, then instrument identity); each constituent is quality-validated independently. The C9 fail-closed rules and C8 provenance acceptance criteria are unchanged.
