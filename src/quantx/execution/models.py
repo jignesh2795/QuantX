@@ -306,8 +306,25 @@ class SlippageModel:
     """Deterministic basis-point slippage model applied after fill price discovery."""
 
     basis_points: Decimal = Decimal("0")
+    model_id: str = "paper.fixed_bps_slippage"
+    model_version: str = "1"
+    provenance: tuple[str, ...] = ("configured_simulation_profile",)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.basis_points, Decimal):
+            raise TypeError("basis_points must be a Decimal")
+        if self.basis_points < 0:
+            raise ValueError("basis_points cannot be negative")
+        if not self.model_id.strip():
+            raise ValueError("model_id must not be empty")
+        if not self.model_version.strip():
+            raise ValueError("model_version must not be empty")
 
     def apply(self, side: OrderSide, price: Decimal) -> Decimal:
+        if not isinstance(price, Decimal):
+            raise TypeError("price must be a Decimal")
+        if price <= 0:
+            raise ValueError("price must be positive")
         factor = Decimal("1") + (self.basis_points / Decimal("10000"))
         if side is OrderSide.BUY:
             return price * factor
