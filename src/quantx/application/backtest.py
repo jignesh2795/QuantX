@@ -22,6 +22,10 @@ from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDec
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
+from quantx.execution.historical_account_state import (
+    HistoricalAccountStateSnapshot,
+    HistoricalAccountStateTracker,
+)
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.models import CandleFillModel, DataAdaptiveFillModel, FillModel, StopTrigger
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
@@ -83,6 +87,7 @@ class BacktestResult:
     steps: tuple[BacktestStep, ...]
     receipts: tuple[ExecutionReceipt, ...]
     ledger: tuple[PositionLedgerEntry, ...]
+    account_states: tuple[HistoricalAccountStateSnapshot, ...] = ()
 
     @property
     def executed_count(self) -> int:
@@ -343,8 +348,15 @@ class DeterministicBacktestService:
         accounting = self._accounting_override or FillAccounting()
         steps: list[BacktestStep] = []
         receipts: list[ExecutionReceipt] = []
+        account_state_tracker = HistoricalAccountStateTracker(
+            financial_state,
+            accounting=accounting,
+            instrument_registry=self._instrument_registry,
+        )
+        account_states: list[HistoricalAccountStateSnapshot] = []
 
         for frame in frames:
+            account_state_tracker.observe_mark(frame.observation.snapshot)
             if isinstance(strategy, StrategyEvaluationService):
                 if strategy_ir is None:
                     raise ValueError("strategy_ir is required for StrategyEvaluationService")
@@ -526,8 +538,9 @@ class DeterministicBacktestService:
                 snapshot=snapshot,
             )
             receipts.append(receipt)
-            for fill in receipt.fills:
-                accounting.apply(fill, fee=receipt.fee / Decimal(len(receipt.fills)))
+            account_states.append(
+                account_state_tracker.record(receipt, snapshot=snapshot)
+            )
 
             steps.append(
                 BacktestStep(
@@ -557,4 +570,5 @@ class DeterministicBacktestService:
             steps=steps_tuple,
             receipts=receipts_tuple,
             ledger=accounting.snapshot(),
+            account_states=tuple(account_states),
         )

@@ -8,7 +8,7 @@ This directory contains the architecture record for QuantX.
 2. `05-execution-environments.md`, `06-indian-market-domain.md`, `07-data-control-execution-planes.md`, `08-strategy-ir.md`
 3. `18-research-baseline.md`, `36-historical-data-integrity-and-no-hallucination.md`, `37-research-operational-integrity.md`, `39-research-provenance-and-fingerprints.md`, `40-point-in-time-market-rules.md`
 4. `34-capital-and-routing-invariants.md`, `40-execution-reliability-and-transaction-safety.md`, `43-execution-transaction-boundary.md`, `44-execution-and-integration-package-boundaries.md`, `45-execution-reliability-batch.md`, `47-execution-audit-findings.md`, `47-integration-boundaries.md`, `49-dhan-broker-plugin-boundary.md`
-5. `41-current-package-map.md`, `42-implementation-batch-plan.md`, `46-consolidation-status.md`
+5. `41-current-package-map.md`, `42-implementation-batch-plan.md`, `46-consolidation-status.md`, `51-historical-account-state.md`
 
 ## Other architecture areas
 
