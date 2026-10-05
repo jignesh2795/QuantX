@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.value_objects import InstrumentId
@@ -14,7 +14,7 @@ from quantx.research.storage import InMemoryResearchStore
 def test_research_orchestrator_runs_without_quality_argument_mismatch() -> None:
     snapshot = MarketSnapshot(
         instrument=InstrumentId("NSE", "TCS"),
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
