@@ -94,6 +94,8 @@ class QuoteFillModel(FillModel):
                 reason,
                 self.model_id,
                 self.model_version,
+                reference_price=price,
+                evidence=("reference_price_source=observed_quote",),
             )
 
         if order.order_type is OrderType.LIMIT:
@@ -111,6 +113,8 @@ class QuoteFillModel(FillModel):
                     "limit buy crossed by observed ask",
                     self.model_id,
                     self.model_version,
+                    reference_price=snapshot.ask,
+                    evidence=("reference_price_source=observed_quote",),
                 )
             if (
                 snapshot.bid is None
@@ -125,6 +129,8 @@ class QuoteFillModel(FillModel):
                 "limit sell crossed by observed bid",
                 self.model_id,
                 self.model_version,
+                reference_price=snapshot.bid,
+                evidence=("reference_price_source=observed_quote",),
             )
 
         return None
@@ -223,6 +229,8 @@ class CandleFillModel(FillModel):
             reason,
             self.model_id,
             self.model_version,
+            reference_price=price,
+            evidence=("reference_price_source=observed_candle_close",),
         )
 
     def propose_fill(
