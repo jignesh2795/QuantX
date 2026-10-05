@@ -3,9 +3,18 @@ from decimal import Decimal
 
 import pytest
 
-from quantx.application.backtest import BacktestDisposition, DeterministicBacktestService
+from quantx.application.backtest import (
+    AccountStateSamplingPolicy,
+    BacktestDisposition,
+    DeterministicBacktestService,
+)
 from quantx.domain.accounts import AccountId
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.enums import AssetClass, OrderSide
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
@@ -14,11 +23,17 @@ from quantx.domain.market_data import Quote
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyContext, PolicyDecision, PolicyResult
-from quantx.domain.strategy import SignalAction, StrategyDefinition, StrategyResult, StrategySignal, StrategyId
+from quantx.domain.strategy import (
+    SignalAction,
+    StrategyDefinition,
+    StrategyResult,
+    StrategySignal,
+    StrategyId,
+)
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
-from quantx.research.replay import HistoricalReplay
+from quantx.research.replay import HistoricalReplay, MultiSeries
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.evaluation import StrategyEvaluationService
@@ -31,6 +46,19 @@ def _instrument() -> Instrument:
     return Instrument(
         InstrumentId("NSE", "TCS"),
         "TCS",
+        AssetClass.EQUITY,
+        market,
+        "INR",
+        Decimal("0.05"),
+        Decimal("1"),
+    )
+
+
+def _second_instrument() -> Instrument:
+    market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
+    return Instrument(
+        InstrumentId("NSE", "INFY"),
+        "INFY",
         AssetClass.EQUITY,
         market,
         "INR",
@@ -84,6 +112,30 @@ def _series() -> HistoricalDataSeries:
             HistoricalObservation(second, "test", "1", 1),
         )
     )
+
+
+def _tcs_series() -> HistoricalDataSeries:
+    instrument = _instrument().instrument_id
+    quote = Quote(
+        instrument=instrument,
+        timestamp=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+    return HistoricalDataSeries((HistoricalObservation(quote, "test", "1", 0),))
+
+
+def _infy_series() -> HistoricalDataSeries:
+    instrument = _second_instrument().instrument_id
+    quote = Quote(
+        instrument=instrument,
+        timestamp=datetime(2026, 1, 1, 9, 16, tzinfo=UTC),
+        bid=Decimal("199"),
+        ask=Decimal("200"),
+        last=Decimal("200"),
+    )
+    return HistoricalDataSeries((HistoricalObservation(quote, "test", "1", 1),))
 
 
 def test_backtest_rejects_intent_strategy_identity_mismatch() -> None:
@@ -522,6 +574,7 @@ def test_backtest_exposes_time_indexed_account_state_series() -> None:
 
     assert len(result.account_states) == 1
     assert len(result.account_state_series) == 2
+    assert result.account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
 
     first = result.account_state_series[0]
     second = result.account_state_series[1]
@@ -531,3 +584,160 @@ def test_backtest_exposes_time_indexed_account_state_series() -> None:
     assert second.cash == Money(Decimal("900"), "INR")
     assert second.market_value == Money(Decimal("101"), "INR")
     assert second.unrealized_pnl == Money(Decimal("1"), "INR")
+
+
+def test_backtest_multinstrument_sampling_policy_is_explicit() -> None:
+    tcs = _instrument()
+    infy = _second_instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    t1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+    series: MultiSeries = (
+        _tcs_series(),
+        _infy_series(),
+    )
+    registry = InMemoryInstrumentRegistry((tcs, infy))
+
+    def strategy(frame):
+        # Merged replay: frame 0 is TCS at t0, frame 1 is INFY at t1.
+        if frame.index == 0:
+            signal = StrategySignal(
+                StrategyId("multi-instrument"),
+                "1",
+                tcs.instrument_id,
+                SignalAction.BUY,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+            intent = TradeIntent(
+                instrument=tcs.instrument_id,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                execution_context=_context(),
+                strategy_id="multi-instrument",
+                strategy_version="1",
+            )
+            return StrategyResult(signal, intent)
+        return StrategyResult(
+            StrategySignal(
+                StrategyId("multi-instrument"),
+                "1",
+                frame.observation.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+        )
+
+    exact = DeterministicBacktestService(instrument_registry=registry).run(
+        series=series,
+        strategy=strategy,
+        financial_state=_financial_state(),
+        account_state_sampling_policy=AccountStateSamplingPolicy.EXACT_CURRENT,
+    )
+    assert exact.account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
+    # The frame-0 sample precedes that frame's execution: no position yet.
+    assert exact.account_state_series[0].cash == Money(Decimal("1000"), "INR")
+    assert exact.account_state_series[0].valuation_evidence == ()
+    # At frame 1 the TCS position is open but only INFY has a current mark.
+    assert exact.account_state_series[1].completeness.value == "INCOMPLETE"
+
+    as_of = DeterministicBacktestService(instrument_registry=registry).run(
+        series=series,
+        strategy=strategy,
+        financial_state=_financial_state(),
+        account_state_sampling_policy=AccountStateSamplingPolicy.AS_OF_OBSERVED,
+    )
+    assert as_of.account_state_sampling_policy is AccountStateSamplingPolicy.AS_OF_OBSERVED
+    assert as_of.account_state_series[0].cash == Money(Decimal("1000"), "INR")
+    second = as_of.account_state_series[1]
+    assert second.completeness.value == "COMPLETE"
+    assert second.market_value == Money(Decimal("100"), "INR")
+    evidence = second.valuation_evidence[0]
+    assert evidence.instrument_id == str(tcs.instrument_id)
+    assert evidence.mark_price == Decimal("100")
+    assert evidence.observed_at == t0
+    assert evidence.selected_at == t1
+    assert evidence.observed_at < evidence.selected_at
+    assert evidence.unavailable is False
+
+
+def test_backtest_as_of_observed_with_unusable_mark_stays_incomplete() -> None:
+    tcs = _instrument()
+    infy = _second_instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    t1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+    t2 = datetime(2026, 1, 1, 9, 17, tzinfo=UTC)
+    usable = Quote(
+        instrument=tcs.instrument_id,
+        timestamp=t0,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+    # A later TCS observation with no usable price overwrites the TCS mark.
+    priceless = Quote(
+        instrument=tcs.instrument_id,
+        timestamp=t1,
+    )
+    later = Quote(
+        instrument=infy.instrument_id,
+        timestamp=t2,
+        bid=Decimal("199"),
+        ask=Decimal("200"),
+        last=Decimal("200"),
+    )
+    series: MultiSeries = (
+        HistoricalDataSeries(
+            (
+                HistoricalObservation(usable, "test", "1", 0),
+                HistoricalObservation(priceless, "test", "1", 1),
+            )
+        ),
+        HistoricalDataSeries((HistoricalObservation(later, "test", "1", 2),)),
+    )
+    registry = InMemoryInstrumentRegistry((tcs, infy))
+
+    def strategy(frame):
+        if frame.index == 0:
+            signal = StrategySignal(
+                StrategyId("unusable-mark"),
+                "1",
+                tcs.instrument_id,
+                SignalAction.BUY,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+            intent = TradeIntent(
+                instrument=tcs.instrument_id,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                execution_context=_context(),
+                strategy_id="unusable-mark",
+                strategy_version="1",
+            )
+            return StrategyResult(signal, intent)
+        return StrategyResult(
+            StrategySignal(
+                StrategyId("unusable-mark"),
+                "1",
+                frame.observation.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+        )
+
+    result = DeterministicBacktestService(instrument_registry=registry).run(
+        series=series,
+        strategy=strategy,
+        financial_state=_financial_state(),
+        account_state_sampling_policy=AccountStateSamplingPolicy.AS_OF_OBSERVED,
+    )
+    assert result.executed_count == 1
+    assert result.account_state_series[0].cash == Money(Decimal("1000"), "INR")
+    # The open TCS position has no usable mark at or before later samples:
+    # AS_OF_OBSERVED must not invent one.
+    later_samples = [sample for sample in result.account_state_series if sample.timestamp >= t1]
+    assert len(later_samples) == 2
+    assert all(sample.completeness.value == "INCOMPLETE" for sample in later_samples)
+    assert later_samples[0].valuation_evidence[0].unavailable is True

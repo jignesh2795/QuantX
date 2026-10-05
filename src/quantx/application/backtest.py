@@ -32,7 +32,7 @@ from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.ports import ExecutionReceipt
 from quantx.research.data import HistoricalDataSeries, HistoricalSnapshot
 from quantx.research.quality import DataQualityStatus
-from quantx.research.replay import HistoricalReplay, ReplayFrame
+from quantx.research.replay import HistoricalReplay, MultiSeries, ReplayFrame
 from quantx.research.result import ResultQuality
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
@@ -45,6 +45,11 @@ class BacktestDisposition(StrEnum):
     POLICY_REJECTED = "POLICY_REJECTED"
     APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
     BLOCKED = "BLOCKED"
+
+
+class AccountStateSamplingPolicy(StrEnum):
+    EXACT_CURRENT = "EXACT_CURRENT"
+    AS_OF_OBSERVED = "AS_OF_OBSERVED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +94,9 @@ class BacktestResult:
     ledger: tuple[PositionLedgerEntry, ...]
     account_states: tuple[HistoricalAccountStateSnapshot, ...] = ()
     account_state_series: tuple[HistoricalAccountStateSnapshot, ...] = ()
+    account_state_sampling_policy: AccountStateSamplingPolicy = (
+        AccountStateSamplingPolicy.EXACT_CURRENT
+    )
 
     @property
     def executed_count(self) -> int:
@@ -314,7 +322,7 @@ class DeterministicBacktestService:
     def run(
         self,
         *,
-        series: HistoricalDataSeries,
+        series: HistoricalDataSeries | MultiSeries,
         strategy: StrategyRunner | StrategyEvaluationService,
         financial_state: AccountFinancialState,
         strategy_ir: StrategyIR | None = None,
@@ -323,6 +331,9 @@ class DeterministicBacktestService:
         allow_incomplete: bool = False,
         execution_profile: PaperSimulationProfile | None = None,
         candle_volume_participation_rate: Decimal | None = None,
+        account_state_sampling_policy: AccountStateSamplingPolicy = (
+            AccountStateSamplingPolicy.EXACT_CURRENT
+        ),
     ) -> BacktestResult:
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
@@ -362,7 +373,9 @@ class DeterministicBacktestService:
             account_state_series.append(
                 account_state_tracker.snapshot_at(
                     frame.observation.timestamp,
-                    require_current_marks=True,
+                    require_current_marks=(
+                        account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
+                    ),
                 )
             )
             if isinstance(strategy, StrategyEvaluationService):
@@ -580,4 +593,5 @@ class DeterministicBacktestService:
             ledger=accounting.snapshot(),
             account_states=tuple(account_states),
             account_state_series=tuple(account_state_series),
+            account_state_sampling_policy=account_state_sampling_policy,
         )

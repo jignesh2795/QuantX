@@ -1,6 +1,6 @@
 # R1-C9 Multi-Instrument Account-State Synchronization
 
-**Planning status:** selected next implementation slice after merged and revalidated R1-C8.
+**Implementation status:** implementation with replay-boundary remediation on `feat/r1c9-remediation`; external OpenCode validation is required before merge.
 
 ## Goal
 
@@ -16,7 +16,9 @@ C9 is limited to the existing historical account-state sampling path:
 
 `HistoricalReplay -> HistoricalAccountStateTracker -> account_state_series`
 
-Introduce an explicit sampling policy using the existing tracker boundary.
+Introduce an explicit sampling policy in the backtest application boundary, mapped onto the existing tracker behavior.
+
+Multi-instrument input is composed from multiple valid per-instrument series: the replay boundary accepts one `HistoricalDataSeries` per instrument and merges them deterministically. The single-instrument `HistoricalDataSeries` contract is preserved, not weakened: interleaving belongs to `HistoricalReplay`, never to the instrument-scoped research contract.
 
 Supported policies:
 
@@ -92,3 +94,14 @@ Then run full pytest, changed-file Ruff, strict mypy for changed production file
 ## Deferred
 
 C9 does not add configurable freshness thresholds, margin/buying-power evolution, financing/funding/borrow/tax/FX, new intrabar models, UI/API work, or AI/ML valuation.
+
+
+## Implemented boundary
+
+The application result now records the selected `AccountStateSamplingPolicy`.
+
+`EXACT_CURRENT` is the default and preserves C7 behavior.
+
+`AS_OF_OBSERVED` reuses the tracker's existing as-of behavior without introducing a second valuation engine. C8 provenance records the observation timestamp separately from the sample timestamp so mark age remains explicit.
+
+The replay boundary accepts multiple single-instrument series and merges them deterministically (timestamp, then sequence, then instrument identity); each constituent is quality-validated independently. The C9 fail-closed rules and C8 provenance acceptance criteria are unchanged.

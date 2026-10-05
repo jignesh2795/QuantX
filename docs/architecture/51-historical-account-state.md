@@ -76,7 +76,7 @@ For each supplied historical observation:
 
 No price is inferred from unrelated data.
 
-Marks now carry their explicit observation timestamp. Receipt-driven account-state snapshots may use the latest known mark that is not in the future relative to the snapshot timestamp, preserving the existing latency-aware event-state behavior. Time-indexed research samples use an exact-current-mark policy and therefore do not reuse an older mark as though it were current; missing current evidence makes the valuation incomplete.
+Marks now carry their explicit observation timestamp. Receipt-driven account-state snapshots may use the latest known mark that is not in the future relative to the snapshot timestamp, preserving the existing latency-aware event-state behavior. Time-indexed research samples default to an exact-current-mark policy and therefore do not reuse an older mark as though it were current; an explicit AS_OF_OBSERVED sampling policy may instead reuse the latest mark at or before the sample timestamp, with its age exposed through valuation evidence. Missing or future evidence remains incomplete.
 
 ## Capital boundary
 
@@ -87,6 +87,14 @@ Margin, leverage, buying-power formulas, and broker-specific capital rules are i
 ## Backtest integration
 
 DeterministicBacktestService retains one post-event account-state snapshot for each execution receipt and now also exposes a separate time-indexed account-state series with one sample per replay frame. The series is sampled after the frame's explicit market mark is observed but before that frame's strategy/risk/execution effects, so a sample cannot include the current frame's future execution result. Existing receipt-driven snapshots remain unchanged.
+
+## Multi-series replay boundary
+
+Time-indexed sampling can consume interleaved per-instrument historical series through the replay boundary. `HistoricalDataSeries` itself remains strictly single-instrument: every observation in one series must share its instrument, and that contract is unchanged.
+
+`HistoricalReplay` accepts either one `HistoricalDataSeries` or an explicit tuple of single-instrument series (one per instrument). Each constituent series is validated independently by the existing data-quality gate; equal timestamps across different instruments are distinct observations, never duplicates. An ambiguous `expected_instrument` configuration is rejected for multi-series replay rather than applied incorrectly.
+
+Constituent observations merge into one deterministic chronological stream ordered by timestamp, then sequence, then deterministic instrument identity. Point-in-time resolution, `allow_incomplete` behavior, and the no-future-observations rule apply per frame exactly as in single-series replay. C4 receipt-driven snapshots, C7 exact-current sampling, and C8 valuation provenance are unchanged by the merge.
 
 The existing strategy, risk, policy, execution, and position-accounting semantics remain unchanged. C4 does not feed the derived account-state trajectory back into pre-trade risk in this slice.
 
