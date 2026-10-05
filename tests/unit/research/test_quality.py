@@ -64,8 +64,8 @@ def test_calendar_aware_gap_ignores_closed_period() -> None:
 def test_calendar_aware_gap_detects_missing_open_slot() -> None:
     calendar = FixedDailySessionCalendar(
         timezone="UTC",
-        open_time=datetime.min.time().replace(hour=9, minute=15),
-        close_time=datetime.min.time().replace(hour=15, minute=30),
+        open_time=time(9, 15),
+        close_time=time(15, 30),
     )
     start = datetime(2026, 1, 5, 9, 15, tzinfo=UTC)
     end = datetime(2026, 1, 5, 9, 17, tzinfo=UTC)
