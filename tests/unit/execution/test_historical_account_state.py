@@ -156,6 +156,12 @@ def test_tracker_handles_realized_pnl_and_fees_on_partial_close() -> None:
     assert result.equity == Money(Decimal("1018"), "INR")
     assert result.realized_pnl == Money(Decimal("10"), "INR")
     assert result.unrealized_pnl == Money(Decimal("10"), "INR")
+    evidence = result.valuation_evidence[0]
+    assert evidence.mark_price == Decimal("110")
+    assert evidence.source == "historical-replay-last"
+    assert evidence.observed_at == T1
+    assert evidence.selected_at == T1
+    assert evidence.unavailable is False
     assert result.fees == Money(Decimal("2"), "INR")
     assert result.net_pnl == Money(Decimal("18"), "INR")
 
@@ -283,6 +289,12 @@ def test_tracker_time_indexed_snapshot_rejects_stale_mark_reuse() -> None:
     assert stale.unrealized_pnl is None
     assert stale.gross_exposure is None
     assert stale.unavailable_instruments == (str(INSTRUMENT),)
+    stale_evidence = stale.valuation_evidence[0]
+    assert stale_evidence.mark_price == Decimal("100")
+    assert stale_evidence.observed_at == T0
+    assert stale_evidence.selected_at == T1
+    assert stale_evidence.unavailable is True
+    assert stale_evidence.reason == "explicit mark is stale for exact-current sampling"
 
 
 def test_tracker_time_indexed_snapshot_uses_exact_current_mark() -> None:
