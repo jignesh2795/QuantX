@@ -213,6 +213,7 @@ def test_tracker_rejects_live_capital_source() -> None:
 
 def test_tracker_consumes_first_class_charge_breakdown_total() -> None:
     from dataclasses import replace
+
     from quantx.execution.charges import ChargeBreakdown, ChargeComponent
 
     tracker, _ = _tracker()
