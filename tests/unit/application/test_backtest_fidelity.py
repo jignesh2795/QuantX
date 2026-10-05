@@ -340,12 +340,6 @@ def test_fidelity_records_reference_price_when_slippage_disabled() -> None:
 
         assert all("slippage_bps" not in item for item in result.fidelity.limitations)
         assert all(
-            "reference_price=" in item
-            for receipt in result.receipts
-            for item in receipt.assumptions
-            if item.startswith("reference_price=")
-        )
-        assert all(
             any(item.startswith("reference_price=") for item in receipt.assumptions)
             for receipt in result.receipts
         )
