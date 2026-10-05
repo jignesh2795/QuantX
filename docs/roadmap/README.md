@@ -14,6 +14,14 @@ Broker/data adapters, capability discovery, historical data, Historify-style loc
 ## M3 — Simulation and Research
 Sandbox, paper execution, canonical backtesting, optimization, walk-forward, robustness and scenario testing.
 
+### R1-C execution-fidelity sequence
+
+The current execution/research hardening sequence is:
+
+`C1 canonical historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar-aware gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution price/fill fidelity planned`
+
+The R1-C6 planning baseline is recorded in `r1-c6-execution-fidelity.md`.
+
 ## M4 — Strategy Platform
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals.
 
