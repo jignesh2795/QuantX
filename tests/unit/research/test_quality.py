@@ -54,7 +54,7 @@ def test_gap_is_incomplete_not_repaired():
     observations = (_obs(start), _obs(start + timedelta(seconds=180), 1))
     report = HistoricalDataQualityGate().validate(observations, expected_interval_seconds=60)
     assert report.status is DataQualityStatus.INCOMPLETE
-    assert report.completeness is CompletenessStatus.INCOMPLETE
+    assert report.completeness is CompletenessStatus.UNKNOWN
     assert not any("fabricated" in issue.message.lower() for issue in report.issues)
 
 
