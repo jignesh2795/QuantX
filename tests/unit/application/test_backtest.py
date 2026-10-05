@@ -746,7 +746,7 @@ def test_backtest_as_of_observed_with_unusable_mark_stays_incomplete() -> None:
 
 def _provenance() -> ResearchProvenance:
     return ResearchProvenance(
-        dataset_id="nse-eq",
+        dataset_id="test",
         dataset_version="1",
         instrument_master_version="instr-v3",
         market_rule_version="rules-v2",
@@ -827,7 +827,7 @@ def test_backtest_identical_provenance_gives_identical_fingerprint() -> None:
 def test_backtest_changed_provenance_declaration_changes_fingerprint() -> None:
     instrument = _instrument()
     revised = ResearchProvenance(
-        dataset_id="nse-eq",
+        dataset_id="test",
         dataset_version="1",
         instrument_master_version="instr-v3",
         market_rule_version="rules-v2",
@@ -989,3 +989,174 @@ def test_backtest_shared_dataset_multi_instrument_binding() -> None:
     assert second.market_value == Money(Decimal("100"), "INR")
     assert second.valuation_evidence[0].observed_at == t0
     assert len(exact.account_states) == 1
+
+
+def test_backtest_wrong_source_same_version_fails_closed() -> None:
+    instrument = _instrument()
+    wrong_source = ResearchProvenance(
+        dataset_id="other",
+        dataset_version="1",
+        instrument_master_version="instr-v3",
+        market_rule_version="rules-v2",
+        execution_model_version="paper-core-v0.3",
+        simulation_profile="REALISTIC",
+        code_revision="abc123",
+        configuration_revision="cfg9",
+    )
+
+    with pytest.raises(ValueError, match="dataset_id"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=_hold_all("wrong-source"),
+            financial_state=_financial_state(),
+            provenance=wrong_source,
+        )
+
+
+def test_backtest_source_mismatch_in_later_frame_fails_closed() -> None:
+    # The later frame introduces a second source with an otherwise matching
+    # version: version equality alone must not mask the source difference.
+    tcs = _instrument()
+    infy = _second_instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    t1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+    first = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=tcs.instrument_id,
+                    timestamp=t0,
+                    bid=Decimal("99"),
+                    ask=Decimal("100"),
+                    last=Decimal("100"),
+                ),
+                "test",
+                "1",
+                0,
+            ),
+        )
+    )
+    second = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=infy.instrument_id,
+                    timestamp=t1,
+                    bid=Decimal("199"),
+                    ask=Decimal("200"),
+                    last=Decimal("200"),
+                ),
+                "other",
+                "1",
+                1,
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="exactly one dataset"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((tcs, infy))
+        ).run(
+            series=(first, second),
+            strategy=_hold_all("late-mismatch"),
+            financial_state=_financial_state(),
+            provenance=_provenance(),
+        )
+
+
+def test_backtest_same_source_multiple_versions_fail_closed() -> None:
+    tcs = _instrument()
+    infy = _second_instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    t1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+    first = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=tcs.instrument_id,
+                    timestamp=t0,
+                    bid=Decimal("99"),
+                    ask=Decimal("100"),
+                    last=Decimal("100"),
+                ),
+                "test",
+                "1",
+                0,
+            ),
+        )
+    )
+    second = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=infy.instrument_id,
+                    timestamp=t1,
+                    bid=Decimal("199"),
+                    ask=Decimal("200"),
+                    last=Decimal("200"),
+                ),
+                "test",
+                "2",
+                1,
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="exactly one dataset"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((tcs, infy))
+        ).run(
+            series=(first, second),
+            strategy=_hold_all("multi-version"),
+            financial_state=_financial_state(),
+            provenance=_provenance(),
+        )
+
+
+def test_backtest_dataset_identity_has_no_normalization() -> None:
+    instrument = _instrument()
+
+    for declared in ("TEST", "test "):
+        variants = ResearchProvenance(
+            dataset_id=declared,
+            dataset_version="1",
+            instrument_master_version="instr-v3",
+            market_rule_version="rules-v2",
+            execution_model_version="paper-core-v0.3",
+            simulation_profile="REALISTIC",
+            code_revision="abc123",
+            configuration_revision="cfg9",
+        )
+        with pytest.raises(ValueError, match="dataset_id"):
+            DeterministicBacktestService(
+                instrument_registry=InMemoryInstrumentRegistry((instrument,))
+            ).run(
+                series=_series(),
+                strategy=_hold_all("no-normalization"),
+                financial_state=_financial_state(),
+                provenance=variants,
+            )
+
+
+def test_backtest_provenance_object_reused_across_runs() -> None:
+    instrument = _instrument()
+    supplied = _provenance()
+
+    def run_with():
+        return DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=_hold_all("reused"),
+            financial_state=_financial_state(),
+            provenance=supplied,
+        )
+
+    first = run_with()
+    second = run_with()
+
+    assert first.provenance is supplied
+    assert second.provenance is supplied
+    assert first.provenance.fingerprint() == second.provenance.fingerprint()
