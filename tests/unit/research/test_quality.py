@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
+import pytest
+
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.market_data import MarketSnapshot
 from quantx.research.calendar import FixedDailySessionCalendar
