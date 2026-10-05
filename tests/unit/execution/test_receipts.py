@@ -10,6 +10,49 @@ from quantx.domain.value_objects import InstrumentId
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 
 
+def test_receipt_requires_charge_total_to_match_fee() -> None:
+    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+
+    with pytest.raises(ValueError, match="charges total must equal receipt fee"):
+        ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=uuid4(),
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=datetime.now(UTC),
+            fee=Decimal("2"),
+            charges=ChargeBreakdown(
+                currency="INR",
+                components=(ChargeComponent("modeled_fee", Decimal("1")),),
+                model_id="test.paper.charges",
+                model_version="1",
+            ),
+        )
+
+
+def test_receipt_from_order_preserves_charge_breakdown() -> None:
+    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+
+    order = _order(quantity=Decimal("1"))
+    charges = ChargeBreakdown(
+        currency="INR",
+        components=(ChargeComponent("modeled_fee", Decimal("1")),),
+        model_id="test.paper.charges",
+        model_version="1",
+    )
+    receipt = ExecutionReceipt.from_order(
+        order,
+        request_id=uuid4(),
+        outcome=ExecutionOutcome.FILLED,
+        order_status=OrderStatus.FILLED,
+        executed_at=datetime.now(UTC),
+        fills=(_fill(order, quantity=order.quantity),),
+        fee=Decimal("1"),
+        charges=charges,
+    )
+    assert receipt.charges == charges
+
+
 def test_execution_receipt_accepts_fill_outcome() -> None:
     client_id = uuid4()
     receipt = ExecutionReceipt(
@@ -174,3 +217,4 @@ def test_receipt_from_order_requires_partial_quantity_for_partial() -> None:
             executed_at=datetime.now(UTC),
             fills=(_fill(order, quantity=order.quantity),),
         )
+
