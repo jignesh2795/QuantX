@@ -2,6 +2,8 @@
 
 ## Status
 
+**Implemented and merged in PR #65.** Final validated head: `5a58318c3978b3a78da32847d717e8bc842a8ac8`. Squash merge commit: `8067e5f3b81344698b818d950373bbcc477c170a`. External revalidation reported 1168 passed, 0 failed, 1 skipped (optional Dhan SDK test), with changed-file Ruff, strict mypy, and `git diff --check` passing.
+
 ## Repository audit and implementation direction
 
 A repository audit after establishing this plan found that substantial execution-fidelity functionality already exists from earlier paper-execution work. The canonical current path is:

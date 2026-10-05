@@ -18,9 +18,11 @@ Sandbox, paper execution, canonical backtesting, optimization, walk-forward, rob
 
 The current execution/research hardening sequence is:
 
-`C1 canonical historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar-aware gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution price/fill fidelity planned`
+`C1 canonical historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar-aware gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution price/fill fidelity ✅`
 
-The R1-C6 planning baseline is recorded in `r1-c6-execution-fidelity.md`.
+R1-C6 is merged and externally revalidated. The next slice is selected from the remaining deterministic-research/account-state gaps rather than opening UI, AI, or broad broker-matrix work.
+
+The R1-C6 planning and implementation record is in `r1-c6-execution-fidelity.md`.
 
 ## M4 — Strategy Platform
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals.
