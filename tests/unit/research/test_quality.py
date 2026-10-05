@@ -39,7 +39,7 @@ def test_complete_interval_series_is_replayable_but_completeness_is_unknown():
 
 
 def test_explicit_expected_timestamps_establish_completeness():
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
     observations = (_obs(start), _obs(start + timedelta(seconds=60), 1))
     report = HistoricalDataQualityGate().validate(
         observations,
@@ -50,7 +50,7 @@ def test_explicit_expected_timestamps_establish_completeness():
 
 
 def test_gap_is_incomplete_not_repaired():
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
     observations = (_obs(start), _obs(start + timedelta(seconds=180), 1))
     report = HistoricalDataQualityGate().validate(observations, expected_interval_seconds=60)
     assert report.status is DataQualityStatus.INCOMPLETE
@@ -59,7 +59,7 @@ def test_gap_is_incomplete_not_repaired():
 
 
 def test_instrument_mismatch_blocks_replay():
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
     observations = (_obs(start, instrument=InstrumentId("NSE", "INFY")),)
     report = HistoricalDataQualityGate().validate(
         observations, expected_instrument=InstrumentId("NSE", "TCS")
@@ -72,6 +72,6 @@ def test_legacy_status_aliases_resolve_to_canonical_members():
     assert DataQualityStatus.COMPLETE is DataQualityStatus.VALID
     assert DataQualityStatus.INCOMPLETE is DataQualityStatus.DEGRADED
     assert DataQualityStatus.BLOCKED is DataQualityStatus.REJECTED
-    clean = HistoricalDataQualityGate().validate((_obs(datetime(2026, 1, 1, tzinfo=timezone.utc)),))
+    clean = HistoricalDataQualityGate().validate((_obs(datetime(2026, 1, 1, tzinfo=UTC)),))
     assert clean.quality is DataQualityStatus.VALID_WITH_WARNINGS
     assert clean.status is DataQualityStatus.COMPLETE
