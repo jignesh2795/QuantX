@@ -57,7 +57,7 @@ class HistoricalReplay:
         self._quality: HistoricalDataQuality | None = None
 
     @property
-    def quality(self) -> DataQualityReport:
+    def quality(self) -> HistoricalDataQuality:
         if self._quality is None:
             observations = tuple(self._series)
             self._quality = self._validator.validate(
