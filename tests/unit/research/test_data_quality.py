@@ -99,7 +99,10 @@ def test_out_of_order_observation() -> None:
 
     assert result.quality is DataQualityStatus.DEGRADED
     assert result.out_of_order is True
-    assert any(issue.message == "observations are not chronologically ordered" for issue in result.issues)
+    assert any(
+        issue.message == "observations are not chronologically ordered"
+        for issue in result.issues
+    )
 
 
 def test_missing_and_unexpected_together() -> None:
