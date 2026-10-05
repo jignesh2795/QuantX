@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, time
 from enum import StrEnum
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 
@@ -29,6 +30,18 @@ class SessionClassification:
     reason: str = ""
 
 
+class HistoricalCalendar(Protocol):
+    """Calendar contract used by historical quality checks.
+
+    None means the calendar cannot establish whether a historical bar should
+    exist at the timestamp. Implementations must not infer missing coverage.
+    """
+
+    version: str
+
+    def historical_timestamp_expected(self, timestamp: datetime) -> bool | None: ...
+
+
 class MarketCalendar:
     """Protocol-like base for market calendar implementations."""
 
@@ -36,6 +49,16 @@ class MarketCalendar:
 
     def classify(self, timestamp: datetime) -> SessionClassification:
         raise NotImplementedError
+
+    def historical_timestamp_expected(self, timestamp: datetime) -> bool | None:
+        """Return whether a historical bar is expected at the timestamp."""
+
+        classification = self.classify(timestamp)
+        if classification.status is SessionStatus.OPEN:
+            return True
+        if classification.status is SessionStatus.UNKNOWN:
+            return None
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,3 +106,22 @@ class FixedDailySessionCalendar(MarketCalendar):
             calendar_version=self.version,
             reason=reason,
         )
+
+    def historical_timestamp_expected(self, timestamp: datetime) -> bool | None:
+        """Return whether a historical bar is expected in this fixed session."""
+
+        classification = self.classify(timestamp)
+        if classification.status is SessionStatus.OPEN:
+            return True
+        if classification.status is SessionStatus.UNKNOWN:
+            return None
+        return False
+
+
+__all__ = [
+    "FixedDailySessionCalendar",
+    "HistoricalCalendar",
+    "MarketCalendar",
+    "SessionClassification",
+    "SessionStatus",
+]
