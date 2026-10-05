@@ -244,3 +244,38 @@ def test_tracker_record_is_idempotent_by_receipt_identity() -> None:
     assert second == first
     assert second.cash == Money(Decimal("899"), "INR")
 
+
+def test_tracker_time_indexed_snapshot_rejects_stale_mark_reuse() -> None:
+    tracker, _ = _tracker()
+
+    opening = _receipt(OrderSide.BUY, "1", "100", executed_at=T0)
+    tracker.record(opening, snapshot=_snapshot(T0, price="100"))
+
+    stale = tracker.snapshot_at(
+        T1,
+        require_current_marks=True,
+    )
+
+    assert stale.completeness is AccountStateCompleteness.INCOMPLETE
+    assert stale.market_value is None
+    assert stale.equity is None
+    assert stale.unrealized_pnl is None
+    assert stale.gross_exposure is None
+    assert stale.unavailable_instruments == (str(INSTRUMENT),)
+
+
+def test_tracker_time_indexed_snapshot_uses_exact_current_mark() -> None:
+    tracker, _ = _tracker()
+
+    opening = _receipt(OrderSide.BUY, "1", "100", executed_at=T0)
+    tracker.record(opening, snapshot=_snapshot(T0, price="100"))
+
+    current = _snapshot(T1, price="110")
+    tracker.observe_mark(current)
+    result = tracker.snapshot_at(T1, require_current_marks=True)
+
+    assert result.completeness is AccountStateCompleteness.COMPLETE
+    assert result.timestamp == T1
+    assert result.market_value == Money(Decimal("110"), "INR")
+    assert result.equity == Money(Decimal("1010"), "INR")
+    assert result.unrealized_pnl == Money(Decimal("10"), "INR")
