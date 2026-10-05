@@ -18,6 +18,12 @@ from quantx.domain.orders import Fill
 from quantx.domain.risk import RiskResult
 from quantx.persistence import ReceiptRepository
 
+from .charges import (
+    ChargeBreakdown,
+    ChargeCalculationContext,
+    ChargeModel,
+    PercentageBpsChargeModel,
+)
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
 from .market_data import MarketSnapshot
 from .models import FillModel, QuoteFillModel, SlippageModel
@@ -38,14 +44,19 @@ class PaperSimulationProfile:
     slippage_bps: Decimal = Decimal("0")
     partial_fill_ratio: Decimal = Decimal("1")
     fee_bps: Decimal = Decimal("0")
+    charge_model: ChargeModel | None = None
 
     def __post_init__(self) -> None:
         if self.latency_ms < 0:
             raise ValueError("latency_ms cannot be negative")
         if not isinstance(self.slippage_bps, Decimal):
             raise TypeError("slippage_bps must be a Decimal")
+        if not isinstance(self.fee_bps, Decimal):
+            raise TypeError("fee_bps must be a Decimal")
         if self.slippage_bps < 0 or self.fee_bps < 0:
             raise ValueError("bps values cannot be negative")
+        if self.charge_model is not None and self.fee_bps != Decimal("0"):
+            raise ValueError("charge_model cannot be combined with non-zero fee_bps")
         if not Decimal("0") < self.partial_fill_ratio <= Decimal("1"):
             raise ValueError("partial_fill_ratio must be in (0, 1]")
 
@@ -165,7 +176,17 @@ class PaperExecutionEngine:
             price=price,
             filled_at=executed_at,
         )
-        fee = (fill.quantity * fill.price * self._profile.fee_bps) / Decimal("10000")
+        charges: ChargeBreakdown | None = None
+        charge_model = self._profile.charge_model
+        if charge_model is None and self._profile.fee_bps != Decimal("0"):
+            charge_model = PercentageBpsChargeModel(self._profile.fee_bps)
+        if charge_model is not None:
+            charges = charge_model.calculate(
+                ChargeCalculationContext(
+                    transaction_value=fill.quantity * fill.price,
+                )
+            )
+        fee = Decimal("0") if charges is None else charges.total
         slippage_evidence: tuple[str, ...] = ()
         if self._profile.slippage_bps != 0:
             slippage_evidence = (f"reference_price={proposal.price}",)
@@ -192,10 +213,21 @@ class PaperExecutionEngine:
                 *slippage_evidence,
                 f"partial_fill_ratio={self._profile.partial_fill_ratio}",
                 f"fee_bps={self._profile.fee_bps}",
+                *(
+                    (
+                        f"charge_model_id={charges.model_id}",
+                        f"charge_model_version={charges.model_version}",
+                        *charges.provenance,
+                        f"charge_total={charges.total}",
+                    )
+                    if charges is not None
+                    else ()
+                ),
                 f"model_id={proposal.model_id}",
                 proposal.reason,
             ),
             fee=fee,
+            charges=charges,
         )
         if self._receipt_repository is not None:
             self._receipt_repository.save(receipt)
@@ -290,3 +322,4 @@ class PaperExecutionEngine:
         if self._receipt_repository is not None:
             return self._receipt_repository.get_by_client_order(client_order_id)
         return self._receipts.get(client_order_id)
+

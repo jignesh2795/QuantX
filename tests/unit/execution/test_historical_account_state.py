@@ -211,6 +211,29 @@ def test_tracker_rejects_live_capital_source() -> None:
         )
 
 
+def test_tracker_consumes_first_class_charge_breakdown_total() -> None:
+    from dataclasses import replace
+
+    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+
+    tracker, _ = _tracker()
+    receipt = replace(
+        _receipt(OrderSide.BUY, "1", "100", "1"),
+        charges=ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("simulated_brokerage", Decimal("1")),),
+            model_id="test.paper.charges",
+            model_version="1",
+            provenance=("test_configuration",),
+        ),
+    )
+
+    result = tracker.record(receipt, snapshot=_snapshot(price="100"))
+
+    assert result.fees == Money(Decimal("1"), "INR")
+    assert result.cash == Money(Decimal("899"), "INR")
+
+
 def test_tracker_record_is_idempotent_by_receipt_identity() -> None:
     tracker, _ = _tracker()
 
@@ -220,3 +243,4 @@ def test_tracker_record_is_idempotent_by_receipt_identity() -> None:
 
     assert second == first
     assert second.cash == Money(Decimal("899"), "INR")
+
