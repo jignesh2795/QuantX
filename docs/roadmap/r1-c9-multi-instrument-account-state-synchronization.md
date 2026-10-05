@@ -1,6 +1,6 @@
 # R1-C9 Multi-Instrument Account-State Synchronization
 
-**Planning status:** selected next implementation slice after merged and revalidated R1-C8.
+**Implementation status:** implementation complete on `feat/r1c9-multi-instrument-account-state-synchronization`; external OpenCode validation is required before merge.
 
 ## Goal
 
@@ -16,7 +16,7 @@ C9 is limited to the existing historical account-state sampling path:
 
 `HistoricalReplay -> HistoricalAccountStateTracker -> account_state_series`
 
-Introduce an explicit sampling policy using the existing tracker boundary.
+Introduce an explicit sampling policy in the backtest application boundary, mapped onto the existing tracker behavior.
 
 Supported policies:
 
@@ -92,3 +92,12 @@ Then run full pytest, changed-file Ruff, strict mypy for changed production file
 ## Deferred
 
 C9 does not add configurable freshness thresholds, margin/buying-power evolution, financing/funding/borrow/tax/FX, new intrabar models, UI/API work, or AI/ML valuation.
+
+
+## Implemented boundary
+
+The application result now records the selected `AccountStateSamplingPolicy`.
+
+`EXACT_CURRENT` is the default and preserves C7 behavior.
+
+`AS_OF_OBSERVED` reuses the tracker's existing as-of behavior without introducing a second valuation engine. C8 provenance records the observation timestamp separately from the sample timestamp so mark age remains explicit.
