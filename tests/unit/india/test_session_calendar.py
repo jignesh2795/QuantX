@@ -338,7 +338,7 @@ def test_historical_timestamp_expectation_handles_previous_overnight_session() -
     )
 
     result = calendar.historical_timestamp_expected(
-        datetime(2026, 1, 6, 0, 30, tzinfo=UTC)
+        datetime(2026, 1, 5, 18, 30, tzinfo=UTC)
     )
 
     assert result is True
