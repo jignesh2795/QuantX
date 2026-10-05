@@ -38,11 +38,12 @@ class FillProposal:
             raise TypeError("fill proposal price must be a Decimal")
         if self.price <= 0:
             raise ValueError("fill proposal price must be positive")
-        if self.reference_price is not None:
-            if not isinstance(self.reference_price, Decimal):
-                raise TypeError("fill proposal reference_price must be a Decimal")
-            if self.reference_price <= 0:
-                raise ValueError("fill proposal reference_price must be positive")
+        if self.reference_price is None:
+            object.__setattr__(self, "reference_price", self.price)
+        elif not isinstance(self.reference_price, Decimal):
+            raise TypeError("fill proposal reference_price must be a Decimal")
+        elif self.reference_price <= 0:
+            raise ValueError("fill proposal reference_price must be positive")
         if not self.reason.strip():
             raise ValueError("fill proposal reason must not be empty")
         if not self.model_id.strip():
