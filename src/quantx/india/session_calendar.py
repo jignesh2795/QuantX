@@ -299,6 +299,44 @@ class IndiaSessionCalendar:
             reason = "india trading session is closed"
         return self._blocked(evaluated_at, reason)
 
+    def historical_timestamp_expected(self, timestamp: datetime) -> bool | None:
+        """Return whether historical market data is expected at the timestamp.
+
+        This checks session windows and calendar coverage only. It does not
+        depend on order-submission permissions, so research gap detection does
+        not inherit LIVE execution policy.
+        """
+
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ValueError("timestamp must be timezone-aware")
+
+        local = timestamp.astimezone(ZoneInfo(self._snapshot.timezone))
+        local_date = local.date()
+        local_time = local.time()
+        previous_date = local_date - timedelta(days=1)
+
+        if not self._snapshot.known_on(local_date):
+            return None
+
+        current_windows = self._snapshot.windows_for(local_date)
+        if any(
+            window.contains(local_time)
+            and (not window.crosses_midnight or local_time >= window.start)
+            for window in current_windows
+        ):
+            return True
+
+        if self._snapshot.known_on(previous_date):
+            previous_windows = self._snapshot.windows_for(previous_date)
+            if any(
+                window.crosses_midnight
+                and local_time < window.end
+                for window in previous_windows
+            ):
+                return True
+
+        return False
+
     def _blocked(
         self,
         evaluated_at: datetime,
