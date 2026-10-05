@@ -212,7 +212,9 @@ class HistoricalDataQualityGate:
                             seconds=expected_interval_seconds
                         )
                         while candidate < timestamp:
-                            expectation = calendar.historical_timestamp_expected(candidate)
+                            expectation = calendar.historical_timestamp_expected(
+                                candidate
+                            )
                             if expectation is True:
                                 gap_detected = True
                                 break
@@ -227,7 +229,8 @@ class HistoricalDataQualityGate:
                             issues.append(
                                 DataIssue(
                                     DataIssueType.CALENDAR_UNKNOWN,
-                                    "calendar expectation is unknown for one or more gap candidates",
+                                    "calendar expectation is unknown for one or more "
+                                    "gap candidates",
                                     min(unknown_calendar_timestamps),
                                 )
                             )
