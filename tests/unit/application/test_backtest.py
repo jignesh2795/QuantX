@@ -33,6 +33,7 @@ from quantx.domain.strategy import (
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
+from quantx.research.provenance import ResearchProvenance
 from quantx.research.replay import HistoricalReplay, MultiSeries
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
@@ -741,3 +742,250 @@ def test_backtest_as_of_observed_with_unusable_mark_stays_incomplete() -> None:
     assert len(later_samples) == 2
     assert all(sample.completeness.value == "INCOMPLETE" for sample in later_samples)
     assert later_samples[0].valuation_evidence[0].unavailable is True
+
+
+def _provenance() -> ResearchProvenance:
+    return ResearchProvenance(
+        dataset_id="nse-eq",
+        dataset_version="1",
+        instrument_master_version="instr-v3",
+        market_rule_version="rules-v2",
+        execution_model_version="paper-core-v0.3",
+        simulation_profile="REALISTIC",
+        code_revision="abc123",
+        configuration_revision="cfg9",
+    )
+
+
+def _hold_all(strategy_id: str):
+    def strategy(frame):
+        return StrategyResult(
+            StrategySignal(
+                StrategyId(strategy_id),
+                "1",
+                frame.observation.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+        )
+
+    return strategy
+
+
+def test_backtest_result_provenance_defaults_to_none() -> None:
+    instrument = _instrument()
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
+    ).run(
+        series=_series(),
+        strategy=_hold_all("no-provenance"),
+        financial_state=_financial_state(),
+    )
+
+    assert result.provenance is None
+    assert not hasattr(result, "dataset_id")
+    assert not hasattr(result, "code_revision")
+
+
+def test_backtest_attaches_caller_provenance_unchanged() -> None:
+    instrument = _instrument()
+    supplied = _provenance()
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
+    ).run(
+        series=_series(),
+        strategy=_hold_all("attached"),
+        financial_state=_financial_state(),
+        provenance=supplied,
+    )
+
+    assert result.provenance is supplied
+
+
+def test_backtest_identical_provenance_gives_identical_fingerprint() -> None:
+    instrument = _instrument()
+
+    def run_with(provenance: ResearchProvenance):
+        return DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=_hold_all("fingerprint-stable"),
+            financial_state=_financial_state(),
+            provenance=provenance,
+        )
+
+    first = run_with(_provenance())
+    second = run_with(_provenance())
+
+    assert first.provenance is not None
+    assert second.provenance is not None
+    assert first.provenance.fingerprint() == second.provenance.fingerprint()
+
+
+def test_backtest_changed_provenance_declaration_changes_fingerprint() -> None:
+    instrument = _instrument()
+    revised = ResearchProvenance(
+        dataset_id="nse-eq",
+        dataset_version="1",
+        instrument_master_version="instr-v3",
+        market_rule_version="rules-v2",
+        execution_model_version="paper-core-v0.3",
+        simulation_profile="REALISTIC",
+        code_revision="def456",
+        configuration_revision="cfg9",
+    )
+
+    def run_with(provenance: ResearchProvenance):
+        return DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=_hold_all("fingerprint-change"),
+            financial_state=_financial_state(),
+            provenance=provenance,
+        )
+
+    first = run_with(_provenance())
+    second = run_with(revised)
+
+    assert first.provenance is not None
+    assert second.provenance is not None
+    assert first.provenance.fingerprint() != second.provenance.fingerprint()
+
+
+def test_backtest_heterogeneous_datasets_fail_closed() -> None:
+    tcs = _instrument()
+    infy = _second_instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    t1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+    first = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=tcs.instrument_id,
+                    timestamp=t0,
+                    bid=Decimal("99"),
+                    ask=Decimal("100"),
+                    last=Decimal("100"),
+                ),
+                "test",
+                "1",
+                0,
+            ),
+        )
+    )
+    second = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=infy.instrument_id,
+                    timestamp=t1,
+                    bid=Decimal("199"),
+                    ask=Decimal("200"),
+                    last=Decimal("200"),
+                ),
+                "other",
+                "2",
+                1,
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="exactly one dataset"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((tcs, infy))
+        ).run(
+            series=(first, second),
+            strategy=_hold_all("heterogeneous"),
+            financial_state=_financial_state(),
+            provenance=_provenance(),
+        )
+
+
+def test_backtest_declared_version_mismatch_fails_closed() -> None:
+    instrument = _instrument()
+    mismatched = ResearchProvenance(
+        dataset_id="nse-eq",
+        dataset_version="v2",
+        instrument_master_version="instr-v3",
+        market_rule_version="rules-v2",
+        execution_model_version="paper-core-v0.3",
+        simulation_profile="REALISTIC",
+        code_revision="abc123",
+        configuration_revision="cfg9",
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=_hold_all("mismatch"),
+            financial_state=_financial_state(),
+            provenance=mismatched,
+        )
+
+
+def test_backtest_shared_dataset_multi_instrument_binding() -> None:
+    tcs = _instrument()
+    infy = _second_instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    series: MultiSeries = (
+        _tcs_series(),
+        _infy_series(),
+    )
+    registry = InMemoryInstrumentRegistry((tcs, infy))
+
+    def strategy(frame):
+        if frame.index == 0:
+            signal = StrategySignal(
+                StrategyId("bound-multi"),
+                "1",
+                tcs.instrument_id,
+                SignalAction.BUY,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+            intent = TradeIntent(
+                instrument=tcs.instrument_id,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                execution_context=_context(),
+                strategy_id="bound-multi",
+                strategy_version="1",
+            )
+            return StrategyResult(signal, intent)
+        return StrategyResult(
+            StrategySignal(
+                StrategyId("bound-multi"),
+                "1",
+                frame.observation.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+        )
+
+    def run_with(policy):
+        return DeterministicBacktestService(instrument_registry=registry).run(
+            series=series,
+            strategy=strategy,
+            financial_state=_financial_state(),
+            account_state_sampling_policy=policy,
+            provenance=_provenance(),
+        )
+
+    exact = run_with(AccountStateSamplingPolicy.EXACT_CURRENT)
+    as_of = run_with(AccountStateSamplingPolicy.AS_OF_OBSERVED)
+
+    assert exact.provenance is not None
+    assert as_of.provenance is not None
+    assert exact.provenance.fingerprint() == as_of.provenance.fingerprint()
+    assert exact.account_state_series[1].completeness.value == "INCOMPLETE"
+    second = as_of.account_state_series[1]
+    assert second.completeness.value == "COMPLETE"
+    assert second.market_value == Money(Decimal("100"), "INR")
+    assert second.valuation_evidence[0].observed_at == t0
+    assert len(exact.account_states) == 1

@@ -31,6 +31,7 @@ from quantx.execution.models import CandleFillModel, DataAdaptiveFillModel, Fill
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.ports import ExecutionReceipt
 from quantx.research.data import HistoricalDataSeries, HistoricalSnapshot
+from quantx.research.provenance import ResearchProvenance
 from quantx.research.quality import DataQualityStatus
 from quantx.research.replay import HistoricalReplay, MultiSeries, ReplayFrame
 from quantx.research.result import ResultQuality
@@ -97,6 +98,7 @@ class BacktestResult:
     account_state_sampling_policy: AccountStateSamplingPolicy = (
         AccountStateSamplingPolicy.EXACT_CURRENT
     )
+    provenance: ResearchProvenance | None = None
 
     @property
     def executed_count(self) -> int:
@@ -242,6 +244,29 @@ def _reference_price(snapshot: MarketSnapshot | Candle) -> Decimal | None:
     raise TypeError(f"unsupported backtest observation payload: {type(snapshot).__name__}")
 
 
+def _require_coherent_provenance(
+    frames: tuple[ReplayFrame, ...],
+    provenance: ResearchProvenance,
+) -> None:
+    """Fail closed when supplied provenance cannot name the replay evidence.
+
+    The backtest has no catalog dependency, so dataset identity is a caller
+    declaration. The only honest check available is coherence with the
+    observation-carried evidence: all frames must share exactly one
+    (source_id, dataset_version) pair, and the declared dataset_version must
+    match it. Heterogeneous multi-dataset provenance binding is explicitly
+    deferred, never silently merged.
+    """
+    pairs = {(frame.observation.source_id, frame.observation.dataset_version) for frame in frames}
+    if len(pairs) != 1:
+        raise ValueError(
+            "provenance binding requires replay evidence from exactly one dataset; "
+            f"observed {len(pairs)} distinct (source_id, dataset_version) pairs"
+        )
+    if next(iter(pairs))[1] != provenance.dataset_version:
+        raise ValueError("supplied provenance dataset_version does not match replay evidence")
+
+
 class DeterministicBacktestService:
     """Run a strategy over historical observations without vendor dependencies."""
 
@@ -334,9 +359,12 @@ class DeterministicBacktestService:
         account_state_sampling_policy: AccountStateSamplingPolicy = (
             AccountStateSamplingPolicy.EXACT_CURRENT
         ),
+        provenance: ResearchProvenance | None = None,
     ) -> BacktestResult:
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
+        if provenance is not None:
+            _require_coherent_provenance(frames, provenance)
         execution_engine = self._execution_engine
         simulation_clock = None
         effective_slippage_bps: Decimal | None = None
@@ -594,4 +622,5 @@ class DeterministicBacktestService:
             account_states=tuple(account_states),
             account_state_series=tuple(account_state_series),
             account_state_sampling_policy=account_state_sampling_policy,
+            provenance=provenance,
         )
