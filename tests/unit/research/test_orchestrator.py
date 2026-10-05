@@ -5,8 +5,8 @@ from quantx.domain.value_objects import InstrumentId
 from quantx.execution.market_data import MarketSnapshot
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.orchestrator import ResearchOrchestrator
-from quantx.research.preflight import PreflightStatus, ResearchPreflightGate
-from quantx.research.quality import HistoricalDataQualityGate
+from quantx.research.preflight import ResearchPreflightGate
+from quantx.research.quality import DataQualityStatus, HistoricalDataQualityGate
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
 from quantx.research.storage import InMemoryResearchStore
 
