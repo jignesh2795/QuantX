@@ -18,12 +18,38 @@ from .market_data import MarketSnapshot
 
 @dataclass(frozen=True, slots=True)
 class FillProposal:
+    """Deterministic proposed realization of one execution attempt."""
+
     order_id: UUID
     quantity: Decimal
     price: Decimal
     reason: str
     model_id: str
     model_version: str
+    reference_price: Decimal | None = None
+    evidence: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.quantity, Decimal):
+            raise TypeError("fill proposal quantity must be a Decimal")
+        if self.quantity <= 0:
+            raise ValueError("fill proposal quantity must be positive")
+        if not isinstance(self.price, Decimal):
+            raise TypeError("fill proposal price must be a Decimal")
+        if self.price <= 0:
+            raise ValueError("fill proposal price must be positive")
+        if self.reference_price is None:
+            object.__setattr__(self, "reference_price", self.price)
+        elif not isinstance(self.reference_price, Decimal):
+            raise TypeError("fill proposal reference_price must be a Decimal")
+        elif self.reference_price <= 0:
+            raise ValueError("fill proposal reference_price must be positive")
+        if not self.reason.strip():
+            raise ValueError("fill proposal reason must not be empty")
+        if not self.model_id.strip():
+            raise ValueError("fill proposal model_id must not be empty")
+        if not self.model_version.strip():
+            raise ValueError("fill proposal model_version must not be empty")
 
 
 class FillModel(ABC):
@@ -69,6 +95,8 @@ class QuoteFillModel(FillModel):
                 reason,
                 self.model_id,
                 self.model_version,
+                reference_price=price,
+                evidence=("reference_price_source=observed_quote",),
             )
 
         if order.order_type is OrderType.LIMIT:
@@ -86,6 +114,8 @@ class QuoteFillModel(FillModel):
                     "limit buy crossed by observed ask",
                     self.model_id,
                     self.model_version,
+                    reference_price=snapshot.ask,
+                    evidence=("reference_price_source=observed_quote",),
                 )
             if (
                 snapshot.bid is None
@@ -100,6 +130,8 @@ class QuoteFillModel(FillModel):
                 "limit sell crossed by observed bid",
                 self.model_id,
                 self.model_version,
+                reference_price=snapshot.bid,
+                evidence=("reference_price_source=observed_quote",),
             )
 
         return None
@@ -198,6 +230,8 @@ class CandleFillModel(FillModel):
             reason,
             self.model_id,
             self.model_version,
+            reference_price=price,
+            evidence=("reference_price_source=observed_candle_close",),
         )
 
     def propose_fill(
@@ -273,8 +307,25 @@ class SlippageModel:
     """Deterministic basis-point slippage model applied after fill price discovery."""
 
     basis_points: Decimal = Decimal("0")
+    model_id: str = "paper.fixed_bps_slippage"
+    model_version: str = "1"
+    provenance: tuple[str, ...] = ("configured_simulation_profile",)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.basis_points, Decimal):
+            raise TypeError("basis_points must be a Decimal")
+        if self.basis_points < 0:
+            raise ValueError("basis_points cannot be negative")
+        if not self.model_id.strip():
+            raise ValueError("model_id must not be empty")
+        if not self.model_version.strip():
+            raise ValueError("model_version must not be empty")
 
     def apply(self, side: OrderSide, price: Decimal) -> Decimal:
+        if not isinstance(price, Decimal):
+            raise TypeError("price must be a Decimal")
+        if price <= 0:
+            raise ValueError("price must be positive")
         factor = Decimal("1") + (self.basis_points / Decimal("10000"))
         if side is OrderSide.BUY:
             return price * factor

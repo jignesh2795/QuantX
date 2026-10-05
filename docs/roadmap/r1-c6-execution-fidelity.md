@@ -2,6 +2,31 @@
 
 ## Status
 
+## Repository audit and implementation direction
+
+A repository audit after establishing this plan found that substantial execution-fidelity functionality already exists from earlier paper-execution work. The canonical current path is:
+
+```text
+PaperExecutionEngine
+  -> execution.models.FillModel
+  -> Fill
+  -> ExecutionReceipt
+  -> existing accounting
+```
+
+The canonical models already include quote-aware fills, deterministic candle fills, data-adaptive routing, slippage, latency, partial-fill ratios, and authoritative continuation/lifecycle handling. R1-C6 therefore must **not** create a second execution-model stack.
+
+The implementation focus is hardening and converging this existing path:
+
+- make fill proposals carry explicit reference-versus-realized execution evidence;
+- enforce strong Decimal/positive-value/model identity invariants at the proposal boundary;
+- preserve deterministic provenance for the realized fill;
+- strengthen receipt evidence without creating a second accounting path;
+- keep existing continuation/remainder semantics authoritative;
+- identify the older `execution/paper/*` stack as legacy duplicate implementation rather than extending it.
+
+The older `execution/paper/*` package is intentionally not expanded by C6. Its eventual compatibility/consolidation treatment is a separate cleanup decision so C6 does not create more duplicate abstractions.
+
 **Planning baseline accepted after R1-C5 merge.**
 
 R1-C5 established the deterministic transaction-cost contract:

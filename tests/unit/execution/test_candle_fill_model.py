@@ -28,7 +28,9 @@ from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.models import (
     CandleFillModel,
     DataAdaptiveFillModel,
+    FillProposal,
     QuoteFillModel,
+    SlippageModel,
     StopTrigger,
 )
 
@@ -621,3 +623,74 @@ def test_adaptive_proposals_preserve_per_payload_identity() -> None:
     assert (candle.model_id, candle.model_version) == ("BASIC_BAR", "basic-bar-v4")
     assert quote is not None
     assert (quote.model_id, quote.model_version) == ("QUOTE", "paper-core-v0.3")
+
+
+def test_fill_proposal_defaults_reference_price_to_discovered_price() -> None:
+    request = _request(OrderSide.BUY)
+    proposal = FillProposal(
+        order_id=request.order.client_order_id,
+        quantity=Decimal("2"),
+        price=Decimal("100"),
+        reason="test proposal",
+        model_id="test.model",
+        model_version="1",
+    )
+
+    assert proposal.reference_price == Decimal("100")
+
+
+def test_fill_proposal_rejects_non_decimal_or_non_positive_values() -> None:
+    request = _request(OrderSide.BUY)
+    with pytest.raises(TypeError, match="quantity must be a Decimal"):
+        FillProposal(  # type: ignore[arg-type]
+            order_id=request.order.client_order_id,
+            quantity=2.0,
+            price=Decimal("100"),
+            reason="test proposal",
+            model_id="test.model",
+            model_version="1",
+        )
+    with pytest.raises(ValueError, match="price must be positive"):
+        FillProposal(
+            order_id=request.order.client_order_id,
+            quantity=Decimal("2"),
+            price=Decimal("0"),
+            reason="test proposal",
+            model_id="test.model",
+            model_version="1",
+        )
+
+
+def test_fill_proposal_requires_model_identity_and_reason() -> None:
+    request = _request(OrderSide.BUY)
+    with pytest.raises(ValueError, match="reason must not be empty"):
+        FillProposal(
+            order_id=request.order.client_order_id,
+            quantity=Decimal("2"),
+            price=Decimal("100"),
+            reason=" ",
+            model_id="test.model",
+            model_version="1",
+        )
+    with pytest.raises(ValueError, match="model_id must not be empty"):
+        FillProposal(
+            order_id=request.order.client_order_id,
+            quantity=Decimal("2"),
+            price=Decimal("100"),
+            reason="test proposal",
+            model_id=" ",
+            model_version="1",
+        )
+
+
+def test_slippage_model_is_decimal_only_and_versioned() -> None:
+    model = SlippageModel(Decimal("10"))
+
+    assert model.model_id == "paper.fixed_bps_slippage"
+    assert model.model_version == "1"
+    assert model.provenance == ("configured_simulation_profile",)
+
+    with pytest.raises(TypeError, match="basis_points must be a Decimal"):
+        SlippageModel(0.1)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="basis_points cannot be negative"):
+        SlippageModel(Decimal("-1"))
