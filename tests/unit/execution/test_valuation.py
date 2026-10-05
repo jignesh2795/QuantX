@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -6,7 +7,7 @@ from quantx.domain.enums import AssetClass
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.positions import Position
 from quantx.domain.value_objects import InstrumentId
-from quantx.execution.valuation import MarkToMarketValuator, ValuationError
+from quantx.execution.valuation import Mark, MarkToMarketValuator, ValuationError
 
 
 def _position(quantity: str, average: str) -> Position:
@@ -42,4 +43,28 @@ def test_missing_mark_is_not_invented() -> None:
     with pytest.raises(ValuationError, match="no mark price"):
         MarkToMarketValuator().value_position(
             _position("10", "100"), mark_price=None, valuation_source="observed_quote"
+        )
+
+
+
+def test_mark_preserves_timezone_aware_observation_time() -> None:
+    observed_at = datetime(2026, 1, 5, 9, 15, tzinfo=UTC)
+
+    mark = Mark(
+        instrument_id="NSE:TCS",
+        price=Decimal("100"),
+        source="historical-replay-last",
+        observed_at=observed_at,
+    )
+
+    assert mark.observed_at == observed_at
+
+
+def test_mark_rejects_naive_observation_time() -> None:
+    with pytest.raises(ValueError, match="observed_at must be timezone-aware"):
+        Mark(
+            instrument_id="NSE:TCS",
+            price=Decimal("100"),
+            source="historical-replay-last",
+            observed_at=datetime(2026, 1, 5, 9, 15),
         )
