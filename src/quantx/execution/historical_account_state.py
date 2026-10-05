@@ -259,14 +259,16 @@ class HistoricalAccountStateTracker:
         for entry in positions:
             instrument = self._instrument_registry.resolve(entry.instrument)
             mark = self._marks.get(entry.instrument)
-            mark_unusable = (
-                mark is None
-                or mark.price is None
-                or mark.observed_at is None
-                or mark.observed_at > timestamp
-                or (require_current_marks and mark.observed_at != timestamp)
-            )
-            if instrument is None or mark_unusable:
+            if instrument is None or mark is None:
+                unavailable.append(str(entry.instrument))
+                continue
+            if mark.price is None or mark.observed_at is None:
+                unavailable.append(str(entry.instrument))
+                continue
+            if mark.observed_at > timestamp:
+                unavailable.append(str(entry.instrument))
+                continue
+            if require_current_marks and mark.observed_at != timestamp:
                 unavailable.append(str(entry.instrument))
                 continue
 
