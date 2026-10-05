@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 
 from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
 
+from .calendar import HistoricalCalendar
 from .data import HistoricalObservation
 
 
@@ -53,6 +54,7 @@ class DataIssueType(StrEnum):
     UNEXPECTED_TIMESTAMP = "UNEXPECTED_TIMESTAMP"
     INVALID_INPUT = "INVALID_INPUT"
     NO_DATA = "NO_DATA"
+    CALENDAR_UNKNOWN = "CALENDAR_UNKNOWN"
 
 
 HistoricalValue = HistoricalObservation | Candle
@@ -78,6 +80,8 @@ class HistoricalDataQuality:
     duplicate_timestamps: tuple[datetime, ...]
     out_of_order: bool
     issues: tuple[DataIssue, ...]
+    calendar_version: str | None = None
+    calendar_unknown_timestamps: tuple[datetime, ...] = ()
 
     @property
     def status(self) -> DataQualityStatus:
@@ -117,7 +121,14 @@ class HistoricalDataQualityGate:
         expected_instrument: InstrumentId | None = None,
         expected_interval_seconds: int | None = None,
         expected_timestamps: Iterable[datetime] | None = None,
+        calendar: HistoricalCalendar | None = None,
     ) -> HistoricalDataQuality:
+        if (
+            expected_interval_seconds is not None
+            and expected_interval_seconds <= 0
+        ):
+            raise ValueError("expected_interval_seconds must be positive")
+
         values = tuple(observations)
         expected = (
             None if expected_timestamps is None else tuple(expected_timestamps)
@@ -127,6 +138,7 @@ class HistoricalDataQualityGate:
         observed_timestamps: list[datetime] = []
         duplicate_timestamps: set[datetime] = set()
         seen_timestamps: set[datetime] = set()
+        calendar_unknown_timestamps: set[datetime] = set()
         previous_timestamp: datetime | None = None
         out_of_order = False
 
@@ -191,13 +203,46 @@ class HistoricalDataQualityGate:
                     and (timestamp - previous_timestamp).total_seconds()
                     > expected_interval_seconds
                 ):
-                    issues.append(
-                        DataIssue(
-                            DataIssueType.GAP,
-                            "historical data gap detected",
-                            timestamp,
+                    gap_detected = True
+                    unknown_calendar_timestamps: set[datetime] = set()
+
+                    if calendar is not None:
+                        gap_detected = False
+                        candidate = previous_timestamp + timedelta(
+                            seconds=expected_interval_seconds
                         )
-                    )
+                        while candidate < timestamp:
+                            expectation = calendar.historical_timestamp_expected(
+                                candidate
+                            )
+                            if expectation is True:
+                                gap_detected = True
+                                break
+                            if expectation is None:
+                                unknown_calendar_timestamps.add(candidate)
+                            candidate += timedelta(seconds=expected_interval_seconds)
+
+                        if unknown_calendar_timestamps:
+                            calendar_unknown_timestamps.update(
+                                unknown_calendar_timestamps
+                            )
+                            issues.append(
+                                DataIssue(
+                                    DataIssueType.CALENDAR_UNKNOWN,
+                                    "calendar expectation is unknown for one or more "
+                                    "gap candidates",
+                                    min(unknown_calendar_timestamps),
+                                )
+                            )
+
+                    if gap_detected:
+                        issues.append(
+                            DataIssue(
+                                DataIssueType.GAP,
+                                "historical data gap detected",
+                                timestamp,
+                            )
+                        )
             previous_timestamp = timestamp
 
         observed_set = set(observed_timestamps)
@@ -285,18 +330,25 @@ class HistoricalDataQualityGate:
             duplicate_timestamps=tuple(sorted(duplicate_timestamps)),
             out_of_order=out_of_order,
             issues=tuple(issues),
+            calendar_version=None if calendar is None else calendar.version,
+            calendar_unknown_timestamps=tuple(sorted(calendar_unknown_timestamps)),
         )
 
 
 def assess_candles(
     candles: Iterable[Candle],
     expected_timestamps: Iterable[datetime] | None = None,
+    *,
+    expected_interval_seconds: int | None = None,
+    calendar: HistoricalCalendar | None = None,
 ) -> HistoricalDataQuality:
     """Assess canonical candles through the same authoritative quality gate."""
 
     return HistoricalDataQualityGate().validate(
         candles,
         expected_timestamps=expected_timestamps,
+        expected_interval_seconds=expected_interval_seconds,
+        calendar=calendar,
     )
 
 

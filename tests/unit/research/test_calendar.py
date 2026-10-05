@@ -1,4 +1,4 @@
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 
 import pytest
 
@@ -11,7 +11,7 @@ def test_fixed_daily_calendar_returns_open_session_for_weekday() -> None:
         open_time=time(9, 15),
         close_time=time(15, 30),
     )
-    timestamp = datetime(2026, 8, 20, 10, 0, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
     session = calendar.classify(timestamp)
     assert session.status is SessionStatus.OPEN
     assert session.timezone == "UTC"
@@ -24,7 +24,7 @@ def test_weekend_is_closed() -> None:
         open_time=time(9, 15),
         close_time=time(15, 30),
     )
-    saturday = datetime(2026, 8, 22, 10, 0, tzinfo=timezone.utc)
+    saturday = datetime(2026, 8, 22, 10, 0, tzinfo=UTC)
     assert calendar.classify(saturday).status is SessionStatus.CLOSED
 
 
@@ -66,3 +66,24 @@ def test_rejects_invalid_timezone_configuration() -> None:
             open_time=time(9, 15),
             close_time=time(15, 30),
         )
+
+
+def test_historical_timestamp_expectation_maps_open_and_closed() -> None:
+    calendar = FixedDailySessionCalendar(
+        timezone="UTC",
+        open_time=time(9, 15),
+        close_time=time(15, 30),
+    )
+
+    assert (
+        calendar.historical_timestamp_expected(
+            datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
+        )
+        is True
+    )
+    assert (
+        calendar.historical_timestamp_expected(
+            datetime(2026, 8, 20, 16, 0, tzinfo=UTC)
+        )
+        is False
+    )

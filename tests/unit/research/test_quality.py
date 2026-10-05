@@ -1,11 +1,15 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
+
+import pytest
 
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.market_data import MarketSnapshot
+from quantx.research.calendar import FixedDailySessionCalendar
 from quantx.research.data import HistoricalObservation
 from quantx.research.quality import (
     CompletenessStatus,
+    DataIssueType,
     DataQualityStatus,
     HistoricalDataQualityGate,
 )
@@ -26,6 +30,88 @@ def _obs(ts, sequence=0, instrument=None):
         dataset_version="v1",
         sequence=sequence,
     )
+
+
+class _UnknownCalendar:
+    version = "unknown-calendar-v1"
+
+    def historical_timestamp_expected(self, timestamp):
+        return None
+
+
+def test_calendar_aware_gap_ignores_closed_period() -> None:
+    calendar = FixedDailySessionCalendar(
+        timezone="UTC",
+        open_time=time(9, 15),
+        close_time=time(15, 30),
+    )
+    friday = datetime(2026, 1, 2, 15, 29, tzinfo=UTC)
+    monday = datetime(2026, 1, 5, 9, 15, tzinfo=UTC)
+
+    result = HistoricalDataQualityGate().validate(
+        (_obs(friday), _obs(monday, 1)),
+        expected_interval_seconds=60,
+        calendar=calendar,
+    )
+
+    assert result.quality is DataQualityStatus.VALID_WITH_WARNINGS
+    assert result.completeness is CompletenessStatus.UNKNOWN
+    assert result.calendar_version == "fixed-daily-v1"
+    assert result.calendar_unknown_timestamps == ()
+    assert all(
+        issue.issue_type is not DataIssueType.GAP for issue in result.issues
+    )
+
+
+def test_calendar_aware_gap_detects_missing_open_slot() -> None:
+    calendar = FixedDailySessionCalendar(
+        timezone="UTC",
+        open_time=time(9, 15),
+        close_time=time(15, 30),
+    )
+    start = datetime(2026, 1, 5, 9, 15, tzinfo=UTC)
+    end = datetime(2026, 1, 5, 9, 17, tzinfo=UTC)
+
+    result = HistoricalDataQualityGate().validate(
+        (_obs(start), _obs(end, 1)),
+        expected_interval_seconds=60,
+        calendar=calendar,
+    )
+
+    assert result.quality is DataQualityStatus.DEGRADED
+    assert result.completeness is CompletenessStatus.UNKNOWN
+    assert any(issue.issue_type is DataIssueType.GAP for issue in result.issues)
+
+
+def test_unknown_calendar_is_explicit_and_does_not_infer_gap() -> None:
+    start = datetime(2026, 1, 5, 9, 15, tzinfo=UTC)
+    end = datetime(2026, 1, 5, 9, 17, tzinfo=UTC)
+
+    result = HistoricalDataQualityGate().validate(
+        (_obs(start), _obs(end, 1)),
+        expected_interval_seconds=60,
+        calendar=_UnknownCalendar(),
+    )
+
+    assert result.quality is DataQualityStatus.DEGRADED
+    assert result.completeness is CompletenessStatus.UNKNOWN
+    assert result.calendar_version == "unknown-calendar-v1"
+    assert result.calendar_unknown_timestamps == (
+        datetime(2026, 1, 5, 9, 16, tzinfo=UTC),
+    )
+    assert all(issue.issue_type is not DataIssueType.GAP for issue in result.issues)
+    assert any(
+        issue.issue_type is DataIssueType.CALENDAR_UNKNOWN
+        for issue in result.issues
+    )
+
+
+def test_invalid_expected_interval_rejected() -> None:
+    with pytest.raises(ValueError, match="positive"):
+        HistoricalDataQualityGate().validate(
+            (_obs(datetime(2026, 1, 5, 9, 15, tzinfo=UTC)),),
+            expected_interval_seconds=0,
+        )
 
 
 def test_complete_interval_series_is_replayable_but_completeness_is_unknown():
