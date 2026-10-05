@@ -1,4 +1,8 @@
-"""Historical-data quality gates for QuantX research and replay."""
+"""Authoritative historical-data quality contract for QuantX research and replay.
+
+The quality gate separates structural usability from completeness evidence.
+It never repairs, sorts, fabricates, or silently infers missing market data.
+"""
 
 from __future__ import annotations
 
@@ -7,14 +11,36 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from .data import HistoricalObservation
+from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
+
+from .data import HistoricalObservation
 
 
 class DataQualityStatus(StrEnum):
+    """Structural quality of historical input.
+
+    COMPLETE/INCOMPLETE/BLOCKED remain aliases for the former replay-facing
+    vocabulary so existing callers continue to resolve to the same canonical
+    enum members.
+    """
+
+    VALID = "VALID"
+    VALID_WITH_WARNINGS = "VALID_WITH_WARNINGS"
+    DEGRADED = "DEGRADED"
+    REJECTED = "REJECTED"
+
+    COMPLETE = "VALID"
+    INCOMPLETE = "DEGRADED"
+    BLOCKED = "REJECTED"
+
+
+class CompletenessStatus(StrEnum):
+    """Degree to which completeness is established by explicit evidence."""
+
     COMPLETE = "COMPLETE"
     INCOMPLETE = "INCOMPLETE"
-    BLOCKED = "BLOCKED"
+    UNKNOWN = "UNKNOWN"
 
 
 class DataIssueType(StrEnum):
@@ -23,6 +49,13 @@ class DataIssueType(StrEnum):
     INVALID_TIMESTAMP = "INVALID_TIMESTAMP"
     GAP = "GAP"
     INSTRUMENT_MISMATCH = "INSTRUMENT_MISMATCH"
+    MISSING_EXPECTED_TIMESTAMP = "MISSING_EXPECTED_TIMESTAMP"
+    UNEXPECTED_TIMESTAMP = "UNEXPECTED_TIMESTAMP"
+    INVALID_INPUT = "INVALID_INPUT"
+    NO_DATA = "NO_DATA"
+
+
+HistoricalValue = HistoricalObservation | Candle
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,59 +66,247 @@ class DataIssue:
 
 
 @dataclass(frozen=True, slots=True)
-class DataQualityReport:
-    status: DataQualityStatus
-    observations_checked: int
+class HistoricalDataQuality:
+    """Machine-readable evidence about one historical data collection."""
+
+    quality: DataQualityStatus
+    completeness: CompletenessStatus
+    observation_count: int
+    expected_count: int | None
+    missing_timestamps: tuple[datetime, ...]
+    unexpected_timestamps: tuple[datetime, ...]
+    duplicate_timestamps: tuple[datetime, ...]
+    out_of_order: bool
     issues: tuple[DataIssue, ...]
 
     @property
+    def status(self) -> DataQualityStatus:
+        """Compatibility view using the former replay-facing vocabulary."""
+
+        if self.quality in {
+            DataQualityStatus.VALID,
+            DataQualityStatus.VALID_WITH_WARNINGS,
+        }:
+            return DataQualityStatus.COMPLETE
+        if self.quality is DataQualityStatus.DEGRADED:
+            return DataQualityStatus.INCOMPLETE
+        return DataQualityStatus.BLOCKED
+
+    @property
     def can_replay(self) -> bool:
-        return self.status is not DataQualityStatus.BLOCKED
+        """Whether replay is structurally permitted.
+
+        DEGRADED input is replayable only when the caller explicitly opts into
+        incomplete/degraded-fidelity replay. REJECTED input is never replayable.
+        """
+
+        return self.quality is not DataQualityStatus.REJECTED
+
+    @property
+    def is_complete(self) -> bool:
+        return self.completeness is CompletenessStatus.COMPLETE
 
 
 class HistoricalDataQualityGate:
-    """Validate replay input without silently repairing or fabricating data."""
+    """Validate historical input without repairing or fabricating data."""
 
     def validate(
         self,
-        observations: Iterable[HistoricalObservation],
+        observations: Iterable[HistoricalValue],
         *,
         expected_instrument: InstrumentId | None = None,
         expected_interval_seconds: int | None = None,
-    ) -> DataQualityReport:
+        expected_timestamps: Iterable[datetime] | None = None,
+    ) -> HistoricalDataQuality:
         values = tuple(observations)
-        issues: list[DataIssue] = []
-        previous: HistoricalObservation | None = None
-        seen: set[tuple[datetime, int]] = set()
+        expected = (
+            None if expected_timestamps is None else tuple(expected_timestamps)
+        )
 
-        for observation in values:
-            timestamp = observation.timestamp
-            if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-                issues.append(DataIssue(DataIssueType.INVALID_TIMESTAMP, "timestamp must be timezone-aware", timestamp))
+        issues: list[DataIssue] = []
+        observed_timestamps: list[datetime] = []
+        duplicate_timestamps: set[datetime] = set()
+        seen_timestamps: set[datetime] = set()
+        previous_timestamp: datetime | None = None
+        out_of_order = False
+
+        for value in values:
+            if not isinstance(value, (HistoricalObservation, Candle)):
+                issues.append(
+                    DataIssue(
+                        DataIssueType.INVALID_INPUT,
+                        "observations must be canonical historical observations",
+                    )
+                )
                 continue
 
-            key = (timestamp, observation.sequence)
-            if key in seen:
-                issues.append(DataIssue(DataIssueType.DUPLICATE, "duplicate observation", timestamp))
-            seen.add(key)
+            timestamp = value.timestamp
+            if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                issues.append(
+                    DataIssue(
+                        DataIssueType.INVALID_TIMESTAMP,
+                        "timestamp must be timezone-aware",
+                        timestamp,
+                    )
+                )
+                continue
 
-            if expected_instrument is not None and observation.instrument != expected_instrument:
-                issues.append(DataIssue(DataIssueType.INSTRUMENT_MISMATCH, "observation instrument does not match replay instrument", timestamp))
+            observed_timestamps.append(timestamp)
+            if timestamp in seen_timestamps:
+                duplicate_timestamps.add(timestamp)
+                issues.append(
+                    DataIssue(
+                        DataIssueType.DUPLICATE,
+                        "duplicate observation timestamp",
+                        timestamp,
+                    )
+                )
+            seen_timestamps.add(timestamp)
 
-            if previous is not None:
-                if timestamp < previous.timestamp or (
-                    timestamp == previous.timestamp and observation.sequence < previous.sequence
-                ):
-                    issues.append(DataIssue(DataIssueType.OUT_OF_ORDER, "observations are not chronologically ordered", timestamp))
+            if (
+                expected_instrument is not None
+                and value.instrument != expected_instrument
+            ):
+                issues.append(
+                    DataIssue(
+                        DataIssueType.INSTRUMENT_MISMATCH,
+                        "observation instrument does not match expected instrument",
+                        timestamp,
+                    )
+                )
+
+            if previous_timestamp is not None:
+                if timestamp < previous_timestamp:
+                    out_of_order = True
+                    issues.append(
+                        DataIssue(
+                            DataIssueType.OUT_OF_ORDER,
+                            "observations are not chronologically ordered",
+                            timestamp,
+                        )
+                    )
                 if (
                     expected_interval_seconds is not None
-                    and timestamp > previous.timestamp
-                    and (timestamp - previous.timestamp).total_seconds() > expected_interval_seconds
+                    and timestamp > previous_timestamp
+                    and (timestamp - previous_timestamp).total_seconds()
+                    > expected_interval_seconds
                 ):
-                    issues.append(DataIssue(DataIssueType.GAP, "historical data gap detected", timestamp))
+                    issues.append(
+                        DataIssue(
+                            DataIssueType.GAP,
+                            "historical data gap detected",
+                            timestamp,
+                        )
+                    )
+            previous_timestamp = timestamp
 
-            previous = observation
+        observed_set = set(observed_timestamps)
+        missing_timestamps: tuple[datetime, ...] = ()
+        unexpected_timestamps: tuple[datetime, ...] = ()
 
-        blocking = any(issue.issue_type in {DataIssueType.INVALID_TIMESTAMP, DataIssueType.INSTRUMENT_MISMATCH} for issue in issues)
-        status = DataQualityStatus.BLOCKED if blocking else DataQualityStatus.INCOMPLETE if issues else DataQualityStatus.COMPLETE
-        return DataQualityReport(status, len(values), tuple(issues))
+        if expected is not None:
+            invalid_expected = tuple(
+                value
+                for value in expected
+                if value.tzinfo is None or value.utcoffset() is None
+            )
+            if invalid_expected:
+                for timestamp in invalid_expected:
+                    issues.append(
+                        DataIssue(
+                            DataIssueType.INVALID_TIMESTAMP,
+                            "expected timestamp must be timezone-aware",
+                            timestamp,
+                        )
+                    )
+            else:
+                expected_set = set(expected)
+                missing_timestamps = tuple(sorted(expected_set - observed_set))
+                unexpected_timestamps = tuple(sorted(observed_set - expected_set))
+                for timestamp in missing_timestamps:
+                    issues.append(
+                        DataIssue(
+                            DataIssueType.MISSING_EXPECTED_TIMESTAMP,
+                            "expected timestamp is missing from observations",
+                            timestamp,
+                        )
+                    )
+                for timestamp in unexpected_timestamps:
+                    issues.append(
+                        DataIssue(
+                            DataIssueType.UNEXPECTED_TIMESTAMP,
+                            "observed timestamp was not in expected set",
+                            timestamp,
+                        )
+                    )
+
+        if not values and expected not in (None, ()):
+            issues.append(DataIssue(DataIssueType.NO_DATA, "no observations supplied"))
+
+        blocking_types = {
+            DataIssueType.INVALID_INPUT,
+            DataIssueType.INVALID_TIMESTAMP,
+            DataIssueType.INSTRUMENT_MISMATCH,
+        }
+        quality = (
+            DataQualityStatus.REJECTED
+            if any(issue.issue_type in blocking_types for issue in issues)
+            else DataQualityStatus.DEGRADED
+            if issues
+            else DataQualityStatus.VALID
+            if expected is not None
+            else DataQualityStatus.VALID_WITH_WARNINGS
+        )
+
+        if expected is None:
+            completeness = CompletenessStatus.UNKNOWN
+        elif any(issue.issue_type is DataIssueType.INVALID_TIMESTAMP for issue in issues):
+            completeness = CompletenessStatus.UNKNOWN
+        elif any(
+            issue.issue_type
+            in {
+                DataIssueType.MISSING_EXPECTED_TIMESTAMP,
+                DataIssueType.UNEXPECTED_TIMESTAMP,
+                DataIssueType.GAP,
+            }
+            for issue in issues
+        ):
+            completeness = CompletenessStatus.INCOMPLETE
+        else:
+            completeness = CompletenessStatus.COMPLETE
+
+        return HistoricalDataQuality(
+            quality=quality,
+            completeness=completeness,
+            observation_count=len(values),
+            expected_count=None if expected is None else len(expected),
+            missing_timestamps=missing_timestamps,
+            unexpected_timestamps=unexpected_timestamps,
+            duplicate_timestamps=tuple(sorted(duplicate_timestamps)),
+            out_of_order=out_of_order,
+            issues=tuple(issues),
+        )
+
+
+def assess_candles(
+    candles: Iterable[Candle],
+    expected_timestamps: Iterable[datetime] | None = None,
+) -> HistoricalDataQuality:
+    """Assess canonical candles through the same authoritative quality gate."""
+
+    return HistoricalDataQualityGate().validate(
+        candles,
+        expected_timestamps=expected_timestamps,
+    )
+
+
+__all__ = [
+    "CompletenessStatus",
+    "DataIssue",
+    "DataIssueType",
+    "DataQualityStatus",
+    "HistoricalDataQuality",
+    "HistoricalDataQualityGate",
+    "HistoricalValue",
+    "assess_candles",
+]

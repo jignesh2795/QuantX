@@ -30,7 +30,8 @@ class ResearchRunOutcome:
     def runnable(self) -> bool:
         return (
             self.preflight_status is PreflightStatus.READY
-            and self.data_quality_status is DataQualityStatus.COMPLETE
+            and self.data_quality_status
+            in {DataQualityStatus.VALID, DataQualityStatus.VALID_WITH_WARNINGS}
         )
 
 

@@ -40,6 +40,7 @@ from quantx.domain.strategy import (
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.paper_engine import PaperSimulationProfile
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
+from quantx.research.quality import DataQualityStatus
 from quantx.research.replay import HistoricalReplay
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.evaluation import (
@@ -405,7 +406,7 @@ def test_candle_crossed_limit_fills_at_bar_close_end_to_end() -> None:
     assert all(receipt.simulated is True for receipt in result.receipts)
     assert result.ledger[0].quantity == Decimal("2")
     assert result.ledger[0].average_price == Decimal("99.750000000000005")
-    assert result.data_quality.value == "COMPLETE"
+    assert result.data_quality is DataQualityStatus.COMPLETE
 
 
 def test_candle_limit_fills_only_crossed_bars() -> None:
