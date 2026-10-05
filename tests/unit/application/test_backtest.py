@@ -477,3 +477,57 @@ def test_backtest_exposes_deterministic_account_state_trajectory() -> None:
     assert state.equity == Money(Decimal("1000"), "INR")
     assert state.unrealized_pnl == Money.zero("INR")
     assert state.fees == Money.zero("INR")
+
+
+def test_backtest_exposes_time_indexed_account_state_series() -> None:
+    instrument = _instrument()
+    context = _context()
+
+    def strategy(frame):
+        if frame.index == 0:
+            signal = StrategySignal(
+                StrategyId("series-check"),
+                "1",
+                instrument.instrument_id,
+                SignalAction.BUY,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+            intent = TradeIntent(
+                instrument=instrument.instrument_id,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                execution_context=context,
+                strategy_id="series-check",
+                strategy_version="1",
+            )
+            return StrategyResult(signal, intent)
+        signal = StrategySignal(
+            StrategyId("series-check"),
+            "1",
+            instrument.instrument_id,
+            SignalAction.HOLD,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        return StrategyResult(signal, None)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
+    ).run(
+        series=_series(),
+        strategy=strategy,
+        financial_state=_financial_state(),
+    )
+
+    assert len(result.account_states) == 1
+    assert len(result.account_state_series) == 2
+
+    first = result.account_state_series[0]
+    second = result.account_state_series[1]
+    assert first.timestamp == datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc)
+    assert second.timestamp == datetime(2026, 1, 1, 9, 16, tzinfo=timezone.utc)
+    assert first.cash == Money(Decimal("1000"), "INR")
+    assert second.cash == Money(Decimal("900"), "INR")
+    assert second.market_value == Money(Decimal("101"), "INR")
+    assert second.unrealized_pnl == Money(Decimal("1"), "INR")
