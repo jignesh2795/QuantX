@@ -107,16 +107,6 @@ class FixedDailySessionCalendar(MarketCalendar):
             reason=reason,
         )
 
-    def historical_timestamp_expected(self, timestamp: datetime) -> bool | None:
-        """Return whether a historical bar is expected in this fixed session."""
-
-        classification = self.classify(timestamp)
-        if classification.status is SessionStatus.OPEN:
-            return True
-        if classification.status is SessionStatus.UNKNOWN:
-            return None
-        return False
-
 
 __all__ = [
     "FixedDailySessionCalendar",
