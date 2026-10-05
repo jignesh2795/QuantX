@@ -323,6 +323,14 @@ def test_slipped_fill_records_reference_price_deterministically() -> None:
     for receipt in (first, second):
         assert "slippage_bps=10" in receipt.assumptions
         assert "reference_price=100" in receipt.assumptions
+        assert "realized_price=100.10" in receipt.assumptions
+        assert "realized_quantity=10" in receipt.assumptions
+        assert "remaining_quantity=0" in receipt.assumptions
+        assert "execution_model_id=QUOTE" in receipt.assumptions
+        assert "execution_model_version=paper-core-v0.3" in receipt.assumptions
+        assert "slippage_model_id=paper.fixed_bps_slippage" in receipt.assumptions
+        assert "slippage_model_version=1" in receipt.assumptions
+        assert "configured_simulation_profile" in receipt.assumptions
         assert receipt.fills[0].price == Decimal("100.10")
     assert first.message == second.message
     assert first.assumptions == second.assumptions
