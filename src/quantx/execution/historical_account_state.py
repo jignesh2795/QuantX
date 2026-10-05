@@ -34,6 +34,42 @@ class AccountStateCompleteness(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class HistoricalValuationEvidence:
+    """Explicit mark evidence selected for one account-state position."""
+
+    instrument_id: str
+    mark_price: Decimal | None
+    source: str
+    observed_at: datetime | None
+    selected_at: datetime
+    unavailable: bool
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.instrument_id.strip():
+            raise ValueError("instrument_id must not be empty")
+        if not self.source.strip():
+            raise ValueError("source must not be empty")
+        if self.selected_at.tzinfo is None or self.selected_at.utcoffset() is None:
+            raise ValueError("selected_at must be timezone-aware")
+        if self.observed_at is not None and (
+            self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None
+        ):
+            raise ValueError("observed_at must be timezone-aware")
+        if self.mark_price is not None and self.mark_price <= 0:
+            raise ValueError("mark_price must be positive when supplied")
+        if self.unavailable and self.reason is None:
+            raise ValueError("unavailable valuation evidence requires a reason")
+        if not self.unavailable:
+            if self.mark_price is None or self.observed_at is None:
+                raise ValueError(
+                    "available valuation evidence requires price and observation time"
+                )
+            if self.reason is not None:
+                raise ValueError("available valuation evidence cannot carry a reason")
+
+
+@dataclass(frozen=True, slots=True)
 class HistoricalAccountStateSnapshot:
     """One immutable post-event simulated account-state observation.
 
@@ -55,6 +91,7 @@ class HistoricalAccountStateSnapshot:
     completeness: AccountStateCompleteness
     unavailable_instruments: tuple[str, ...] = ()
     issue: str | None = None
+    valuation_evidence: tuple[HistoricalValuationEvidence, ...] = ()
 
     def __post_init__(self) -> None:
         if self.timestamp.tzinfo is None or self.timestamp.utcoffset() is None:
@@ -91,6 +128,7 @@ class HistoricalAccountStateSnapshot:
             self.unavailable_instruments or self.issue is not None
         ):
             raise ValueError("incomplete account state requires explicit evidence")
+
 
     @property
     def net_pnl(self) -> Money | None:
@@ -252,6 +290,7 @@ class HistoricalAccountStateTracker:
         cash = self._cash.balance if self._cash_available else None
 
         unavailable: list[str] = []
+        evidence: list[HistoricalValuationEvidence] = []
         signed_market_value = Decimal("0")
         unrealized = Decimal("0")
         gross_exposure = Decimal("0")
@@ -259,17 +298,75 @@ class HistoricalAccountStateTracker:
         for entry in positions:
             instrument = self._instrument_registry.resolve(entry.instrument)
             mark = self._marks.get(entry.instrument)
-            if instrument is None or mark is None:
+            if instrument is None:
                 unavailable.append(str(entry.instrument))
+                evidence.append(
+                    HistoricalValuationEvidence(
+                        instrument_id=str(entry.instrument),
+                        mark_price=None,
+                        source="instrument-metadata-unavailable",
+                        observed_at=None,
+                        selected_at=timestamp,
+                        unavailable=True,
+                        reason="instrument metadata unavailable for valuation",
+                    )
+                )
+                continue
+            if mark is None:
+                unavailable.append(str(entry.instrument))
+                evidence.append(
+                    HistoricalValuationEvidence(
+                        instrument_id=str(entry.instrument),
+                        mark_price=None,
+                        source="historical-replay-no-mark",
+                        observed_at=None,
+                        selected_at=timestamp,
+                        unavailable=True,
+                        reason="no explicit mark observed for instrument",
+                    )
+                )
                 continue
             if mark.price is None or mark.observed_at is None:
                 unavailable.append(str(entry.instrument))
+                evidence.append(
+                    HistoricalValuationEvidence(
+                        instrument_id=str(entry.instrument),
+                        mark_price=mark.price,
+                        source=mark.source,
+                        observed_at=mark.observed_at,
+                        selected_at=timestamp,
+                        unavailable=True,
+                        reason="explicit mark has no usable price or observation time",
+                    )
+                )
                 continue
             if mark.observed_at > timestamp:
                 unavailable.append(str(entry.instrument))
+                evidence.append(
+                    HistoricalValuationEvidence(
+                        instrument_id=str(entry.instrument),
+                        mark_price=mark.price,
+                        source=mark.source,
+                        observed_at=mark.observed_at,
+                        selected_at=timestamp,
+                        unavailable=True,
+                        reason="explicit mark is observed after snapshot timestamp",
+                    )
+                )
                 continue
             if require_current_marks and mark.observed_at != timestamp:
                 unavailable.append(str(entry.instrument))
+                evidence.append(
+                    HistoricalValuationEvidence(
+                        instrument_id=str(entry.instrument),
+                        mark_price=mark.price,
+                        source=mark.source,
+                        observed_at=mark.observed_at,
+                        selected_at=timestamp,
+                        unavailable=True,
+                        reason="explicit mark is stale for exact-current sampling",
+                    )
+                )
                 continue
 
             position = Position(
@@ -284,11 +381,22 @@ class HistoricalAccountStateTracker:
             )
             unrealized += valuation.unrealized_pnl
             gross_exposure += abs(entry.quantity) * mark.price * instrument.multiplier
+            evidence.append(
+                HistoricalValuationEvidence(
+                    instrument_id=str(entry.instrument),
+                    mark_price=mark.price,
+                    source=mark.source,
+                    observed_at=mark.observed_at,
+                    selected_at=timestamp,
+                    unavailable=False,
+                )
+            )
 
         issue = self._issue
         if unavailable:
             issue = issue or "one or more positions lack an explicit mark"
 
+        evidence_tuple = tuple(evidence)
         if cash is None or unavailable:
             return HistoricalAccountStateSnapshot(
                 timestamp=timestamp,
@@ -304,6 +412,7 @@ class HistoricalAccountStateTracker:
                 completeness=AccountStateCompleteness.INCOMPLETE,
                 unavailable_instruments=tuple(unavailable),
                 issue=issue,
+                valuation_evidence=evidence_tuple,
             )
 
         market_value = Money(signed_market_value, self._currency)
@@ -320,6 +429,7 @@ class HistoricalAccountStateTracker:
             fees=fees,
             positions=positions,
             completeness=AccountStateCompleteness.COMPLETE,
+            valuation_evidence=evidence_tuple,
         )
 
 
@@ -327,4 +437,5 @@ __all__ = [
     "AccountStateCompleteness",
     "HistoricalAccountStateSnapshot",
     "HistoricalAccountStateTracker",
+    "HistoricalValuationEvidence",
 ]
