@@ -31,7 +31,15 @@ modeled fees
 position ledger
 completeness
 unavailable instruments / explicit issue
+valuation evidence
 ```
+
+Valuation evidence is an immutable, deterministic sequence containing the
+instrument identity, explicit mark price when available, mark source, mark
+observation timestamp, snapshot selection timestamp, availability state, and
+an explicit reason when the evidence is unavailable. This makes both ordinary
+C4 as-of valuation and C7 exact-current sampling auditable without changing
+their selection rules.
 
 COMPLETE means the configured cash state and every open position have an explicit valuation mark.
 
@@ -96,6 +104,22 @@ FillAccounting + CashLedger
 HistoricalAccountStateSnapshot
 ```
 
+## Valuation evidence provenance
+
+For each open position, the tracker records the explicit mark considered at
+the snapshot boundary. A complete evidence record identifies the mark that was
+actually used for valuation. An unavailable record preserves the explicit mark
+metadata when present and states why it could not be used, including missing
+marks, future observations, unusable prices, or stale marks under exact-current
+sampling.
+
+Evidence is emitted in the same deterministic position order used by the
+snapshot and carries the requested snapshot timestamp separately from the
+mark observation timestamp. Therefore a receipt-driven C4 snapshot can expose
+that an as-of mark observed earlier was selected at a later receipt timestamp,
+while a C7 series sample can prove that its mark was observed exactly at the
+sample timestamp.
+
 ## Safety boundary
 
 This is a deterministic simulation/research state boundary.
@@ -113,7 +137,6 @@ It does not:
 
 Later account-state slices may add:
 
-- time-indexed snapshots independent of execution events;
 - explicit margin-reservation evolution;
 - broker-observed account-state reconciliation;
 - account-level market data and FX conversion;
