@@ -77,7 +77,7 @@ class ChargeBreakdown:
         model_version: str = "0",
         currency: str | None = None,
         provenance: tuple[str, ...] = (),
-    ) -> "ChargeBreakdown":
+    ) -> ChargeBreakdown:
         return cls(
             currency=currency,
             components=(),
