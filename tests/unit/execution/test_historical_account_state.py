@@ -133,6 +133,13 @@ def test_tracker_derives_complete_state_for_long_position() -> None:
     assert result.fees == Money(Decimal("1"), "INR")
     assert result.net_pnl == Money(Decimal("19"), "INR")
     assert result.positions[0].quantity == Decimal("2")
+    evidence = result.valuation_evidence[0]
+    assert evidence.instrument_id == str(INSTRUMENT)
+    assert evidence.mark_price == Decimal("110")
+    assert evidence.source == "historical-replay-last"
+    assert evidence.observed_at == T0
+    assert evidence.selected_at == T0
+    assert evidence.unavailable is False
 
 
 def test_tracker_handles_realized_pnl_and_fees_on_partial_close() -> None:
@@ -149,6 +156,12 @@ def test_tracker_handles_realized_pnl_and_fees_on_partial_close() -> None:
     assert result.equity == Money(Decimal("1018"), "INR")
     assert result.realized_pnl == Money(Decimal("10"), "INR")
     assert result.unrealized_pnl == Money(Decimal("10"), "INR")
+    evidence = result.valuation_evidence[0]
+    assert evidence.mark_price == Decimal("110")
+    assert evidence.source == "historical-replay-last"
+    assert evidence.observed_at == T1
+    assert evidence.selected_at == T1
+    assert evidence.unavailable is False
     assert result.fees == Money(Decimal("2"), "INR")
     assert result.net_pnl == Money(Decimal("18"), "INR")
 
@@ -163,6 +176,12 @@ def test_tracker_uses_signed_market_value_for_short_positions() -> None:
     assert result.market_value == Money(Decimal("-200"), "INR")
     assert result.equity == Money(Decimal("1000"), "INR")
     assert result.gross_exposure == Money(Decimal("200"), "INR")
+    evidence = result.valuation_evidence[0]
+    assert evidence.mark_price == Decimal("100")
+    assert evidence.source == "historical-replay-last"
+    assert evidence.observed_at == T0
+    assert evidence.selected_at == T0
+    assert evidence.unavailable is False
 
 
 def test_tracker_honors_instrument_multiplier() -> None:
@@ -190,6 +209,14 @@ def test_tracker_missing_price_is_incomplete_without_fabrication() -> None:
     assert result.gross_exposure is None
     assert result.unavailable_instruments == (str(INSTRUMENT),)
     assert result.issue is not None
+    evidence = result.valuation_evidence[0]
+    assert evidence.instrument_id == str(INSTRUMENT)
+    assert evidence.mark_price is None
+    assert evidence.source == "historical-replay-no-price"
+    assert evidence.observed_at == T0
+    assert evidence.selected_at == T0
+    assert evidence.unavailable is True
+    assert evidence.reason == "explicit mark has no usable price or observation time"
 
 
 def test_tracker_rejects_live_capital_source() -> None:
@@ -262,6 +289,12 @@ def test_tracker_time_indexed_snapshot_rejects_stale_mark_reuse() -> None:
     assert stale.unrealized_pnl is None
     assert stale.gross_exposure is None
     assert stale.unavailable_instruments == (str(INSTRUMENT),)
+    stale_evidence = stale.valuation_evidence[0]
+    assert stale_evidence.mark_price == Decimal("100")
+    assert stale_evidence.observed_at == T0
+    assert stale_evidence.selected_at == T1
+    assert stale_evidence.unavailable is True
+    assert stale_evidence.reason == "explicit mark is stale for exact-current sampling"
 
 
 def test_tracker_time_indexed_snapshot_uses_exact_current_mark() -> None:
@@ -279,3 +312,44 @@ def test_tracker_time_indexed_snapshot_uses_exact_current_mark() -> None:
     assert result.market_value == Money(Decimal("110"), "INR")
     assert result.equity == Money(Decimal("1010"), "INR")
     assert result.unrealized_pnl == Money(Decimal("10"), "INR")
+    evidence = result.valuation_evidence[0]
+    assert evidence.instrument_id == str(INSTRUMENT)
+    assert evidence.mark_price == Decimal("110")
+    assert evidence.source == "historical-replay-last"
+    assert evidence.observed_at == T1
+    assert evidence.selected_at == T1
+    assert evidence.unavailable is False
+
+
+def test_tracker_records_c4_as_of_mark_selection() -> None:
+    tracker, _ = _tracker()
+
+    receipt = _receipt(OrderSide.BUY, "1", "100", executed_at=T1)
+    result = tracker.record(receipt, snapshot=_snapshot(T0, price="105"))
+
+    evidence = result.valuation_evidence[0]
+    assert evidence.unavailable is False
+    assert evidence.mark_price == Decimal("105")
+    assert evidence.source == "historical-replay-last"
+    assert evidence.observed_at == T0
+    assert evidence.selected_at == T1
+
+
+def test_tracker_records_future_mark_as_unavailable_evidence() -> None:
+    tracker, _ = _tracker()
+
+    opening = _receipt(OrderSide.BUY, "1", "100", executed_at=T0)
+    tracker.record(opening, snapshot=_snapshot(T0, price="100"))
+    tracker.observe_mark(_snapshot(T1, price="110"))
+
+    result = tracker.snapshot_at(T0)
+
+    assert result.completeness is AccountStateCompleteness.INCOMPLETE
+    evidence = result.valuation_evidence[0]
+    assert evidence.instrument_id == str(INSTRUMENT)
+    assert evidence.mark_price == Decimal("110")
+    assert evidence.source == "historical-replay-last"
+    assert evidence.observed_at == T1
+    assert evidence.selected_at == T0
+    assert evidence.unavailable is True
+    assert evidence.reason == "explicit mark is observed after snapshot timestamp"
