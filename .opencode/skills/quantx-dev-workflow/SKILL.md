@@ -22,7 +22,7 @@ From `docs/implementation/README.md`. Follow for every change:
 Rules of thumb:
 
 - One concrete gap per change. Do not start a broad package migration or UI/AI subsystem while an existing boundary can be hardened incrementally.
-- Current project focus: **execution integrity, reconciliation, and recovery safety**.
+- Current priorities are authoritative in `docs/STATUS.md` and `docs/roadmap/`. Use the repository documents to determine the active milestone.
 - Do not create one permanent document per batch unless it introduces a durable architectural decision.
 
 ## Environment setup
@@ -31,7 +31,7 @@ Rules of thumb:
 .\scripts\setup.ps1          # bootstrap: uv python install + uv sync --dev
 uv python install
 uv sync --dev
-uv sync --dev --extra dhan    # optional Dhan SDK (dhanhq==2.2.0)
+uv sync --dev --extra dhan    # optional Dhan SDK (version authoritative in pyproject.toml/uv.lock)
 uv lock                       # regenerate lockfile after dependency changes; commit uv.lock
 ```
 
@@ -57,15 +57,15 @@ pytest green + changed-file Ruff clean + git diff --check clean
 
 Notes:
 
-- Repo-wide Ruff has ~272 **pre-existing** errors; the gate is only *changed-file* Ruff, enforced by `scripts/hooks/pre-push`. Enable with: `git config core.hooksPath scripts/hooks`.
+- The repository gate is *changed-file* Ruff (repo-wide Ruff may have pre-existing findings — inspect before claiming counts), enforced by `scripts/hooks/pre-push`. Enable with: `git config core.hooksPath scripts/hooks`.
 - The pre-push hook runs `uv run ruff check` over `.py` files in `git diff --name-only '@{push}...HEAD'` (fallback `origin/main...HEAD`).
-- GitHub Actions is **not** treated as validation evidence while billing is disabled — local OpenCode validation is the current execution gate.
+- Validation-gate policy (whether GitHub Actions counts as evidence, and the current execution gate) is authoritative in `docs/STATUS.md` — verify there instead of assuming.
 - The full CI sequence (`.github/workflows/test.yml`): `uv sync --locked --dev --extra dhan` → ruff check/format on Dhan paths → pytest dhan → pytest paper → full pytest.
 
 ## Branching and commits
 
 - Branches: `main`, `feat/<slug>-v1`, `fix/<slug>-v1`, `test/<slug>-v1`, `docs/<slug>`. Major implementation must **not** start on `main`; a feature branch must reference an architecture decision or roadmap item (`docs/architecture/03-branching-strategy.md`).
-- Commit subjects use Conventional Commit prefixes: `test:`, `fix:`, `refactor:`, `docs:`.
+- Commit subjects must follow Conventional Commits. Use the appropriate established type for the change — do not treat any hardcoded prefix list as an allowlist.
 - Commit `uv.lock` after any dependency change.
 
 ## Documentation policy
@@ -86,7 +86,7 @@ One source of truth. Update the existing canonical doc; never create duplicates.
 - Historical batch records are not current state unless marked historical.
 - Temporary execution notes do not belong in the permanent architecture set.
 
-## Implementation rules (from `quantx-implementer`)
+## Implementation rules
 
 - Before editing: read the current canonical docs and the source/tests for the target boundary; **search all consumers of changed types and fields**.
 - Make the smallest coherent change; do not change unrelated files.
@@ -101,9 +101,6 @@ One source of truth. Update the existing canonical doc; never create duplicates.
 
 Include: branch, commit(s), changed files, exact commands actually run, test/lint/type results, safety review when applicable, explicit non-claims, and remaining issues.
 
-## Current do-nots (from STATUS.md)
+## Current restrictions (authoritative source: `docs/STATUS.md`)
 
-- No UI, no AI execution, no broad broker matrix.
-- No package/structural migration while execution-integrity work is active.
-- No production-broker end-to-end execution claims.
-- No second LIVE execution path, no background recovery daemon, no generic process entrypoint yet.
+Verify active restrictions in `docs/STATUS.md` and `docs/roadmap/` before acting — use the repository documents to determine the active milestone, not this skill. As historically stated there: no UI/AI execution/broad broker matrix while the focus is elsewhere, no production-broker end-to-end execution claims, no second LIVE execution path, no background recovery daemon, no generic process entrypoint.

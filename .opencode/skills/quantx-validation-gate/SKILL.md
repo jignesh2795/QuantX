@@ -54,4 +54,4 @@ Require exact command/result summaries with counts. Never accept "tests pass" wi
 - **PASS** — all mandatory gates green and no blocking semantic finding.
 - **BLOCKED** — any mandatory gate red or any unresolved safety/semantic blocker.
 
-After evidence is returned, the deciding agent — not the validation run — determines whether to fix or merge.
+The validation worker produces evidence; it does not decide whether a defect should be fixed or whether the branch should merge. After evidence is returned, the deciding agent — not the validation run — determines whether to fix or merge.

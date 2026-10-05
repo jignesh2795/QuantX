@@ -47,7 +47,7 @@ Keep these responsibilities separate — do not merge them into one catch-all en
 
 ## Dhan broker plugin (`src/quantx/plugins/dhan/`)
 
-The only real broker adapter. Optional SDK extra: `uv sync --dev --extra dhan` (`dhanhq==2.2.0`).
+The only real broker adapter. Optional SDK extra installed via `uv sync --dev --extra dhan`. The Dhan SDK version is whatever the repository's current dependency configuration specifies; verify `pyproject.toml`/`uv.lock` before making dependency claims.
 
 - `transport.py` — **the ONLY module in the repo allowed to import `dhanhq`**. Defines `DhanTransport` Protocol, `DhanSDKTransport`, `InMemoryDhanTransport`, `DhanTimeoutError`.
 - `adapter.py` — `DhanBrokerAdapter(BrokerPort)`; independently enforces account-scoped connection before submit/cancel/reconcile.

@@ -41,7 +41,7 @@ def test_registry_rejects_duplicate_plugin_ids() -> None:
     ...
 ```
 
-- **No pytest fixtures** are used anywhere (`@pytest.fixture` count: 0). Instead define private factory helpers prefixed with `_`:
+- **Established convention: private factory helpers prefixed with `_` rather than shared pytest fixtures** (inspect the repository before claiming fixture counts — do not store transient counts in this skill):
 
 ```python
 def _instrument() -> Instrument: ...
@@ -50,7 +50,7 @@ def _request() -> ApprovedExecutionRequest: ...
 
 - Fakes are named `Fake*`, `Stub*`, `InMemory*` (e.g. `FakePlugin`, `StubStrategy`, `InMemoryReferenceBrokerTransport`).
 - Error assertions use `pytest.raises(..., match="...")`; otherwise plain `assert`.
-- `@pytest.mark.parametrize` is used sparingly (~12 usages repo-wide).
+- `@pytest.mark.parametrize` is used sparingly; inspect the repository before making claims about usage counts.
 - Optional-dependency skip pattern (`tests/unit/plugins/dhan/test_host.py:323`):
 
 ```python
@@ -59,8 +59,10 @@ pytest.importorskip("dhanhq", reason="optional dhan extra is not installed")
 
 ## Discipline
 
+Writing/fixing tests is permitted only during an explicitly assigned implementation task. During VALIDATION ONLY, tests are executed and analyzed read-only; the worker must not modify tests.
+
 Per the 7-step implementation discipline: make the smallest production change, then **add a focused regression test** for the specific gap. Run the focused slice first, then the full suite.
 
 Repository gate: `pytest green + changed-file Ruff clean + git diff --check clean`.
 
-Validation baseline lives in `docs/STATUS.md` (recent: 813 passed locally; CI Actions not currently used as a gate). Testing itself is architectural — broker/data adapters must pass a common contract suite (`docs/architecture/11-testing-and-contracts.md`).
+The current validation/test-count baseline is authoritative in `docs/STATUS.md` — read it for the baseline; do not store transient repository counts in this skill. Testing itself is architectural — broker/data adapters must pass a common contract suite (`docs/architecture/11-testing-and-contracts.md`).

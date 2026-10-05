@@ -31,7 +31,7 @@ For each candidate:
 5. market-specific depth with authoritative data;
 6. product/UI/AI breadth.
 
-This matches the project's active focus in `docs/STATUS.md` (execution integrity, reconciliation, recovery safety).
+Current priorities are authoritative in `docs/STATUS.md` and `docs/roadmap/`. Use the repository documents to determine the active milestone before applying this order.
 
 ## Constraints
 

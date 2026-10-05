@@ -15,7 +15,7 @@ metadata:
 - Keep current phase/status obvious in `docs/STATUS.md`.
 - Record exact commit and validation command when reporting test counts.
 - Separate verified behavior from planned/deferred work; mark *implemented/current* vs *target* vs *roadmap/future*.
-- Explicitly record non-claims: no production-broker end-to-end execution, no real market-data guarantee, no bundled live rule data, CI Actions not currently a gate — when applicable.
+- Explicitly record non-claims: no production-broker end-to-end execution, no real market-data guarantee, no bundled live rule data, and the current CI/validation-gate status per `docs/STATUS.md` — when applicable.
 - Check cross-references and paths; never link a doc that does not exist.
 
 ## Where content belongs

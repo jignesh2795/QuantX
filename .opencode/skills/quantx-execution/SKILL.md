@@ -5,7 +5,7 @@ description: Use when working on QuantX execution integrity — paper trading, o
 
 # QuantX Execution Integrity & Recovery
 
-Current project focus. All live-path decisions are **fail-closed**: missing/unknown evidence is never converted into approval or a definitive outcome.
+The safety discipline this skill covers. Active priorities/milestones are authoritative in `docs/STATUS.md` and `docs/roadmap/`. All live-path decisions are **fail-closed**: missing/unknown evidence is never converted into approval or a definitive outcome.
 
 ## The single execution boundary
 
