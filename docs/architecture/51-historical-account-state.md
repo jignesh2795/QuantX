@@ -76,7 +76,7 @@ For each supplied historical observation:
 
 No price is inferred from unrelated data.
 
-Marks now carry their explicit observation timestamp. Receipt-driven account-state snapshots may use the latest known mark that is not in the future relative to the snapshot timestamp, preserving the existing latency-aware event-state behavior. Time-indexed research samples use an exact-current-mark policy and therefore do not reuse an older mark as though it were current; missing current evidence makes the valuation incomplete.
+Marks now carry their explicit observation timestamp. Receipt-driven account-state snapshots may use the latest known mark that is not in the future relative to the snapshot timestamp, preserving the existing latency-aware event-state behavior. Time-indexed research samples default to an exact-current-mark policy and therefore do not reuse an older mark as though it were current; an explicit AS_OF_OBSERVED sampling policy may instead reuse the latest mark at or before the sample timestamp, with its age exposed through valuation evidence. Missing or future evidence remains incomplete.
 
 ## Capital boundary
 
