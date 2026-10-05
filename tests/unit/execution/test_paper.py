@@ -380,10 +380,13 @@ def test_charge_model_and_fee_bps_cannot_be_ambiguous() -> None:
         )
 
 
-def test_zero_slippage_records_no_reference_price() -> None:
+def test_zero_slippage_records_reference_and_realized_price() -> None:
     engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     receipt = engine.execute(_request(), snapshot=_snapshot(bid=Decimal("99"), ask=Decimal("100")))
 
     assert receipt.fills[0].price == Decimal("100")
-    assert all(not item.startswith("reference_price=") for item in receipt.assumptions)
+    assert "reference_price=100" in receipt.assumptions
+    assert "realized_price=100" in receipt.assumptions
+    assert "realized_quantity=10" in receipt.assumptions
+    assert "remaining_quantity=0" in receipt.assumptions
 
