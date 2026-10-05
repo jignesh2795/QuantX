@@ -58,7 +58,9 @@ def test_calendar_aware_gap_ignores_closed_period() -> None:
     assert result.completeness is CompletenessStatus.UNKNOWN
     assert result.calendar_version == "fixed-daily-v1"
     assert result.calendar_unknown_timestamps == ()
-    assert all(issue.issue_type is not DataIssueType.GAP for issue in result.issues)
+    assert all(
+        issue.issue_type is not DataIssueType.GAP for issue in result.issues
+    )
 
 
 def test_calendar_aware_gap_detects_missing_open_slot() -> None:
