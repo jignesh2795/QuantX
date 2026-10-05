@@ -123,6 +123,12 @@ class HistoricalDataQualityGate:
         expected_timestamps: Iterable[datetime] | None = None,
         calendar: HistoricalCalendar | None = None,
     ) -> HistoricalDataQuality:
+        if (
+            expected_interval_seconds is not None
+            and expected_interval_seconds <= 0
+        ):
+            raise ValueError("expected_interval_seconds must be positive")
+
         values = tuple(observations)
         expected = (
             None if expected_timestamps is None else tuple(expected_timestamps)
@@ -197,9 +203,6 @@ class HistoricalDataQualityGate:
                     and (timestamp - previous_timestamp).total_seconds()
                     > expected_interval_seconds
                 ):
-                    if expected_interval_seconds <= 0:
-                        raise ValueError("expected_interval_seconds must be positive")
-
                     gap_detected = True
                     unknown_calendar_timestamps: set[datetime] = set()
 
@@ -332,12 +335,17 @@ class HistoricalDataQualityGate:
 def assess_candles(
     candles: Iterable[Candle],
     expected_timestamps: Iterable[datetime] | None = None,
+    *,
+    expected_interval_seconds: int | None = None,
+    calendar: HistoricalCalendar | None = None,
 ) -> HistoricalDataQuality:
     """Assess canonical candles through the same authoritative quality gate."""
 
     return HistoricalDataQualityGate().validate(
         candles,
         expected_timestamps=expected_timestamps,
+        expected_interval_seconds=expected_interval_seconds,
+        calendar=calendar,
     )
 
 
