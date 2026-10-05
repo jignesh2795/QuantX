@@ -1,5 +1,7 @@
 # R1-C8 Account-State Valuation Provenance
 
+**Implementation status:** implementation complete on `feat/r1c8-account-state-valuation-provenance`; external OpenCode validation is required before merge.
+
 ## Goal
 
 Make the market evidence supporting a historical account-state snapshot explicitly auditable.
@@ -12,7 +14,7 @@ C8 is limited to the existing historical account-state and valuation path:
 
 `HistoricalObservation -> HistoricalAccountStateTracker -> MarkToMarketValuator -> HistoricalAccountStateSnapshot`
 
-The slice should:
+The slice implements:
 
 - expose the mark evidence used for each valued open position;
 - preserve instrument identity;
@@ -78,7 +80,7 @@ C8 must not alter:
 
 ## Validation
 
-Focused coverage should prove:
+The implementation adds focused coverage. Before merge, external OpenCode validation should prove:
 
 - complete long and short valuation carries explicit mark evidence;
 - C4 as-of mark selection is represented correctly;
