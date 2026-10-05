@@ -47,6 +47,11 @@ class BacktestDisposition(StrEnum):
     BLOCKED = "BLOCKED"
 
 
+class AccountStateSamplingPolicy(StrEnum):
+    EXACT_CURRENT = "EXACT_CURRENT"
+    AS_OF_OBSERVED = "AS_OF_OBSERVED"
+
+
 @dataclass(frozen=True, slots=True)
 class BacktestStep:
     frame_index: int
@@ -89,6 +94,9 @@ class BacktestResult:
     ledger: tuple[PositionLedgerEntry, ...]
     account_states: tuple[HistoricalAccountStateSnapshot, ...] = ()
     account_state_series: tuple[HistoricalAccountStateSnapshot, ...] = ()
+    account_state_sampling_policy: AccountStateSamplingPolicy = (
+        AccountStateSamplingPolicy.EXACT_CURRENT
+    )
 
     @property
     def executed_count(self) -> int:
@@ -323,6 +331,9 @@ class DeterministicBacktestService:
         allow_incomplete: bool = False,
         execution_profile: PaperSimulationProfile | None = None,
         candle_volume_participation_rate: Decimal | None = None,
+        account_state_sampling_policy: AccountStateSamplingPolicy = (
+            AccountStateSamplingPolicy.EXACT_CURRENT
+        ),
     ) -> BacktestResult:
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
@@ -362,7 +373,10 @@ class DeterministicBacktestService:
             account_state_series.append(
                 account_state_tracker.snapshot_at(
                     frame.observation.timestamp,
-                    require_current_marks=True,
+                    require_current_marks=(
+                        account_state_sampling_policy
+                        is AccountStateSamplingPolicy.EXACT_CURRENT
+                    ),
                 )
             )
             if isinstance(strategy, StrategyEvaluationService):
@@ -580,4 +594,5 @@ class DeterministicBacktestService:
             ledger=accounting.snapshot(),
             account_states=tuple(account_states),
             account_state_series=tuple(account_state_series),
+            account_state_sampling_policy=account_state_sampling_policy,
         )
