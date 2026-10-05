@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from quantx.domain.value_objects import InstrumentId
@@ -29,7 +29,7 @@ def _obs(ts, sequence=0, instrument=None):
 
 
 def test_complete_interval_series_is_replayable_but_completeness_is_unknown():
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
     observations = (_obs(start), _obs(start + timedelta(seconds=60), 1))
     report = HistoricalDataQualityGate().validate(observations, expected_interval_seconds=60)
     assert report.quality is DataQualityStatus.VALID_WITH_WARNINGS
