@@ -65,14 +65,19 @@ def _get_result(
     result_id: UUID,
 ) -> ResearchResult | None:
     row = connection.execute(
-        "SELECT payload FROM research_results WHERE result_id = ?",
+        "SELECT run_id, provenance_fingerprint, payload "
+        "FROM research_results WHERE result_id = ?",
         (str(result_id),),
     ).fetchone()
     if row is None:
         return None
-    result = research_result_from_payload(_payload(row[0], "research result payload"))
+    result = research_result_from_payload(_payload(row[2], "research result payload"))
     if result.result_id != result_id:
         raise ValueError("research result payload identity does not match row")
+    if result.spec.run_id != row[0]:
+        raise ValueError("research result run_id does not match row")
+    if result.fingerprint != row[1]:
+        raise ValueError("research result provenance fingerprint does not match row")
     return result
 
 
