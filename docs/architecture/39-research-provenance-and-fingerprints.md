@@ -78,8 +78,9 @@ instance and is deliberately excluded from reproducibility identity.
 
 ## Experiment identity and run membership
 
-An `Experiment` is a logical grouping of research execution instances; it is
-not a second copy of a run's configuration or provenance.
+An `Experiment` is a logical grouping of research execution instances. Its
+identity and human-facing metadata do not declare or duplicate the strategy,
+parameters, execution model, replay policy, or other material run configuration.
 
 `ResearchRunRecord` identifies one execution instance, and `ResearchResult`
 is the result bound to that run. Experiment membership stores only the
@@ -95,15 +96,16 @@ Experiment
 ```
 
 A run may belong to at most one experiment. An experiment may contain many runs,
-including runs that vary parameters, simulation models, random seeds, or other
-material inputs. Membership does not copy or override `ResearchRunConfiguration`
-or `ResearchProvenance`.
+including runs that intentionally vary strategy identity, parameters,
+simulation models, random seeds, or other material inputs. Membership does not
+copy, override, or constrain `ResearchRunConfiguration` or
+`ResearchProvenance`.
 
-The in-memory experiment manager owns only the association index. Durable run
-state and result persistence remain owned by the existing research repositories.
-A future persistence adapter should represent membership as an explicit
-association keyed by `run_id`, with the one-experiment-per-run invariant
-preserved.
+The in-memory experiment manager owns only the association index and logical
+experiment metadata. Durable run state and result persistence remain owned by
+the existing research repositories. Future experiment persistence should store
+only experiment metadata plus explicit `experiment_id ↔ run_id` membership,
+while the existing run/result stores remain authoritative for research state.
 
 ## Fail-closed rule
 
