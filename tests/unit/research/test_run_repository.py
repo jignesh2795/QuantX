@@ -1,4 +1,4 @@
-from uuid import UUID
+import uuid
 
 import pytest
 
@@ -9,7 +9,7 @@ from quantx.research.run import ResearchRunRecord, ResearchRunState
 from quantx.research.storage import InMemoryResearchRunRepository
 
 
-_RESULT_ID = UUID("00000000-0000-0000-0000-000000000001")
+_RESULT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 def _provenance(dataset_id: str = "dataset-1") -> ResearchProvenance:
@@ -40,7 +40,7 @@ def _run(
 def _result(
     run_id: str = "run-1",
     provenance: ResearchProvenance | None = None,
-    result_id: UUID = _RESULT_ID,
+    result_id: uuid.UUID = _RESULT_ID,
 ) -> ResearchResult:
     actual_provenance = provenance or _provenance()
     return ResearchResult(
