@@ -153,7 +153,6 @@ def _structured_result() -> ResearchResult:
         code_revision="abc123",
         configuration_revision="cfg1",
         random_seed=7,
-        extra={"experiment": "c13.2"},
         run_configuration=configuration,
     )
     return ResearchResult(
