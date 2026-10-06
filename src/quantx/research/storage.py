@@ -128,8 +128,7 @@ def _simulation_models(payload: Mapping[str, object]) -> tuple[SimulationModelId
     if not isinstance(value, list):
         raise ValueError("execution_models must be an array")
     return tuple(
-        _simulation_model(_mapping(item, "execution model"))
-        for item in value
+        _simulation_model(_mapping(item, "execution model")) for item in value
     )
 
 
@@ -206,7 +205,9 @@ def _run_configuration(payload: Mapping[str, object]) -> ResearchRunConfiguratio
             strategy_parameters=_pairs(strategy_payload, "strategy_parameters"),
         ),
         execution=ExecutionConfiguration(
-            simulation_profile_name=_required_str(execution_payload, "simulation_profile_name"),
+            simulation_profile_name=_required_str(
+                execution_payload, "simulation_profile_name"
+            ),
             latency_ms=_required_int(execution_payload, "latency_ms"),
             slippage_bps=_optional_decimal(execution_payload, "slippage_bps"),
             partial_fill_ratio=_optional_decimal(execution_payload, "partial_fill_ratio"),
@@ -215,8 +216,12 @@ def _run_configuration(payload: Mapping[str, object]) -> ResearchRunConfiguratio
             volume_participation_rate=_optional_decimal(
                 execution_payload, "volume_participation_rate"
             ),
-            slippage_model=_optional_simulation_model(execution_payload, "slippage_model"),
-            charge_model=_optional_simulation_model(execution_payload, "charge_model"),
+            slippage_model=_optional_simulation_model(
+                execution_payload, "slippage_model"
+            ),
+            charge_model=_optional_simulation_model(
+                execution_payload, "charge_model"
+            ),
         ),
         allow_incomplete=_required_bool(payload, "allow_incomplete"),
         account_state_sampling_policy=_required_str(
