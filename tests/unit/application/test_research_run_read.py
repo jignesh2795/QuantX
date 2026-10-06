@@ -71,34 +71,29 @@ def test_research_run_read_service_rehydrates_completed_run_and_result() -> None
     assert snapshot.result is result
 
 
-@pytest.mark.parametrize("state", [ResearchRunState.CREATED, ResearchRunState.RUNNING])
-def test_research_run_read_service_does_not_load_result_for_non_terminal_run(
+@pytest.mark.parametrize(
+    "state",
+    [ResearchRunState.CREATED, ResearchRunState.RUNNING, ResearchRunState.FAILED],
+)
+def test_research_run_read_service_does_not_load_result_for_non_completed_run(
     state: ResearchRunState,
 ) -> None:
     repository = InMemoryResearchRunRepository()
     store = InMemoryResearchStore()
     spec = _spec()
-    clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
-    lifecycle = ResearchRunApplicationService(repository=repository, clock=clock)
+    timestamp = "2026-10-06T10:00:00+00:00"
 
-    created = lifecycle.execute if state is ResearchRunState.RUNNING else None
-    if created is not None:
-        repository.create_run(
-            ResearchRunRecord(
-                run_id="run-1",
-                provenance=spec.to_provenance(),
-                created_at=clock.now().isoformat(),
-            )
+    repository.create_run(
+        ResearchRunRecord(
+            run_id="run-1",
+            provenance=spec.to_provenance(),
+            created_at=timestamp,
         )
-        repository.start_run("run-1", clock.now().isoformat())
-    else:
-        repository.create_run(
-            ResearchRunRecord(
-                run_id="run-1",
-                provenance=spec.to_provenance(),
-                created_at=clock.now().isoformat(),
-            )
-        )
+    )
+    if state is ResearchRunState.RUNNING:
+        repository.start_run("run-1", timestamp)
+    elif state is ResearchRunState.FAILED:
+        repository.fail_run("run-1", "test failure")
 
     service = ResearchRunReadService(run_repository=repository, result_store=store)
     snapshot = service.get("run-1")
