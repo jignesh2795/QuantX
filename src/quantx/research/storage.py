@@ -123,7 +123,6 @@ def _simulation_model(payload: Mapping[str, object]) -> SimulationModelIdentity:
     )
 
 
-
 def _simulation_models(payload: Mapping[str, object]) -> tuple[SimulationModelIdentity, ...]:
     value = payload.get("execution_models")
     if not isinstance(value, list):
@@ -181,7 +180,6 @@ def _required_decimal(payload: Mapping[str, object], field_name: str) -> Decimal
     return value
 
 
-
 def _starting_capital(value: object) -> StartingCapitalConfiguration | None:
     if value is None:
         return None
@@ -228,7 +226,6 @@ def _run_configuration(payload: Mapping[str, object]) -> ResearchRunConfiguratio
         broker_constraints=_broker_constraints(payload.get("broker_constraints")),
         starting_capital=_starting_capital(payload.get("starting_capital")),
     )
-
 
 
 class ResearchRunRepository(Protocol):
