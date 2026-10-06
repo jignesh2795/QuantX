@@ -26,6 +26,7 @@ class HistoricalObservation:
     source_id: str
     dataset_version: str
     sequence: int
+    dataset_id: str | None = None
 
     @property
     def timestamp(self) -> datetime:
@@ -42,6 +43,7 @@ class HistoricalObservation:
         source_id: str,
         dataset_version: str,
         sequence: int,
+        dataset_id: str | None = None,
     ) -> HistoricalObservation:
         """Wrap a canonical candle without converting or copying it.
 
@@ -57,6 +59,7 @@ class HistoricalObservation:
             source_id=source_id,
             dataset_version=dataset_version,
             sequence=sequence,
+            dataset_id=dataset_id,
         )
 
     def __post_init__(self) -> None:
@@ -68,6 +71,8 @@ class HistoricalObservation:
             raise ValueError("dataset_version must not be empty")
         if self.sequence < 0:
             raise ValueError("sequence must not be negative")
+        if self.dataset_id is not None and not self.dataset_id.strip():
+            raise ValueError("dataset_id must not be empty")
 
 
 class HistoricalDataSeries:

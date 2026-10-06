@@ -109,8 +109,8 @@ def _series() -> HistoricalDataSeries:
     )
     return HistoricalDataSeries(
         (
-            HistoricalObservation(first, "test", "1", 0),
-            HistoricalObservation(second, "test", "1", 1),
+            HistoricalObservation(first, "test", "1", 0, dataset_id="nse-eq"),
+            HistoricalObservation(second, "test", "1", 1, dataset_id="nse-eq"),
         )
     )
 
@@ -124,7 +124,9 @@ def _tcs_series() -> HistoricalDataSeries:
         ask=Decimal("100"),
         last=Decimal("100"),
     )
-    return HistoricalDataSeries((HistoricalObservation(quote, "test", "1", 0),))
+    return HistoricalDataSeries(
+        (HistoricalObservation(quote, "test", "1", 0, dataset_id="nse-eq"),)
+    )
 
 
 def _infy_series() -> HistoricalDataSeries:
@@ -136,7 +138,9 @@ def _infy_series() -> HistoricalDataSeries:
         ask=Decimal("200"),
         last=Decimal("200"),
     )
-    return HistoricalDataSeries((HistoricalObservation(quote, "test", "1", 1),))
+    return HistoricalDataSeries(
+        (HistoricalObservation(quote, "test", "1", 1, dataset_id="nse-eq"),)
+    )
 
 
 def test_backtest_rejects_intent_strategy_identity_mismatch() -> None:
@@ -873,6 +877,7 @@ def test_backtest_heterogeneous_datasets_fail_closed() -> None:
                 "test",
                 "1",
                 0,
+                dataset_id="nse-eq",
             ),
         )
     )
@@ -889,6 +894,7 @@ def test_backtest_heterogeneous_datasets_fail_closed() -> None:
                 "other",
                 "2",
                 1,
+                dataset_id="other-ds",
             ),
         )
     )
@@ -989,3 +995,252 @@ def test_backtest_shared_dataset_multi_instrument_binding() -> None:
     assert second.market_value == Money(Decimal("100"), "INR")
     assert second.valuation_evidence[0].observed_at == t0
     assert len(exact.account_states) == 1
+
+
+def test_backtest_wrong_dataset_same_source_version_fails_closed() -> None:
+    instrument = _instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    other_dataset = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=instrument.instrument_id,
+                    timestamp=t0,
+                    bid=Decimal("99"),
+                    ask=Decimal("100"),
+                    last=Decimal("100"),
+                ),
+                "test",
+                "1",
+                0,
+                dataset_id="other-ds",
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="dataset_id"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=other_dataset,
+            strategy=_hold_all("wrong-dataset"),
+            financial_state=_financial_state(),
+            provenance=_provenance(),
+        )
+
+
+def test_backtest_different_sources_same_dataset_binds() -> None:
+    tcs = _instrument()
+    infy = _second_instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    t1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+    first = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=tcs.instrument_id,
+                    timestamp=t0,
+                    bid=Decimal("99"),
+                    ask=Decimal("100"),
+                    last=Decimal("100"),
+                ),
+                "test",
+                "1",
+                0,
+                dataset_id="nse-eq",
+            ),
+        )
+    )
+    second = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=infy.instrument_id,
+                    timestamp=t1,
+                    bid=Decimal("199"),
+                    ask=Decimal("200"),
+                    last=Decimal("200"),
+                ),
+                "dhan",
+                "1",
+                1,
+                dataset_id="nse-eq",
+            ),
+        )
+    )
+    supplied = _provenance()
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((tcs, infy))
+    ).run(
+        series=(first, second),
+        strategy=_hold_all("shared-dataset"),
+        financial_state=_financial_state(),
+        provenance=supplied,
+    )
+
+    assert result.provenance is supplied
+    assert len(result.account_state_series) == 2
+
+
+def test_backtest_logical_mismatch_in_later_frame_fails_closed() -> None:
+    tcs = _instrument()
+    infy = _second_instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    t1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+    first = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=tcs.instrument_id,
+                    timestamp=t0,
+                    bid=Decimal("99"),
+                    ask=Decimal("100"),
+                    last=Decimal("100"),
+                ),
+                "test",
+                "1",
+                0,
+                dataset_id="nse-eq",
+            ),
+        )
+    )
+    second = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=infy.instrument_id,
+                    timestamp=t1,
+                    bid=Decimal("199"),
+                    ask=Decimal("200"),
+                    last=Decimal("200"),
+                ),
+                "test",
+                "1",
+                1,
+                dataset_id="other-ds",
+            ),
+        )
+    )
+    calls: list[int] = []
+
+    def strategy(frame):
+        calls.append(frame.index)
+        return StrategyResult(
+            StrategySignal(
+                StrategyId("late-mismatch"),
+                "1",
+                frame.observation.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+        )
+
+    with pytest.raises(ValueError, match="exactly one dataset"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((tcs, infy))
+        ).run(
+            series=(first, second),
+            strategy=strategy,
+            financial_state=_financial_state(),
+            provenance=_provenance(),
+        )
+    assert calls == []
+
+
+def test_backtest_same_source_multiple_versions_fail_closed() -> None:
+    tcs = _instrument()
+    infy = _second_instrument()
+    t0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    t1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+    first = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=tcs.instrument_id,
+                    timestamp=t0,
+                    bid=Decimal("99"),
+                    ask=Decimal("100"),
+                    last=Decimal("100"),
+                ),
+                "test",
+                "1",
+                0,
+                dataset_id="nse-eq",
+            ),
+        )
+    )
+    second = HistoricalDataSeries(
+        (
+            HistoricalObservation(
+                Quote(
+                    instrument=infy.instrument_id,
+                    timestamp=t1,
+                    bid=Decimal("199"),
+                    ask=Decimal("200"),
+                    last=Decimal("200"),
+                ),
+                "test",
+                "2",
+                1,
+                dataset_id="nse-eq",
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="exactly one dataset"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((tcs, infy))
+        ).run(
+            series=(first, second),
+            strategy=_hold_all("multi-version"),
+            financial_state=_financial_state(),
+            provenance=_provenance(),
+        )
+
+
+def test_backtest_dataset_identity_has_no_normalization() -> None:
+    instrument = _instrument()
+
+    for declared in ("NSE-EQ", "nse-eq "):
+        variants = ResearchProvenance(
+            dataset_id=declared,
+            dataset_version="1",
+            instrument_master_version="instr-v3",
+            market_rule_version="rules-v2",
+            execution_model_version="paper-core-v0.3",
+            simulation_profile="REALISTIC",
+            code_revision="abc123",
+            configuration_revision="cfg9",
+        )
+        with pytest.raises(ValueError, match="dataset_id"):
+            DeterministicBacktestService(
+                instrument_registry=InMemoryInstrumentRegistry((instrument,))
+            ).run(
+                series=_series(),
+                strategy=_hold_all("no-normalization"),
+                financial_state=_financial_state(),
+                provenance=variants,
+            )
+
+
+def test_backtest_provenance_object_reused_across_runs() -> None:
+    instrument = _instrument()
+    supplied = _provenance()
+
+    def run_with():
+        return DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=_hold_all("reused"),
+            financial_state=_financial_state(),
+            provenance=supplied,
+        )
+
+    first = run_with()
+    second = run_with()
+
+    assert first.provenance is supplied
+    assert second.provenance is supplied
+    assert first.provenance.fingerprint() == second.provenance.fingerprint()

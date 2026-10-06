@@ -22,6 +22,12 @@ A backtest without supplied provenance behaves exactly as before: `result.proven
 
 ## Dataset coherence rule
 
+> Superseded by R1-C11: the rule below validated version-level coherence only.
+> The current invariant additionally requires observation-carried `dataset_id`
+> to equal `provenance.dataset_id`; see
+> `r1-c11-backtest-dataset-identity-binding.md`. `source_id` is provider
+> identity and is never compared against `dataset_id`.
+
 When provenance is supplied, the backtest collects the distinct `(source_id, dataset_version)` pairs across replay frames and requires:
 
 1. exactly one distinct pair exists;
@@ -31,15 +37,15 @@ Otherwise it raises `ValueError` and produces no result. It never silently choos
 
 ## Declared-version matching
 
-The declared `provenance.dataset_version` must equal the single observed dataset version. A mismatch fails closed with no silent rebinding.
+The declared `provenance.dataset_version` must equal the single observed dataset version. A mismatch fails closed with no silent rebinding. (R1-C11 additionally requires the observed logical `dataset_id` to equal `provenance.dataset_id`.)
 
 ## Multi-instrument same-dataset support
 
-Under the R1-C9 replay boundary, multiple per-instrument `HistoricalDataSeries` sharing one dataset/source identity bind to one singular `ResearchProvenance`. Instruments may differ; dataset evidence must not. The single-instrument `HistoricalDataSeries` contract is unchanged.
+Under the R1-C9 replay boundary, multiple per-instrument `HistoricalDataSeries` sharing one logical dataset identity bind to one singular `ResearchProvenance`. Instruments may differ, and provider sources may differ; dataset evidence must not. The single-instrument `HistoricalDataSeries` contract is unchanged.
 
 ## Heterogeneous multi-dataset deferral
 
-Provenance binding for replay evidence spanning more than one `(source_id, dataset_version)` pair is explicitly deferred. Such input fails closed when provenance is supplied. Heterogeneous identity is not encoded into `extra`.
+Provenance binding for replay evidence spanning more than one logical `(dataset_id, dataset_version)` pair is explicitly deferred. Such input fails closed when provenance is supplied. Heterogeneous identity is not encoded into `extra`.
 
 ## Caller-declared trust boundary
 
