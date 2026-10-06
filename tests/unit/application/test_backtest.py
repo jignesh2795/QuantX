@@ -10,6 +10,7 @@ from quantx.application.backtest import (
     DeterministicBacktestService,
 )
 from quantx.domain.accounts import AccountId
+from quantx.domain.clock import SimulatedClock
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -47,6 +48,13 @@ from quantx.research.replay import HistoricalReplay, MultiSeries
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.evaluation import StrategyEvaluationService
+from quantx.strategy.ir import StrategyIR
+from quantx.execution.charges import (
+    ChargeBreakdown,
+    ChargeCalculationContext,
+    ChargeComponent,
+    PercentageBpsChargeModel,
+)
 from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.paper_session import PaperSession
 
@@ -1258,7 +1266,10 @@ def test_backtest_provenance_object_reused_across_runs() -> None:
 def _effective_default_configuration() -> ResearchRunConfiguration:
     """Canonical effective configuration of the default paper backtest path."""
     return ResearchRunConfiguration(
-        strategy=StrategyConfiguration(),
+        strategy=StrategyConfiguration(
+            strategy_id="c12-strategy",
+            strategy_version="1",
+        ),
         execution=ExecutionConfiguration(
             simulation_profile_name="REALISTIC",
             latency_ms=0,
@@ -1290,6 +1301,67 @@ def _effective_default_configuration() -> ResearchRunConfiguration:
     )
 
 
+class _OpaqueChargeModel:
+    """A real charge model with no canonical material-parameter representation."""
+
+    def __init__(self) -> None:
+        self._model_id = "opaque.charge"
+        self._model_version = "9"
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    @property
+    def model_version(self) -> str:
+        return self._model_version
+
+    def calculate(self, context: ChargeCalculationContext) -> ChargeBreakdown:
+        return ChargeBreakdown(
+            currency=context.currency,
+            components=(ChargeComponent("opaque", Decimal("1")),),
+            model_id=self._model_id,
+            model_version=self._model_version,
+        )
+
+
+class _C12CountingStrategy:
+    """Authoritative strategy usable through StrategyEvaluationService."""
+
+    def __init__(self) -> None:
+        self.calls: list[datetime] = []
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        event, ir = context.event, context.ir
+        self.calls.append(event.timestamp)
+        return StrategyResult(
+            StrategySignal(
+                ir.strategy_id,
+                ir.version,
+                event.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=event.timestamp,
+            )
+        )
+
+
+def _c12_service(
+    instrument_registry: InMemoryInstrumentRegistry,
+    execution_engine: PaperExecutionEngine | None = None,
+) -> DeterministicBacktestService:
+    return DeterministicBacktestService(
+        instrument_registry=instrument_registry,
+        execution_engine=execution_engine,
+    )
+
+
+def _c12_strategy_ir() -> StrategyIR:
+    return StrategyCompiler.compile(
+        StrategyDefinition(StrategyId("c12-strategy"), "1", "C12 Strategy")
+    )
+
+
 def _provenance_with(configuration: ResearchRunConfiguration) -> ResearchProvenance:
     return ResearchProvenance(
         dataset_id="nse-eq",
@@ -1307,11 +1379,10 @@ def _provenance_with(configuration: ResearchRunConfiguration) -> ResearchProvena
 def test_backtest_accepts_declared_effective_run_configuration() -> None:
     instrument = _instrument()
     supplied = _provenance_with(_effective_default_configuration())
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((instrument,))
-    ).run(
+    result = _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
         series=_series(),
-        strategy=_hold_all("run-config"),
+        strategy=StrategyEvaluationService(_C12CountingStrategy()),
+        strategy_ir=_c12_strategy_ir(),
         financial_state=_financial_state(),
         provenance=supplied,
     )
@@ -1323,46 +1394,28 @@ def test_backtest_accepts_declared_effective_run_configuration() -> None:
 def test_backtest_rejects_declared_run_configuration_mismatch() -> None:
     instrument = _instrument()
     wrong = replace(_effective_default_configuration(), allow_incomplete=True)
-    calls: list[int] = []
-
-    def strategy(frame):
-        calls.append(frame.index)
-        return StrategyResult(
-            StrategySignal(
-                StrategyId("run-config-mismatch"),
-                "1",
-                frame.observation.instrument,
-                SignalAction.HOLD,
-                1.0,
-                generated_at=frame.observation.timestamp,
-            )
-        )
+    counting = _C12CountingStrategy()
 
     with pytest.raises(ValueError, match="run configuration"):
-        DeterministicBacktestService(
-            instrument_registry=InMemoryInstrumentRegistry((instrument,))
-        ).run(
+        _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
             series=_series(),
-            strategy=strategy,
+            strategy=StrategyEvaluationService(counting),
+            strategy_ir=_c12_strategy_ir(),
             financial_state=_financial_state(),
             provenance=_provenance_with(wrong),
         )
-    assert calls == []
+    assert counting.calls == []
 
 
 def test_backtest_rejects_strategy_identity_without_authoritative_ir() -> None:
     instrument = _instrument()
-    # A bare callable exposes no strategy configuration, so a declared strategy
-    # identity cannot describe the run and must fail closed.
     declared = replace(
         _effective_default_configuration(),
         strategy=StrategyConfiguration(strategy_id="sma", strategy_version="1"),
     )
 
     with pytest.raises(ValueError, match="run configuration"):
-        DeterministicBacktestService(
-            instrument_registry=InMemoryInstrumentRegistry((instrument,))
-        ).run(
+        _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
             series=_series(),
             strategy=_hold_all("callable-strategy"),
             financial_state=_financial_state(),
@@ -1386,11 +1439,10 @@ def test_backtest_run_configuration_tracks_slippage_profile() -> None:
         ),
     )
     supplied = _provenance_with(declared)
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((instrument,))
-    ).run(
+    result = _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
         series=_series(),
-        strategy=_hold_all("slippage"),
+        strategy=StrategyEvaluationService(_C12CountingStrategy()),
+        strategy_ir=_c12_strategy_ir(),
         financial_state=_financial_state(),
         execution_profile=profile,
         provenance=supplied,
@@ -1398,13 +1450,116 @@ def test_backtest_run_configuration_tracks_slippage_profile() -> None:
     assert result.provenance is supplied
 
     # The same provenance must be rejected when the effective slippage differs.
+    counting = _C12CountingStrategy()
     with pytest.raises(ValueError, match="run configuration"):
-        DeterministicBacktestService(
-            instrument_registry=InMemoryInstrumentRegistry((instrument,))
-        ).run(
+        _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
             series=_series(),
-            strategy=_hold_all("slippage"),
+            strategy=StrategyEvaluationService(counting),
+            strategy_ir=_c12_strategy_ir(),
             financial_state=_financial_state(),
             execution_profile=profile,
             provenance=_provenance_with(_effective_default_configuration()),
         )
+    assert counting.calls == []
+
+
+def test_backtest_rejects_injected_engine_without_canonical_identity() -> None:
+    """Bypass 1: an injected engine has no authoritative model identity."""
+    instrument = _instrument()
+    counting = _C12CountingStrategy()
+    # Declared configuration claims an empty execution-model list, which the
+    # rejected implementation silently accepted for injected engines.
+    declared = replace(
+        _effective_default_configuration(),
+        execution=replace(_effective_default_configuration().execution, execution_models=()),
+    )
+    engine = PaperExecutionEngine(clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+
+    with pytest.raises(ValueError, match="execution-model identity"):
+        _c12_service(InMemoryInstrumentRegistry((instrument,)), execution_engine=engine).run(
+            series=_series(),
+            strategy=StrategyEvaluationService(counting),
+            strategy_ir=_c12_strategy_ir(),
+            financial_state=_financial_state(),
+            provenance=_provenance_with(declared),
+        )
+    assert counting.calls == []
+
+
+def test_backtest_rejects_opaque_charge_model_declared_as_absent() -> None:
+    """Bypass 2: a real custom charge model must never record as absent."""
+    instrument = _instrument()
+    counting = _C12CountingStrategy()
+    profile = PaperSimulationProfile(charge_model=_OpaqueChargeModel())
+
+    with pytest.raises(ValueError, match="canonical material-parameter"):
+        _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
+            series=_series(),
+            strategy=StrategyEvaluationService(counting),
+            strategy_ir=_c12_strategy_ir(),
+            financial_state=_financial_state(),
+            execution_profile=profile,
+            provenance=_provenance_with(_effective_default_configuration()),
+        )
+    assert counting.calls == []
+
+
+def test_backtest_accepts_explicit_percentage_charge_model() -> None:
+    """The explicit PercentageBpsChargeModel path stays canonically represented."""
+    instrument = _instrument()
+    charge = PercentageBpsChargeModel(rate_bps=Decimal("10"))
+    profile = PaperSimulationProfile(charge_model=charge)
+    declared = replace(
+        _effective_default_configuration(),
+        execution=replace(
+            _effective_default_configuration().execution,
+            charge_model=SimulationModelIdentity(
+                model_id="paper.percentage_bps",
+                model_version="1",
+                parameters=(
+                    ("component_name", "modeled_fee"),
+                    ("rate_bps", "10"),
+                ),
+            ),
+        ),
+    )
+    supplied = _provenance_with(declared)
+    result = _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
+        series=_series(),
+        strategy=StrategyEvaluationService(_C12CountingStrategy()),
+        strategy_ir=_c12_strategy_ir(),
+        financial_state=_financial_state(),
+        execution_profile=profile,
+        provenance=supplied,
+    )
+    assert result.provenance is supplied
+
+
+def test_backtest_rejects_bare_callable_with_structured_provenance() -> None:
+    """Bypass 3: a bare callable has no canonical strategy identity."""
+    instrument = _instrument()
+    counting_calls: list[int] = []
+
+    def strategy(frame):
+        counting_calls.append(frame.index)
+        return StrategyResult(
+            StrategySignal(
+                StrategyId("bare"),
+                "1",
+                frame.observation.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+        )
+
+    # Declared configuration carries no strategy identity at all.
+    declared = replace(_effective_default_configuration(), strategy=StrategyConfiguration())
+    with pytest.raises(ValueError, match="authoritative strategy identity"):
+        _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
+            series=_series(),
+            strategy=strategy,
+            financial_state=_financial_state(),
+            provenance=_provenance_with(declared),
+        )
+    assert counting_calls == []

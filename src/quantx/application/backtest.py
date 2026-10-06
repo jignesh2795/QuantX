@@ -283,7 +283,7 @@ def _effective_run_configuration(
     strategy: StrategyRunner | StrategyEvaluationService,
     strategy_ir: StrategyIR | None,
     profile: PaperSimulationProfile,
-    execution_models: tuple[SimulationModelIdentity, ...],
+    execution_models: tuple[SimulationModelIdentity, ...] | None,
     candle_volume_participation_rate: Decimal | None,
     allow_incomplete: bool,
     account_state_sampling_policy: AccountStateSamplingPolicy,
@@ -295,8 +295,8 @@ def _effective_run_configuration(
 
     Only authoritative, service-owned knowledge is captured. Strategy identity
     comes from ``StrategyIR`` when the run uses the runtime-neutral evaluation
-    service; a bare callable exposes no configuration, so identity stays absent
-    rather than being introspected or invented.
+    service. A bare callable exposes no canonical strategy configuration, so it
+    fails closed here rather than being introspected or invented.
     """
     if isinstance(strategy, StrategyEvaluationService) and strategy_ir is not None:
         strategy_configuration = StrategyConfiguration(
@@ -305,7 +305,17 @@ def _effective_run_configuration(
             strategy_parameters=tuple(strategy_ir.parameters),
         )
     else:
-        strategy_configuration = StrategyConfiguration()
+        raise ValueError(
+            "structured run configuration requires authoritative strategy identity; "
+            "a bare strategy callable exposes no canonical configuration"
+        )
+
+    if execution_models is None:
+        raise ValueError(
+            "structured run configuration requires authoritative execution-model "
+            "identity; the injected execution engine exposes no explicit canonical "
+            "configuration contract"
+        )
 
     effective_slippage = SlippageModel(profile.slippage_bps)
     slippage_model = (
@@ -318,8 +328,10 @@ def _effective_run_configuration(
         else None
     )
     charge_model = profile.charge_model
-    if isinstance(charge_model, PercentageBpsChargeModel):
-        charge_identity: SimulationModelIdentity | None = SimulationModelIdentity(
+    if charge_model is None:
+        charge_identity: SimulationModelIdentity | None = None
+    elif isinstance(charge_model, PercentageBpsChargeModel):
+        charge_identity = SimulationModelIdentity(
             model_id=charge_model.model_id,
             model_version=charge_model.model_version,
             parameters=(
@@ -328,9 +340,13 @@ def _effective_run_configuration(
             ),
         )
     else:
-        # An opaque/custom charge model has no canonical material parameters, so
-        # provenance-aware execution must not claim reproducibility for it.
-        charge_identity = None
+        # A real charge model without an explicit canonical material-parameter
+        # representation must never be recorded as "no charge model": doing so
+        # would let a material cost model look like an absent one.
+        raise ValueError(
+            "charge model exposes no canonical material-parameter representation "
+            "and cannot be recorded in structured run configuration"
+        )
 
     execution_configuration = ExecutionConfiguration(
         simulation_profile_name=profile.name,
@@ -514,7 +530,10 @@ class DeterministicBacktestService:
         simulation_clock = None
         effective_slippage_bps: Decimal | None = None
         effective_profile = execution_profile or PaperSimulationProfile()
-        effective_execution_models: tuple[SimulationModelIdentity, ...] = ()
+        # ``None`` means "no authoritative identity available". An injected
+        # execution engine stays ``None`` so provenance-aware validation fails
+        # closed instead of recording an empty model list.
+        effective_execution_models: tuple[SimulationModelIdentity, ...] | None = None
         if execution_engine is None:
             from quantx.domain.clock import SimulatedClock
 
