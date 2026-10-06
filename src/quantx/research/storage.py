@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
 from typing import Protocol
@@ -69,7 +69,7 @@ def _optional_decimal(payload: Mapping[str, object], field_name: str) -> Decimal
         raise ValueError(f"{field_name} must be a decimal string or null")
     try:
         return Decimal(value)
-    except Exception as exc:
+    except InvalidOperation as exc:
         raise ValueError(f"{field_name} must contain a valid decimal") from exc
 
 
