@@ -1,6 +1,7 @@
 """SQLite persistence tests for the durable experiment catalog."""
 
 import sqlite3
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -55,7 +56,7 @@ def _experiment(
     )
 
 
-def test_experiment_catalog_round_trips_after_restart(tmp_path) -> None:
+def test_experiment_catalog_round_trips_after_restart(tmp_path: Path) -> None:
     path = tmp_path / "quantx.db"
     experiment = _experiment()
     run = _run()
@@ -78,7 +79,7 @@ def test_experiment_catalog_round_trips_after_restart(tmp_path) -> None:
         assert experiments.runs_for_experiment(experiment.experiment_id) == (run.run_id,)
 
 
-def test_create_experiment_rejects_duplicate_identity(tmp_path) -> None:
+def test_create_experiment_rejects_duplicate_identity(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         repository = SqliteExperimentRepository(database)
         experiment = _experiment()
@@ -88,7 +89,7 @@ def test_create_experiment_rejects_duplicate_identity(tmp_path) -> None:
             repository.create_experiment(experiment)
 
 
-def test_experiments_are_returned_in_deterministic_order(tmp_path) -> None:
+def test_experiments_are_returned_in_deterministic_order(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         repository = SqliteExperimentRepository(database)
         first = _experiment(
@@ -107,7 +108,7 @@ def test_experiments_are_returned_in_deterministic_order(tmp_path) -> None:
         assert repository.experiments() == (second, first)
 
 
-def test_attach_requires_existing_experiment_and_run(tmp_path) -> None:
+def test_attach_requires_existing_experiment_and_run(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         repository = SqliteExperimentRepository(database)
         experiment = _experiment()
@@ -120,7 +121,7 @@ def test_attach_requires_existing_experiment_and_run(tmp_path) -> None:
             repository.attach_run(experiment.experiment_id, "run-1")
 
 
-def test_attach_rejects_empty_run_id(tmp_path) -> None:
+def test_attach_rejects_empty_run_id(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         repository = SqliteExperimentRepository(database)
         repository.create_experiment(_experiment())
@@ -129,7 +130,7 @@ def test_attach_rejects_empty_run_id(tmp_path) -> None:
             repository.attach_run(_EXPERIMENT_ONE, "   ")
 
 
-def test_attach_rejects_duplicate_and_cross_experiment_membership(tmp_path) -> None:
+def test_attach_rejects_duplicate_and_cross_experiment_membership(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         runs = SqliteResearchRunRepository(database)
         repository = SqliteExperimentRepository(database)
@@ -149,7 +150,7 @@ def test_attach_rejects_duplicate_and_cross_experiment_membership(tmp_path) -> N
         assert repository.runs_for_experiment(_EXPERIMENT_TWO) == ()
 
 
-def test_runs_for_experiment_are_sorted_by_run_id(tmp_path) -> None:
+def test_runs_for_experiment_are_sorted_by_run_id(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         runs = SqliteResearchRunRepository(database)
         repository = SqliteExperimentRepository(database)
@@ -163,7 +164,7 @@ def test_runs_for_experiment_are_sorted_by_run_id(tmp_path) -> None:
         assert repository.runs_for_experiment(_EXPERIMENT_ONE) == ("run-1", "run-2")
 
 
-def test_lookup_rejects_empty_run_id_and_missing_membership_is_none(tmp_path) -> None:
+def test_lookup_rejects_empty_run_id_and_missing_membership_is_none(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         repository = SqliteExperimentRepository(database)
         with pytest.raises(ValueError, match="run_id"):
@@ -172,14 +173,14 @@ def test_lookup_rejects_empty_run_id_and_missing_membership_is_none(tmp_path) ->
         assert repository.experiment_for_run("missing") is None
 
 
-def test_unknown_experiment_lookup_fails_closed(tmp_path) -> None:
+def test_unknown_experiment_lookup_fails_closed(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         repository = SqliteExperimentRepository(database)
         with pytest.raises(KeyError, match="experiment not found"):
             repository.runs_for_experiment(UUID("cccccccc-cccc-cccc-cccc-cccccccccccc"))
 
 
-def test_schema_stores_only_experiment_metadata_and_run_membership(tmp_path) -> None:
+def test_schema_stores_only_experiment_metadata_and_run_membership(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         connection = database.connection()
         experiment_columns = [
@@ -195,7 +196,7 @@ def test_schema_stores_only_experiment_metadata_and_run_membership(tmp_path) -> 
     assert membership_columns == ["experiment_id", "run_id"]
 
 
-def test_database_enforces_one_experiment_per_run(tmp_path) -> None:
+def test_database_enforces_one_experiment_per_run(tmp_path: Path) -> None:
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         runs = SqliteResearchRunRepository(database)
         repository = SqliteExperimentRepository(database)
@@ -214,7 +215,7 @@ def test_database_enforces_one_experiment_per_run(tmp_path) -> None:
         assert repository.experiment_for_run("run-1") == _EXPERIMENT_ONE
 
 
-def test_catalog_transaction_rolls_back_metadata_and_membership_together(tmp_path) -> None:
+def test_catalog_transaction_rolls_back_metadata_and_membership_together(tmp_path: Path) -> None:
     path = tmp_path / "quantx.db"
 
     with SqliteDatabase(path) as database:
