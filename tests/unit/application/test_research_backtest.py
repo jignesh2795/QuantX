@@ -7,8 +7,8 @@ from quantx.application.backtest import DeterministicBacktestService
 from quantx.application.research_backtest import ResearchBacktestApplicationService
 from quantx.application.research_run import ResearchRunApplicationService
 from quantx.domain.clock import FixedClock
-from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.enums import AssetClass
+from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.market_data import Quote
@@ -134,6 +134,7 @@ def test_research_backtest_binds_real_backtest_to_durable_run() -> None:
     assert execution.result.time_range_end == "2026-01-01T09:15:00+00:00"
 
     stored = repository.get_run("run-backtest-1")
+    assert stored is not None
     assert stored == execution.run
     assert stored.result_id == execution.result.result_id
     assert stored.provenance_fingerprint == execution.result.fingerprint
