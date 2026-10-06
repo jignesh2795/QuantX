@@ -80,6 +80,9 @@ class ExperimentManager:
             and left_strategy == right_strategy
         )
         same_provenance = left.fingerprint == right.fingerprint
+        # Provenance differences are expected when comparing parameter/model
+        # variants. Strategy identity is retained as comparison context, while
+        # dataset identity and result quality define this conservative boundary.
         comparable = (
             same_dataset
             and not left.is_blocked
