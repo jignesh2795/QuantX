@@ -50,6 +50,7 @@ class ExperimentManager:
     def __init__(self) -> None:
         self._experiments: dict[UUID, Experiment] = {}
         self._results: dict[UUID, ResearchResult] = {}
+        self._run_experiments: dict[str, UUID] = {}
 
     def register_experiment(self, experiment: Experiment) -> Experiment:
         if experiment.experiment_id in self._experiments:
@@ -62,6 +63,38 @@ class ExperimentManager:
             raise ValueError("research result already registered")
         self._results[result.result_id] = result
         return result
+
+    def attach_run(self, experiment_id: UUID, run_id: str) -> str:
+        """Bind one research execution instance to one logical experiment."""
+        if experiment_id not in self._experiments:
+            raise KeyError(f"experiment not found: {experiment_id}")
+        if not run_id.strip():
+            raise ValueError("run_id must not be empty")
+        existing_experiment_id = self._run_experiments.get(run_id)
+        if existing_experiment_id is not None:
+            if existing_experiment_id == experiment_id:
+                raise ValueError("research run already attached to experiment")
+            raise ValueError("research run already attached to another experiment")
+        self._run_experiments[run_id] = experiment_id
+        return run_id
+
+    def experiment_for_run(self, run_id: str) -> UUID | None:
+        """Return the logical experiment owning a run, if it is attached."""
+        if not run_id.strip():
+            raise ValueError("run_id must not be empty")
+        return self._run_experiments.get(run_id)
+
+    def runs_for_experiment(self, experiment_id: UUID) -> tuple[str, ...]:
+        """Return attached run identities in deterministic order."""
+        if experiment_id not in self._experiments:
+            raise KeyError(f"experiment not found: {experiment_id}")
+        return tuple(
+            sorted(
+                run_id
+                for run_id, attached_experiment_id in self._run_experiments.items()
+                if attached_experiment_id == experiment_id
+            )
+        )
 
     def get_result(self, result_id: UUID) -> ResearchResult | None:
         return self._results.get(result_id)
