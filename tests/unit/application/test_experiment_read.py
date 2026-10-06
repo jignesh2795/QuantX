@@ -11,9 +11,9 @@ from quantx.persistence.sqlite import (
     SqliteExperimentRepository,
     SqliteResearchRunRepository,
 )
+from quantx.research.artifacts import ResearchArtifactManifest
 from quantx.research.experiments import Experiment, ExperimentRepository
 from quantx.research.provenance import ResearchProvenance, ResearchRunConfiguration
-from quantx.research.artifacts import ResearchArtifactManifest
 from quantx.research.result import ResearchResult
 from quantx.research.run import ResearchRunRecord
 from quantx.research.storage import ResearchRunRepository
