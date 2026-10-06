@@ -384,7 +384,7 @@ def _effective_run_configuration(
                     else constraint.minimum_margin.currency
                 ),
             )
-            for constraint in broker_constraints
+            for constraint in sorted(broker_constraints, key=lambda item: item.name)
         ),
         starting_capital=StartingCapitalConfiguration(
             capital_source=financial_state.capital_source.value,
@@ -544,15 +544,20 @@ class DeterministicBacktestService:
                 volume_participation_rate=candle_volume_participation_rate
             )
             # The service owns these routes, so their identities are authoritative.
-            effective_execution_models = (
-                SimulationModelIdentity(
-                    model_id=QuoteFillModel.model_id,
-                    model_version=QuoteFillModel.model_version,
-                ),
-                SimulationModelIdentity(
-                    model_id=configured_candle_model.model_id,
-                    model_version=configured_candle_model.model_version,
-                ),
+            effective_execution_models = tuple(
+                sorted(
+                    (
+                        SimulationModelIdentity(
+                            model_id=QuoteFillModel.model_id,
+                            model_version=QuoteFillModel.model_version,
+                        ),
+                        SimulationModelIdentity(
+                            model_id=configured_candle_model.model_id,
+                            model_version=configured_candle_model.model_version,
+                        ),
+                    ),
+                    key=lambda item: (item.model_id, item.model_version),
+                )
             )
             candle_model: FillModel = configured_candle_model
             execution_engine = PaperExecutionEngine(
