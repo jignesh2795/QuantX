@@ -116,9 +116,7 @@ class ResearchRunRecord:
                 "research result run_id does not match research run"
             )
         if result.fingerprint != self.provenance_fingerprint:
-            raise ValueError(
-                "research result provenance fingerprint does not match research run"
-            )
+            raise ValueError("research result provenance fingerprint does not match research run")
         return replace(
             self,
             state=ResearchRunState.COMPLETED,
