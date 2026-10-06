@@ -22,6 +22,7 @@ from .pending_recovery import (
     recover_pending_live_executions,
 )
 from .production import ProductionRuntime, ProductionRuntimeConfig, build_production_runtime
+from .research_run_read import ResearchRunReadService, ResearchRunSnapshot
 from .reconciliation import (
     OrderStateReconciliationResult,
     OrderStateReconciliationWorkflow,
@@ -68,4 +69,6 @@ __all__ = [
     "UncertainSubmissionReceiptRecovery",
     "StartupRecoveryHook",
     "build_application_runtime",
+    "ResearchRunReadService",
+    "ResearchRunSnapshot",
 ]
