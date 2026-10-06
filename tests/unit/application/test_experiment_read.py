@@ -13,6 +13,8 @@ from quantx.persistence.sqlite import (
 )
 from quantx.research.experiments import Experiment, ExperimentRepository
 from quantx.research.provenance import ResearchProvenance, ResearchRunConfiguration
+from quantx.research.artifacts import ResearchArtifactManifest
+from quantx.research.result import ResearchResult
 from quantx.research.run import ResearchRunRecord
 from quantx.research.storage import ResearchRunRepository
 
@@ -137,11 +139,13 @@ class _EmptyRunRepository(ResearchRunRepository):
         raise NotImplementedError
 
     def complete_run(
-        self, run_id: str, result, completed_at: str
+        self, run_id: str, result: ResearchResult, completed_at: str
     ) -> ResearchRunRecord:
         raise NotImplementedError
 
-    def attach_manifest(self, run_id: str, manifest) -> ResearchRunRecord:
+    def attach_manifest(
+        self, run_id: str, manifest: ResearchArtifactManifest
+    ) -> ResearchRunRecord:
         raise NotImplementedError
 
     def fail_run(self, run_id: str, reason: str) -> ResearchRunRecord:
