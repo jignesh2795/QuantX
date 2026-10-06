@@ -6,7 +6,7 @@ import pytest
 from quantx.application.research_run import ResearchRunApplicationService
 from quantx.domain.clock import Clock, FixedClock
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
-from quantx.research.run import ResearchRunState
+from quantx.research.run import ResearchRunRecord, ResearchRunState
 from quantx.research.storage import InMemoryResearchRunRepository
 
 
@@ -184,14 +184,14 @@ def test_research_run_execution_rejects_mismatched_result_id() -> None:
     class WrongResultIdRepository(InMemoryResearchRunRepository):
         def complete_run(self, run_id, completed_result, completed_at):
             completed = super().complete_run(run_id, completed_result, completed_at)
-            return type(completed)(
+            return ResearchRunRecord(
                 run_id=completed.run_id,
                 provenance=completed.provenance,
                 state=completed.state,
                 created_at=completed.created_at,
                 started_at=completed.started_at,
                 completed_at=completed.completed_at,
-                result_id=result.result_id,
+                result_id=result.result_id.__class__(result.result_id.int + 1),
                 artifact_manifest_fingerprints=completed.artifact_manifest_fingerprints,
                 failure_reason=completed.failure_reason,
             )
@@ -199,5 +199,9 @@ def test_research_run_execution_rejects_mismatched_result_id() -> None:
     wrong_repository = WrongResultIdRepository()
     wrong_service = ResearchRunApplicationService(repository=wrong_repository, clock=clock)
 
-    execution = wrong_service.execute(spec, lambda: result)
-    assert execution.run.result_id == result.result_id
+    with pytest.raises(ValueError, match="result_id"):
+        wrong_service.execute(spec, lambda: result)
+
+    stored = wrong_repository.get_run(spec.run_id)
+    assert stored is not None
+    assert stored.state is ResearchRunState.COMPLETED
