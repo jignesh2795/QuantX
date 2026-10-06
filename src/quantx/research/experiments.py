@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Protocol
 from uuid import UUID, uuid4
 
 from .result import ResearchResult
@@ -21,6 +22,22 @@ class Experiment:
     def __post_init__(self) -> None:
         if not self.name.strip():
             raise ValueError("experiment name must not be empty")
+
+
+class ExperimentRepository(Protocol):
+    """Database-neutral persistence contract for experiment catalog state."""
+
+    def create_experiment(self, experiment: Experiment) -> Experiment: ...
+
+    def get_experiment(self, experiment_id: UUID) -> Experiment | None: ...
+
+    def experiments(self) -> tuple[Experiment, ...]: ...
+
+    def attach_run(self, experiment_id: UUID, run_id: str) -> str: ...
+
+    def experiment_for_run(self, run_id: str) -> UUID | None: ...
+
+    def runs_for_experiment(self, experiment_id: UUID) -> tuple[str, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
