@@ -454,18 +454,12 @@ class LocalFilesystemResearchStore:
             run_id=_required_str(spec_payload, "run_id"),
             dataset_id=_required_str(spec_payload, "dataset_id"),
             dataset_version=_required_str(spec_payload, "dataset_version"),
-            instrument_master_version=_required_str(
-                spec_payload, "instrument_master_version"
-            ),
+            instrument_master_version=_required_str(spec_payload, "instrument_master_version"),
             market_rule_version=_required_str(spec_payload, "market_rule_version"),
-            execution_model_version=_required_str(
-                spec_payload, "execution_model_version"
-            ),
+            execution_model_version=_required_str(spec_payload, "execution_model_version"),
             simulation_profile=_required_str(spec_payload, "simulation_profile"),
             code_revision=_required_str(spec_payload, "code_revision"),
-            configuration_revision=_required_str(
-                spec_payload, "configuration_revision"
-            ),
+            configuration_revision=_required_str(spec_payload, "configuration_revision"),
             random_seed=_optional_int(spec_payload, "random_seed"),
             run_configuration=spec_configuration,
         )
@@ -480,20 +474,12 @@ class LocalFilesystemResearchStore:
         provenance = ResearchProvenance(
             dataset_id=_required_str(provenance_payload, "dataset_id"),
             dataset_version=_required_str(provenance_payload, "dataset_version"),
-            instrument_master_version=_required_str(
-                provenance_payload, "instrument_master_version"
-            ),
-            market_rule_version=_required_str(
-                provenance_payload, "market_rule_version"
-            ),
-            execution_model_version=_required_str(
-                provenance_payload, "execution_model_version"
-            ),
+            instrument_master_version=_required_str(provenance_payload, "instrument_master_version"),
+            market_rule_version=_required_str(provenance_payload, "market_rule_version"),
+            execution_model_version=_required_str(provenance_payload, "execution_model_version"),
             simulation_profile=_required_str(provenance_payload, "simulation_profile"),
             code_revision=_required_str(provenance_payload, "code_revision"),
-            configuration_revision=_required_str(
-                provenance_payload, "configuration_revision"
-            ),
+            configuration_revision=_required_str(provenance_payload, "configuration_revision"),
             random_seed=_optional_int(provenance_payload, "random_seed"),
             extra=_extra(provenance_payload.get("extra")),
             run_configuration=provenance_configuration,
