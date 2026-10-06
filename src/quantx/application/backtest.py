@@ -22,16 +22,33 @@ from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDec
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
+from quantx.execution.charges import PercentageBpsChargeModel
 from quantx.execution.historical_account_state import (
     HistoricalAccountStateSnapshot,
     HistoricalAccountStateTracker,
 )
 from quantx.execution.market_data import MarketSnapshot
-from quantx.execution.models import CandleFillModel, DataAdaptiveFillModel, FillModel, StopTrigger
+from quantx.execution.models import (
+    CandleFillModel,
+    DataAdaptiveFillModel,
+    FillModel,
+    QuoteFillModel,
+    SlippageModel,
+    StopTrigger,
+)
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.ports import ExecutionReceipt
 from quantx.research.data import HistoricalDataSeries, HistoricalSnapshot
-from quantx.research.provenance import ResearchProvenance
+from quantx.research.provenance import (
+    BrokerConstraintConfiguration,
+    ExecutionConfiguration,
+    PolicyConfiguration,
+    ResearchProvenance,
+    ResearchRunConfiguration,
+    SimulationModelIdentity,
+    StartingCapitalConfiguration,
+    StrategyConfiguration,
+)
 from quantx.research.quality import DataQualityStatus
 from quantx.research.replay import HistoricalReplay, MultiSeries, ReplayFrame
 from quantx.research.result import ResultQuality
@@ -244,6 +261,144 @@ def _reference_price(snapshot: MarketSnapshot | Candle) -> Decimal | None:
     raise TypeError(f"unsupported backtest observation payload: {type(snapshot).__name__}")
 
 
+def _require_coherent_run_configuration(
+    effective: ResearchRunConfiguration,
+    declared: ResearchRunConfiguration,
+) -> None:
+    """Fail closed when declared run configuration is not the effective one.
+
+    The backtest is authoritative about the configuration it actually used.
+    A declared configuration that differs from the effective one cannot describe
+    the run, so the run fails instead of claiming a reproducible identity.
+    """
+    if effective.canonical_payload() != declared.canonical_payload():
+        raise ValueError(
+            "declared research run configuration does not match the effective "
+            "backtest configuration"
+        )
+
+
+def _effective_run_configuration(
+    *,
+    strategy: StrategyRunner | StrategyEvaluationService,
+    strategy_ir: StrategyIR | None,
+    profile: PaperSimulationProfile,
+    execution_models: tuple[SimulationModelIdentity, ...] | None,
+    candle_volume_participation_rate: Decimal | None,
+    allow_incomplete: bool,
+    account_state_sampling_policy: AccountStateSamplingPolicy,
+    policy_context: PolicyContext,
+    broker_constraints: tuple[BrokerConstraint, ...],
+    financial_state: AccountFinancialState,
+) -> ResearchRunConfiguration:
+    """Derive the effective, canonical run configuration of one backtest run.
+
+    Only authoritative, service-owned knowledge is captured. Strategy identity
+    comes from ``StrategyIR`` when the run uses the runtime-neutral evaluation
+    service. A bare callable exposes no canonical strategy configuration, so it
+    fails closed here rather than being introspected or invented.
+    """
+    if isinstance(strategy, StrategyEvaluationService) and strategy_ir is not None:
+        strategy_configuration = StrategyConfiguration(
+            strategy_id=strategy_ir.strategy_id.value,
+            strategy_version=strategy_ir.version,
+            strategy_parameters=tuple(strategy_ir.parameters),
+        )
+    else:
+        raise ValueError(
+            "structured run configuration requires authoritative strategy identity; "
+            "a bare strategy callable exposes no canonical configuration"
+        )
+
+    if execution_models is None:
+        raise ValueError(
+            "structured run configuration requires authoritative execution-model "
+            "identity; the injected execution engine exposes no explicit canonical "
+            "configuration contract"
+        )
+
+    effective_slippage = SlippageModel(profile.slippage_bps)
+    slippage_model = (
+        SimulationModelIdentity(
+            model_id=effective_slippage.model_id,
+            model_version=effective_slippage.model_version,
+            parameters=(("basis_points", str(effective_slippage.basis_points)),),
+        )
+        if profile.slippage_bps != Decimal("0")
+        else None
+    )
+    charge_model = profile.charge_model
+    if charge_model is None:
+        charge_identity: SimulationModelIdentity | None = None
+    elif isinstance(charge_model, PercentageBpsChargeModel):
+        charge_identity = SimulationModelIdentity(
+            model_id=charge_model.model_id,
+            model_version=charge_model.model_version,
+            parameters=(
+                ("component_name", charge_model.component_name),
+                ("rate_bps", str(charge_model.rate_bps)),
+            ),
+        )
+    else:
+        # A real charge model without an explicit canonical material-parameter
+        # representation must never be recorded as "no charge model": doing so
+        # would let a material cost model look like an absent one.
+        raise ValueError(
+            "charge model exposes no canonical material-parameter representation "
+            "and cannot be recorded in structured run configuration"
+        )
+
+    execution_configuration = ExecutionConfiguration(
+        simulation_profile_name=profile.name,
+        latency_ms=profile.latency_ms,
+        slippage_bps=profile.slippage_bps,
+        partial_fill_ratio=profile.partial_fill_ratio,
+        fee_bps=profile.fee_bps,
+        execution_models=execution_models,
+        volume_participation_rate=candle_volume_participation_rate,
+        slippage_model=slippage_model,
+        charge_model=charge_identity,
+    )
+
+    return ResearchRunConfiguration(
+        strategy=strategy_configuration,
+        execution=execution_configuration,
+        allow_incomplete=allow_incomplete,
+        account_state_sampling_policy=account_state_sampling_policy.value,
+        policy=PolicyConfiguration(
+            granted_capabilities=tuple(sorted(policy_context.granted_capabilities)),
+            live_trading_enabled=policy_context.live_trading_enabled,
+            manual_approval=policy_context.manual_approval,
+        ),
+        broker_constraints=tuple(
+            BrokerConstraintConfiguration(
+                name=constraint.name,
+                minimum_order_value=constraint.minimum_order_value,
+                minimum_quantity=constraint.minimum_quantity,
+                minimum_margin_amount=(
+                    None if constraint.minimum_margin is None else constraint.minimum_margin.amount
+                ),
+                minimum_margin_currency=(
+                    None
+                    if constraint.minimum_margin is None
+                    else constraint.minimum_margin.currency
+                ),
+            )
+            for constraint in broker_constraints
+        ),
+        starting_capital=StartingCapitalConfiguration(
+            capital_source=financial_state.capital_source.value,
+            currency=financial_state.cash_balance.currency,
+            cash_balance=financial_state.cash_balance.amount,
+            available_cash=financial_state.available_cash.amount,
+            blocked_cash=financial_state.blocked_cash.amount,
+            margin_used=financial_state.margin_used.amount,
+            margin_available=financial_state.margin_available.amount,
+            buying_power=financial_state.buying_power.amount,
+        ),
+    )
+
+
 def _require_coherent_provenance(
     frames: tuple[ReplayFrame, ...],
     provenance: ResearchProvenance,
@@ -374,16 +529,32 @@ class DeterministicBacktestService:
         execution_engine = self._execution_engine
         simulation_clock = None
         effective_slippage_bps: Decimal | None = None
+        effective_profile = execution_profile or PaperSimulationProfile()
+        # ``None`` means "no authoritative identity available". An injected
+        # execution engine stays ``None`` so provenance-aware validation fails
+        # closed instead of recording an empty model list.
+        effective_execution_models: tuple[SimulationModelIdentity, ...] | None = None
         if execution_engine is None:
             from quantx.domain.clock import SimulatedClock
 
             first_timestamp = frames[0].observation.timestamp
             simulation_clock = SimulatedClock(first_timestamp)
-            effective_profile = execution_profile or PaperSimulationProfile()
             effective_slippage_bps = effective_profile.slippage_bps
-            candle_model: FillModel = CandleFillModel(
+            configured_candle_model = CandleFillModel(
                 volume_participation_rate=candle_volume_participation_rate
             )
+            # The service owns these routes, so their identities are authoritative.
+            effective_execution_models = (
+                SimulationModelIdentity(
+                    model_id=QuoteFillModel.model_id,
+                    model_version=QuoteFillModel.model_version,
+                ),
+                SimulationModelIdentity(
+                    model_id=configured_candle_model.model_id,
+                    model_version=configured_candle_model.model_version,
+                ),
+            )
+            candle_model: FillModel = configured_candle_model
             execution_engine = PaperExecutionEngine(
                 clock=simulation_clock,
                 profile=effective_profile,
@@ -391,6 +562,22 @@ class DeterministicBacktestService:
             )
 
         effective_policy = policy_context or PolicyContext()
+        if provenance is not None and provenance.run_configuration is not None:
+            _require_coherent_run_configuration(
+                _effective_run_configuration(
+                    strategy=strategy,
+                    strategy_ir=strategy_ir,
+                    profile=effective_profile,
+                    execution_models=effective_execution_models,
+                    candle_volume_participation_rate=candle_volume_participation_rate,
+                    allow_incomplete=allow_incomplete,
+                    account_state_sampling_policy=account_state_sampling_policy,
+                    policy_context=effective_policy,
+                    broker_constraints=broker_constraints,
+                    financial_state=financial_state,
+                ),
+                provenance.run_configuration,
+            )
         accounting = self._accounting_override or FillAccounting()
         steps: list[BacktestStep] = []
         receipts: list[ExecutionReceipt] = []
