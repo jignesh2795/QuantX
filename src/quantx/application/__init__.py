@@ -33,6 +33,7 @@ from .recovery_composition import (
     ResolvedRecoveryEndpoint,
     build_application_runtime,
 )
+from .research_run_read import ResearchRunReadService, ResearchRunSnapshot
 from .runtime import ApplicationRuntime, ApplicationStartupResult, StartupRecoveryHook
 from .uncertain_submission import UncertainSubmissionReceiptRecovery
 
@@ -68,4 +69,6 @@ __all__ = [
     "UncertainSubmissionReceiptRecovery",
     "StartupRecoveryHook",
     "build_application_runtime",
+    "ResearchRunReadService",
+    "ResearchRunSnapshot",
 ]
