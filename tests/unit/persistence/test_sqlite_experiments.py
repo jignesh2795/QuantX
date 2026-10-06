@@ -184,15 +184,11 @@ def test_schema_stores_only_experiment_metadata_and_run_membership(tmp_path) -> 
         connection = database.connection()
         experiment_columns = [
             row[1]
-            for row in connection.execute(
-                "PRAGMA table_info(research_experiments)"
-            ).fetchall()
+            for row in connection.execute("PRAGMA table_info(research_experiments)").fetchall()
         ]
         membership_columns = [
             row[1]
-            for row in connection.execute(
-                "PRAGMA table_info(research_experiment_runs)"
-            ).fetchall()
+            for row in connection.execute("PRAGMA table_info(research_experiment_runs)").fetchall()
         ]
 
     assert experiment_columns == ["experiment_id", "name", "created_at"]
