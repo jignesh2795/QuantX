@@ -123,13 +123,13 @@ def _simulation_model(payload: Mapping[str, object]) -> SimulationModelIdentity:
     )
 
 
-def _simulation_models(payload: Mapping[str, object]) -> tuple[SimulationModelIdentity, ...]:
+def _simulation_models(
+    payload: Mapping[str, object],
+) -> tuple[SimulationModelIdentity, ...]:
     value = payload.get("execution_models")
     if not isinstance(value, list):
         raise ValueError("execution_models must be an array")
-    return tuple(
-        _simulation_model(_mapping(item, "execution model")) for item in value
-    )
+    return tuple(_simulation_model(_mapping(item, "execution model")) for item in value)
 
 
 def _optional_simulation_model(
@@ -210,7 +210,9 @@ def _run_configuration(payload: Mapping[str, object]) -> ResearchRunConfiguratio
             ),
             latency_ms=_required_int(execution_payload, "latency_ms"),
             slippage_bps=_optional_decimal(execution_payload, "slippage_bps"),
-            partial_fill_ratio=_optional_decimal(execution_payload, "partial_fill_ratio"),
+            partial_fill_ratio=_optional_decimal(
+                execution_payload, "partial_fill_ratio"
+            ),
             fee_bps=_optional_decimal(execution_payload, "fee_bps"),
             execution_models=_simulation_models(execution_payload),
             volume_participation_rate=_optional_decimal(
@@ -436,7 +438,11 @@ class LocalFilesystemResearchStore:
                 "configuration_revision": result.spec.configuration_revision,
                 "random_seed": result.spec.random_seed,
                 **(
-                    {"run_configuration": result.spec.run_configuration.canonical_payload()}
+                    {
+                        "run_configuration": (
+                            result.spec.run_configuration.canonical_payload()
+                        )
+                    }
                     if result.spec.run_configuration is not None
                     else {}
                 ),
@@ -456,7 +462,9 @@ class LocalFilesystemResearchStore:
     def _result_from_payload(payload: dict[str, object]) -> ResearchResult:
         spec_payload = _mapping(payload.get("spec"), "spec")
         spec_configuration = (
-            _run_configuration(_mapping(spec_payload["run_configuration"], "run_configuration"))
+            _run_configuration(
+                _mapping(spec_payload["run_configuration"], "run_configuration")
+            )
             if "run_configuration" in spec_payload
             else None
         )
