@@ -56,6 +56,84 @@ def test_experiment_requires_strategy_identity() -> None:
         Experiment(name="x", strategy_id="", strategy_version="v1")
 
 
+def test_register_experiment_rejects_duplicate_identity() -> None:
+    manager = ExperimentManager()
+    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    manager.register_experiment(experiment)
+
+    with pytest.raises(ValueError, match="experiment already registered"):
+        manager.register_experiment(experiment)
+
+
+def test_attach_run_requires_registered_experiment() -> None:
+    manager = ExperimentManager()
+    experiment_id = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+    with pytest.raises(KeyError, match="experiment not found"):
+        manager.attach_run(experiment_id, "run-1")
+
+
+def test_attach_run_rejects_empty_run_id() -> None:
+    manager = ExperimentManager()
+    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    manager.register_experiment(experiment)
+
+    with pytest.raises(ValueError, match="run_id"):
+        manager.attach_run(experiment.experiment_id, "   ")
+
+
+def test_attach_run_is_one_to_many_from_experiment() -> None:
+    manager = ExperimentManager()
+    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    manager.register_experiment(experiment)
+
+    assert manager.attach_run(experiment.experiment_id, "run-2") == "run-2"
+    assert manager.attach_run(experiment.experiment_id, "run-1") == "run-1"
+    assert manager.runs_for_experiment(experiment.experiment_id) == ("run-1", "run-2")
+    assert manager.experiment_for_run("run-1") == experiment.experiment_id
+    assert manager.experiment_for_run("run-2") == experiment.experiment_id
+
+
+def test_attach_run_rejects_duplicate_membership() -> None:
+    manager = ExperimentManager()
+    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    manager.register_experiment(experiment)
+    manager.attach_run(experiment.experiment_id, "run-1")
+
+    with pytest.raises(ValueError, match="already attached to experiment"):
+        manager.attach_run(experiment.experiment_id, "run-1")
+
+
+def test_attach_run_rejects_membership_in_multiple_experiments() -> None:
+    manager = ExperimentManager()
+    first = Experiment(name="first", strategy_id="s1", strategy_version="v1")
+    second = Experiment(name="second", strategy_id="s1", strategy_version="v1")
+    manager.register_experiment(first)
+    manager.register_experiment(second)
+    manager.attach_run(first.experiment_id, "run-1")
+
+    with pytest.raises(ValueError, match="another experiment"):
+        manager.attach_run(second.experiment_id, "run-1")
+
+    assert manager.experiment_for_run("run-1") == first.experiment_id
+    assert manager.runs_for_experiment(second.experiment_id) == ()
+
+
+def test_experiment_run_membership_does_not_duplicate_result_or_configuration() -> None:
+    manager = ExperimentManager()
+    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    manager.register_experiment(experiment)
+    result = _result("a", "s1", (("pnl", Decimal("10")),))
+
+    manager.attach_run(experiment.experiment_id, result.spec.run_id)
+    manager.record_result(result)
+
+    assert manager.runs_for_experiment(experiment.experiment_id) == (result.spec.run_id,)
+    assert manager.get_result(result.result_id) is result
+    assert len(manager.experiments()) == 1
+    assert len(manager.results()) == 1
+
+
 def test_compare_experiments_reports_metric_delta() -> None:
     manager = ExperimentManager()
     left = _result("a", "s1", (("pnl", Decimal("10")),))
