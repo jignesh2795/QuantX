@@ -51,14 +51,22 @@ def _result(
     )
 
 
-def test_experiment_requires_strategy_identity() -> None:
-    with pytest.raises(ValueError):
-        Experiment(name="x", strategy_id="", strategy_version="v1")
+def test_experiment_is_logical_metadata_only() -> None:
+    experiment = Experiment(name="x")
+    assert experiment.name == "x"
+    assert not hasattr(experiment, "strategy_id")
+    assert not hasattr(experiment, "strategy_version")
+    assert not hasattr(experiment, "parameters")
+
+
+def test_experiment_requires_name() -> None:
+    with pytest.raises(ValueError, match="experiment name"):
+        Experiment(name="   ")
 
 
 def test_register_experiment_rejects_duplicate_identity() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
 
     with pytest.raises(ValueError, match="experiment already registered"):
@@ -75,7 +83,7 @@ def test_attach_run_requires_registered_experiment() -> None:
 
 def test_attach_run_rejects_empty_run_id() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
 
     with pytest.raises(ValueError, match="run_id"):
@@ -84,7 +92,7 @@ def test_attach_run_rejects_empty_run_id() -> None:
 
 def test_attach_run_is_one_to_many_from_experiment() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
 
     assert manager.attach_run(experiment.experiment_id, "run-2") == "run-2"
@@ -96,7 +104,7 @@ def test_attach_run_is_one_to_many_from_experiment() -> None:
 
 def test_attach_run_rejects_duplicate_membership() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
     manager.attach_run(experiment.experiment_id, "run-1")
 
@@ -106,8 +114,8 @@ def test_attach_run_rejects_duplicate_membership() -> None:
 
 def test_attach_run_rejects_membership_in_multiple_experiments() -> None:
     manager = ExperimentManager()
-    first = Experiment(name="first", strategy_id="s1", strategy_version="v1")
-    second = Experiment(name="second", strategy_id="s1", strategy_version="v1")
+    first = Experiment(name="first")
+    second = Experiment(name="second")
     manager.register_experiment(first)
     manager.register_experiment(second)
     manager.attach_run(first.experiment_id, "run-1")
@@ -119,9 +127,32 @@ def test_attach_run_rejects_membership_in_multiple_experiments() -> None:
     assert manager.runs_for_experiment(second.experiment_id) == ()
 
 
+def test_experiment_accepts_runs_with_different_configurations() -> None:
+    manager = ExperimentManager()
+    experiment = Experiment(name="parameter sweep")
+    manager.register_experiment(experiment)
+
+    first = _result("a", "s1", (("pnl", Decimal("10")),), simulation_profile="REALISTIC")
+    second = _result("a", "s2", (("pnl", Decimal("12")),), simulation_profile="CONSERVATIVE")
+
+    manager.attach_run(experiment.experiment_id, first.spec.run_id)
+    manager.attach_run(experiment.experiment_id, second.spec.run_id)
+    manager.record_result(first)
+    manager.record_result(second)
+
+    assert manager.runs_for_experiment(experiment.experiment_id) == (
+        first.spec.run_id,
+        second.spec.run_id,
+    )
+    assert first.spec.strategy_identity() != second.spec.strategy_identity()
+    assert first.fingerprint != second.fingerprint
+    assert manager.get_result(first.result_id) is first
+    assert manager.get_result(second.result_id) is second
+
+
 def test_experiment_run_membership_does_not_duplicate_result_or_configuration() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
     result = _result("a", "s1", (("pnl", Decimal("10")),))
 
