@@ -27,6 +27,8 @@ class ResearchRunExecution:
             raise ValueError("research result run_id does not match completed run")
         if self.result.fingerprint != self.run.provenance_fingerprint:
             raise ValueError("research result provenance does not match completed run")
+        if self.run.result_id != self.result.result_id:
+            raise ValueError("research result_id does not match completed run")
 
 
 class ResearchRunApplicationService:
