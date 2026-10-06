@@ -214,3 +214,42 @@ def test_filesystem_structured_result_rejects_malformed_configuration(
 
     with pytest.raises(ValueError, match="latency_ms"):
         store.get_result(result.result_id)
+
+
+
+def test_structured_configuration_rejects_unsorted_execution_models() -> None:
+    with pytest.raises(ValueError, match="execution_models must be sorted"):
+        ExecutionConfiguration(
+            simulation_profile_name="REALISTIC",
+            latency_ms=0,
+            execution_models=(
+                SimulationModelIdentity(model_id="QUOTE", model_version="v1"),
+                SimulationModelIdentity(model_id="BASIC_BAR", model_version="v1"),
+            ),
+        )
+
+
+def test_structured_configuration_rejects_unsorted_broker_constraints() -> None:
+    with pytest.raises(ValueError, match="broker constraints must be sorted"):
+        ResearchRunConfiguration(
+            broker_constraints=(
+                BrokerConstraintConfiguration(name="Z"),
+                BrokerConstraintConfiguration(name="A"),
+            ),
+        )
+
+
+def test_filesystem_structured_result_rejects_invalid_provenance_configuration(
+    tmp_path: Path,
+) -> None:
+    store = LocalFilesystemResearchStore(tmp_path)
+    result = _structured_result()
+    store.save_result(result)
+    path = tmp_path / "results" / (str(result.result_id) + ".json")
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["provenance"]["run_configuration"]["execution"]["latency_ms"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="latency_ms"):
+        store.get_result(result.result_id)
