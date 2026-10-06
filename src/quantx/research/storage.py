@@ -79,9 +79,7 @@ class InMemoryResearchRunRepository:
         self._runs[run_id] = updated
         return updated
 
-    def attach_manifest(
-        self, run_id: str, manifest: ResearchArtifactManifest
-    ) -> ResearchRunRecord:
+    def attach_manifest(self, run_id: str, manifest: ResearchArtifactManifest) -> ResearchRunRecord:
         current = self._require_run(run_id)
         updated = current.with_manifest(manifest)
         self._runs[run_id] = updated
