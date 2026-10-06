@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -112,6 +112,56 @@ CREATE TABLE IF NOT EXISTS market_quotes (
 )
 """
 
+
+_RESEARCH_RUNS_TABLE = """
+CREATE TABLE IF NOT EXISTS research_runs (
+    run_id TEXT PRIMARY KEY,
+    provenance_fingerprint TEXT NOT NULL,
+    provenance_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('CREATED', 'RUNNING', 'COMPLETED', 'FAILED')),
+    created_at TEXT NOT NULL,
+    started_at TEXT NULL,
+    completed_at TEXT NULL,
+    result_id TEXT NULL,
+    failure_reason TEXT NULL
+)
+"""
+
+_RESEARCH_RUNS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_research_runs_provenance
+ON research_runs (provenance_fingerprint, created_at, run_id)
+"""
+
+_RESEARCH_RESULTS_TABLE = """
+CREATE TABLE IF NOT EXISTS research_results (
+    result_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    provenance_fingerprint TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (run_id)
+)
+"""
+
+_RESEARCH_MANIFESTS_TABLE = """
+CREATE TABLE IF NOT EXISTS research_manifests (
+    manifest_fingerprint TEXT PRIMARY KEY,
+    run_fingerprint TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL
+)
+"""
+
+_RESEARCH_RUN_MANIFESTS_TABLE = """
+CREATE TABLE IF NOT EXISTS research_run_manifests (
+    run_id TEXT NOT NULL,
+    manifest_fingerprint TEXT NOT NULL,
+    PRIMARY KEY (run_id, manifest_fingerprint),
+    FOREIGN KEY (run_id) REFERENCES research_runs(run_id),
+    FOREIGN KEY (manifest_fingerprint) REFERENCES research_manifests(manifest_fingerprint)
+)
+"""
+
 _MARKET_QUOTES_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_market_quotes_lookup
 ON market_quotes (instrument_venue, instrument_symbol, timestamp)
@@ -125,6 +175,14 @@ def _create_market_tables(connection: sqlite3.Connection) -> None:
     connection.execute(_MARKET_QUOTES_INDEX)
 
 
+def _create_research_tables(connection: sqlite3.Connection) -> None:
+    connection.execute(_RESEARCH_RUNS_TABLE)
+    connection.execute(_RESEARCH_RUNS_INDEX)
+    connection.execute(_RESEARCH_RESULTS_TABLE)
+    connection.execute(_RESEARCH_MANIFESTS_TABLE)
+    connection.execute(_RESEARCH_RUN_MANIFESTS_TABLE)
+
+
 def _create_current_schema(connection: sqlite3.Connection) -> None:
     connection.execute(_IDEMPOTENCY_TABLE)
     connection.execute(_RECEIPTS_TABLE)
@@ -132,6 +190,7 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
     connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
     connection.execute(_TRADING_GATE_TABLE)
     _create_market_tables(connection)
+    _create_research_tables(connection)
 
 
 def init_schema(connection: sqlite3.Connection) -> None:
@@ -170,6 +229,7 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_TRADING_GATE_TABLE)
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
         _create_market_tables(connection)
+        _create_research_tables(connection)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 1",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -179,6 +239,7 @@ def init_schema(connection: sqlite3.Connection) -> None:
 
     if version == 2:
         _create_market_tables(connection)
+        _create_research_tables(connection)
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 2",
@@ -188,9 +249,19 @@ def init_schema(connection: sqlite3.Connection) -> None:
         return
 
     if version == 3:
+        _create_research_tables(connection)
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 3",
+            (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
+        )
+        connection.commit()
+        return
+
+    if version == 4:
+        _create_research_tables(connection)
+        connection.execute(
+            "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 4",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
         )
         connection.commit()
