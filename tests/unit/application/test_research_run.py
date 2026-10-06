@@ -45,10 +45,11 @@ def test_research_run_application_service_completes_durable_lifecycle() -> None:
     result = _result(spec)
     calls: list[str] = []
 
-    execution = service.execute(
-        spec,
-        lambda: calls.append("executed") or result,
-    )
+    def operation() -> ResearchResult:
+        calls.append("executed")
+        return result
+
+    execution = service.execute(spec, operation)
 
     assert calls == ["executed"]
     assert execution.result is result
