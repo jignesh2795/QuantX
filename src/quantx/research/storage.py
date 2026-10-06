@@ -412,6 +412,11 @@ class LocalFilesystemResearchStore:
                 "code_revision": result.spec.code_revision,
                 "configuration_revision": result.spec.configuration_revision,
                 "random_seed": result.spec.random_seed,
+                **(
+                    {"run_configuration": result.spec.run_configuration.canonical_payload()}
+                    if result.spec.run_configuration is not None
+                    else {}
+                ),
             },
             "quality": result.quality.value,
             "started_at": result.started_at,
@@ -426,20 +431,59 @@ class LocalFilesystemResearchStore:
 
     @staticmethod
     def _result_from_payload(payload: dict[str, object]) -> ResearchResult:
-        spec_payload = payload["spec"]
-        spec = ResearchRunSpec(**spec_payload)
-        provenance_payload = payload["provenance"]
+        spec_payload = _mapping(payload.get("spec"), "spec")
+        spec_configuration = (
+            _run_configuration(_mapping(spec_payload["run_configuration"], "run_configuration"))
+            if "run_configuration" in spec_payload
+            else None
+        )
+        spec = ResearchRunSpec(
+            run_id=_required_str(spec_payload, "run_id"),
+            dataset_id=_required_str(spec_payload, "dataset_id"),
+            dataset_version=_required_str(spec_payload, "dataset_version"),
+            instrument_master_version=_required_str(
+                spec_payload, "instrument_master_version"
+            ),
+            market_rule_version=_required_str(spec_payload, "market_rule_version"),
+            execution_model_version=_required_str(
+                spec_payload, "execution_model_version"
+            ),
+            simulation_profile=_required_str(spec_payload, "simulation_profile"),
+            code_revision=_required_str(spec_payload, "code_revision"),
+            configuration_revision=_required_str(
+                spec_payload, "configuration_revision"
+            ),
+            random_seed=_optional_int(spec_payload, "random_seed"),
+            run_configuration=spec_configuration,
+        )
+        provenance_payload = _mapping(payload.get("provenance"), "provenance")
+        provenance_configuration = (
+            _run_configuration(
+                _mapping(provenance_payload["run_configuration"], "run_configuration")
+            )
+            if "run_configuration" in provenance_payload
+            else None
+        )
         provenance = ResearchProvenance(
-            dataset_id=provenance_payload["dataset_id"],
-            dataset_version=provenance_payload["dataset_version"],
-            instrument_master_version=provenance_payload["instrument_master_version"],
-            market_rule_version=provenance_payload["market_rule_version"],
-            execution_model_version=provenance_payload["execution_model_version"],
-            simulation_profile=provenance_payload["simulation_profile"],
-            code_revision=provenance_payload["code_revision"],
-            configuration_revision=provenance_payload["configuration_revision"],
-            random_seed=provenance_payload.get("random_seed"),
-            extra=provenance_payload.get("extra", {}),
+            dataset_id=_required_str(provenance_payload, "dataset_id"),
+            dataset_version=_required_str(provenance_payload, "dataset_version"),
+            instrument_master_version=_required_str(
+                provenance_payload, "instrument_master_version"
+            ),
+            market_rule_version=_required_str(
+                provenance_payload, "market_rule_version"
+            ),
+            execution_model_version=_required_str(
+                provenance_payload, "execution_model_version"
+            ),
+            simulation_profile=_required_str(provenance_payload, "simulation_profile"),
+            code_revision=_required_str(provenance_payload, "code_revision"),
+            configuration_revision=_required_str(
+                provenance_payload, "configuration_revision"
+            ),
+            random_seed=_optional_int(provenance_payload, "random_seed"),
+            extra=_extra(provenance_payload.get("extra")),
+            run_configuration=provenance_configuration,
         )
         return ResearchResult(
             spec=spec,
