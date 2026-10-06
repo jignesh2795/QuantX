@@ -42,7 +42,6 @@ def _result(spec: ResearchRunSpec) -> ResearchResult:
 def test_research_run_application_service_completes_durable_lifecycle() -> None:
     repository = InMemoryResearchRunRepository()
     clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
-    service = ResearchRunApplicationService(repository=repository, clock=clock)
     spec = _spec()
     result = _result(spec)
     calls: list[str] = []
@@ -108,7 +107,6 @@ class _FaultInjectingRepository(InMemoryResearchRunRepository):
         self.fail_create = fail_create
         self.fail_start = fail_start
         self.fail_complete = fail_complete
-        self.fail_failed = fail_failed
 
     def create_run(self, run: ResearchRunRecord) -> ResearchRunRecord:
         if self.fail_create:
@@ -130,8 +128,6 @@ class _FaultInjectingRepository(InMemoryResearchRunRepository):
             raise RuntimeError("complete persistence failed")
         return super().complete_run(run_id, result, completed_at)
 
-    def fail_run(self, run_id: str, reason: str) -> ResearchRunRecord:
-        return super().fail_run(run_id, reason)
 
 
 def test_research_run_application_service_does_not_execute_when_create_persistence_fails() -> None:
@@ -164,7 +160,8 @@ def test_research_run_application_service_leaves_created_when_start_persistence_
     assert stored.state is ResearchRunState.CREATED
 
 
-def test_research_run_application_service_surfaces_completion_persistence_failure_without_fabricating_success() -> None:
+def test_research_run_application_service_surfaces_completion_persistence_failure(
+) -> None:
     repository = _FaultInjectingRepository(fail_complete=True)
     clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
     service = ResearchRunApplicationService(repository=repository, clock=clock)
@@ -186,7 +183,12 @@ def test_research_run_execution_rejects_mismatched_result_id() -> None:
     result = _result(spec)
 
     class WrongResultIdRepository(InMemoryResearchRunRepository):
-        def complete_run(self, run_id, completed_result, completed_at):
+        def complete_run(
+            self,
+            run_id: str,
+            completed_result: ResearchResult,
+            completed_at: str,
+        ) -> ResearchRunRecord:
             completed = super().complete_run(run_id, completed_result, completed_at)
             return replace(completed, result_id=uuid4())
 
