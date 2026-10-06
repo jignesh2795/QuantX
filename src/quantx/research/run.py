@@ -1,4 +1,4 @@
-# research run lifecycle model
+"""Durable identity and lifecycle records for research execution instances."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from .result import ResearchResult
 
 
 class ResearchRunState(StrEnum):
+    """Lifecycle state of one persisted research execution instance."""
+
     CREATED = "CREATED"
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
@@ -20,10 +22,12 @@ class ResearchRunState(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ResearchRunRecord:
+    """Immutable snapshot of one research execution instance."""
+
     run_id: str
     provenance: ResearchProvenance
-    state: ResearchRunState
-    created_at: str
+    state: ResearchRunState = ResearchRunState.CREATED
+    created_at: str = ""
     started_at: str | None = None
     completed_at: str | None = None
     result_id: UUID | None = None
@@ -35,8 +39,32 @@ class ResearchRunRecord:
             raise ValueError("run_id must not be empty")
         if not self.created_at.strip():
             raise ValueError("created_at must not be empty")
-        if self.state is ResearchRunState.RUNNING and self.started_at is None:
-            raise ValueError("RUNNING research runs require started_at")
+
+        for name in ("started_at", "completed_at"):
+            value = getattr(self, name)
+            if value is not None and not value.strip():
+                raise ValueError(f"{name} must not be empty when provided")
+
+        if self.state is ResearchRunState.CREATED:
+            if self.started_at is not None:
+                raise ValueError("CREATED research runs cannot have started_at")
+            if self.completed_at is not None:
+                raise ValueError("CREATED research runs cannot have completed_at")
+            if self.result_id is not None:
+                raise ValueError("CREATED research runs cannot have result_id")
+            if self.failure_reason is not None:
+                raise ValueError("CREATED research runs cannot have failure_reason")
+
+        if self.state is ResearchRunState.RUNNING:
+            if self.started_at is None:
+                raise ValueError("RUNNING research runs require started_at")
+            if self.completed_at is not None:
+                raise ValueError("RUNNING research runs cannot have completed_at")
+            if self.result_id is not None:
+                raise ValueError("RUNNING research runs cannot have result_id")
+            if self.failure_reason is not None:
+                raise ValueError("RUNNING research runs cannot have failure_reason")
+
         if self.state is ResearchRunState.COMPLETED:
             if self.started_at is None:
                 raise ValueError("COMPLETED research runs require started_at")
@@ -46,6 +74,7 @@ class ResearchRunRecord:
                 raise ValueError("COMPLETED research runs require result_id")
             if self.failure_reason is not None:
                 raise ValueError("COMPLETED research runs cannot have failure_reason")
+
         if self.state is ResearchRunState.FAILED:
             if self.failure_reason is None or not self.failure_reason.strip():
                 raise ValueError("FAILED research runs require failure_reason")
@@ -53,8 +82,10 @@ class ResearchRunRecord:
                 raise ValueError("FAILED research runs cannot have completed_at")
             if self.result_id is not None:
                 raise ValueError("FAILED research runs cannot have result_id")
+
         if self.failure_reason is not None and not self.failure_reason.strip():
             raise ValueError("failure_reason must not be empty when provided")
+
         fingerprints = self.artifact_manifest_fingerprints
         if any(not item.strip() for item in fingerprints):
             raise ValueError("artifact manifest fingerprints must not be empty")
@@ -63,9 +94,11 @@ class ResearchRunRecord:
 
     @property
     def provenance_fingerprint(self) -> str:
+        """Return the sole reproducibility identity for this run."""
         return self.provenance.fingerprint()
 
     def started(self, started_at: str) -> ResearchRunRecord:
+        """Return the RUNNING snapshot for this run."""
         if not started_at.strip():
             raise ValueError("started_at must not be empty")
         if self.state is not ResearchRunState.CREATED:
@@ -73,6 +106,7 @@ class ResearchRunRecord:
         return replace(self, state=ResearchRunState.RUNNING, started_at=started_at)
 
     def completed(self, result: ResearchResult, completed_at: str) -> ResearchRunRecord:
+        """Return the COMPLETED snapshot after binding a compatible result."""
         if self.state is not ResearchRunState.RUNNING:
             raise ValueError(f"cannot complete research run from {self.state}")
         if not completed_at.strip():
@@ -91,6 +125,7 @@ class ResearchRunRecord:
         )
 
     def failed(self, reason: str) -> ResearchRunRecord:
+        """Return the terminal FAILED snapshot for this run."""
         if self.state not in {ResearchRunState.CREATED, ResearchRunState.RUNNING}:
             raise ValueError(f"cannot fail research run from {self.state}")
         if not reason.strip():
@@ -98,8 +133,9 @@ class ResearchRunRecord:
         return replace(self, state=ResearchRunState.FAILED, failure_reason=reason)
 
     def with_manifest(self, manifest: ResearchArtifactManifest) -> ResearchRunRecord:
-        if self.state in {ResearchRunState.COMPLETED, ResearchRunState.FAILED}:
-            raise ValueError(f"cannot attach manifest to terminal research run {self.state}")
+        """Return a snapshot with one provenance-compatible artifact manifest."""
+        if self.state is ResearchRunState.FAILED:
+            raise ValueError("cannot attach manifest to FAILED research run")
         if manifest.run_fingerprint != self.provenance_fingerprint:
             raise ValueError(
                 "research artifact manifest run fingerprint does not match research run"
