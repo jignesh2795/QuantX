@@ -92,3 +92,112 @@ def test_research_run_application_service_rejects_naive_clock() -> None:
         service.execute(_spec(), lambda: _result(_spec()))
 
     assert repository.get_run("run-1") is None
+
+
+class _FaultInjectingRepository(InMemoryResearchRunRepository):
+    def __init__(
+        self,
+        *,
+        fail_create: bool = False,
+        fail_start: bool = False,
+        fail_complete: bool = False,
+        fail_failed: bool = False,
+    ) -> None:
+        super().__init__()
+        self.fail_create = fail_create
+        self.fail_start = fail_start
+        self.fail_complete = fail_complete
+        self.fail_failed = fail_failed
+
+    def create_run(self, run):
+        if self.fail_create:
+            raise RuntimeError("create persistence failed")
+        return super().create_run(run)
+
+    def start_run(self, run_id, started_at):
+        if self.fail_start:
+            raise RuntimeError("start persistence failed")
+        return super().start_run(run_id, started_at)
+
+    def complete_run(self, run_id, result, completed_at):
+        if self.fail_complete:
+            raise RuntimeError("complete persistence failed")
+        return super().complete_run(run_id, result, completed_at)
+
+    def fail_run(self, run_id, reason):
+        if self.fail_failed:
+            raise RuntimeError("failed-state persistence failed")
+        return super().fail_run(run_id, reason)
+
+
+def test_research_run_application_service_does_not_execute_when_create_persistence_fails() -> None:
+    repository = _FaultInjectingRepository(fail_create=True)
+    clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+    service = ResearchRunApplicationService(repository=repository, clock=clock)
+    calls: list[str] = []
+
+    def operation() -> ResearchResult:
+        calls.append("executed")
+        return _result(_spec())
+
+    with pytest.raises(RuntimeError, match="create persistence failed"):
+        service.execute(_spec(), operation)
+
+    assert calls == []
+    assert repository.get_run("run-1") is None
+
+
+def test_research_run_application_service_leaves_created_when_start_persistence_fails() -> None:
+    repository = _FaultInjectingRepository(fail_start=True)
+    clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+    service = ResearchRunApplicationService(repository=repository, clock=clock)
+
+    with pytest.raises(RuntimeError, match="start persistence failed"):
+        service.execute(_spec(), lambda: _result(_spec()))
+
+    stored = repository.get_run("run-1")
+    assert stored is not None
+    assert stored.state is ResearchRunState.CREATED
+
+
+def test_research_run_application_service_surfaces_completion_persistence_failure_without_fabricating_success() -> None:
+    repository = _FaultInjectingRepository(fail_complete=True)
+    clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+    service = ResearchRunApplicationService(repository=repository, clock=clock)
+
+    with pytest.raises(RuntimeError, match="complete persistence failed"):
+        service.execute(_spec(), lambda: _result(_spec()))
+
+    stored = repository.get_run("run-1")
+    assert stored is not None
+    assert stored.state is ResearchRunState.RUNNING
+    assert stored.result_id is None
+
+
+def test_research_run_execution_rejects_mismatched_result_id() -> None:
+    repository = InMemoryResearchRunRepository()
+    clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+    service = ResearchRunApplicationService(repository=repository, clock=clock)
+    spec = _spec()
+    result = _result(spec)
+
+    class WrongResultIdRepository(InMemoryResearchRunRepository):
+        def complete_run(self, run_id, completed_result, completed_at):
+            completed = super().complete_run(run_id, completed_result, completed_at)
+            return type(completed)(
+                run_id=completed.run_id,
+                provenance=completed.provenance,
+                state=completed.state,
+                created_at=completed.created_at,
+                started_at=completed.started_at,
+                completed_at=completed.completed_at,
+                result_id=result.result_id,
+                artifact_manifest_fingerprints=completed.artifact_manifest_fingerprints,
+                failure_reason=completed.failure_reason,
+            )
+
+    wrong_repository = WrongResultIdRepository()
+    wrong_service = ResearchRunApplicationService(repository=wrong_repository, clock=clock)
+
+    execution = wrong_service.execute(spec, lambda: result)
+    assert execution.run.result_id == result.result_id
