@@ -124,6 +124,33 @@ def test_sqlite_research_store_rejects_duplicate_result_and_manifest(tmp_path) -
             store.save_manifest(manifest)
 
 
+def test_research_result_row_metadata_is_verified_on_read(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    run = _run()
+    result = _result(provenance=run.provenance)
+
+    with SqliteDatabase(path) as database:
+        store = SqliteResearchStore(database)
+        store.save_result(result)
+        with database.transaction() as connection:
+            connection.execute(
+                "UPDATE research_results SET provenance_fingerprint = ? WHERE result_id = ?",
+                ("tampered", str(result.result_id)),
+            )
+        with pytest.raises(ValueError, match="provenance fingerprint"):
+            store.get_result(result.result_id)
+
+    with SqliteDatabase(path) as database:
+        with database.transaction() as connection:
+            connection.execute(
+                "UPDATE research_results SET provenance_fingerprint = ?, run_id = ? "
+                "WHERE result_id = ?",
+                (result.fingerprint, "tampered-run", str(result.result_id)),
+            )
+        with pytest.raises(ValueError, match="run_id"):
+            SqliteResearchStore(database).get_result(result.result_id)
+
+
 def test_run_lifecycle_and_structured_provenance_survive_restart(tmp_path) -> None:
     path = tmp_path / "quantx.db"
     run = _run()
