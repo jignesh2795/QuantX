@@ -1,6 +1,5 @@
-from uuid import UUID
-
 import pytest
+from uuid import UUID
 
 from quantx.research.artifacts import ResearchArtifact, ResearchArtifactManifest
 from quantx.research.provenance import ResearchProvenance
