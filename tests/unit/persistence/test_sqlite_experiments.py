@@ -5,7 +5,11 @@ from uuid import UUID
 
 import pytest
 
-from quantx.persistence.sqlite import (\n    SqliteDatabase,\n    SqliteExperimentRepository,\n    SqliteResearchRunRepository,\n)
+from quantx.persistence.sqlite import (
+    SqliteDatabase,
+    SqliteExperimentRepository,
+    SqliteResearchRunRepository,
+)
 from quantx.research.experiments import Experiment
 from quantx.research.provenance import ResearchProvenance, ResearchRunConfiguration
 from quantx.research.run import ResearchRunRecord
