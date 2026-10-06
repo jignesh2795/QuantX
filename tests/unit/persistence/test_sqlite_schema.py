@@ -1,6 +1,7 @@
 """Schema lifecycle tests for the SQLite adapter."""
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +29,8 @@ def test_schema_created_on_first_use(tmp_path) -> None:
         "research_results",
         "research_manifests",
         "research_run_manifests",
+        "research_experiments",
+        "research_experiment_runs",
     } <= tables
 
 
@@ -315,4 +318,71 @@ def test_v4_schema_is_migrated_to_current_version(tmp_path) -> None:
         "research_results",
         "research_manifests",
         "research_run_manifests",
+        "research_experiments",
+        "research_experiment_runs",
     } <= tables
+
+
+def test_v5_schema_is_migrated_to_current_version(tmp_path: Path) -> None:
+    path = tmp_path / "quantx.db"
+    raw = sqlite3.connect(str(path))
+    try:
+        raw.executescript(
+            """
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            );
+            INSERT INTO schema_version (version, applied_at)
+            VALUES (5, '2026-01-01T00:00:00+00:00');
+            CREATE TABLE research_runs (
+                run_id TEXT PRIMARY KEY,
+                provenance_fingerprint TEXT NOT NULL,
+                provenance_json TEXT NOT NULL,
+                state TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                started_at TEXT NULL,
+                completed_at TEXT NULL,
+                result_id TEXT NULL,
+                failure_reason TEXT NULL
+            );
+            CREATE TABLE research_results (
+                result_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                provenance_fingerprint TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE (run_id)
+            );
+            CREATE TABLE research_manifests (
+                manifest_fingerprint TEXT PRIMARY KEY,
+                run_fingerprint TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE research_run_manifests (
+                run_id TEXT NOT NULL,
+                manifest_fingerprint TEXT NOT NULL,
+                PRIMARY KEY (run_id, manifest_fingerprint)
+            );
+            """
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    database = SqliteDatabase(path)
+    try:
+        version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
+        tables = {
+            row[0]
+            for row in database.connection().execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    finally:
+        database.close()
+
+    assert version == SCHEMA_VERSION
+    assert "research_experiments" in tables
+    assert "research_experiment_runs" in tables

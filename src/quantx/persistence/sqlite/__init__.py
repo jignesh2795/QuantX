@@ -1,6 +1,7 @@
 """SQLite adapter implementing the database-neutral persistence contracts."""
 
 from .database import SqliteDatabase
+from .experiments import SqliteExperimentRepository
 from .idempotency import SqliteIdempotencyStore
 from .market_data import SqliteMarketDataStore
 from .receipts import SqliteReceiptRepository, receipt_from_payload, receipt_to_payload
@@ -10,6 +11,7 @@ from .unit_of_work import SqliteUnitOfWork
 
 __all__ = [
     "SqliteDatabase",
+    "SqliteExperimentRepository",
     "SqliteIdempotencyStore",
     "SqliteMarketDataStore",
     "SqliteReceiptRepository",
