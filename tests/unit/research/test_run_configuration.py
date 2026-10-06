@@ -354,8 +354,8 @@ def test_execution_model_count_change_changes_fingerprint() -> None:
     )
     both = _execution(
         execution_models=(
-            SimulationModelIdentity(model_id="QUOTE", model_version="v1"),
             SimulationModelIdentity(model_id="BASIC_BAR", model_version="basic-bar-v4"),
+            SimulationModelIdentity(model_id="QUOTE", model_version="v1"),
         ),
     )
     assert _fp(_configuration(execution=single)) != _fp(_configuration(execution=both))

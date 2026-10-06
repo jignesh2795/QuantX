@@ -116,6 +116,10 @@ class ExecutionConfiguration:
             raise ValueError("simulation_profile_name must not be empty")
         if self.latency_ms < 0:
             raise ValueError("latency_ms cannot be negative")
+        models = list(self.execution_models)
+        ordered_models = sorted(models, key=lambda item: (item.model_id, item.model_version))
+        if models != ordered_models:
+            raise ValueError("execution_models must be sorted")
 
     def canonical_payload(self) -> dict[str, object]:
         return {
@@ -244,6 +248,10 @@ class ResearchRunConfiguration:
         names = [constraint.name for constraint in self.broker_constraints]
         if len(names) != len(set(names)):
             raise ValueError("broker constraint names must be unique")
+        if self.broker_constraints != tuple(
+            sorted(self.broker_constraints, key=lambda item: item.name)
+        ):
+            raise ValueError("broker constraints must be sorted")
 
     def canonical_payload(self) -> dict[str, object]:
         return {

@@ -2,16 +2,310 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
 from .artifacts import ResearchArtifact, ResearchArtifactManifest
-from .provenance import ResearchProvenance
+from .provenance import (
+    BrokerConstraintConfiguration,
+    ExecutionConfiguration,
+    PolicyConfiguration,
+    ResearchProvenance,
+    ResearchRunConfiguration,
+    SimulationModelIdentity,
+    StartingCapitalConfiguration,
+    StrategyConfiguration,
+)
 from .result import ResearchResult, ResearchRunSpec, ResultQuality
+from .run import ResearchRunRecord
+
+
+def _mapping(value: object, field_name: str) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+    return dict(value)
+
+
+def _required_str(payload: Mapping[str, object], field_name: str) -> str:
+    value = payload.get(field_name)
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    return value
+
+
+def _optional_str(payload: Mapping[str, object], field_name: str) -> str | None:
+    value = payload.get(field_name)
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string or null")
+    return value
+
+
+def _required_int(payload: Mapping[str, object], field_name: str) -> int:
+    value = payload.get(field_name)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    return value
+
+
+def _optional_int(payload: Mapping[str, object], field_name: str) -> int | None:
+    value = payload.get(field_name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer or null")
+    return value
+
+
+def _optional_decimal(payload: Mapping[str, object], field_name: str) -> Decimal | None:
+    value = payload.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a decimal string or null")
+    try:
+        return Decimal(value)
+    except InvalidOperation as exc:
+        raise ValueError(f"{field_name} must contain a valid decimal") from exc
+
+
+def _required_bool(payload: Mapping[str, object], field_name: str) -> bool:
+    value = payload.get(field_name)
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean")
+    return value
+
+
+def _optional_bool(payload: Mapping[str, object], field_name: str) -> bool | None:
+    value = payload.get(field_name)
+    if value is not None and not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean or null")
+    return value
+
+
+def _pairs(payload: Mapping[str, object], field_name: str) -> tuple[tuple[str, str], ...]:
+    value = payload.get(field_name)
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be an array")
+    result: list[tuple[str, str]] = []
+    for item in value:
+        if (
+            not isinstance(item, list)
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not isinstance(item[1], str)
+        ):
+            raise ValueError(f"{field_name} must contain [string, string] pairs")
+        result.append((item[0], item[1]))
+    return tuple(result)
+
+
+def _extra(value: object) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        raise ValueError("extra must be an object")
+    extra: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not isinstance(item, str):
+            raise ValueError("extra must contain string keys and values")
+        extra[key] = item
+    return extra
+
+
+def _simulation_model(payload: Mapping[str, object]) -> SimulationModelIdentity:
+    return SimulationModelIdentity(
+        model_id=_required_str(payload, "model_id"),
+        model_version=_required_str(payload, "model_version"),
+        parameters=_pairs(payload, "parameters"),
+    )
+
+
+def _simulation_models(payload: Mapping[str, object]) -> tuple[SimulationModelIdentity, ...]:
+    value = payload.get("execution_models")
+    if not isinstance(value, list):
+        raise ValueError("execution_models must be an array")
+    return tuple(_simulation_model(_mapping(item, "execution model")) for item in value)
+
+
+def _optional_simulation_model(
+    payload: Mapping[str, object], field_name: str
+) -> SimulationModelIdentity | None:
+    value = payload.get(field_name)
+    if value is None:
+        return None
+    return _simulation_model(_mapping(value, field_name))
+
+
+def _policy_configuration(value: object) -> PolicyConfiguration | None:
+    if value is None:
+        return None
+    payload = _mapping(value, "policy")
+    capabilities = payload.get("granted_capabilities")
+    if not isinstance(capabilities, list) or not all(
+        isinstance(item, str) for item in capabilities
+    ):
+        raise ValueError("granted_capabilities must be an array of strings")
+    return PolicyConfiguration(
+        granted_capabilities=tuple(capabilities),
+        live_trading_enabled=_optional_bool(payload, "live_trading_enabled"),
+        manual_approval=_optional_bool(payload, "manual_approval"),
+    )
+
+
+def _broker_constraints(value: object) -> tuple[BrokerConstraintConfiguration, ...]:
+    if not isinstance(value, list):
+        raise ValueError("broker_constraints must be an array")
+    return tuple(
+        BrokerConstraintConfiguration(
+            name=_required_str(item, "name"),
+            minimum_order_value=_optional_decimal(item, "minimum_order_value"),
+            minimum_quantity=_optional_decimal(item, "minimum_quantity"),
+            minimum_margin_amount=_optional_decimal(item, "minimum_margin_amount"),
+            minimum_margin_currency=_optional_str(item, "minimum_margin_currency"),
+        )
+        for item in (_mapping(raw, "broker constraint") for raw in value)
+    )
+
+
+def _required_decimal(payload: Mapping[str, object], field_name: str) -> Decimal:
+    value = _optional_decimal(payload, field_name)
+    if value is None:
+        raise ValueError(f"{field_name} must be present")
+    return value
+
+
+def _starting_capital(value: object) -> StartingCapitalConfiguration | None:
+    if value is None:
+        return None
+    payload = _mapping(value, "starting_capital")
+    return StartingCapitalConfiguration(
+        capital_source=_required_str(payload, "capital_source"),
+        currency=_required_str(payload, "currency"),
+        cash_balance=_required_decimal(payload, "cash_balance"),
+        available_cash=_required_decimal(payload, "available_cash"),
+        blocked_cash=_required_decimal(payload, "blocked_cash"),
+        margin_used=_required_decimal(payload, "margin_used"),
+        margin_available=_required_decimal(payload, "margin_available"),
+        buying_power=_required_decimal(payload, "buying_power"),
+    )
+
+
+def _run_configuration(payload: Mapping[str, object]) -> ResearchRunConfiguration:
+    strategy_payload = _mapping(payload.get("strategy"), "strategy")
+    execution_payload = _mapping(payload.get("execution"), "execution")
+    return ResearchRunConfiguration(
+        strategy=StrategyConfiguration(
+            strategy_id=_optional_str(strategy_payload, "strategy_id"),
+            strategy_version=_optional_str(strategy_payload, "strategy_version"),
+            strategy_parameters=_pairs(strategy_payload, "strategy_parameters"),
+        ),
+        execution=ExecutionConfiguration(
+            simulation_profile_name=_required_str(execution_payload, "simulation_profile_name"),
+            latency_ms=_required_int(execution_payload, "latency_ms"),
+            slippage_bps=_optional_decimal(execution_payload, "slippage_bps"),
+            partial_fill_ratio=_optional_decimal(execution_payload, "partial_fill_ratio"),
+            fee_bps=_optional_decimal(execution_payload, "fee_bps"),
+            execution_models=_simulation_models(execution_payload),
+            volume_participation_rate=_optional_decimal(
+                execution_payload, "volume_participation_rate"
+            ),
+            slippage_model=_optional_simulation_model(execution_payload, "slippage_model"),
+            charge_model=_optional_simulation_model(execution_payload, "charge_model"),
+        ),
+        allow_incomplete=_required_bool(payload, "allow_incomplete"),
+        account_state_sampling_policy=_required_str(payload, "account_state_sampling_policy"),
+        policy=_policy_configuration(payload.get("policy")),
+        broker_constraints=_broker_constraints(payload.get("broker_constraints")),
+        starting_capital=_starting_capital(payload.get("starting_capital")),
+    )
+
+
+class ResearchRunRepository(Protocol):
+    """Database-neutral persistence contract for research execution instances."""
+
+    def create_run(self, run: ResearchRunRecord) -> ResearchRunRecord: ...
+    def get_run(self, run_id: str) -> ResearchRunRecord | None: ...
+    def find_by_provenance_fingerprint(
+        self, provenance_fingerprint: str
+    ) -> tuple[ResearchRunRecord, ...]: ...
+    def start_run(self, run_id: str, started_at: str) -> ResearchRunRecord: ...
+    def complete_run(
+        self, run_id: str, result: ResearchResult, completed_at: str
+    ) -> ResearchRunRecord: ...
+    def attach_manifest(
+        self,
+        run_id: str,
+        manifest: ResearchArtifactManifest,
+    ) -> ResearchRunRecord: ...
+    def fail_run(self, run_id: str, reason: str) -> ResearchRunRecord: ...
+
+
+@dataclass(slots=True)
+class InMemoryResearchRunRepository:
+    """Deterministic test/dev implementation of the research run boundary."""
+
+    _runs: dict[str, ResearchRunRecord]
+
+    def __init__(self) -> None:
+        self._runs = {}
+
+    def create_run(self, run: ResearchRunRecord) -> ResearchRunRecord:
+        if run.run_id in self._runs:
+            raise ValueError("research run already exists")
+        self._runs[run.run_id] = run
+        return run
+
+    def get_run(self, run_id: str) -> ResearchRunRecord | None:
+        return self._runs.get(run_id)
+
+    def find_by_provenance_fingerprint(
+        self, provenance_fingerprint: str
+    ) -> tuple[ResearchRunRecord, ...]:
+        if not provenance_fingerprint.strip():
+            raise ValueError("provenance fingerprint must not be empty")
+        matches = [
+            run
+            for run in self._runs.values()
+            if run.provenance_fingerprint == provenance_fingerprint
+        ]
+        return tuple(sorted(matches, key=lambda item: (item.created_at, item.run_id)))
+
+    def start_run(self, run_id: str, started_at: str) -> ResearchRunRecord:
+        current = self._require_run(run_id)
+        updated = current.started(started_at)
+        self._runs[run_id] = updated
+        return updated
+
+    def complete_run(
+        self, run_id: str, result: ResearchResult, completed_at: str
+    ) -> ResearchRunRecord:
+        current = self._require_run(run_id)
+        updated = current.completed(result, completed_at)
+        self._runs[run_id] = updated
+        return updated
+
+    def attach_manifest(self, run_id: str, manifest: ResearchArtifactManifest) -> ResearchRunRecord:
+        current = self._require_run(run_id)
+        updated = current.with_manifest(manifest)
+        self._runs[run_id] = updated
+        return updated
+
+    def fail_run(self, run_id: str, reason: str) -> ResearchRunRecord:
+        current = self._require_run(run_id)
+        updated = current.failed(reason)
+        self._runs[run_id] = updated
+        return updated
+
+    def _require_run(self, run_id: str) -> ResearchRunRecord:
+        if not run_id.strip():
+            raise ValueError("run_id must not be empty")
+        try:
+            return self._runs[run_id]
+        except KeyError as exc:
+            raise KeyError(f"research run not found: {run_id}") from exc
 
 
 class ResearchStore(Protocol):
@@ -109,7 +403,7 @@ class LocalFilesystemResearchStore:
     def _atomic_write(path: Path, payload: dict[str, object]) -> None:
         temp = path.with_suffix(path.suffix + ".tmp")
         temp.write_text(
-            json.dumps(payload, sort_keys=True, indent=2, default=str),
+            json.dumps(payload, sort_keys=True, indent=2),
             encoding="utf-8",
         )
         temp.replace(path)
@@ -131,6 +425,11 @@ class LocalFilesystemResearchStore:
                 "code_revision": result.spec.code_revision,
                 "configuration_revision": result.spec.configuration_revision,
                 "random_seed": result.spec.random_seed,
+                **(
+                    {"run_configuration": result.spec.run_configuration.canonical_payload()}
+                    if result.spec.run_configuration is not None
+                    else {}
+                ),
             },
             "quality": result.quality.value,
             "started_at": result.started_at,
@@ -145,20 +444,47 @@ class LocalFilesystemResearchStore:
 
     @staticmethod
     def _result_from_payload(payload: dict[str, object]) -> ResearchResult:
-        spec_payload = payload["spec"]
-        spec = ResearchRunSpec(**spec_payload)
-        provenance_payload = payload["provenance"]
+        spec_payload = _mapping(payload.get("spec"), "spec")
+        spec_configuration = (
+            _run_configuration(_mapping(spec_payload["run_configuration"], "run_configuration"))
+            if "run_configuration" in spec_payload
+            else None
+        )
+        spec = ResearchRunSpec(
+            run_id=_required_str(spec_payload, "run_id"),
+            dataset_id=_required_str(spec_payload, "dataset_id"),
+            dataset_version=_required_str(spec_payload, "dataset_version"),
+            instrument_master_version=_required_str(spec_payload, "instrument_master_version"),
+            market_rule_version=_required_str(spec_payload, "market_rule_version"),
+            execution_model_version=_required_str(spec_payload, "execution_model_version"),
+            simulation_profile=_required_str(spec_payload, "simulation_profile"),
+            code_revision=_required_str(spec_payload, "code_revision"),
+            configuration_revision=_required_str(spec_payload, "configuration_revision"),
+            random_seed=_optional_int(spec_payload, "random_seed"),
+            run_configuration=spec_configuration,
+        )
+        provenance_payload = _mapping(payload.get("provenance"), "provenance")
+        provenance_configuration = (
+            _run_configuration(
+                _mapping(provenance_payload["run_configuration"], "run_configuration")
+            )
+            if "run_configuration" in provenance_payload
+            else None
+        )
         provenance = ResearchProvenance(
-            dataset_id=provenance_payload["dataset_id"],
-            dataset_version=provenance_payload["dataset_version"],
-            instrument_master_version=provenance_payload["instrument_master_version"],
-            market_rule_version=provenance_payload["market_rule_version"],
-            execution_model_version=provenance_payload["execution_model_version"],
-            simulation_profile=provenance_payload["simulation_profile"],
-            code_revision=provenance_payload["code_revision"],
-            configuration_revision=provenance_payload["configuration_revision"],
-            random_seed=provenance_payload.get("random_seed"),
-            extra=provenance_payload.get("extra", {}),
+            dataset_id=_required_str(provenance_payload, "dataset_id"),
+            dataset_version=_required_str(provenance_payload, "dataset_version"),
+            instrument_master_version=_required_str(
+                provenance_payload, "instrument_master_version"
+            ),
+            market_rule_version=_required_str(provenance_payload, "market_rule_version"),
+            execution_model_version=_required_str(provenance_payload, "execution_model_version"),
+            simulation_profile=_required_str(provenance_payload, "simulation_profile"),
+            code_revision=_required_str(provenance_payload, "code_revision"),
+            configuration_revision=_required_str(provenance_payload, "configuration_revision"),
+            random_seed=_optional_int(provenance_payload, "random_seed"),
+            extra=_extra(provenance_payload.get("extra")),
+            run_configuration=provenance_configuration,
         )
         return ResearchResult(
             spec=spec,

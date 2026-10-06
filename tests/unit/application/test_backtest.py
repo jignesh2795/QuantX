@@ -1277,8 +1277,8 @@ def _effective_default_configuration() -> ResearchRunConfiguration:
             partial_fill_ratio=Decimal("1"),
             fee_bps=Decimal("0"),
             execution_models=(
-                SimulationModelIdentity(model_id="QUOTE", model_version="paper-core-v0.3"),
                 SimulationModelIdentity(model_id="BASIC_BAR", model_version="basic-bar-v4"),
+                SimulationModelIdentity(model_id="QUOTE", model_version="paper-core-v0.3"),
             ),
         ),
         allow_incomplete=False,
