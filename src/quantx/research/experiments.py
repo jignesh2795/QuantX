@@ -80,15 +80,15 @@ class ExperimentManager:
             and left_strategy == right_strategy
         )
         same_provenance = left.fingerprint == right.fingerprint
-        if not same_dataset:
-            reasons.append("dataset or dataset version differs")
-        if not same_strategy:
-            reasons.append("canonical strategy identity differs or is unavailable")
-        if not same_provenance:
-            reasons.append("research provenance fingerprint differs")
-        comparable = not left.is_blocked and not right.is_blocked
+        # Provenance differences are expected when comparing parameter/model
+        # variants. Strategy identity is retained as comparison context, while
+        # dataset identity and result quality define this conservative boundary.
+        comparable = same_dataset and not left.is_blocked and not right.is_blocked
         if not comparable:
-            reasons.append("one or more results are BLOCKED")
+            if not same_dataset:
+                reasons.append("dataset or dataset version differs")
+            if left.is_blocked or right.is_blocked:
+                reasons.append("one or more results are BLOCKED")
         left_metrics = dict(left.metrics)
         right_metrics = dict(right.metrics)
         shared = set(left_metrics) & set(right_metrics)
