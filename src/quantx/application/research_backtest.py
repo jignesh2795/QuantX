@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from quantx.application.backtest import (
     AccountStateSamplingPolicy,
+    BacktestResult,
     DeterministicBacktestService,
     StrategyRunner,
 )
@@ -86,7 +87,7 @@ class ResearchBacktestApplicationService:
     def _to_research_result(
         *,
         spec: ResearchRunSpec,
-        backtest_result: "BacktestResult",
+        backtest_result: BacktestResult,
         started_at: str,
         completed_at: str,
     ) -> ResearchResult:
