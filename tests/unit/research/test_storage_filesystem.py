@@ -216,7 +216,6 @@ def test_filesystem_structured_result_rejects_malformed_configuration(
         store.get_result(result.result_id)
 
 
-
 def test_structured_configuration_rejects_unsorted_execution_models() -> None:
     with pytest.raises(ValueError, match="execution_models must be sorted"):
         ExecutionConfiguration(
