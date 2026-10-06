@@ -351,7 +351,7 @@ def test_transaction_rollback_leaves_no_research_rows(tmp_path) -> None:
         store = SqliteResearchStore(database)
         result = _result()
         with pytest.raises(RuntimeError, match="boom"):
-            with database.transaction() as connection:
+            with database.transaction():
                 store.save_result(result)
                 store.save_manifest(_manifest(_run()))
                 raise RuntimeError("boom")
