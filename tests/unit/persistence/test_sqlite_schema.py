@@ -1,6 +1,7 @@
 """Schema lifecycle tests for the SQLite adapter."""
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -322,7 +323,7 @@ def test_v4_schema_is_migrated_to_current_version(tmp_path) -> None:
     } <= tables
 
 
-def test_v5_schema_is_migrated_to_current_version(tmp_path) -> None:
+def test_v5_schema_is_migrated_to_current_version(tmp_path: Path) -> None:
     path = tmp_path / "quantx.db"
     raw = sqlite3.connect(str(path))
     try:
