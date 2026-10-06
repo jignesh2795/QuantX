@@ -450,13 +450,6 @@ class LocalFilesystemResearchStore:
             run_configuration=spec_configuration,
         )
         provenance_payload = _mapping(payload.get("provenance"), "provenance")
-        provenance_configuration = (
-            _run_configuration(
-                _mapping(provenance_payload["run_configuration"], "run_configuration")
-            )
-            if "run_configuration" in provenance_payload
-            else None
-        )
         provenance = research_provenance_from_payload(provenance_payload)
         return ResearchResult(
             spec=spec,
