@@ -12,22 +12,15 @@ from .result import ResearchResult
 
 @dataclass(frozen=True, slots=True)
 class Experiment:
-    """Immutable definition of a reproducible research experiment."""
+    """Immutable logical grouping of research execution instances."""
 
     experiment_id: UUID = field(default_factory=uuid4)
     name: str = ""
-    strategy_id: str = ""
-    strategy_version: str = ""
-    parameters: tuple[tuple[str, str], ...] = ()
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self) -> None:
         if not self.name.strip():
             raise ValueError("experiment name must not be empty")
-        if not self.strategy_id.strip():
-            raise ValueError("strategy_id must not be empty")
-        if not self.strategy_version.strip():
-            raise ValueError("strategy_version must not be empty")
 
 
 @dataclass(frozen=True, slots=True)
