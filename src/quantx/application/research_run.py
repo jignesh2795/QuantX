@@ -10,7 +10,6 @@ from quantx.research.result import ResearchResult, ResearchRunSpec
 from quantx.research.run import ResearchRunRecord, ResearchRunState
 from quantx.research.storage import ResearchRunRepository
 
-
 ResearchOperation = Callable[[], ResearchResult]
 
 
