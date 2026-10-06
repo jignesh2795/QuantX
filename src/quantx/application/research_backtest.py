@@ -98,6 +98,7 @@ class ResearchBacktestApplicationService:
         assumptions = (
             f"deterministic={str(fidelity.deterministic).lower()}",
             f"simulated={str(fidelity.simulated).lower()}",
+            f"data_quality={backtest_result.data_quality.value}",
             *tuple(f"evidence_type={item}" for item in fidelity.evidence_types),
             *tuple(f"execution_model={item}" for item in fidelity.execution_models),
         )
