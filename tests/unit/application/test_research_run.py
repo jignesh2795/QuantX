@@ -1,12 +1,14 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
 from quantx.application.research_run import ResearchRunApplicationService
 from quantx.domain.clock import Clock, FixedClock
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
-from quantx.research.run import ResearchRunRecord, ResearchRunState
+from quantx.research.run import ResearchRunState
 from quantx.research.storage import InMemoryResearchRunRepository
 
 
@@ -184,17 +186,7 @@ def test_research_run_execution_rejects_mismatched_result_id() -> None:
     class WrongResultIdRepository(InMemoryResearchRunRepository):
         def complete_run(self, run_id, completed_result, completed_at):
             completed = super().complete_run(run_id, completed_result, completed_at)
-            return ResearchRunRecord(
-                run_id=completed.run_id,
-                provenance=completed.provenance,
-                state=completed.state,
-                created_at=completed.created_at,
-                started_at=completed.started_at,
-                completed_at=completed.completed_at,
-                result_id=result.result_id.__class__(result.result_id.int + 1),
-                artifact_manifest_fingerprints=completed.artifact_manifest_fingerprints,
-                failure_reason=completed.failure_reason,
-            )
+            return replace(completed, result_id=uuid4())
 
     wrong_repository = WrongResultIdRepository()
     wrong_service = ResearchRunApplicationService(repository=wrong_repository, clock=clock)
