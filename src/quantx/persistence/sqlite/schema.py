@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _SCHEMA_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -162,6 +162,30 @@ CREATE TABLE IF NOT EXISTS research_run_manifests (
 )
 """
 
+_RESEARCH_EXPERIMENTS_TABLE = """
+CREATE TABLE IF NOT EXISTS research_experiments (
+    experiment_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+)
+"""
+
+_RESEARCH_EXPERIMENT_RUNS_TABLE = """
+CREATE TABLE IF NOT EXISTS research_experiment_runs (
+    experiment_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    PRIMARY KEY (experiment_id, run_id),
+    UNIQUE (run_id),
+    FOREIGN KEY (experiment_id) REFERENCES research_experiments(experiment_id),
+    FOREIGN KEY (run_id) REFERENCES research_runs(run_id)
+)
+"""
+
+_RESEARCH_EXPERIMENT_RUNS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_research_experiment_runs_experiment
+ON research_experiment_runs (experiment_id, run_id)
+"""
+
 _MARKET_QUOTES_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_market_quotes_lookup
 ON market_quotes (instrument_venue, instrument_symbol, timestamp)
@@ -183,6 +207,12 @@ def _create_research_tables(connection: sqlite3.Connection) -> None:
     connection.execute(_RESEARCH_RUN_MANIFESTS_TABLE)
 
 
+def _create_experiment_tables(connection: sqlite3.Connection) -> None:
+    connection.execute(_RESEARCH_EXPERIMENTS_TABLE)
+    connection.execute(_RESEARCH_EXPERIMENT_RUNS_TABLE)
+    connection.execute(_RESEARCH_EXPERIMENT_RUNS_INDEX)
+
+
 def _create_current_schema(connection: sqlite3.Connection) -> None:
     connection.execute(_IDEMPOTENCY_TABLE)
     connection.execute(_RECEIPTS_TABLE)
@@ -191,6 +221,7 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
     connection.execute(_TRADING_GATE_TABLE)
     _create_market_tables(connection)
     _create_research_tables(connection)
+    _create_experiment_tables(connection)
 
 
 def init_schema(connection: sqlite3.Connection) -> None:
@@ -225,6 +256,7 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
         _create_market_tables(connection)
         _create_research_tables(connection)
+        _create_experiment_tables(connection)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 1",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -235,6 +267,7 @@ def init_schema(connection: sqlite3.Connection) -> None:
     if version == 2:
         _create_market_tables(connection)
         _create_research_tables(connection)
+        _create_experiment_tables(connection)
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 2",
@@ -245,6 +278,7 @@ def init_schema(connection: sqlite3.Connection) -> None:
 
     if version == 3:
         _create_research_tables(connection)
+        _create_experiment_tables(connection)
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 3",
@@ -255,8 +289,18 @@ def init_schema(connection: sqlite3.Connection) -> None:
 
     if version == 4:
         _create_research_tables(connection)
+        _create_experiment_tables(connection)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 4",
+            (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
+        )
+        connection.commit()
+        return
+
+    if version == 5:
+        _create_experiment_tables(connection)
+        connection.execute(
+            "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 5",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
         )
         connection.commit()
