@@ -34,11 +34,12 @@ def _result(
     simulation_profile: str = "REALISTIC",
 ) -> ResearchResult:
     run_id = f"{strategy}:{dataset}"
-    result_id = (
-        UUID("11111111-1111-1111-1111-111111111111")
-        if dataset == "a"
-        else UUID("22222222-2222-2222-2222-222222222222")
-    )
+    result_ids = {
+        "s1": UUID("11111111-1111-1111-1111-111111111111"),
+        "s2": UUID("22222222-2222-2222-2222-222222222222"),
+        "s3": UUID("33333333-3333-3333-3333-333333333333"),
+    }
+    result_id = result_ids[strategy]
     return ResearchResult(
         spec=_spec(run_id, dataset, simulation_profile=simulation_profile),
         quality=ResultQuality.COMPLETE_OBSERVED,
@@ -168,7 +169,7 @@ def test_experiment_run_membership_does_not_duplicate_result_or_configuration() 
 def test_compare_experiments_reports_metric_delta() -> None:
     manager = ExperimentManager()
     left = _result("a", "s1", (("pnl", Decimal("10")),))
-    right = _result("a", "s1", (("pnl", Decimal("14")),))
+    right = _result("a", "s2", (("pnl", Decimal("14")),))
     comparison = manager.compare(left, right)
     assert comparison.comparable is True
     assert comparison.same_dataset is True
@@ -178,7 +179,7 @@ def test_compare_experiments_reports_metric_delta() -> None:
 def test_compare_flags_dataset_difference() -> None:
     manager = ExperimentManager()
     left = _result("a", "s1", (("pnl", Decimal("10")),))
-    right = _result("b", "s1", (("pnl", Decimal("14")),))
+    right = _result("b", "s2", (("pnl", Decimal("14")),))
     comparison = manager.compare(left, right)
     assert comparison.comparable is False
     assert comparison.same_dataset is False
@@ -188,7 +189,7 @@ def test_compare_flags_dataset_difference() -> None:
 def test_compare_allows_provenance_difference_on_same_dataset() -> None:
     manager = ExperimentManager()
     left = _result("a", "s1", (("pnl", Decimal("10")),))
-    right = _result("a", "s1", (("pnl", Decimal("14")),), simulation_profile="OTHER")
+    right = _result("a", "s2", (("pnl", Decimal("14")),), simulation_profile="OTHER")
     comparison = manager.compare(left, right)
     assert comparison.comparable is True
     assert comparison.same_dataset is True
