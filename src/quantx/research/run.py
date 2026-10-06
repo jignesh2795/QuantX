@@ -112,7 +112,9 @@ class ResearchRunRecord:
         if not completed_at.strip():
             raise ValueError("completed_at must not be empty")
         if result.spec.run_id != self.run_id:
-            raise ValueError("research result run_id does not match research run")
+            raise ValueError(
+                "research result run_id does not match research run"
+            )
         if result.fingerprint != self.provenance_fingerprint:
             raise ValueError(
                 "research result provenance fingerprint does not match research run"
