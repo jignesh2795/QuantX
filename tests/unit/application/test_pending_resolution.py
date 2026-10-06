@@ -883,7 +883,7 @@ def test_sqlite_v3_to_current_migration_preserves_reservations(tmp_path) -> None
     reopened = SqliteDatabase(path)
     try:
         version = reopened.connection().execute("SELECT version FROM schema_version")
-        assert version.fetchone()[0] == 4
+        assert version.fetchone()[0] == SCHEMA_VERSION
         pending = (
             SqliteUnitOfWork(reopened)
             .idempotency.check(request.order.client_order_id, fingerprint)
