@@ -1,12 +1,14 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
 from quantx.application.research_run import ResearchRunApplicationService
 from quantx.domain.clock import Clock, FixedClock
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
-from quantx.research.run import ResearchRunState
+from quantx.research.run import ResearchRunRecord, ResearchRunState
 from quantx.research.storage import InMemoryResearchRunRepository
 
 
@@ -58,8 +60,8 @@ def test_research_run_application_service_completes_durable_lifecycle() -> None:
     assert execution.run.provenance_fingerprint == result.fingerprint
 
     stored = repository.get_run(spec.run_id)
-    assert stored == execution.run
     assert stored is not None
+    assert stored == execution.run
 
 
 def test_research_run_application_service_persists_failed_lifecycle_and_reraises() -> None:
@@ -92,3 +94,107 @@ def test_research_run_application_service_rejects_naive_clock() -> None:
         service.execute(_spec(), lambda: _result(_spec()))
 
     assert repository.get_run("run-1") is None
+
+
+class _FaultInjectingRepository(InMemoryResearchRunRepository):
+    def __init__(
+        self,
+        *,
+        fail_create: bool = False,
+        fail_start: bool = False,
+        fail_complete: bool = False,
+    ) -> None:
+        super().__init__()
+        self.fail_create = fail_create
+        self.fail_start = fail_start
+        self.fail_complete = fail_complete
+
+    def create_run(self, run: ResearchRunRecord) -> ResearchRunRecord:
+        if self.fail_create:
+            raise RuntimeError("create persistence failed")
+        return super().create_run(run)
+
+    def start_run(self, run_id: str, started_at: str) -> ResearchRunRecord:
+        if self.fail_start:
+            raise RuntimeError("start persistence failed")
+        return super().start_run(run_id, started_at)
+
+    def complete_run(
+        self,
+        run_id: str,
+        result: ResearchResult,
+        completed_at: str,
+    ) -> ResearchRunRecord:
+        if self.fail_complete:
+            raise RuntimeError("complete persistence failed")
+        return super().complete_run(run_id, result, completed_at)
+
+
+def test_research_run_application_service_does_not_execute_when_create_persistence_fails() -> None:
+    repository = _FaultInjectingRepository(fail_create=True)
+    clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+    service = ResearchRunApplicationService(repository=repository, clock=clock)
+    calls: list[str] = []
+
+    def operation() -> ResearchResult:
+        calls.append("executed")
+        return _result(_spec())
+
+    with pytest.raises(RuntimeError, match="create persistence failed"):
+        service.execute(_spec(), operation)
+
+    assert calls == []
+    assert repository.get_run("run-1") is None
+
+
+def test_research_run_application_service_leaves_created_when_start_persistence_fails() -> None:
+    repository = _FaultInjectingRepository(fail_start=True)
+    clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+    service = ResearchRunApplicationService(repository=repository, clock=clock)
+
+    with pytest.raises(RuntimeError, match="start persistence failed"):
+        service.execute(_spec(), lambda: _result(_spec()))
+
+    stored = repository.get_run("run-1")
+    assert stored is not None
+    assert stored.state is ResearchRunState.CREATED
+
+
+def test_research_run_application_service_surfaces_completion_persistence_failure() -> None:
+    repository = _FaultInjectingRepository(fail_complete=True)
+    clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+    service = ResearchRunApplicationService(repository=repository, clock=clock)
+
+    with pytest.raises(RuntimeError, match="complete persistence failed"):
+        service.execute(_spec(), lambda: _result(_spec()))
+
+    stored = repository.get_run("run-1")
+    assert stored is not None
+    assert stored.state is ResearchRunState.RUNNING
+    assert stored.result_id is None
+
+
+def test_research_run_execution_rejects_mismatched_result_id() -> None:
+    clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+    spec = _spec()
+    result = _result(spec)
+
+    class WrongResultIdRepository(InMemoryResearchRunRepository):
+        def complete_run(
+            self,
+            run_id: str,
+            completed_result: ResearchResult,
+            completed_at: str,
+        ) -> ResearchRunRecord:
+            completed = super().complete_run(run_id, completed_result, completed_at)
+            return replace(completed, result_id=uuid4())
+
+    wrong_repository = WrongResultIdRepository()
+    wrong_service = ResearchRunApplicationService(repository=wrong_repository, clock=clock)
+
+    with pytest.raises(ValueError, match="result_id"):
+        wrong_service.execute(spec, lambda: result)
+
+    stored = wrong_repository.get_run(spec.run_id)
+    assert stored is not None
+    assert stored.state is ResearchRunState.COMPLETED
