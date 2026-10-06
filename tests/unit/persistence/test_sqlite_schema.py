@@ -130,9 +130,7 @@ def test_v1_schema_is_migrated_to_current_version(tmp_path) -> None:
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
-        version = database.connection().execute(
-            "SELECT version FROM schema_version"
-        ).fetchone()[0]
+        version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
     finally:
         database.close()
 
