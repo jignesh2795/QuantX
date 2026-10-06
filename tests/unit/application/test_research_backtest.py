@@ -8,12 +8,14 @@ from quantx.application.research_backtest import ResearchBacktestApplicationServ
 from quantx.application.research_run import ResearchRunApplicationService
 from quantx.domain.clock import FixedClock
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
+from quantx.domain.enums import AssetClass
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.market_data import Quote
 from quantx.domain.strategy import SignalAction, StrategyResult, StrategySignal, StrategyId
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
+from quantx.research.replay import ReplayFrame
 from quantx.research.result import ResearchRunSpec, ResultQuality
 from quantx.research.run import ResearchRunState
 from quantx.research.storage import InMemoryResearchRunRepository
@@ -24,7 +26,7 @@ def _instrument() -> Instrument:
     return Instrument(
         InstrumentId("NSE", "TCS"),
         "TCS",
-        "EQUITY",
+        AssetClass.EQUITY,
         market,
         "INR",
         Decimal("0.05"),
@@ -81,7 +83,7 @@ def _spec(dataset_id: str = "nse-eq") -> ResearchRunSpec:
     )
 
 
-def _strategy(frame):
+def _strategy(frame: ReplayFrame) -> StrategyResult:
     signal = StrategySignal(
         StrategyId("bound-strategy"),
         "1",
