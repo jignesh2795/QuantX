@@ -4,6 +4,11 @@ from uuid import UUID
 import pytest
 
 from quantx.research.experiments import Experiment, ExperimentManager
+from quantx.research.provenance import (
+    ExecutionConfiguration,
+    ResearchRunConfiguration,
+    StrategyConfiguration,
+)
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
 
 
@@ -12,6 +17,7 @@ def _spec(
     dataset: str,
     *,
     simulation_profile: str = "REALISTIC",
+    strategy_id: str | None = None,
 ) -> ResearchRunSpec:
     return ResearchRunSpec(
         run_id=run_id,
@@ -23,6 +29,20 @@ def _spec(
         simulation_profile=simulation_profile,
         code_revision="abc123",
         configuration_revision="cfg1",
+        run_configuration=(
+            ResearchRunConfiguration(
+                strategy=StrategyConfiguration(
+                    strategy_id=strategy_id,
+                    strategy_version="v1",
+                ),
+                execution=ExecutionConfiguration(
+                    simulation_profile_name=simulation_profile,
+                    latency_ms=0,
+                ),
+            )
+            if strategy_id is not None
+            else None
+        ),
     )
 
 
@@ -32,6 +52,7 @@ def _result(
     metrics: tuple[tuple[str, Decimal], ...],
     *,
     simulation_profile: str = "REALISTIC",
+    structured_strategy: bool = False,
 ) -> ResearchResult:
     run_id = f"{strategy}:{dataset}"
     result_ids = {
@@ -41,7 +62,12 @@ def _result(
     }
     result_id = result_ids[strategy]
     return ResearchResult(
-        spec=_spec(run_id, dataset, simulation_profile=simulation_profile),
+        spec=_spec(
+            run_id,
+            dataset,
+            simulation_profile=simulation_profile,
+            strategy_id=strategy if structured_strategy else None,
+        ),
         quality=ResultQuality.COMPLETE_OBSERVED,
         started_at="2026-01-01T00:00:00+00:00",
         completed_at="2026-01-01T00:01:00+00:00",
@@ -133,8 +159,20 @@ def test_experiment_accepts_runs_with_different_configurations() -> None:
     experiment = Experiment(name="parameter sweep")
     manager.register_experiment(experiment)
 
-    first = _result("a", "s1", (("pnl", Decimal("10")),), simulation_profile="REALISTIC")
-    second = _result("a", "s2", (("pnl", Decimal("12")),), simulation_profile="CONSERVATIVE")
+    first = _result(
+        "a",
+        "s1",
+        (("pnl", Decimal("10")),),
+        simulation_profile="REALISTIC",
+        structured_strategy=True,
+    )
+    second = _result(
+        "a",
+        "s2",
+        (("pnl", Decimal("12")),),
+        simulation_profile="CONSERVATIVE",
+        structured_strategy=True,
+    )
 
     manager.attach_run(experiment.experiment_id, first.spec.run_id)
     manager.attach_run(experiment.experiment_id, second.spec.run_id)
