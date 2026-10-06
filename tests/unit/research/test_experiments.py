@@ -4,6 +4,11 @@ from uuid import UUID
 import pytest
 
 from quantx.research.experiments import Experiment, ExperimentManager
+from quantx.research.provenance import (
+    ExecutionConfiguration,
+    ResearchRunConfiguration,
+    StrategyConfiguration,
+)
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
 
 
@@ -12,6 +17,7 @@ def _spec(
     dataset: str,
     *,
     simulation_profile: str = "REALISTIC",
+    strategy_id: str | None = None,
 ) -> ResearchRunSpec:
     return ResearchRunSpec(
         run_id=run_id,
@@ -23,6 +29,20 @@ def _spec(
         simulation_profile=simulation_profile,
         code_revision="abc123",
         configuration_revision="cfg1",
+        run_configuration=(
+            ResearchRunConfiguration(
+                strategy=StrategyConfiguration(
+                    strategy_id=strategy_id,
+                    strategy_version="v1",
+                ),
+                execution=ExecutionConfiguration(
+                    simulation_profile_name=simulation_profile,
+                    latency_ms=0,
+                ),
+            )
+            if strategy_id is not None
+            else None
+        ),
     )
 
 
@@ -32,15 +52,22 @@ def _result(
     metrics: tuple[tuple[str, Decimal], ...],
     *,
     simulation_profile: str = "REALISTIC",
+    structured_strategy: bool = False,
 ) -> ResearchResult:
     run_id = f"{strategy}:{dataset}"
-    result_id = (
-        UUID("11111111-1111-1111-1111-111111111111")
-        if dataset == "a"
-        else UUID("22222222-2222-2222-2222-222222222222")
-    )
+    result_ids = {
+        "s1": UUID("11111111-1111-1111-1111-111111111111"),
+        "s2": UUID("22222222-2222-2222-2222-222222222222"),
+        "s3": UUID("33333333-3333-3333-3333-333333333333"),
+    }
+    result_id = result_ids[strategy]
     return ResearchResult(
-        spec=_spec(run_id, dataset, simulation_profile=simulation_profile),
+        spec=_spec(
+            run_id,
+            dataset,
+            simulation_profile=simulation_profile,
+            strategy_id=strategy if structured_strategy else None,
+        ),
         quality=ResultQuality.COMPLETE_OBSERVED,
         started_at="2026-01-01T00:00:00+00:00",
         completed_at="2026-01-01T00:01:00+00:00",
@@ -51,14 +78,22 @@ def _result(
     )
 
 
-def test_experiment_requires_strategy_identity() -> None:
-    with pytest.raises(ValueError):
-        Experiment(name="x", strategy_id="", strategy_version="v1")
+def test_experiment_is_logical_metadata_only() -> None:
+    experiment = Experiment(name="x")
+    assert experiment.name == "x"
+    assert not hasattr(experiment, "strategy_id")
+    assert not hasattr(experiment, "strategy_version")
+    assert not hasattr(experiment, "parameters")
+
+
+def test_experiment_requires_name() -> None:
+    with pytest.raises(ValueError, match="experiment name"):
+        Experiment(name="   ")
 
 
 def test_register_experiment_rejects_duplicate_identity() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
 
     with pytest.raises(ValueError, match="experiment already registered"):
@@ -75,7 +110,7 @@ def test_attach_run_requires_registered_experiment() -> None:
 
 def test_attach_run_rejects_empty_run_id() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
 
     with pytest.raises(ValueError, match="run_id"):
@@ -84,7 +119,7 @@ def test_attach_run_rejects_empty_run_id() -> None:
 
 def test_attach_run_is_one_to_many_from_experiment() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
 
     assert manager.attach_run(experiment.experiment_id, "run-2") == "run-2"
@@ -96,7 +131,7 @@ def test_attach_run_is_one_to_many_from_experiment() -> None:
 
 def test_attach_run_rejects_duplicate_membership() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
     manager.attach_run(experiment.experiment_id, "run-1")
 
@@ -106,8 +141,8 @@ def test_attach_run_rejects_duplicate_membership() -> None:
 
 def test_attach_run_rejects_membership_in_multiple_experiments() -> None:
     manager = ExperimentManager()
-    first = Experiment(name="first", strategy_id="s1", strategy_version="v1")
-    second = Experiment(name="second", strategy_id="s1", strategy_version="v1")
+    first = Experiment(name="first")
+    second = Experiment(name="second")
     manager.register_experiment(first)
     manager.register_experiment(second)
     manager.attach_run(first.experiment_id, "run-1")
@@ -119,9 +154,44 @@ def test_attach_run_rejects_membership_in_multiple_experiments() -> None:
     assert manager.runs_for_experiment(second.experiment_id) == ()
 
 
+def test_experiment_accepts_runs_with_different_configurations() -> None:
+    manager = ExperimentManager()
+    experiment = Experiment(name="parameter sweep")
+    manager.register_experiment(experiment)
+
+    first = _result(
+        "a",
+        "s1",
+        (("pnl", Decimal("10")),),
+        simulation_profile="REALISTIC",
+        structured_strategy=True,
+    )
+    second = _result(
+        "a",
+        "s2",
+        (("pnl", Decimal("12")),),
+        simulation_profile="CONSERVATIVE",
+        structured_strategy=True,
+    )
+
+    manager.attach_run(experiment.experiment_id, first.spec.run_id)
+    manager.attach_run(experiment.experiment_id, second.spec.run_id)
+    manager.record_result(first)
+    manager.record_result(second)
+
+    assert manager.runs_for_experiment(experiment.experiment_id) == (
+        first.spec.run_id,
+        second.spec.run_id,
+    )
+    assert first.spec.strategy_identity() != second.spec.strategy_identity()
+    assert first.fingerprint != second.fingerprint
+    assert manager.get_result(first.result_id) is first
+    assert manager.get_result(second.result_id) is second
+
+
 def test_experiment_run_membership_does_not_duplicate_result_or_configuration() -> None:
     manager = ExperimentManager()
-    experiment = Experiment(name="x", strategy_id="s1", strategy_version="v1")
+    experiment = Experiment(name="x")
     manager.register_experiment(experiment)
     result = _result("a", "s1", (("pnl", Decimal("10")),))
 
@@ -137,7 +207,7 @@ def test_experiment_run_membership_does_not_duplicate_result_or_configuration() 
 def test_compare_experiments_reports_metric_delta() -> None:
     manager = ExperimentManager()
     left = _result("a", "s1", (("pnl", Decimal("10")),))
-    right = _result("a", "s1", (("pnl", Decimal("14")),))
+    right = _result("a", "s2", (("pnl", Decimal("14")),))
     comparison = manager.compare(left, right)
     assert comparison.comparable is True
     assert comparison.same_dataset is True
@@ -147,7 +217,7 @@ def test_compare_experiments_reports_metric_delta() -> None:
 def test_compare_flags_dataset_difference() -> None:
     manager = ExperimentManager()
     left = _result("a", "s1", (("pnl", Decimal("10")),))
-    right = _result("b", "s1", (("pnl", Decimal("14")),))
+    right = _result("b", "s2", (("pnl", Decimal("14")),))
     comparison = manager.compare(left, right)
     assert comparison.comparable is False
     assert comparison.same_dataset is False
@@ -157,7 +227,7 @@ def test_compare_flags_dataset_difference() -> None:
 def test_compare_allows_provenance_difference_on_same_dataset() -> None:
     manager = ExperimentManager()
     left = _result("a", "s1", (("pnl", Decimal("10")),))
-    right = _result("a", "s1", (("pnl", Decimal("14")),), simulation_profile="OTHER")
+    right = _result("a", "s2", (("pnl", Decimal("14")),), simulation_profile="OTHER")
     comparison = manager.compare(left, right)
     assert comparison.comparable is True
     assert comparison.same_dataset is True
