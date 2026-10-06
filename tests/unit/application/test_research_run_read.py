@@ -7,6 +7,7 @@ import pytest
 from quantx.application.research_run import ResearchRunApplicationService
 from quantx.application.research_run_read import ResearchRunReadService, ResearchRunSnapshot
 from quantx.domain.clock import FixedClock
+from quantx.persistence.sqlite import SqliteDatabase, SqliteResearchRunRepository, SqliteResearchStore
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
 from quantx.research.run import ResearchRunRecord, ResearchRunState
 from quantx.research.storage import (
@@ -151,3 +152,41 @@ def test_research_run_snapshot_rejects_result_identity_mismatch() -> None:
 
     with pytest.raises(ValueError, match="result_id"):
         ResearchRunSnapshot(run=run, result=wrong_result)
+
+
+def test_research_run_read_service_rehydrates_completed_run_after_sqlite_reopen(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    result_id = None
+
+    with SqliteDatabase(path) as database:
+        repository = SqliteResearchRunRepository(database)
+        store = SqliteResearchStore(database)
+        spec = _spec()
+        result = _result(spec)
+        result_id = result.result_id
+        clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+        lifecycle = ResearchRunApplicationService(repository=repository, clock=clock)
+        lifecycle.execute(spec, lambda: result)
+
+        service = ResearchRunReadService(
+            run_repository=repository,
+            result_store=store,
+        )
+        snapshot = service.get(spec.run_id)
+
+        assert snapshot is not None
+        assert snapshot.run.state is ResearchRunState.COMPLETED
+        assert snapshot.result == result
+
+    assert result_id is not None
+    with SqliteDatabase(path) as database:
+        service = ResearchRunReadService(
+            run_repository=SqliteResearchRunRepository(database),
+            result_store=SqliteResearchStore(database),
+        )
+        restored = service.get("run-1")
+
+        assert restored is not None
+        assert restored.run.result_id == result_id
+        assert restored.result == result
+        assert service.get_result(result_id) == result
