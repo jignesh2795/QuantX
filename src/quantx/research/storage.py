@@ -123,9 +123,7 @@ def _simulation_model(payload: Mapping[str, object]) -> SimulationModelIdentity:
     )
 
 
-def _simulation_models(
-    payload: Mapping[str, object],
-) -> tuple[SimulationModelIdentity, ...]:
+def _simulation_models(payload: Mapping[str, object]) -> tuple[SimulationModelIdentity, ...]:
     value = payload.get("execution_models")
     if not isinstance(value, list):
         raise ValueError("execution_models must be an array")
