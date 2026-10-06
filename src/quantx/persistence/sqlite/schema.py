@@ -196,9 +196,7 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
 def init_schema(connection: sqlite3.Connection) -> None:
     """Create or migrate the durable execution schema to the current version."""
     connection.execute(_SCHEMA_TABLE)
-    rows = connection.execute(
-        "SELECT version FROM schema_version ORDER BY version"
-    ).fetchall()
+    rows = connection.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
 
     if not rows:
         _create_current_schema(connection)
@@ -217,14 +215,11 @@ def init_schema(connection: sqlite3.Connection) -> None:
     if version == 1:
         columns = {
             row[1]
-            for row in connection.execute(
-                "PRAGMA table_info(idempotency_reservations)"
-            ).fetchall()
+            for row in connection.execute("PRAGMA table_info(idempotency_reservations)").fetchall()
         }
         if "pending_context_json" not in columns:
             connection.execute(
-                "ALTER TABLE idempotency_reservations "
-                "ADD COLUMN pending_context_json TEXT NULL"
+                "ALTER TABLE idempotency_reservations ADD COLUMN pending_context_json TEXT NULL"
             )
         connection.execute(_TRADING_GATE_TABLE)
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
