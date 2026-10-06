@@ -160,8 +160,7 @@ def test_research_run_application_service_leaves_created_when_start_persistence_
     assert stored.state is ResearchRunState.CREATED
 
 
-def test_research_run_application_service_surfaces_completion_persistence_failure(
-) -> None:
+def test_research_run_application_service_surfaces_completion_persistence_failure() -> None:
     repository = _FaultInjectingRepository(fail_complete=True)
     clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
     service = ResearchRunApplicationService(repository=repository, clock=clock)
