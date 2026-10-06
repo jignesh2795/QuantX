@@ -115,8 +115,7 @@ def _get_manifest(
     manifest_fingerprint: str,
 ) -> ResearchArtifactManifest | None:
     row = connection.execute(
-        "SELECT run_fingerprint, payload FROM research_manifests "
-        "WHERE manifest_fingerprint = ?",
+        "SELECT run_fingerprint, payload FROM research_manifests WHERE manifest_fingerprint = ?",
         (manifest_fingerprint,),
     ).fetchone()
     if row is None:
