@@ -2,24 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from decimal import Decimal
 
-from quantx.application.backtest import DeterministicBacktestService
+from quantx.application.backtest import (
+    AccountStateSamplingPolicy,
+    DeterministicBacktestService,
+    StrategyRunner,
+)
+from quantx.application.research_run import ResearchRunApplicationService, ResearchRunExecution
+from quantx.domain.clock import Clock
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.policy import PolicyContext
-from quantx.domain.clock import Clock
-from quantx.research.provenance import ResearchProvenance
-from quantx.research.replay import MultiSeries
-from quantx.research.data import HistoricalDataSeries
-from quantx.research.result import ResearchResult, ResearchRunSpec
-from quantx.application.backtest import AccountStateSamplingPolicy
-from quantx.application.backtest import BacktestResult
 from quantx.execution.paper import PaperSimulationProfile
+from quantx.research.data import HistoricalDataSeries
+from quantx.research.replay import MultiSeries
+from quantx.research.result import ResearchResult, ResearchRunSpec
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
 
-StrategyArgument = Callable | StrategyEvaluationService
 HistoricalSeries = HistoricalDataSeries | MultiSeries
+StrategyArgument = StrategyRunner | StrategyEvaluationService
 
 
 class ResearchBacktestApplicationService:
@@ -28,7 +30,7 @@ class ResearchBacktestApplicationService:
     def __init__(
         self,
         *,
-        lifecycle: object,
+        lifecycle: ResearchRunApplicationService,
         backtest: DeterministicBacktestService,
         clock: Clock,
     ) -> None:
@@ -48,12 +50,13 @@ class ResearchBacktestApplicationService:
         broker_constraints: tuple[BrokerConstraint, ...] = (),
         allow_incomplete: bool = False,
         execution_profile: PaperSimulationProfile | None = None,
-        candle_volume_participation_rate=None,
+        candle_volume_participation_rate: Decimal | None = None,
         account_state_sampling_policy: AccountStateSamplingPolicy = (
             AccountStateSamplingPolicy.EXACT_CURRENT
         ),
-    ):
+    ) -> ResearchRunExecution:
         """Execute a backtest through the durable research-run lifecycle."""
+
         def operation() -> ResearchResult:
             started_at = self._timestamp()
             backtest_result = self._backtest.run(
@@ -83,7 +86,7 @@ class ResearchBacktestApplicationService:
     def _to_research_result(
         *,
         spec: ResearchRunSpec,
-        backtest_result: BacktestResult,
+        backtest_result: "BacktestResult",
         started_at: str,
         completed_at: str,
     ) -> ResearchResult:
@@ -98,17 +101,17 @@ class ResearchBacktestApplicationService:
             *tuple(f"execution_model={item}" for item in fidelity.execution_models),
         )
         metrics = (
-            ("step_count", str(len(backtest_result.steps))),
-            ("receipt_count", str(len(backtest_result.receipts))),
-            ("ledger_entry_count", str(len(backtest_result.ledger))),
-            ("account_state_count", str(len(backtest_result.account_states))),
-            ("account_state_series_count", str(len(backtest_result.account_state_series)),
-             ),
-            ("executed_count", str(backtest_result.executed_count)),
-            ("rejected_count", str(backtest_result.rejected_count)),
+            ("step_count", Decimal(len(backtest_result.steps))),
+            ("receipt_count", Decimal(len(backtest_result.receipts))),
+            ("ledger_entry_count", Decimal(len(backtest_result.ledger))),
+            ("account_state_count", Decimal(len(backtest_result.account_states))),
+            (
+                "account_state_series_count",
+                Decimal(len(backtest_result.account_state_series)),
+            ),
+            ("executed_count", Decimal(backtest_result.executed_count)),
+            ("rejected_count", Decimal(backtest_result.rejected_count)),
         )
-        from decimal import Decimal
-
         return ResearchResult(
             spec=spec,
             quality=fidelity.quality,
@@ -116,10 +119,10 @@ class ResearchBacktestApplicationService:
             completed_at=completed_at,
             time_range_start=backtest_result.steps[0].timestamp,
             time_range_end=backtest_result.steps[-1].timestamp,
-            metrics=tuple((name, Decimal(value)) for name, value in metrics),
+            metrics=metrics,
             assumptions=assumptions,
             limitations=fidelity.limitations,
-            provenance=backtest_result.provenance or ResearchProvenance.from_run_spec(spec),
+            provenance=backtest_result.provenance or spec.to_provenance(),
         )
 
     def _timestamp(self) -> str:
@@ -127,3 +130,6 @@ class ResearchBacktestApplicationService:
         if observed.tzinfo is None or observed.utcoffset() is None:
             raise ValueError("research backtest clock must return a timezone-aware timestamp")
         return observed.isoformat()
+
+
+__all__ = ["HistoricalSeries", "ResearchBacktestApplicationService", "StrategyArgument"]
