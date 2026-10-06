@@ -6,6 +6,7 @@ from .backtest import (
     BacktestStep,
     DeterministicBacktestService,
 )
+from .experiment_read import ExperimentReadService, ExperimentSnapshot
 from .evidence_refresh import (
     DefinitiveEvidencePolicy,
     EvidenceRefreshOutcome,
@@ -44,6 +45,8 @@ __all__ = [
     "ApplicationRuntime",
     "ApplicationStartupResult",
     "DefinitiveEvidencePolicy",
+    "ExperimentReadService",
+    "ExperimentSnapshot",
     "DeterministicBacktestService",
     "EvidenceRefreshOutcome",
     "ExecutionDispatchStatus",
