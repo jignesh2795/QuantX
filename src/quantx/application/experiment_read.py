@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from quantx.research.experiments import Experiment, ExperimentRepository
-from quantx.research.run import ResearchRunRecord, ResearchRunRepository
+from quantx.research.run import ResearchRunRecord
+from quantx.research.storage import ResearchRunRepository
 
 
 @dataclass(frozen=True, slots=True)
