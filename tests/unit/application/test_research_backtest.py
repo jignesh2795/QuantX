@@ -12,7 +12,7 @@ from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.market_data import Quote
-from quantx.domain.strategy import SignalAction, StrategyResult, StrategySignal, StrategyId
+from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.replay import ReplayFrame
