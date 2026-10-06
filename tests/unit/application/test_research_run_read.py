@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -7,7 +8,11 @@ import pytest
 from quantx.application.research_run import ResearchRunApplicationService
 from quantx.application.research_run_read import ResearchRunReadService, ResearchRunSnapshot
 from quantx.domain.clock import FixedClock
-from quantx.persistence.sqlite import SqliteDatabase, SqliteResearchRunRepository, SqliteResearchStore
+from quantx.persistence.sqlite import (
+    SqliteDatabase,
+    SqliteResearchRunRepository,
+    SqliteResearchStore,
+)
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
 from quantx.research.run import ResearchRunRecord, ResearchRunState
 from quantx.research.storage import (
@@ -154,7 +159,9 @@ def test_research_run_snapshot_rejects_result_identity_mismatch() -> None:
         ResearchRunSnapshot(run=run, result=wrong_result)
 
 
-def test_research_run_read_service_rehydrates_completed_run_after_sqlite_reopen(tmp_path) -> None:
+def test_research_run_read_service_rehydrates_completed_run_after_sqlite_reopen(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "quantx.db"
     result_id = None
 
