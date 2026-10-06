@@ -120,9 +120,11 @@ def test_v1_schema_is_migrated_to_current_version(tmp_path) -> None:
     try:
         columns = {
             row[1]
-            for row in database.connection().execute(
-                "PRAGMA table_info(idempotency_reservations)"
-            ).fetchall()
+            for row in (
+                database.connection()
+                .execute("PRAGMA table_info(idempotency_reservations)")
+                .fetchall()
+            )
         }
         tables = {
             row[0]
@@ -190,9 +192,13 @@ def test_v2_schema_is_migrated_to_current_version(tmp_path) -> None:
             )
         }
         version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
-        preserved = database.connection().execute(
-            "SELECT fingerprint FROM idempotency_reservations WHERE client_order_id = 'order-1'"
-        ).fetchone()
+        preserved = (
+            database.connection()
+            .execute(
+                "SELECT fingerprint FROM idempotency_reservations WHERE client_order_id = 'order-1'"
+            )
+            .fetchone()
+        )
     finally:
         database.close()
 
