@@ -76,6 +76,35 @@ arbitrary object string representations, dictionary insertion order, and other
 runtime-only metadata do not affect the fingerprint. `run_id` identifies a run
 instance and is deliberately excluded from reproducibility identity.
 
+## Experiment identity and run membership
+
+An `Experiment` is a logical grouping of research execution instances; it is
+not a second copy of a run's configuration or provenance.
+
+`ResearchRunRecord` identifies one execution instance, and `ResearchResult`
+is the result bound to that run. Experiment membership stores only the
+`run_id` reference.
+
+The current semantic boundary is:
+
+```text
+Experiment
+   │ 1
+   ├── * ResearchRunRecord (by run_id)
+   │      └── 0..1 ResearchResult
+```
+
+A run may belong to at most one experiment. An experiment may contain many runs,
+including runs that vary parameters, simulation models, random seeds, or other
+material inputs. Membership does not copy or override `ResearchRunConfiguration`
+or `ResearchProvenance`.
+
+The in-memory experiment manager owns only the association index. Durable run
+state and result persistence remain owned by the existing research repositories.
+A future persistence adapter should represent membership as an explicit
+association keyed by `run_id`, with the one-experiment-per-run invariant
+preserved.
+
 ## Fail-closed rule
 
 When a run declares structured run configuration, the effective configuration
