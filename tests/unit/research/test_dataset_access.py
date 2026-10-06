@@ -13,7 +13,7 @@ from quantx.persistence.sqlite import SqliteDatabase
 from quantx.persistence.sqlite.market_data import SqliteMarketDataStore
 from quantx.ports.market_data import MarketDataStore
 from quantx.research.dataset import DatasetIdentity, DatasetVersion, fingerprint_bytes
-from quantx.research.dataset_access import read_candles
+from quantx.research.dataset_access import read_candles, read_observations
 from quantx.research.dataset_catalog import DatasetCatalog, InMemoryDatasetCatalog
 
 T0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
@@ -420,3 +420,24 @@ def test_sqlite_backed_version_scoped_reads() -> None:
     assert [candle.timestamp for candle in first_read] == [T0, T1]
     assert [candle.timestamp for candle in second_read] == [T2]
     assert second_read[0].close == Decimal("102")
+
+
+def test_read_observations_propagates_dataset_identity() -> None:
+    catalog = FakeCatalog((_version(),))
+    store = FakeStore((_candle(T0), _candle(T1)))
+    observations = read_observations(
+        catalog=catalog,
+        store=store,
+        dataset_id="nse-eq",
+        version="v1",
+        instrument=TCS,
+        timeframe="1m",
+        start=T0,
+        end=T1,
+    )
+
+    assert len(observations) == 2
+    for observation in observations:
+        assert observation.dataset_id == "nse-eq"
+        assert observation.source_id == "dhan"
+        assert observation.dataset_version == "v1"

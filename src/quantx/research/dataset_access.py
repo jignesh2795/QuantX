@@ -67,6 +67,7 @@ def candles_to_observations(
     *,
     source_id: str,
     dataset_version: str,
+    dataset_id: str | None = None,
     start_sequence: int = 0,
 ) -> tuple[HistoricalObservation, ...]:
     """Wrap canonical candles as lossless historical observations.
@@ -76,6 +77,8 @@ def candles_to_observations(
     OHLCV re-encoding, and no synthetic bid/ask fields. Sequences assign
     deterministically from ``start_sequence`` in iteration order; the
     research series remains responsible for chronological ordering.
+    The resolved logical ``dataset_id`` is propagated unchanged when
+    supplied; source identity continues to travel in ``source_id``.
     """
     if not source_id.strip():
         raise ValueError("source_id must not be empty")
@@ -89,6 +92,7 @@ def candles_to_observations(
             source_id,
             dataset_version,
             start_sequence + index,
+            dataset_id=dataset_id,
         )
         for index, candle in enumerate(tuple(candles))
     )
@@ -134,6 +138,7 @@ def read_observations(
         candles,
         source_id=identity.source_id,
         dataset_version=identity.version,
+        dataset_id=dataset_id,
         start_sequence=start_sequence,
     )
 

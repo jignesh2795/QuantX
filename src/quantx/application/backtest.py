@@ -252,18 +252,24 @@ def _require_coherent_provenance(
 
     The backtest has no catalog dependency, so dataset identity is a caller
     declaration. The only honest check available is coherence with the
-    observation-carried evidence: all frames must share exactly one
-    (source_id, dataset_version) pair, and the declared dataset_version must
-    match it. Heterogeneous multi-dataset provenance binding is explicitly
-    deferred, never silently merged.
+    observation-carried evidence: all frames must share exactly one logical
+    (dataset_id, dataset_version) pair, and that pair must equal the declared
+    provenance identity. ``source_id`` is provider identity and is never
+    compared against ``dataset_id``: different sources remain valid when the
+    logical dataset identity and version agree. No normalization, aliasing,
+    inference, or catalog lookup is attempted. Heterogeneous multi-dataset
+    provenance binding is explicitly deferred, never silently merged.
     """
-    pairs = {(frame.observation.source_id, frame.observation.dataset_version) for frame in frames}
+    pairs = {(frame.observation.dataset_id, frame.observation.dataset_version) for frame in frames}
     if len(pairs) != 1:
         raise ValueError(
             "provenance binding requires replay evidence from exactly one dataset; "
-            f"observed {len(pairs)} distinct (source_id, dataset_version) pairs"
+            f"observed {len(pairs)} distinct (dataset_id, dataset_version) pairs"
         )
-    if next(iter(pairs))[1] != provenance.dataset_version:
+    observed_id, observed_version = next(iter(pairs))
+    if observed_id != provenance.dataset_id:
+        raise ValueError("supplied provenance dataset_id does not match replay evidence")
+    if observed_version != provenance.dataset_version:
         raise ValueError("supplied provenance dataset_version does not match replay evidence")
 
 
