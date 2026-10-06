@@ -102,10 +102,13 @@ copy, override, or constrain `ResearchRunConfiguration` or
 `ResearchProvenance`.
 
 The in-memory experiment manager owns only the association index and logical
-experiment metadata. Durable run state and result persistence remain owned by
-the existing research repositories. Future experiment persistence should store
-only experiment metadata plus explicit `experiment_id ↔ run_id` membership,
-while the existing run/result stores remain authoritative for research state.
+experiment metadata. The durable SQLite experiment catalog now stores only
+experiment metadata in `research_experiments` and explicit `experiment_id ↔ run_id`
+membership in `research_experiment_runs`. The membership table enforces one
+experiment per run at the database boundary, and attachment requires the
+referenced `research_runs` row to exist. Existing research run/result stores remain
+authoritative for run state, result payloads, configuration, and provenance.
+Experiment comparison results are not persisted by this slice.
 
 ## Fail-closed rule
 
