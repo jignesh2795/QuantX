@@ -7,7 +7,12 @@ from quantx.research.experiments import Experiment, ExperimentManager
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
 
 
-def _spec(run_id: str, dataset: str) -> ResearchRunSpec:
+def _spec(
+    run_id: str,
+    dataset: str,
+    *,
+    simulation_profile: str = "REALISTIC",
+) -> ResearchRunSpec:
     return ResearchRunSpec(
         run_id=run_id,
         dataset_id=dataset,
@@ -15,13 +20,19 @@ def _spec(run_id: str, dataset: str) -> ResearchRunSpec:
         instrument_master_version="instruments-v1",
         market_rule_version="rules-v1",
         execution_model_version="paper-v1",
-        simulation_profile="REALISTIC",
+        simulation_profile=simulation_profile,
         code_revision="abc123",
         configuration_revision="cfg1",
     )
 
 
-def _result(dataset: str, strategy: str, metrics: tuple[tuple[str, Decimal], ...]) -> ResearchResult:
+def _result(
+    dataset: str,
+    strategy: str,
+    metrics: tuple[tuple[str, Decimal], ...],
+    *,
+    simulation_profile: str = "REALISTIC",
+) -> ResearchResult:
     run_id = f"{strategy}:{dataset}"
     result_id = (
         UUID("11111111-1111-1111-1111-111111111111")
@@ -29,7 +40,7 @@ def _result(dataset: str, strategy: str, metrics: tuple[tuple[str, Decimal], ...
         else UUID("22222222-2222-2222-2222-222222222222")
     )
     return ResearchResult(
-        spec=_spec(run_id, dataset),
+        spec=_spec(run_id, dataset, simulation_profile=simulation_profile),
         quality=ResultQuality.COMPLETE_OBSERVED,
         started_at="2026-01-01T00:00:00+00:00",
         completed_at="2026-01-01T00:01:00+00:00",
@@ -60,6 +71,36 @@ def test_compare_flags_dataset_difference() -> None:
     left = _result("a", "s1", (("pnl", Decimal("10")),))
     right = _result("b", "s1", (("pnl", Decimal("14")),))
     comparison = manager.compare(left, right)
-    assert comparison.comparable is True
+    assert comparison.comparable is False
     assert comparison.same_dataset is False
     assert "dataset or dataset version differs" in comparison.reasons
+
+
+def test_compare_allows_provenance_difference_on_same_dataset() -> None:
+    manager = ExperimentManager()
+    left = _result("a", "s1", (("pnl", Decimal("10")),))
+    right = _result("a", "s1", (("pnl", Decimal("14")),), simulation_profile="OTHER")
+    comparison = manager.compare(left, right)
+    assert comparison.comparable is True
+    assert comparison.same_dataset is True
+    assert comparison.same_provenance is False
+    assert comparison.reasons == ()
+
+
+def test_compare_rejects_blocked_results() -> None:
+    manager = ExperimentManager()
+    complete = _result("a", "s1", (("pnl", Decimal("10")),))
+    blocked = ResearchResult(
+        spec=complete.spec,
+        quality=ResultQuality.BLOCKED,
+        started_at=complete.started_at,
+        completed_at=complete.completed_at,
+        time_range_start=complete.time_range_start,
+        time_range_end=complete.time_range_end,
+        metrics=complete.metrics,
+        limitations=("data unavailable",),
+        result_id=UUID("33333333-3333-3333-3333-333333333333"),
+    )
+    comparison = manager.compare(complete, blocked)
+    assert comparison.comparable is False
+    assert "one or more results are BLOCKED" in comparison.reasons
