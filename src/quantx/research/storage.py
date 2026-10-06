@@ -205,30 +205,20 @@ def _run_configuration(payload: Mapping[str, object]) -> ResearchRunConfiguratio
             strategy_parameters=_pairs(strategy_payload, "strategy_parameters"),
         ),
         execution=ExecutionConfiguration(
-            simulation_profile_name=_required_str(
-                execution_payload, "simulation_profile_name"
-            ),
+            simulation_profile_name=_required_str(execution_payload, "simulation_profile_name"),
             latency_ms=_required_int(execution_payload, "latency_ms"),
             slippage_bps=_optional_decimal(execution_payload, "slippage_bps"),
-            partial_fill_ratio=_optional_decimal(
-                execution_payload, "partial_fill_ratio"
-            ),
+            partial_fill_ratio=_optional_decimal(execution_payload, "partial_fill_ratio"),
             fee_bps=_optional_decimal(execution_payload, "fee_bps"),
             execution_models=_simulation_models(execution_payload),
             volume_participation_rate=_optional_decimal(
                 execution_payload, "volume_participation_rate"
             ),
-            slippage_model=_optional_simulation_model(
-                execution_payload, "slippage_model"
-            ),
-            charge_model=_optional_simulation_model(
-                execution_payload, "charge_model"
-            ),
+            slippage_model=_optional_simulation_model(execution_payload, "slippage_model"),
+            charge_model=_optional_simulation_model(execution_payload, "charge_model"),
         ),
         allow_incomplete=_required_bool(payload, "allow_incomplete"),
-        account_state_sampling_policy=_required_str(
-            payload, "account_state_sampling_policy"
-        ),
+        account_state_sampling_policy=_required_str(payload, "account_state_sampling_policy"),
         policy=_policy_configuration(payload.get("policy")),
         broker_constraints=_broker_constraints(payload.get("broker_constraints")),
         starting_capital=_starting_capital(payload.get("starting_capital")),
@@ -438,9 +428,7 @@ class LocalFilesystemResearchStore:
                 "configuration_revision": result.spec.configuration_revision,
                 "random_seed": result.spec.random_seed,
                 **(
-                    {
-                        "run_configuration": result.spec.run_configuration.canonical_payload()
-                    }
+                    {"run_configuration": result.spec.run_configuration.canonical_payload()}
                     if result.spec.run_configuration is not None
                     else {}
                 ),
@@ -460,9 +448,7 @@ class LocalFilesystemResearchStore:
     def _result_from_payload(payload: dict[str, object]) -> ResearchResult:
         spec_payload = _mapping(payload.get("spec"), "spec")
         spec_configuration = (
-            _run_configuration(
-                _mapping(spec_payload["run_configuration"], "run_configuration")
-            )
+            _run_configuration(_mapping(spec_payload["run_configuration"], "run_configuration"))
             if "run_configuration" in spec_payload
             else None
         )
@@ -488,9 +474,7 @@ class LocalFilesystemResearchStore:
         provenance_payload = _mapping(payload.get("provenance"), "provenance")
         provenance_configuration = (
             _run_configuration(
-                _mapping(
-                    provenance_payload["run_configuration"], "run_configuration"
-                )
+                _mapping(provenance_payload["run_configuration"], "run_configuration")
             )
             if "run_configuration" in provenance_payload
             else None
