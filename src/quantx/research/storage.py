@@ -30,11 +30,13 @@ def _mapping(value: object, field_name: str) -> dict[str, object]:
         raise ValueError(f"{field_name} must be an object")
     return dict(value)
 
+
 def _required_str(payload: Mapping[str, object], field_name: str) -> str:
     value = payload.get(field_name)
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string")
     return value
+
 
 def _optional_str(payload: Mapping[str, object], field_name: str) -> str | None:
     value = payload.get(field_name)
@@ -42,11 +44,13 @@ def _optional_str(payload: Mapping[str, object], field_name: str) -> str | None:
         raise ValueError(f"{field_name} must be a string or null")
     return value
 
+
 def _required_int(payload: Mapping[str, object], field_name: str) -> int:
     value = payload.get(field_name)
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field_name} must be an integer")
     return value
+
 
 def _optional_int(payload: Mapping[str, object], field_name: str) -> int | None:
     value = payload.get(field_name)
@@ -55,6 +59,7 @@ def _optional_int(payload: Mapping[str, object], field_name: str) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field_name} must be an integer or null")
     return value
+
 
 def _optional_decimal(payload: Mapping[str, object], field_name: str) -> Decimal | None:
     value = payload.get(field_name)
@@ -67,17 +72,20 @@ def _optional_decimal(payload: Mapping[str, object], field_name: str) -> Decimal
     except Exception as exc:
         raise ValueError(f"{field_name} must contain a valid decimal") from exc
 
+
 def _required_bool(payload: Mapping[str, object], field_name: str) -> bool:
     value = payload.get(field_name)
     if not isinstance(value, bool):
         raise ValueError(f"{field_name} must be a boolean")
     return value
 
+
 def _optional_bool(payload: Mapping[str, object], field_name: str) -> bool | None:
     value = payload.get(field_name)
     if value is not None and not isinstance(value, bool):
         raise ValueError(f"{field_name} must be a boolean or null")
     return value
+
 
 def _pairs(payload: Mapping[str, object], field_name: str) -> tuple[tuple[str, str], ...]:
     value = payload.get(field_name)
@@ -95,6 +103,7 @@ def _pairs(payload: Mapping[str, object], field_name: str) -> tuple[tuple[str, s
         result.append((item[0], item[1]))
     return tuple(result)
 
+
 def _extra(value: object) -> dict[str, str]:
     if not isinstance(value, Mapping):
         raise ValueError("extra must be an object")
@@ -105,6 +114,7 @@ def _extra(value: object) -> dict[str, str]:
         extra[key] = item
     return extra
 
+
 def _simulation_model(payload: Mapping[str, object]) -> SimulationModelIdentity:
     return SimulationModelIdentity(
         model_id=_required_str(payload, "model_id"),
@@ -112,11 +122,17 @@ def _simulation_model(payload: Mapping[str, object]) -> SimulationModelIdentity:
         parameters=_pairs(payload, "parameters"),
     )
 
+
+
 def _simulation_models(payload: Mapping[str, object]) -> tuple[SimulationModelIdentity, ...]:
     value = payload.get("execution_models")
     if not isinstance(value, list):
         raise ValueError("execution_models must be an array")
-    return tuple(_simulation_model(_mapping(item, "execution model")) for item in value)
+    return tuple(
+        _simulation_model(_mapping(item, "execution model"))
+        for item in value
+    )
+
 
 def _optional_simulation_model(
     payload: Mapping[str, object], field_name: str
@@ -125,6 +141,7 @@ def _optional_simulation_model(
     if value is None:
         return None
     return _simulation_model(_mapping(value, field_name))
+
 
 def _policy_configuration(value: object) -> PolicyConfiguration | None:
     if value is None:
@@ -141,6 +158,7 @@ def _policy_configuration(value: object) -> PolicyConfiguration | None:
         manual_approval=_optional_bool(payload, "manual_approval"),
     )
 
+
 def _broker_constraints(value: object) -> tuple[BrokerConstraintConfiguration, ...]:
     if not isinstance(value, list):
         raise ValueError("broker_constraints must be an array")
@@ -155,11 +173,13 @@ def _broker_constraints(value: object) -> tuple[BrokerConstraintConfiguration, .
         for item in (_mapping(raw, "broker constraint") for raw in value)
     )
 
+
 def _required_decimal(payload: Mapping[str, object], field_name: str) -> Decimal:
     value = _optional_decimal(payload, field_name)
     if value is None:
         raise ValueError(f"{field_name} must be present")
     return value
+
 
 
 def _starting_capital(value: object) -> StartingCapitalConfiguration | None:
@@ -176,6 +196,7 @@ def _starting_capital(value: object) -> StartingCapitalConfiguration | None:
         margin_available=_required_decimal(payload, "margin_available"),
         buying_power=_required_decimal(payload, "buying_power"),
     )
+
 
 def _run_configuration(payload: Mapping[str, object]) -> ResearchRunConfiguration:
     strategy_payload = _mapping(payload.get("strategy"), "strategy")
@@ -207,6 +228,8 @@ def _run_configuration(payload: Mapping[str, object]) -> ResearchRunConfiguratio
         broker_constraints=_broker_constraints(payload.get("broker_constraints")),
         starting_capital=_starting_capital(payload.get("starting_capital")),
     )
+
+
 
 class ResearchRunRepository(Protocol):
     """Database-neutral persistence contract for research execution instances."""
