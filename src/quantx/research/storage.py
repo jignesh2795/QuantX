@@ -15,7 +15,6 @@ from .result import ResearchResult, ResearchRunSpec, ResultQuality
 from .run import ResearchRunRecord
 
 
-
 class ResearchRunRepository(Protocol):
     """Database-neutral persistence contract for research execution instances."""
 
@@ -29,7 +28,9 @@ class ResearchRunRepository(Protocol):
         self, run_id: str, result: ResearchResult, completed_at: str
     ) -> ResearchRunRecord: ...
     def attach_manifest(
-        self, run_id: str, manifest: ResearchArtifactManifest
+        self,
+        run_id: str,
+        manifest: ResearchArtifactManifest,
     ) -> ResearchRunRecord: ...
     def fail_run(self, run_id: str, reason: str) -> ResearchRunRecord: ...
 
