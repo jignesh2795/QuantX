@@ -98,9 +98,11 @@ def _pairs(payload: Mapping[str, object], field_name: str) -> tuple[tuple[str, s
 def _extra(value: object) -> dict[str, str]:
     if not isinstance(value, Mapping):
         raise ValueError("extra must be an object")
-    extra = dict(value)
-    if not all(isinstance(key, str) and isinstance(item, str) for key, item in extra.items()):
-        raise ValueError("extra must contain string keys and values")
+    extra: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not isinstance(item, str):
+            raise ValueError("extra must contain string keys and values")
+        extra[key] = item
     return extra
 
 def _simulation_model(payload: Mapping[str, object]) -> SimulationModelIdentity:
@@ -153,30 +155,26 @@ def _broker_constraints(value: object) -> tuple[BrokerConstraintConfiguration, .
         for item in (_mapping(raw, "broker constraint") for raw in value)
     )
 
+def _required_decimal(payload: Mapping[str, object], field_name: str) -> Decimal:
+    value = _optional_decimal(payload, field_name)
+    if value is None:
+        raise ValueError(f"{field_name} must be present")
+    return value
+
+
 def _starting_capital(value: object) -> StartingCapitalConfiguration | None:
     if value is None:
         return None
     payload = _mapping(value, "starting_capital")
-    field_names = (
-        "cash_balance",
-        "available_cash",
-        "blocked_cash",
-        "margin_used",
-        "margin_available",
-        "buying_power",
-    )
-    decimals = {field_name: _optional_decimal(payload, field_name) for field_name in field_names}
-    if any(item is None for item in decimals.values()):
-        raise ValueError("starting_capital decimal fields must be present")
     return StartingCapitalConfiguration(
         capital_source=_required_str(payload, "capital_source"),
         currency=_required_str(payload, "currency"),
-        cash_balance=decimals["cash_balance"],
-        available_cash=decimals["available_cash"],
-        blocked_cash=decimals["blocked_cash"],
-        margin_used=decimals["margin_used"],
-        margin_available=decimals["margin_available"],
-        buying_power=decimals["buying_power"],
+        cash_balance=_required_decimal(payload, "cash_balance"),
+        available_cash=_required_decimal(payload, "available_cash"),
+        blocked_cash=_required_decimal(payload, "blocked_cash"),
+        margin_used=_required_decimal(payload, "margin_used"),
+        margin_available=_required_decimal(payload, "margin_available"),
+        buying_power=_required_decimal(payload, "buying_power"),
     )
 
 def _run_configuration(payload: Mapping[str, object]) -> ResearchRunConfiguration:
