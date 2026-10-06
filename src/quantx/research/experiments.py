@@ -83,11 +83,7 @@ class ExperimentManager:
         # Provenance differences are expected when comparing parameter/model
         # variants. Strategy identity is retained as comparison context, while
         # dataset identity and result quality define this conservative boundary.
-        comparable = (
-            same_dataset
-            and not left.is_blocked
-            and not right.is_blocked
-        )
+        comparable = same_dataset and not left.is_blocked and not right.is_blocked
         if not comparable:
             if not same_dataset:
                 reasons.append("dataset or dataset version differs")
