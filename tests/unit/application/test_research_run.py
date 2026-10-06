@@ -42,6 +42,7 @@ def _result(spec: ResearchRunSpec) -> ResearchResult:
 def test_research_run_application_service_completes_durable_lifecycle() -> None:
     repository = InMemoryResearchRunRepository()
     clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
+    service = ResearchRunApplicationService(repository=repository, clock=clock)
     spec = _spec()
     result = _result(spec)
     calls: list[str] = []
@@ -59,8 +60,8 @@ def test_research_run_application_service_completes_durable_lifecycle() -> None:
     assert execution.run.provenance_fingerprint == result.fingerprint
 
     stored = repository.get_run(spec.run_id)
-    assert stored == execution.run
     assert stored is not None
+    assert stored == execution.run
 
 
 def test_research_run_application_service_persists_failed_lifecycle_and_reraises() -> None:
@@ -129,7 +130,6 @@ class _FaultInjectingRepository(InMemoryResearchRunRepository):
         return super().complete_run(run_id, result, completed_at)
 
 
-
 def test_research_run_application_service_does_not_execute_when_create_persistence_fails() -> None:
     repository = _FaultInjectingRepository(fail_create=True)
     clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
@@ -178,7 +178,6 @@ def test_research_run_application_service_surfaces_completion_persistence_failur
 def test_research_run_execution_rejects_mismatched_result_id() -> None:
     repository = InMemoryResearchRunRepository()
     clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
-    service = ResearchRunApplicationService(repository=repository, clock=clock)
     spec = _spec()
     result = _result(spec)
 
