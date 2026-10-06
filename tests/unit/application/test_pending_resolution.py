@@ -60,6 +60,7 @@ from quantx.persistence.sqlite import (
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
+from quantx.persistence.sqlite.schema import SCHEMA_VERSION
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
 
 CHECKED_AT = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -800,7 +801,7 @@ def test_reconcile_path_surfaces_ineligible_verdict(tmp_path) -> None:
         database.close()
 
 
-def test_sqlite_v3_to_v4_migration_preserves_reservations(tmp_path) -> None:
+def test_sqlite_v3_to_current_migration_preserves_reservations(tmp_path) -> None:
     """Migration is additive: pending/completed rows survive, none resolve."""
     path = tmp_path / "quantx.db"
     raw = sqlite3.connect(str(path))
@@ -857,7 +858,7 @@ def test_sqlite_v3_to_v4_migration_preserves_reservations(tmp_path) -> None:
     database = SqliteDatabase(path)
     try:
         version = database.connection().execute("SELECT version FROM schema_version")
-        assert version.fetchone()[0] == 4
+        assert version.fetchone()[0] == SCHEMA_VERSION
         tables = {
             row[0]
             for row in database.connection().execute(
