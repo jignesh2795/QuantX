@@ -8,7 +8,7 @@ import pytest
 from quantx.application.research_run import ResearchRunApplicationService
 from quantx.domain.clock import Clock, FixedClock
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
-from quantx.research.run import ResearchRunState
+from quantx.research.run import ResearchRunRecord, ResearchRunState
 from quantx.research.storage import InMemoryResearchRunRepository
 
 
@@ -103,7 +103,6 @@ class _FaultInjectingRepository(InMemoryResearchRunRepository):
         fail_create: bool = False,
         fail_start: bool = False,
         fail_complete: bool = False,
-        fail_failed: bool = False,
     ) -> None:
         super().__init__()
         self.fail_create = fail_create
@@ -111,24 +110,27 @@ class _FaultInjectingRepository(InMemoryResearchRunRepository):
         self.fail_complete = fail_complete
         self.fail_failed = fail_failed
 
-    def create_run(self, run):
+    def create_run(self, run: ResearchRunRecord) -> ResearchRunRecord:
         if self.fail_create:
             raise RuntimeError("create persistence failed")
         return super().create_run(run)
 
-    def start_run(self, run_id, started_at):
+    def start_run(self, run_id: str, started_at: str) -> ResearchRunRecord:
         if self.fail_start:
             raise RuntimeError("start persistence failed")
         return super().start_run(run_id, started_at)
 
-    def complete_run(self, run_id, result, completed_at):
+    def complete_run(
+        self,
+        run_id: str,
+        result: ResearchResult,
+        completed_at: str,
+    ) -> ResearchRunRecord:
         if self.fail_complete:
             raise RuntimeError("complete persistence failed")
         return super().complete_run(run_id, result, completed_at)
 
-    def fail_run(self, run_id, reason):
-        if self.fail_failed:
-            raise RuntimeError("failed-state persistence failed")
+    def fail_run(self, run_id: str, reason: str) -> ResearchRunRecord:
         return super().fail_run(run_id, reason)
 
 
