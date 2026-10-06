@@ -13,7 +13,6 @@ from quantx.research.result import ResearchResult
 from quantx.research.run import ResearchRunRecord, ResearchRunState
 from quantx.research.storage import (
     ResearchRunRepository,
-    ResearchStore,
     research_manifest_from_payload,
     research_provenance_from_payload,
     research_result_from_payload,
@@ -65,8 +64,7 @@ def _get_result(
     result_id: UUID,
 ) -> ResearchResult | None:
     row = connection.execute(
-        "SELECT run_id, provenance_fingerprint, payload "
-        "FROM research_results WHERE result_id = ?",
+        "SELECT run_id, provenance_fingerprint, payload FROM research_results WHERE result_id = ?",
         (str(result_id),),
     ).fetchone()
     if row is None:
@@ -90,8 +88,7 @@ def _insert_manifest(
     manifest_fingerprint = manifest.fingerprint()
     payload = _json(manifest.canonical_payload())
     row = connection.execute(
-        "SELECT run_fingerprint, payload FROM research_manifests "
-        "WHERE manifest_fingerprint = ?",
+        "SELECT run_fingerprint, payload FROM research_manifests WHERE manifest_fingerprint = ?",
         (manifest_fingerprint,),
     ).fetchone()
     if row is not None:
@@ -342,8 +339,7 @@ class SqliteResearchRunRepository(ResearchRunRepository):
             updated = current.with_manifest(manifest)
             _insert_manifest(connection, manifest, allow_existing=True)
             connection.execute(
-                "INSERT INTO research_run_manifests (run_id, manifest_fingerprint) "
-                "VALUES (?, ?)",
+                "INSERT INTO research_run_manifests (run_id, manifest_fingerprint) VALUES (?, ?)",
                 (run_id, manifest.fingerprint()),
             )
             return updated
