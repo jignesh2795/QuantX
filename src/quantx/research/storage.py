@@ -383,21 +383,7 @@ class LocalFilesystemResearchStore:
         if not path.exists():
             return None
         payload = json.loads(path.read_text(encoding="utf-8"))
-        return ResearchArtifactManifest(
-            run_fingerprint=payload["run_fingerprint"],
-            manifest_version=payload["manifest_version"],
-            artifacts=tuple(
-                ResearchArtifact(
-                    artifact_id=item["artifact_id"],
-                    artifact_type=item["artifact_type"],
-                    content_hash=item["content_hash"],
-                    uri=item["uri"],
-                    size_bytes=item.get("size_bytes"),
-                    metadata=item.get("metadata", {}),
-                )
-                for item in payload["artifacts"]
-            ),
-        )
+        return research_manifest_from_payload(payload)
 
     @staticmethod
     def _atomic_write(path: Path, payload: dict[str, object]) -> None:
@@ -464,28 +450,7 @@ class LocalFilesystemResearchStore:
             run_configuration=spec_configuration,
         )
         provenance_payload = _mapping(payload.get("provenance"), "provenance")
-        provenance_configuration = (
-            _run_configuration(
-                _mapping(provenance_payload["run_configuration"], "run_configuration")
-            )
-            if "run_configuration" in provenance_payload
-            else None
-        )
-        provenance = ResearchProvenance(
-            dataset_id=_required_str(provenance_payload, "dataset_id"),
-            dataset_version=_required_str(provenance_payload, "dataset_version"),
-            instrument_master_version=_required_str(
-                provenance_payload, "instrument_master_version"
-            ),
-            market_rule_version=_required_str(provenance_payload, "market_rule_version"),
-            execution_model_version=_required_str(provenance_payload, "execution_model_version"),
-            simulation_profile=_required_str(provenance_payload, "simulation_profile"),
-            code_revision=_required_str(provenance_payload, "code_revision"),
-            configuration_revision=_required_str(provenance_payload, "configuration_revision"),
-            random_seed=_optional_int(provenance_payload, "random_seed"),
-            extra=_extra(provenance_payload.get("extra")),
-            run_configuration=provenance_configuration,
-        )
+        provenance = research_provenance_from_payload(provenance_payload)
         return ResearchResult(
             spec=spec,
             quality=ResultQuality(payload["quality"]),
@@ -499,3 +464,73 @@ class LocalFilesystemResearchStore:
             result_id=UUID(payload["result_id"]),
             provenance=provenance,
         )
+
+
+def research_result_to_payload(result: ResearchResult) -> dict[str, object]:
+    """Return the canonical payload used by research result persistence."""
+    return LocalFilesystemResearchStore._result_payload(result)
+
+
+def research_result_from_payload(payload: dict[str, object]) -> ResearchResult:
+    """Reconstruct a result through the canonical typed persistence decoder."""
+    return LocalFilesystemResearchStore._result_from_payload(payload)
+
+
+def research_provenance_from_payload(
+    payload: Mapping[str, object],
+) -> ResearchProvenance:
+    """Reconstruct provenance through the canonical typed persistence decoder."""
+    configuration = (
+        _run_configuration(_mapping(payload["run_configuration"], "run_configuration"))
+        if "run_configuration" in payload
+        else None
+    )
+    return ResearchProvenance(
+        dataset_id=_required_str(payload, "dataset_id"),
+        dataset_version=_required_str(payload, "dataset_version"),
+        instrument_master_version=_required_str(payload, "instrument_master_version"),
+        market_rule_version=_required_str(payload, "market_rule_version"),
+        execution_model_version=_required_str(payload, "execution_model_version"),
+        simulation_profile=_required_str(payload, "simulation_profile"),
+        code_revision=_required_str(payload, "code_revision"),
+        configuration_revision=_required_str(payload, "configuration_revision"),
+        random_seed=_optional_int(payload, "random_seed"),
+        extra=_extra(payload.get("extra")),
+        run_configuration=configuration,
+    )
+
+
+def research_manifest_from_payload(
+    payload: Mapping[str, object],
+) -> ResearchArtifactManifest:
+    """Reconstruct an artifact manifest through typed validation."""
+    manifest_payload = _mapping(payload, "manifest")
+    artifacts_payload = manifest_payload.get("artifacts")
+    if not isinstance(artifacts_payload, list):
+        raise ValueError("artifacts must be an array")
+    artifacts: list[ResearchArtifact] = []
+    for raw_artifact in artifacts_payload:
+        artifact_payload = _mapping(raw_artifact, "artifact")
+        metadata_value = artifact_payload.get("metadata")
+        metadata: dict[str, str] = {}
+        if metadata_value is not None:
+            metadata_payload = _mapping(metadata_value, "metadata")
+            for key, value in metadata_payload.items():
+                if not isinstance(key, str) or not isinstance(value, str):
+                    raise ValueError("metadata must contain string keys and values")
+                metadata[key] = value
+        artifacts.append(
+            ResearchArtifact(
+                artifact_id=_required_str(artifact_payload, "artifact_id"),
+                artifact_type=_required_str(artifact_payload, "artifact_type"),
+                content_hash=_required_str(artifact_payload, "content_hash"),
+                uri=_required_str(artifact_payload, "uri"),
+                size_bytes=_optional_int(artifact_payload, "size_bytes"),
+                metadata=metadata,
+            )
+        )
+    return ResearchArtifactManifest(
+        run_fingerprint=_required_str(manifest_payload, "run_fingerprint"),
+        manifest_version=_required_str(manifest_payload, "manifest_version"),
+        artifacts=tuple(artifacts),
+    )

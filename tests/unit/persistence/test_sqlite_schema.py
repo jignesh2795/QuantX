@@ -24,6 +24,10 @@ def test_schema_created_on_first_use(tmp_path) -> None:
         "idempotency_reservations",
         "receipts",
         "trading_gate_state",
+        "research_runs",
+        "research_results",
+        "research_manifests",
+        "research_run_manifests",
     } <= tables
 
 
@@ -116,9 +120,11 @@ def test_v1_schema_is_migrated_to_current_version(tmp_path) -> None:
     try:
         columns = {
             row[1]
-            for row in database.connection().execute(
-                "PRAGMA table_info(idempotency_reservations)"
-            ).fetchall()
+            for row in (
+                database.connection()
+                .execute("PRAGMA table_info(idempotency_reservations)")
+                .fetchall()
+            )
         }
         tables = {
             row[0]
@@ -126,9 +132,7 @@ def test_v1_schema_is_migrated_to_current_version(tmp_path) -> None:
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
-        version = database.connection().execute(
-            "SELECT version FROM schema_version"
-        ).fetchone()[0]
+        version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
     finally:
         database.close()
 
@@ -188,9 +192,13 @@ def test_v2_schema_is_migrated_to_current_version(tmp_path) -> None:
             )
         }
         version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
-        preserved = database.connection().execute(
-            "SELECT fingerprint FROM idempotency_reservations WHERE client_order_id = 'order-1'"
-        ).fetchone()
+        preserved = (
+            database.connection()
+            .execute(
+                "SELECT fingerprint FROM idempotency_reservations WHERE client_order_id = 'order-1'"
+            )
+            .fetchone()
+        )
     finally:
         database.close()
 
@@ -199,3 +207,112 @@ def test_v2_schema_is_migrated_to_current_version(tmp_path) -> None:
     assert "market_quotes" in tables
     assert preserved is not None
     assert preserved[0] == "fp"
+
+
+def test_v4_schema_is_migrated_to_current_version(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    raw = sqlite3.connect(str(path))
+    try:
+        raw.executescript(
+            """
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            );
+            INSERT INTO schema_version (version, applied_at)
+            VALUES (4, '2026-01-01T00:00:00+00:00');
+            CREATE TABLE idempotency_reservations (
+                client_order_id TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                receipt_id TEXT NULL,
+                created_at TEXT NOT NULL,
+                completed_at TEXT NULL,
+                pending_context_json TEXT NULL
+            );
+            CREATE TABLE receipts (
+                receipt_id TEXT PRIMARY KEY,
+                client_order_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE operator_resolutions (
+                client_order_id TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                operator_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                resolved_at TEXT NOT NULL,
+                action TEXT NOT NULL,
+                evidence_reference TEXT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE trading_gate_state (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                reason TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE market_candles (
+                instrument_venue TEXT NOT NULL,
+                instrument_symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                open TEXT NOT NULL,
+                high TEXT NOT NULL,
+                low TEXT NOT NULL,
+                close TEXT NOT NULL,
+                volume TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                dataset_version TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (
+                    instrument_venue,
+                    instrument_symbol,
+                    timeframe,
+                    timestamp,
+                    source_id,
+                    dataset_version
+                )
+            );
+            CREATE TABLE market_quotes (
+                instrument_venue TEXT NOT NULL,
+                instrument_symbol TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                bid TEXT NULL,
+                ask TEXT NULL,
+                last TEXT NULL,
+                bid_size TEXT NULL,
+                ask_size TEXT NULL,
+                source_id TEXT NOT NULL,
+                dataset_version TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (
+                    instrument_venue,
+                    instrument_symbol,
+                    timestamp,
+                    source_id,
+                    dataset_version
+                )
+            );
+            """
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    database = SqliteDatabase(path)
+    try:
+        version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
+        tables = {
+            row[0]
+            for row in database.connection().execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    finally:
+        database.close()
+
+    assert version == SCHEMA_VERSION
+    assert {
+        "research_runs",
+        "research_results",
+        "research_manifests",
+        "research_run_manifests",
+    } <= tables
