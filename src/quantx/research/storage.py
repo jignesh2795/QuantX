@@ -474,7 +474,9 @@ class LocalFilesystemResearchStore:
         provenance = ResearchProvenance(
             dataset_id=_required_str(provenance_payload, "dataset_id"),
             dataset_version=_required_str(provenance_payload, "dataset_version"),
-            instrument_master_version=_required_str(provenance_payload, "instrument_master_version"),
+            instrument_master_version=_required_str(
+                provenance_payload, "instrument_master_version"
+            ),
             market_rule_version=_required_str(provenance_payload, "market_rule_version"),
             execution_model_version=_required_str(provenance_payload, "execution_model_version"),
             simulation_profile=_required_str(provenance_payload, "simulation_profile"),
