@@ -12,6 +12,93 @@ from uuid import UUID
 from .artifacts import ResearchArtifact, ResearchArtifactManifest
 from .provenance import ResearchProvenance
 from .result import ResearchResult, ResearchRunSpec, ResultQuality
+from .run import ResearchRunRecord
+
+
+
+class ResearchRunRepository(Protocol):
+    """Database-neutral persistence contract for research execution instances."""
+
+    def create_run(self, run: ResearchRunRecord) -> ResearchRunRecord: ...
+    def get_run(self, run_id: str) -> ResearchRunRecord | None: ...
+    def find_by_provenance_fingerprint(
+        self, provenance_fingerprint: str
+    ) -> tuple[ResearchRunRecord, ...]: ...
+    def start_run(self, run_id: str, started_at: str) -> ResearchRunRecord: ...
+    def complete_run(
+        self, run_id: str, result: ResearchResult, completed_at: str
+    ) -> ResearchRunRecord: ...
+    def attach_manifest(
+        self, run_id: str, manifest: ResearchArtifactManifest
+    ) -> ResearchRunRecord: ...
+    def fail_run(self, run_id: str, reason: str) -> ResearchRunRecord: ...
+
+
+@dataclass(slots=True)
+class InMemoryResearchRunRepository:
+    """Deterministic test/dev implementation of the research run boundary."""
+
+    _runs: dict[str, ResearchRunRecord]
+
+    def __init__(self) -> None:
+        self._runs = {}
+
+    def create_run(self, run: ResearchRunRecord) -> ResearchRunRecord:
+        if run.run_id in self._runs:
+            raise ValueError("research run already exists")
+        self._runs[run.run_id] = run
+        return run
+
+    def get_run(self, run_id: str) -> ResearchRunRecord | None:
+        return self._runs.get(run_id)
+
+    def find_by_provenance_fingerprint(
+        self, provenance_fingerprint: str
+    ) -> tuple[ResearchRunRecord, ...]:
+        if not provenance_fingerprint.strip():
+            raise ValueError("provenance fingerprint must not be empty")
+        matches = [
+            run
+            for run in self._runs.values()
+            if run.provenance_fingerprint == provenance_fingerprint
+        ]
+        return tuple(sorted(matches, key=lambda item: (item.created_at, item.run_id)))
+
+    def start_run(self, run_id: str, started_at: str) -> ResearchRunRecord:
+        current = self._require_run(run_id)
+        updated = current.started(started_at)
+        self._runs[run_id] = updated
+        return updated
+
+    def complete_run(
+        self, run_id: str, result: ResearchResult, completed_at: str
+    ) -> ResearchRunRecord:
+        current = self._require_run(run_id)
+        updated = current.completed(result, completed_at)
+        self._runs[run_id] = updated
+        return updated
+
+    def attach_manifest(
+        self, run_id: str, manifest: ResearchArtifactManifest
+    ) -> ResearchRunRecord:
+        current = self._require_run(run_id)
+        updated = current.with_manifest(manifest)
+        self._runs[run_id] = updated
+        return updated
+
+    def fail_run(self, run_id: str, reason: str) -> ResearchRunRecord:
+        current = self._require_run(run_id)
+        updated = current.failed(reason)
+        self._runs[run_id] = updated
+        return updated
+
+    def _require_run(self, run_id: str) -> ResearchRunRecord:
+        if not run_id.strip():
+            raise ValueError("run_id must not be empty")
+        try:
+            return self._runs[run_id]
+        except KeyError as exc:
+            raise KeyError(f"research run not found: {run_id}") from exc
 
 
 class ResearchStore(Protocol):
