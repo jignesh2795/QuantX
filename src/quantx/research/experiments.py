@@ -80,8 +80,6 @@ class ExperimentManager:
             and left_strategy == right_strategy
         )
         same_provenance = left.fingerprint == right.fingerprint
-        if not same_dataset:
-            reasons.append("dataset or dataset version differs")
         comparable = (
             same_dataset
             and not left.is_blocked
