@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from quantx.application.research_run import ResearchRunApplicationService
-from quantx.domain.clock import FixedClock
+from quantx.domain.clock import Clock, FixedClock
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
 from quantx.research.run import ResearchRunState
 from quantx.research.storage import InMemoryResearchRunRepository
@@ -80,9 +80,12 @@ def test_research_run_application_service_persists_failed_lifecycle_and_reraises
 
 
 def test_research_run_application_service_rejects_naive_clock() -> None:
+    class NaiveClock(Clock):
+        def now(self) -> datetime:
+            return datetime(2026, 10, 6, 10, 0)
+
     repository = InMemoryResearchRunRepository()
-    clock = FixedClock(datetime(2026, 10, 6, 10, 0))
-    service = ResearchRunApplicationService(repository=repository, clock=clock)
+    service = ResearchRunApplicationService(repository=repository, clock=NaiveClock())
 
     with pytest.raises(ValueError, match="timezone-aware"):
         service.execute(_spec(), lambda: _result(_spec()))
