@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -33,12 +34,20 @@ from quantx.domain.strategy import (
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
-from quantx.research.provenance import ResearchProvenance
+from quantx.research.provenance import (
+    ExecutionConfiguration,
+    PolicyConfiguration,
+    ResearchProvenance,
+    ResearchRunConfiguration,
+    SimulationModelIdentity,
+    StartingCapitalConfiguration,
+    StrategyConfiguration,
+)
 from quantx.research.replay import HistoricalReplay, MultiSeries
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.evaluation import StrategyEvaluationService
-from quantx.execution.paper_engine import PaperExecutionEngine
+from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.paper_session import PaperSession
 
 
@@ -1244,3 +1253,158 @@ def test_backtest_provenance_object_reused_across_runs() -> None:
     assert first.provenance is supplied
     assert second.provenance is supplied
     assert first.provenance.fingerprint() == second.provenance.fingerprint()
+
+
+def _effective_default_configuration() -> ResearchRunConfiguration:
+    """Canonical effective configuration of the default paper backtest path."""
+    return ResearchRunConfiguration(
+        strategy=StrategyConfiguration(),
+        execution=ExecutionConfiguration(
+            simulation_profile_name="REALISTIC",
+            latency_ms=0,
+            slippage_bps=Decimal("0"),
+            partial_fill_ratio=Decimal("1"),
+            fee_bps=Decimal("0"),
+            execution_models=(
+                SimulationModelIdentity(model_id="QUOTE", model_version="paper-core-v0.3"),
+                SimulationModelIdentity(model_id="BASIC_BAR", model_version="basic-bar-v4"),
+            ),
+        ),
+        allow_incomplete=False,
+        account_state_sampling_policy="EXACT_CURRENT",
+        policy=PolicyConfiguration(
+            granted_capabilities=(),
+            live_trading_enabled=False,
+            manual_approval=False,
+        ),
+        starting_capital=StartingCapitalConfiguration(
+            capital_source="backtest_configured",
+            currency="INR",
+            cash_balance=Decimal("1000"),
+            available_cash=Decimal("1000"),
+            blocked_cash=Decimal("0"),
+            margin_used=Decimal("0"),
+            margin_available=Decimal("1000"),
+            buying_power=Decimal("1000"),
+        ),
+    )
+
+
+def _provenance_with(configuration: ResearchRunConfiguration) -> ResearchProvenance:
+    return ResearchProvenance(
+        dataset_id="nse-eq",
+        dataset_version="1",
+        instrument_master_version="instr-v3",
+        market_rule_version="rules-v2",
+        execution_model_version="paper-core-v0.3",
+        simulation_profile="REALISTIC",
+        code_revision="abc123",
+        configuration_revision="cfg9",
+        run_configuration=configuration,
+    )
+
+
+def test_backtest_accepts_declared_effective_run_configuration() -> None:
+    instrument = _instrument()
+    supplied = _provenance_with(_effective_default_configuration())
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
+    ).run(
+        series=_series(),
+        strategy=_hold_all("run-config"),
+        financial_state=_financial_state(),
+        provenance=supplied,
+    )
+
+    assert result.provenance is supplied
+    assert result.provenance.run_configuration is not None
+
+
+def test_backtest_rejects_declared_run_configuration_mismatch() -> None:
+    instrument = _instrument()
+    wrong = replace(_effective_default_configuration(), allow_incomplete=True)
+    calls: list[int] = []
+
+    def strategy(frame):
+        calls.append(frame.index)
+        return StrategyResult(
+            StrategySignal(
+                StrategyId("run-config-mismatch"),
+                "1",
+                frame.observation.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+        )
+
+    with pytest.raises(ValueError, match="run configuration"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=strategy,
+            financial_state=_financial_state(),
+            provenance=_provenance_with(wrong),
+        )
+    assert calls == []
+
+
+def test_backtest_rejects_strategy_identity_without_authoritative_ir() -> None:
+    instrument = _instrument()
+    # A bare callable exposes no strategy configuration, so a declared strategy
+    # identity cannot describe the run and must fail closed.
+    declared = replace(
+        _effective_default_configuration(),
+        strategy=StrategyConfiguration(strategy_id="sma", strategy_version="1"),
+    )
+
+    with pytest.raises(ValueError, match="run configuration"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=_hold_all("callable-strategy"),
+            financial_state=_financial_state(),
+            provenance=_provenance_with(declared),
+        )
+
+
+def test_backtest_run_configuration_tracks_slippage_profile() -> None:
+    instrument = _instrument()
+    profile = PaperSimulationProfile(slippage_bps=Decimal("5"))
+    declared = replace(
+        _effective_default_configuration(),
+        execution=replace(
+            _effective_default_configuration().execution,
+            slippage_bps=Decimal("5"),
+            slippage_model=SimulationModelIdentity(
+                model_id="paper.fixed_bps_slippage",
+                model_version="1",
+                parameters=(("basis_points", "5"),),
+            ),
+        ),
+    )
+    supplied = _provenance_with(declared)
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
+    ).run(
+        series=_series(),
+        strategy=_hold_all("slippage"),
+        financial_state=_financial_state(),
+        execution_profile=profile,
+        provenance=supplied,
+    )
+    assert result.provenance is supplied
+
+    # The same provenance must be rejected when the effective slippage differs.
+    with pytest.raises(ValueError, match="run configuration"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=_hold_all("slippage"),
+            financial_state=_financial_state(),
+            execution_profile=profile,
+            provenance=_provenance_with(_effective_default_configuration()),
+        )

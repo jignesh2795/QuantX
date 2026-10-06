@@ -72,15 +72,18 @@ class ExperimentManager:
             left.provenance.dataset_id == right.provenance.dataset_id
             and left.provenance.dataset_version == right.provenance.dataset_version
         )
+        left_strategy = left.spec.strategy_identity()
+        right_strategy = right.spec.strategy_identity()
         same_strategy = (
-            left.spec.run_id.split(":", 1)[0]
-            == right.spec.run_id.split(":", 1)[0]
+            left_strategy is not None
+            and right_strategy is not None
+            and left_strategy == right_strategy
         )
         same_provenance = left.fingerprint == right.fingerprint
         if not same_dataset:
             reasons.append("dataset or dataset version differs")
         if not same_strategy:
-            reasons.append("strategy/run family differs")
+            reasons.append("canonical strategy identity differs or is unavailable")
         if not same_provenance:
             reasons.append("research provenance fingerprint differs")
         comparable = not left.is_blocked and not right.is_blocked
