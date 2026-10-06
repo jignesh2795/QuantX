@@ -176,7 +176,6 @@ def test_research_run_application_service_surfaces_completion_persistence_failur
 
 
 def test_research_run_execution_rejects_mismatched_result_id() -> None:
-    repository = InMemoryResearchRunRepository()
     clock = FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC))
     spec = _spec()
     result = _result(spec)
