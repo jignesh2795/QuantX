@@ -115,7 +115,7 @@ class SlowTransport(InMemoryDhanTransport):
         self._submit_can_proceed.wait(timeout=self._delay_seconds + 5.0)
         return super().submit(request, timeout=timeout)
 
-    def health(self) -> bool:
+    def health(self, *, timeout: float = 10.0) -> bool:
         if not self._block_health:
             return True
         self._health_entered.set()

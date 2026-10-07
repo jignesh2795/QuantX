@@ -352,3 +352,26 @@ def test_host_exposes_no_submission_surface(tmp_path) -> None:
         assert transport.cancelled == ()
     finally:
         host.close()
+
+
+def test_host_threads_read_timeout_into_adapter(tmp_path) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path, read_timeout_seconds=7.5))
+    try:
+        assert host.adapter._read_timeout == 7.5
+    finally:
+        host.close()
+
+
+def test_host_read_timeout_defaults_to_bounded_constant(tmp_path) -> None:
+    from quantx.plugins.dhan.transport import DEFAULT_READ_TIMEOUT_SECONDS
+
+    host = build_dhan_host_runtime(_config(tmp_path))
+    try:
+        assert host.adapter._read_timeout == DEFAULT_READ_TIMEOUT_SECONDS
+    finally:
+        host.close()
+
+
+def test_host_rejects_non_positive_read_timeout(tmp_path) -> None:
+    with pytest.raises(ValueError, match="read_timeout_seconds"):
+        _config(tmp_path, read_timeout_seconds=0)

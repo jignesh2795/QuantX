@@ -282,3 +282,61 @@ def test_transport_to_port_integration() -> None:
     assert quote is not None
     assert quote.last == Decimal("100")
     assert [candle.timestamp for candle in candles] == [T1]
+
+
+def test_market_data_adapter_threads_read_timeout_to_transport() -> None:
+    from dataclasses import dataclass, field
+
+    @dataclass(slots=True)
+    class _RecordingTransport:
+        seen_timeouts: list[float] = field(default_factory=list)
+        _inner: InMemoryDhanTransport = field(default_factory=InMemoryDhanTransport)
+
+        def quote_snapshot(
+            self,
+            security_id: str,
+            exchange_segment: str,
+            *,
+            timeout: float = 10.0,
+        ) -> DhanQuoteSnapshot | None:
+            self.seen_timeouts.append(timeout)
+            return self._inner.quote_snapshot(security_id, exchange_segment, timeout=timeout)
+
+        def candles(
+            self,
+            security_id: str,
+            exchange_segment: str,
+            *,
+            timeframe: str,
+            start: datetime,
+            end: datetime,
+            instrument_type: str = "EQUITY",
+            timeout: float = 10.0,
+        ) -> tuple[DhanCandleSnapshot, ...]:
+            self.seen_timeouts.append(timeout)
+            return self._inner.candles(
+                security_id,
+                exchange_segment,
+                timeframe=timeframe,
+                start=start,
+                end=end,
+                instrument_type=instrument_type,
+                timeout=timeout,
+            )
+
+    transport = _RecordingTransport()
+    transport._inner = InMemoryDhanTransport(
+        quote_snapshots={("1333", "NSE_EQ"): _quote_snapshot()},
+        candle_snapshots={("1333", "NSE_EQ"): (_candle_snapshot(T1),)},
+    )
+    instrument = InstrumentId("NSE", "TCS")
+    adapter = DhanMarketDataAdapter(
+        _instruments={instrument: (_instrument(), _ref())},
+        _transport=transport,
+        _read_timeout=3.5,
+    )
+
+    assert adapter.quote(instrument) is not None
+    assert adapter.candles(instrument, timeframe="1m", start=T0, end=T2) != ()
+
+    assert transport.seen_timeouts == [3.5, 3.5]

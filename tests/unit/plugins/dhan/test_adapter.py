@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -56,6 +56,7 @@ from quantx.plugins.dhan import (
     InMemoryDhanTransport,
 )
 from quantx.plugins.dhan.mapping import dhan_correlation_id
+from quantx.plugins.dhan.models import DhanFundsSnapshot, DhanPositionsSnapshot
 
 
 def _instrument() -> Instrument:
@@ -454,3 +455,52 @@ def test_position_states_with_unavailable_observation_fails_closed() -> None:
 
     with pytest.raises(ValueError, match="unavailable"):
         _adapter(transport).position_states()
+
+
+@dataclass(slots=True)
+class _TimeoutRecordingTransport:
+    """Record read timeouts while delegating to an in-memory transport."""
+
+    seen_timeouts: list[float] = field(default_factory=list)
+    _inner: InMemoryDhanTransport = field(default_factory=InMemoryDhanTransport)
+
+    def health(self, *, timeout: float = 10.0) -> bool:
+        self.seen_timeouts.append(timeout)
+        return self._inner.health(timeout=timeout)
+
+    def fund_limits(self, *, timeout: float = 10.0) -> DhanFundsSnapshot:
+        self.seen_timeouts.append(timeout)
+        return self._inner.fund_limits(timeout=timeout)
+
+    def positions(self, *, timeout: float = 10.0) -> DhanPositionsSnapshot:
+        self.seen_timeouts.append(timeout)
+        return self._inner.positions(timeout=timeout)
+
+
+def test_adapter_threads_configured_read_timeout_to_observations() -> None:
+    transport = _TimeoutRecordingTransport()
+    adapter = replace(_adapter(transport), _read_timeout=2.5)
+
+    assert adapter.health() is True
+    adapter.account_state()
+    adapter.position_states()
+
+    assert transport.seen_timeouts == [2.5, 2.5, 2.5]
+
+
+def test_adapter_read_timeout_defaults_to_bounded_constant() -> None:
+    from quantx.plugins.dhan.transport import DEFAULT_READ_TIMEOUT_SECONDS
+
+    transport = _TimeoutRecordingTransport()
+    adapter = _adapter(transport)
+
+    assert adapter.health() is True
+
+    assert transport.seen_timeouts == [DEFAULT_READ_TIMEOUT_SECONDS]
+
+
+def test_adapter_rejects_non_positive_read_timeout() -> None:
+    bad_values: tuple[object, ...] = (0, -1.0, True, "5")
+    for bad in bad_values:
+        with pytest.raises(ValueError, match="_read_timeout"):
+            replace(_adapter(), _read_timeout=bad)
