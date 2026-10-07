@@ -17,7 +17,6 @@ from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQualit
 from quantx.research.run import ResearchRunRecord
 from quantx.research.storage import InMemoryResearchRunRepository, InMemoryResearchStore
 
-
 _EXPERIMENT_ID = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 
 
@@ -169,7 +168,11 @@ def test_detail_read_preserves_non_completed_runs_without_results() -> None:
     run_repository.create_run(run)
     run_repository.start_run(run.run_id, "2026-01-01T00:01:00+00:00")
 
-    service = _service(_ExperimentRepository(_experiment(), ("running",)), run_repository, result_store)
+    service = _service(
+        _ExperimentRepository(_experiment(), ("running",)),
+        run_repository,
+        result_store,
+    )
 
     snapshot = service.get(_EXPERIMENT_ID)
 
@@ -190,7 +193,11 @@ def test_detail_read_fails_closed_for_completed_run_without_result() -> None:
     result = _result("completed", UUID("33333333-3333-3333-3333-333333333333"))
     run_repository.complete_run(run.run_id, result, result.completed_at)
 
-    service = _service(_ExperimentRepository(_experiment(), ("completed",)), run_repository, result_store)
+    service = _service(
+        _ExperimentRepository(_experiment(), ("completed",)),
+        run_repository,
+        result_store,
+    )
 
     with pytest.raises(ValueError, match="requires a persisted result"):
         service.get(_EXPERIMENT_ID)
@@ -207,4 +214,3 @@ def test_detail_read_requires_existing_membership_run() -> None:
 
     with pytest.raises(ValueError, match="references missing research run"):
         service.get(_EXPERIMENT_ID)
-
