@@ -44,6 +44,7 @@ from .uncertain_submission import UncertainSubmissionReceiptRecovery
 __all__ = [
     "BacktestDisposition",
     "BacktestResult",
+    "BacktestStep",
     "ApplicationRuntime",
     "ApplicationStartupResult",
     "DefinitiveEvidencePolicy",
