@@ -18,7 +18,7 @@ def _canonical_decimal(value: Decimal) -> str:
     return format(value.normalize(), "f")
 
 
-def _json_value(value):
+def _json_value(value: object) -> object:
     if isinstance(value, Decimal):
         return _canonical_decimal(value)
     if hasattr(value, "value") and isinstance(value.value, str):
