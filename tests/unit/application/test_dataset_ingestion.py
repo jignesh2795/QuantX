@@ -7,6 +7,8 @@ import pytest
 
 from quantx.application.dataset_ingestion import HistoricalDatasetIngestionService
 from quantx.domain.market_data import Candle
+from quantx.domain.enums import AssetClass
+from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.value_objects import InstrumentId
 from quantx.research.data_quality import CompletenessStatus, DataQualityStatus
 from quantx.research.dataset import DatasetIdentity, DatasetVersion, fingerprint_bytes
@@ -334,3 +336,50 @@ def test_store_failure_propagates():
         )
 
     assert len(market_data.calls) == 1
+
+
+def test_sqlite_store_preserves_dataset_binding_end_to_end(tmp_path):
+    from quantx.persistence.sqlite import SqliteDatabase
+    from quantx.persistence.sqlite.market_data import SqliteMarketDataStore
+
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        store = SqliteMarketDataStore(database)
+        catalog = InMemoryDatasetCatalog()
+        catalog.register(
+            DatasetVersion(
+                identity=DatasetIdentity(
+                    dataset_id="nse-equities",
+                    version="2026-01",
+                    source_id="dhan",
+                    schema_version="1",
+                    content_fingerprint=fingerprint_bytes(b"declared"),
+                )
+            )
+        )
+        market_data = FakeMarketData((candle(T0), candle(T1)))
+        result = HistoricalDatasetIngestionService(
+            catalog=catalog, market_data=market_data, store=store
+        ).ingest(
+            dataset_id="nse-equities",
+            version="2026-01",
+            instrument=INSTRUMENT,
+            timeframe="1m",
+            start=T0,
+            end=T1,
+            expected_timestamps=(T0, T1),
+        )
+        retrieved = store.get_candles(
+            INSTRUMENT,
+            timeframe="1m",
+            start=T0,
+            end=T1,
+            source_id="dhan",
+            dataset_version="2026-01",
+        )
+    finally:
+        database.close()
+
+    assert result.dataset_version.identity.dataset_id == "nse-equities"
+    assert result.inserted_count == 2
+    assert retrieved == (candle(T0), candle(T1))
