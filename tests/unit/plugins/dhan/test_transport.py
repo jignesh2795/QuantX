@@ -1,8 +1,18 @@
+import threading
+import time
+import types
 from decimal import Decimal
 
+import pytest
+
 from quantx.plugins.dhan.mapping import dhan_correlation_id
-from quantx.plugins.dhan.models import DhanOrderRequest
-from quantx.plugins.dhan.transport import DhanTransport, InMemoryDhanTransport
+from quantx.plugins.dhan.models import DhanCredentials, DhanOrderRequest
+from quantx.plugins.dhan.transport import (
+    DhanSDKTransport,
+    DhanTimeoutError,
+    DhanTransport,
+    InMemoryDhanTransport,
+)
 
 
 def _request() -> DhanOrderRequest:
@@ -228,3 +238,177 @@ def test_in_memory_transport_returns_configured_fund_and_position_observations()
     assert positions.available is True
     assert len(positions.positions) == 1
     assert positions.positions[0].security_id == "1333"
+
+
+class _HungFakeDhanClient:
+    """Fake SDK client whose order submission blocks until released."""
+
+    def __init__(self, started: threading.Event, release: threading.Event) -> None:
+        self._started = started
+        self._release = release
+        self.place_order_calls = 0
+
+    def place_order(self, **kwargs: object) -> object:
+        self.place_order_calls += 1
+        self._started.set()
+        assert self._release.wait(timeout=30)
+        return {
+            "status": "success",
+            "remarks": "",
+            "data": {"orderId": "late-order", "orderStatus": "PENDING"},
+        }
+
+    def get_order_by_correlationID(self, correlation_id: str) -> object:  # noqa: N802
+        return {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "orderId": "late-order",
+                "correlationId": correlation_id,
+                "orderStatus": "PENDING",
+                "averageTradedPrice": 0,
+                "filledQty": 0,
+                "exchangeTime": "2026-01-01 10:00:00",
+                "updateTime": "2026-01-01 10:00:00",
+            },
+        }
+
+    def get_fund_limits(self) -> object:
+        return {"status": "success", "remarks": "", "data": {}}
+
+    def get_positions(self) -> object:
+        return {"status": "success", "remarks": "", "data": []}
+
+    def cancel_order(self, order_id: str) -> object:
+        return {
+            "status": "success",
+            "remarks": "",
+            "data": {"orderId": order_id, "orderStatus": "CANCELLED"},
+        }
+
+
+class _HungFundsFakeDhanClient(_HungFakeDhanClient):
+    """Fake SDK client whose fund-limits read blocks until released."""
+
+    def get_fund_limits(self) -> object:
+        assert self._release.wait(timeout=30)
+        return {"status": "success", "remarks": "", "data": {}}
+
+
+def _sdk_transport_without_sdk(monkeypatch: pytest.MonkeyPatch, client: object) -> DhanSDKTransport:
+    """Build the real SDK transport with a fake client and no dhanhq installed."""
+    import sys
+
+    def _context(client_id: str, access_token: str) -> object:
+        return object()
+
+    def _client(context: object) -> object:
+        return client
+
+    fake_module = types.ModuleType("dhanhq")
+    fake_module.DhanContext = _context  # type: ignore[attr-defined]
+    fake_module.dhanhq = _client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dhanhq", fake_module)
+    return DhanSDKTransport(
+        credentials=DhanCredentials(client_id="test-id", access_token="test-token")
+    )
+
+
+def _run_submit_in_background(
+    transport: DhanSDKTransport,
+    *,
+    timeout: float = 0.2,
+) -> tuple[threading.Thread, list[BaseException]]:
+    """Run one submit on a helper thread and capture its terminal exception."""
+    errors: list[BaseException] = []
+
+    def _submit() -> None:
+        try:
+            transport.submit(_request(), timeout=timeout)
+        except BaseException as exc:  # noqa: BLE001 - recorded for assertion
+            errors.append(exc)
+
+    worker = threading.Thread(target=_submit, daemon=True)
+    worker.start()
+    return worker, errors
+
+
+def test_reconcile_proceeds_while_submit_hung(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hung submission must not block the recovery reconcile behind it."""
+    started = threading.Event()
+    release = threading.Event()
+    transport = _sdk_transport_without_sdk(monkeypatch, _HungFakeDhanClient(started, release))
+    worker, errors = _run_submit_in_background(transport)
+    try:
+        assert started.wait(timeout=10)
+        detail = transport.reconcile("cid-1", timeout=5.0)
+        assert detail.order_id == "late-order"
+        assert detail.order_status == "PENDING"
+    finally:
+        release.set()
+        worker.join(timeout=10)
+        transport.close()
+
+    # The hung submission resolves cleanly once released; nothing was lost.
+    assert errors == []
+    assert not worker.is_alive()
+
+
+def test_second_submit_stays_queued_behind_hung_submit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Submissions stay serialized: a second submit never overtakes a hung one."""
+    started = threading.Event()
+    release = threading.Event()
+    client = _HungFakeDhanClient(started, release)
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    # A long worker timeout keeps this deterministic: only the main-thread
+    # second submit may expire while queued behind the hung first submit.
+    worker, errors = _run_submit_in_background(transport, timeout=30.0)
+    try:
+        assert started.wait(timeout=10)
+        with pytest.raises(DhanTimeoutError, match="submit"):
+            transport.submit(_request(), timeout=0.2)
+        assert client.place_order_calls == 1
+    finally:
+        release.set()
+        worker.join(timeout=10)
+        transport.close()
+
+    # The first submission resolves cleanly once released; it never ran twice.
+    assert errors == []
+    assert not worker.is_alive()
+
+
+def test_hung_submit_times_out_for_caller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A submission hung past its own timeout raises without hanging the caller."""
+    release = threading.Event()
+    transport = _sdk_transport_without_sdk(
+        monkeypatch, _HungFakeDhanClient(threading.Event(), release)
+    )
+    try:
+        with pytest.raises(DhanTimeoutError, match="submit"):
+            transport.submit(_request(), timeout=0.1)
+    finally:
+        release.set()
+        transport.close()
+
+
+def test_read_calls_time_out_without_hanging_caller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hung fund-limits read fails closed within its timeout bound."""
+    release = threading.Event()
+    transport = _sdk_transport_without_sdk(
+        monkeypatch, _HungFundsFakeDhanClient(threading.Event(), release)
+    )
+    try:
+        started = time.monotonic()
+        funds = transport.fund_limits(timeout=0.2)
+        elapsed = time.monotonic() - started
+        assert funds.available is False
+        assert elapsed < 5.0
+        assert transport.health(timeout=0.2) is False
+    finally:
+        release.set()
+        transport.close()

@@ -37,6 +37,9 @@ class DhanTimeoutError(Exception):
         super().__init__(f"Dhan {operation} timed out after {timeout}s")
 
 
+_DEFAULT_READ_TIMEOUT_SECONDS = 10.0
+
+
 @runtime_checkable
 class DhanTransport(Protocol):
     """Dhan wire boundary.
@@ -44,11 +47,13 @@ class DhanTransport(Protocol):
     R0-B bounds only the safety-critical control path: ``submit``, ``cancel``,
     and ``reconcile`` take an explicit ``timeout``. The read-only observations
     (``health``, ``fund_limits``, ``positions``, ``quote_snapshot``,
-    ``candles``) remain unbounded in this slice and are outside the R0-B
-    bounded-call contract; a later transport-timeout slice may bound them.
+    ``candles``) take an optional ``timeout`` defaulting to
+    ``_DEFAULT_READ_TIMEOUT_SECONDS``; callers that need a tighter bound pass
+    it explicitly. A hung state-changing submission never blocks a
+    reconciliation or read-only observation behind it.
     """
 
-    def health(self) -> bool: ...
+    def health(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> bool: ...
 
     def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse: ...
 
@@ -56,12 +61,20 @@ class DhanTransport(Protocol):
 
     def reconcile(self, correlation_id: str, *, timeout: float) -> DhanOrderDetail: ...
 
-    def fund_limits(self) -> DhanFundsSnapshot: ...
+    def fund_limits(
+        self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS
+    ) -> DhanFundsSnapshot: ...
 
-    def positions(self) -> DhanPositionsSnapshot: ...
+    def positions(
+        self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS
+    ) -> DhanPositionsSnapshot: ...
 
     def quote_snapshot(
-        self, security_id: str, exchange_segment: str
+        self,
+        security_id: str,
+        exchange_segment: str,
+        *,
+        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanQuoteSnapshot | None: ...
 
     def candles(
@@ -73,6 +86,7 @@ class DhanTransport(Protocol):
         start: datetime,
         end: datetime,
         instrument_type: str = "EQUITY",
+        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> tuple[DhanCandleSnapshot, ...]: ...
 
     def close(self) -> None: ...
@@ -94,9 +108,14 @@ class _DhanClient(Protocol):
 class DhanSDKTransport:
     """Official DhanHQ SDK wrapper; vendor types never leave this class.
 
-    Timeout enforcement runs each blocking SDK call on a single shared worker
-    thread, so concurrent calls through one transport instance are
-    single-flight (serialized), not concurrent. The timeout bounds the
+    Timeout enforcement runs each blocking SDK call on a worker thread. Two
+    lanes exist: state-changing submissions (``submit`` and the vendor cancel
+    inside ``cancel``) share one single-worker lane and stay serialized, so a
+    second submission can never overtake or run concurrently with an
+    in-flight one. Reconciliation and the read-only observations (``health``,
+    ``fund_limits``, ``positions``, ``quote_snapshot``, ``candles``) run on
+    a separate query lane, so a hung submission never blocks the recovery
+    read that must follow an uncertain submission. The timeout bounds the
     caller's wait; a slow SDK call may still complete in the background after
     the timeout, in which case its late result is discarded and the caller
     observes UNKNOWN/reconciliation-required (never a locally invented
@@ -106,7 +125,8 @@ class DhanSDKTransport:
     credentials: DhanCredentials
     _client: _DhanClient = field(init=False, repr=False)
     _context: object = field(init=False, repr=False)
-    _executor: ThreadPoolExecutor = field(init=False, repr=False)
+    _submit_executor: ThreadPoolExecutor = field(init=False, repr=False)
+    _query_executor: ThreadPoolExecutor = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         try:
@@ -120,7 +140,8 @@ class DhanSDKTransport:
         )
         self._context = context
         self._client = dhanhq(context)
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dhan-sdk")
+        self._submit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dhan-sdk")
+        self._query_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dhan-query")
 
     def _call_with_timeout(
         self,
@@ -128,18 +149,24 @@ class DhanSDKTransport:
         *args: object,
         timeout: float,
         operation: str,
+        executor: ThreadPoolExecutor,
         **kwargs: object,
     ) -> object:
-        future: Future[object] = self._executor.submit(func, *args, **kwargs)
+        future: Future[object] = executor.submit(func, *args, **kwargs)
         try:
             return future.result(timeout=timeout)
         except TimeoutError as exc:
             future.cancel()
             raise DhanTimeoutError(operation, timeout) from exc
 
-    def health(self) -> bool:
+    def health(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> bool:
         try:
-            response = self._client.get_fund_limits()
+            response = self._call_with_timeout(
+                self._client.get_fund_limits,
+                timeout=timeout,
+                operation="health",
+                executor=self._query_executor,
+            )
         except Exception:
             return False
         status, _, _ = _envelope(response)
@@ -160,6 +187,7 @@ class DhanSDKTransport:
             tag=request.correlation_id,
             timeout=timeout,
             operation="submit",
+            executor=self._submit_executor,
         )
         return _order_response(response)
 
@@ -183,6 +211,7 @@ class DhanSDKTransport:
             detail.order_id,
             timeout=timeout,
             operation="cancel",
+            executor=self._submit_executor,
         )
         return _order_response(response)
 
@@ -192,12 +221,18 @@ class DhanSDKTransport:
             correlation_id,
             timeout=timeout,
             operation="reconcile",
+            executor=self._query_executor,
         )
         return _order_detail(response)
 
-    def fund_limits(self) -> DhanFundsSnapshot:
+    def fund_limits(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> DhanFundsSnapshot:
         try:
-            response = self._client.get_fund_limits()
+            response = self._call_with_timeout(
+                self._client.get_fund_limits,
+                timeout=timeout,
+                operation="fund_limits",
+                executor=self._query_executor,
+            )
         except Exception as exc:
             return DhanFundsSnapshot(
                 observed_at=datetime.now(UTC),
@@ -206,9 +241,14 @@ class DhanSDKTransport:
             )
         return _funds_snapshot(response)
 
-    def positions(self) -> DhanPositionsSnapshot:
+    def positions(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> DhanPositionsSnapshot:
         try:
-            response = self._client.get_positions()
+            response = self._call_with_timeout(
+                self._client.get_positions,
+                timeout=timeout,
+                operation="positions",
+                executor=self._query_executor,
+            )
         except Exception as exc:
             return DhanPositionsSnapshot(
                 observed_at=datetime.now(UTC),
@@ -217,7 +257,13 @@ class DhanSDKTransport:
             )
         return _positions_snapshot(response)
 
-    def quote_snapshot(self, security_id: str, exchange_segment: str) -> DhanQuoteSnapshot | None:
+    def quote_snapshot(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        *,
+        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanQuoteSnapshot | None:
         """Re-observe one quote packet; transport failure means unavailable."""
         try:
             from dhanhq._market_feed import MarketFeed  # type: ignore[import-not-found]
@@ -225,7 +271,13 @@ class DhanSDKTransport:
             return None
 
         try:
-            response = MarketFeed(self._context).quote_data({exchange_segment: [security_id]})
+            response = self._call_with_timeout(
+                MarketFeed(self._context).quote_data,
+                {exchange_segment: [security_id]},
+                timeout=timeout,
+                operation="quote_snapshot",
+                executor=self._query_executor,
+            )
         except Exception:
             return None
         return _quote_snapshot(response, security_id, exchange_segment)
@@ -239,6 +291,7 @@ class DhanSDKTransport:
         start: datetime,
         end: datetime,
         instrument_type: str = "EQUITY",
+        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> tuple[DhanCandleSnapshot, ...]:
         """Fetch normalized historical candles for one Dhan instrument."""
         try:
@@ -250,45 +303,55 @@ class DhanSDKTransport:
         from_date = start.strftime("%Y-%m-%d")
         to_date = end.strftime("%Y-%m-%d")
         if timeframe == "1d":
-            response = history.historical_daily_data(
+            response = self._call_with_timeout(
+                history.historical_daily_data,
                 security_id,
                 exchange_segment,
                 instrument_type,
                 from_date,
                 to_date,
+                timeout=timeout,
+                operation="candles",
+                executor=self._query_executor,
             )
         else:
             interval = _intraday_interval(timeframe)
-            response = history.intraday_minute_data(
+            response = self._call_with_timeout(
+                history.intraday_minute_data,
                 security_id,
                 exchange_segment,
                 instrument_type,
                 from_date,
                 to_date,
                 interval=interval,
+                timeout=timeout,
+                operation="candles",
+                executor=self._query_executor,
             )
         return _candle_snapshots(response, timeframe=timeframe)
 
     def close(self) -> None:
-        """Shut down the internal executor deterministically.
+        """Shut down the internal executors deterministically.
 
         Explicit lifecycle ownership lives with the host
         (``DhanHostRuntime.close`` calls this); ``__del__`` is only a
         best-effort fallback and never blocks.
         """
-        executor = getattr(self, "_executor", None)
-        if executor is None:
-            return
-        try:
-            executor.shutdown(wait=True, cancel_futures=True)
-        except RuntimeError:
-            pass
+        for name in ("_submit_executor", "_query_executor"):
+            executor = getattr(self, name, None)
+            if executor is None:
+                continue
+            try:
+                executor.shutdown(wait=True, cancel_futures=True)
+            except RuntimeError:
+                pass
 
     def __del__(self) -> None:  # pragma: no cover - defensive fallback only
         try:
-            executor = getattr(self, "_executor", None)
-            if executor is not None:
-                executor.shutdown(wait=False, cancel_futures=True)
+            for name in ("_submit_executor", "_query_executor"):
+                executor = getattr(self, name, None)
+                if executor is not None:
+                    executor.shutdown(wait=False, cancel_futures=True)
         except Exception:
             pass
 
@@ -323,7 +386,7 @@ class InMemoryDhanTransport:
     def cancelled(self) -> tuple[str, ...]:
         return tuple(self._cancelled)
 
-    def health(self) -> bool:
+    def health(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> bool:
         return True
 
     def close(self) -> None:
@@ -356,7 +419,7 @@ class InMemoryDhanTransport:
             update_time="2026-01-01 10:00:00",
         )
 
-    def fund_limits(self) -> DhanFundsSnapshot:
+    def fund_limits(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> DhanFundsSnapshot:
         return DhanFundsSnapshot(
             observed_at=datetime(2026, 1, 1, tzinfo=UTC),
             available_balance=self.funds_available_balance,
@@ -365,7 +428,7 @@ class InMemoryDhanTransport:
             message=self.funds_message,
         )
 
-    def positions(self) -> DhanPositionsSnapshot:
+    def positions(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> DhanPositionsSnapshot:
         return DhanPositionsSnapshot(
             observed_at=datetime(2026, 1, 1, tzinfo=UTC),
             positions=self.position_snapshots,
@@ -373,7 +436,13 @@ class InMemoryDhanTransport:
             message=self.positions_message,
         )
 
-    def quote_snapshot(self, security_id: str, exchange_segment: str) -> DhanQuoteSnapshot | None:
+    def quote_snapshot(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        *,
+        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanQuoteSnapshot | None:
         return self.quote_snapshots.get((security_id, exchange_segment))
 
     def candles(
@@ -385,6 +454,7 @@ class InMemoryDhanTransport:
         start: datetime,
         end: datetime,
         instrument_type: str = "EQUITY",
+        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> tuple[DhanCandleSnapshot, ...]:
         return tuple(
             snapshot
