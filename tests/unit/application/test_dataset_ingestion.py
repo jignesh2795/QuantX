@@ -223,6 +223,24 @@ def test_invalid_provider_output_fails_before_persistence(value, message):
     assert store.calls == []
 
 
+def test_rejected_quality_fails_closed_before_persistence():
+    svc, _, store = service((candle(),))
+    naive_expected = (datetime(2026, 1, 1, 9, 15),)
+
+    with pytest.raises(ValueError, match="quality rejected"):
+        svc.ingest(
+            dataset_id="nse-equities",
+            version="2026-01",
+            instrument=INSTRUMENT,
+            timeframe="1m",
+            start=T0,
+            end=T0,
+            expected_timestamps=naive_expected,
+        )
+
+    assert store.calls == []
+
+
 def test_empty_provider_result_is_not_failure():
     svc, market_data, store = service(())
 
