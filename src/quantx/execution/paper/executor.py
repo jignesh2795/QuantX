@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+
 from quantx.domain.orders import Fill, Order
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.order_lifecycle import (
@@ -48,7 +49,7 @@ class PaperOrderExecutor:
             raise ValueError("observed_at must be timezone-aware")
 
         lifecycle = OrderLifecycle(order.client_order_id)
-            lifecycle.apply(
+        lifecycle.apply(
             OrderLifecycleEvent(
                 order_id=order.client_order_id,
                 status=OrderLifecycleStatus.SUBMITTED,
@@ -73,14 +74,16 @@ class PaperOrderExecutor:
         )
 
         if result.evidence.status is SimulationEvidenceStatus.INSUFFICIENT:
-            lifecycle.apply(OrderLifecycleEvent(
-                order_id=order.client_order_id,
-                status=OrderLifecycleStatus.UNKNOWN,
-                observed_at=observed_at,
-                source="paper",
-                message=result.evidence.reason,
-                confidence=OutcomeConfidence.UNCERTAIN,
-            ))
+            lifecycle.apply(
+                OrderLifecycleEvent(
+                    order_id=order.client_order_id,
+                    status=OrderLifecycleStatus.UNKNOWN,
+                    observed_at=observed_at,
+                    source="paper",
+                    message=result.evidence.reason,
+                    confidence=OutcomeConfidence.UNCERTAIN,
+                )
+            )
             return PaperExecutionOutcome(lifecycle.status, None, None, result.evidence.reason)
 
         if result.fill is None or result.fill.quantity <= 0:
