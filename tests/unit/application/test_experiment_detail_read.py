@@ -11,16 +11,11 @@ from quantx.application import (
     ExperimentReadService,
     ResearchRunReadService,
 )
-from quantx.persistence.sqlite import SqliteDatabase, SqliteExperimentRepository
 from quantx.research.experiments import Experiment, ExperimentRepository
 from quantx.research.provenance import ResearchProvenance
-from quantx.research.result import ResearchResult, ResearchRunSpec
+from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
 from quantx.research.run import ResearchRunRecord
-from quantx.research.storage import (
-    InMemoryResearchRunRepository,
-    InMemoryResearchStore,
-    ResearchRunRepository,
-)
+from quantx.research.storage import InMemoryResearchRunRepository, InMemoryResearchStore
 
 
 _EXPERIMENT_ID = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
@@ -61,7 +56,7 @@ def _result(run_id: str, result_id: UUID) -> ResearchResult:
     )
     return ResearchResult(
         spec=spec,
-        quality="COMPLETE_OBSERVED",
+        quality=ResultQuality.COMPLETE_OBSERVED,
         started_at="2026-01-01T00:01:00+00:00",
         completed_at="2026-01-01T00:02:00+00:00",
         time_range_start="2026-01-01T00:01:00+00:00",
@@ -192,27 +187,7 @@ def test_detail_read_fails_closed_for_completed_run_without_result() -> None:
     )
     run_repository.create_run(run)
     run_repository.start_run(run.run_id, "2026-01-01T00:01:00+00:00")
-    completed = run_repository.get_run(run.run_id)
-    assert completed is not None
-    result = ResearchResult(
-        spec=ResearchRunSpec(
-            run_id=run.run_id,
-            dataset_id="dataset-1",
-            dataset_version="v1",
-            instrument_master_version="instrument-v1",
-            market_rule_version="rules-v1",
-            execution_model_version="paper-v1",
-            simulation_profile="REALISTIC",
-            code_revision="abc123",
-            configuration_revision="cfg1",
-        ),
-        quality="COMPLETE_OBSERVED",
-        started_at="2026-01-01T00:01:00+00:00",
-        completed_at="2026-01-01T00:02:00+00:00",
-        time_range_start="2026-01-01T00:01:00+00:00",
-        time_range_end="2026-01-01T00:02:00+00:00",
-        result_id=UUID("33333333-3333-3333-3333-333333333333"),
-    )
+    result = _result("completed", UUID("33333333-3333-3333-3333-333333333333"))
     run_repository.complete_run(run.run_id, result, result.completed_at)
 
     service = _service(_ExperimentRepository(_experiment(), ("completed",)), run_repository, result_store)
@@ -233,12 +208,3 @@ def test_detail_read_requires_existing_membership_run() -> None:
     with pytest.raises(ValueError, match="references missing research run"):
         service.get(_EXPERIMENT_ID)
 
-
-class _UnusedSqliteMarker:
-    """Keep the SQLite import out of application semantics; integration stays in E."""
-
-
-assert SqliteDatabase is not None
-assert SqliteExperimentRepository is not None
-assert ResearchRunRepository is not None
-assert _UnusedSqliteMarker is not None
