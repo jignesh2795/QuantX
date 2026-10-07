@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-import json
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
@@ -85,6 +85,37 @@ def _optional_bool(payload: Mapping[str, object], field_name: str) -> bool | Non
     if value is not None and not isinstance(value, bool):
         raise ValueError(f"{field_name} must be a boolean or null")
     return value
+
+
+def _required_string_list(payload: Mapping[str, object], field_name: str) -> tuple[str, ...]:
+    value = payload.get(field_name)
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be an array")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} must contain strings")
+        result.append(item)
+    return tuple(result)
+
+
+def _metrics(payload: Mapping[str, object]) -> tuple[tuple[str, Decimal], ...]:
+    value = payload.get("metrics")
+    if not isinstance(value, list):
+        raise ValueError("metrics must be an array")
+    metrics: list[tuple[str, Decimal]] = []
+    for item in value:
+        if not isinstance(item, list) or len(item) != 2:
+            raise ValueError("metrics must contain [string, decimal-string] pairs")
+        metric_name, metric_value_text = item
+        if not isinstance(metric_name, str) or not isinstance(metric_value_text, str):
+            raise ValueError("metrics must contain [string, decimal-string] pairs")
+        try:
+            metric_value = Decimal(metric_value_text)
+        except InvalidOperation as exc:
+            raise ValueError("metrics must contain valid decimal strings") from exc
+        metrics.append((metric_name, metric_value))
+    return tuple(metrics)
 
 
 def _pairs(payload: Mapping[str, object], field_name: str) -> tuple[tuple[str, str], ...]:
@@ -429,8 +460,9 @@ class LocalFilesystemResearchStore:
         }
 
     @staticmethod
-    def _result_from_payload(payload: dict[str, object]) -> ResearchResult:
-        spec_payload = _mapping(payload.get("spec"), "spec")
+    def _result_from_payload(payload: object) -> ResearchResult:
+        result_payload = _mapping(payload, "result")
+        spec_payload = _mapping(result_payload.get("spec"), "spec")
         spec_configuration = (
             _run_configuration(_mapping(spec_payload["run_configuration"], "run_configuration"))
             if "run_configuration" in spec_payload
@@ -449,19 +481,29 @@ class LocalFilesystemResearchStore:
             random_seed=_optional_int(spec_payload, "random_seed"),
             run_configuration=spec_configuration,
         )
-        provenance_payload = _mapping(payload.get("provenance"), "provenance")
+        provenance_payload = _mapping(result_payload.get("provenance"), "provenance")
         provenance = research_provenance_from_payload(provenance_payload)
+        quality_value = _required_str(result_payload, "quality")
+        result_id_value = _required_str(result_payload, "result_id")
+        try:
+            result_id = UUID(result_id_value)
+        except ValueError as exc:
+            raise ValueError("result_id must contain a valid UUID") from exc
+        try:
+            quality = ResultQuality(quality_value)
+        except ValueError as exc:
+            raise ValueError("quality must be a valid ResultQuality value") from exc
         return ResearchResult(
             spec=spec,
-            quality=ResultQuality(payload["quality"]),
-            started_at=payload["started_at"],
-            completed_at=payload["completed_at"],
-            time_range_start=payload["time_range_start"],
-            time_range_end=payload["time_range_end"],
-            metrics=tuple((key, Decimal(value)) for key, value in payload["metrics"]),
-            assumptions=tuple(payload["assumptions"]),
-            limitations=tuple(payload["limitations"]),
-            result_id=UUID(payload["result_id"]),
+            quality=quality,
+            started_at=_required_str(result_payload, "started_at"),
+            completed_at=_required_str(result_payload, "completed_at"),
+            time_range_start=_required_str(result_payload, "time_range_start"),
+            time_range_end=_required_str(result_payload, "time_range_end"),
+            metrics=_metrics(result_payload),
+            assumptions=_required_string_list(result_payload, "assumptions"),
+            limitations=_required_string_list(result_payload, "limitations"),
+            result_id=result_id,
             provenance=provenance,
         )
 
@@ -471,7 +513,7 @@ def research_result_to_payload(result: ResearchResult) -> dict[str, object]:
     return LocalFilesystemResearchStore._result_payload(result)
 
 
-def research_result_from_payload(payload: dict[str, object]) -> ResearchResult:
+def research_result_from_payload(payload: object) -> ResearchResult:
     """Reconstruct a result through the canonical typed persistence decoder."""
     return LocalFilesystemResearchStore._result_from_payload(payload)
 
