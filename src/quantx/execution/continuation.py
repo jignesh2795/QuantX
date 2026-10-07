@@ -314,7 +314,7 @@ class ExecutionContinuationService:
         chain: ExecutionContinuationChain,
         parent_request: ApprovedExecutionRequest,
         continuation: ApprovedExecutionRequest,
-        receipt_id,
+        receipt_id: UUID,
     ) -> ExecutionContinuationResult:
         repository = self._lifecycle_service.receipt_repository
         if repository is None:
@@ -612,7 +612,7 @@ class ExecutionContinuationService:
         policy_result: PolicyResult | None = None,
         required_margin: Decimal = Decimal("0"),
         requested_quantity: Decimal | None = None,
-        snapshot=None,
+        snapshot: MarketSnapshot | None = None,
     ) -> ExecutionContinuationDispatchReconciliation:
         """Dispatch a continuation and require authoritative child reconciliation."""
         chain, continuation = self._prepare_chain_continuation(
@@ -651,7 +651,7 @@ class ExecutionContinuationService:
         risk_result: RiskResult,
         policy_result: PolicyResult | None = None,
         requested_quantity: Decimal | None = None,
-        snapshot=None,
+        snapshot: MarketSnapshot | None = None,
     ) -> ExecutionContinuationResult:
         """Build and dispatch one fresh child for the evidenced remainder."""
         lifecycle = self._lifecycle_service.reconcile(request)
