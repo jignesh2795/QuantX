@@ -55,9 +55,7 @@ class ExperimentReadService:
                 )
             owner = self._experiment_repository.experiment_for_run(run_id)
             if owner != experiment_id:
-                raise ValueError(
-                    f"research run {run_id} has inconsistent experiment ownership"
-                )
+                raise ValueError(f"research run {run_id} has inconsistent experiment ownership")
             runs.append(run)
 
         return ExperimentSnapshot(experiment=experiment, runs=tuple(runs))
