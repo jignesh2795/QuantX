@@ -37,6 +37,7 @@ from quantx.integrations.account_registry import AccountConnectionRegistry, Regi
 from quantx.integrations.brokers import BrokerConnectionRef
 
 from .adapter import DhanBrokerAdapter
+from .market_data import DhanMarketDataAdapter
 from .models import DhanCredentials, DhanInstrumentRef
 from .recovery import build_dhan_recovery_provider
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanSDKTransport, DhanTransport
@@ -106,6 +107,7 @@ class DhanHostRuntime:
     config: DhanHostConfig
     transport: DhanTransport
     adapter: DhanBrokerAdapter
+    market_data: DhanMarketDataAdapter
     runtime: ProductionRuntime
 
     @property
@@ -166,18 +168,20 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         _DHAN_BROKER_ID,
         config.market_context_id,
     )
+    instrument_map = {
+        instrument.instrument_id: (instrument, instrument_ref)
+        for instrument, instrument_ref in config.instruments
+    }
     adapter = DhanBrokerAdapter(
         _connection=connection,
-        _instruments={
-            instrument.instrument_id: (instrument, instrument_ref)
-            for instrument, instrument_ref in config.instruments
-        },
+        _instruments=instrument_map,
         _transport=transport,
         _submit_timeout=config.submit_timeout_seconds,
         _cancel_timeout=config.cancel_timeout_seconds,
         _reconcile_timeout=config.reconcile_timeout_seconds,
         _read_timeout=config.read_timeout_seconds,
     )
+    market_data = DhanMarketDataAdapter(_instruments=instrument_map, _transport=transport)
 
     def configure(registry: AccountConnectionRegistry) -> None:
         registry.register(RegisteredConnection(adapter.connection, adapter))
@@ -200,6 +204,7 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         config=config,
         transport=transport,
         adapter=adapter,
+        market_data=market_data,
         runtime=runtime,
     )
 
