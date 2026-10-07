@@ -15,6 +15,7 @@ from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
 from quantx.ports.market_data import MarketDataPort, MarketDataStore
 from quantx.research.data_quality import HistoricalDataQuality, assess_candles
+from quantx.research.dataset import DatasetVersion
 from quantx.research.dataset_catalog import DatasetCatalog
 
 
@@ -22,6 +23,7 @@ from quantx.research.dataset_catalog import DatasetCatalog
 class HistoricalDatasetIngestionResult:
     """Outcome of one bounded dataset ingestion operation."""
 
+    dataset_version: DatasetVersion
     dataset_id: str
     version: str
     source_id: str
@@ -88,6 +90,7 @@ class HistoricalDatasetIngestionService:
             dataset_version=registered.identity.version,
         )
         return HistoricalDatasetIngestionResult(
+            dataset_version=registered,
             dataset_id=registered.identity.dataset_id,
             version=registered.identity.version,
             source_id=registered.identity.source_id,
