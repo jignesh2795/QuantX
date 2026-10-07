@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 
+from .market_data import MarketSnapshot
 if TYPE_CHECKING:
     from quantx.persistence import ReceiptRepository
 
@@ -48,7 +50,7 @@ class ExecutionLifecycleService:
         self,
         request: ApprovedExecutionRequest,
         *,
-        snapshot=None,
+        snapshot: MarketSnapshot | None = None,
     ) -> ExecutionLifecycleResult:
         """Dispatch once and derive lifecycle state from available receipts."""
         dispatched = self._dispatcher.dispatch(request, snapshot=snapshot)
@@ -70,7 +72,7 @@ class ExecutionLifecycleService:
     def reconcile_correlated(
         self,
         request: ApprovedExecutionRequest,
-        correlation_id,
+        correlation_id: UUID | str,
     ) -> ExecutionLifecycle:
         """Rebuild one order from receipts under an explicit lineage correlation."""
         if self._receipt_repository is None:
