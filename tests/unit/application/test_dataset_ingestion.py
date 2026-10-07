@@ -7,8 +7,6 @@ import pytest
 
 from quantx.application.dataset_ingestion import HistoricalDatasetIngestionService
 from quantx.domain.market_data import Candle
-from quantx.domain.enums import AssetClass
-from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.value_objects import InstrumentId
 from quantx.research.data_quality import CompletenessStatus, DataQualityStatus
 from quantx.research.dataset import DatasetIdentity, DatasetVersion, fingerprint_bytes
