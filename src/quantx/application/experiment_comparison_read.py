@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from uuid import UUID
-
 from quantx.research.experiments import ExperimentComparison, ExperimentManager
 
 from .research_run_read import ResearchRunReadService
