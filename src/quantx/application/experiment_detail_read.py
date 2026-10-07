@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from quantx.research.experiments import Experiment
+
 from .experiment_read import ExperimentReadService
 from .research_run_read import ResearchRunReadService, ResearchRunSnapshot
 
@@ -23,6 +24,7 @@ class ExperimentDetailSnapshot:
             raise ValueError("experiment detail snapshot cannot contain duplicate run_id values")
         if run_ids != tuple(sorted(run_ids)):
             raise ValueError("experiment detail snapshot runs must be deterministically ordered")
+
 
 class ExperimentDetailReadService:
     """Compose experiment membership with authoritative run and result rehydration."""
