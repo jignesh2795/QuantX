@@ -7,10 +7,11 @@ from quantx.domain.orders import Order
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.accounting import FillAccounting
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
-from quantx.execution.paper.broker import PaperBroker
-from quantx.execution.paper.evidence import SimulationEvidenceStatus
+from quantx.execution.paper.broker import PaperBroker, PaperExecutionResult
 from quantx.execution.paper.executor import PaperOrderExecutor
-from quantx.execution.paper.fills import MarketSnapshot
+from quantx.execution.paper.evidence import SimulationEvidence, SimulationEvidenceStatus
+from quantx.execution.paper.fills import MarketSnapshot, SimulatedFill
+from quantx.execution.paper.matching import MatchDecision
 from quantx.execution.paper.profile import ExecutionProfile, SlippageModel
 
 
@@ -92,3 +93,48 @@ def test_non_marketable_limit_remains_submitted() -> None:
     assert result.lifecycle_status is OrderLifecycleStatus.SUBMITTED
     assert result.fill is None
     assert result.ledger_entry is None
+
+
+class MissingFillTimestampBroker(PaperBroker):
+    def __init__(self) -> None:
+        pass
+
+    def execute(
+        self,
+        order,
+        *,
+        snapshot,
+        submitted_at_ns,
+        order_book=None,
+    ) -> PaperExecutionResult:
+        return PaperExecutionResult(
+            evidence=SimulationEvidence(
+                SimulationEvidenceStatus.CONFIRMED,
+                "test confirmed execution",
+                source_timestamp_ns=submitted_at_ns,
+            ),
+            match=MatchDecision(True, Decimal("100"), "test executable"),
+            fill=SimulatedFill(
+                price=Decimal("100"),
+                quantity=Decimal("2"),
+                fee=Decimal("0"),
+            ),
+            fill_at_ns=None,
+        )
+
+
+def test_fill_requires_timestamp_when_present() -> None:
+    order = make_order()
+    executor = PaperOrderExecutor(MissingFillTimestampBroker(), FillAccounting())
+
+    try:
+        executor.execute(
+            order,
+            snapshot=MarketSnapshot(Decimal("99"), Decimal("100"), Decimal("99.5")),
+            submitted_at_ns=1_000_000_000,
+            observed_at=datetime.now(timezone.utc),
+        )
+    except ValueError as exc:
+        assert "fill_at_ns is required" in str(exc)
+    else:
+        raise AssertionError("missing fill timestamp was accepted")
