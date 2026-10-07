@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -48,7 +48,7 @@ def test_confirmed_fill_reaches_accounting() -> None:
         order,
         snapshot=snapshot,
         submitted_at_ns=1_000_000_000,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(UTC),
     )
 
     assert result.lifecycle_status is OrderLifecycleStatus.FILLED
@@ -64,7 +64,7 @@ def test_missing_snapshot_becomes_unknown_without_accounting() -> None:
         order,
         snapshot=None,
         submitted_at_ns=1_000_000_000,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(UTC),
     )
 
     assert result.lifecycle_status is OrderLifecycleStatus.UNKNOWN
@@ -88,7 +88,7 @@ def test_non_marketable_limit_remains_submitted() -> None:
         order,
         snapshot=snapshot,
         submitted_at_ns=1_000_000_000,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(UTC),
     )
 
     assert result.lifecycle_status is OrderLifecycleStatus.SUBMITTED
@@ -140,7 +140,7 @@ def test_fill_requires_timestamp_when_present() -> None:
             order,
             snapshot=MarketSnapshot(Decimal("99"), Decimal("100"), Decimal("99.5")),
             submitted_at_ns=1_000_000_000,
-            observed_at=datetime.now(timezone.utc),
+            observed_at=datetime.now(UTC),
         )
     except ValueError as exc:
         assert "fill_at_ns is required" in str(exc)
