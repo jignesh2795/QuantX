@@ -89,6 +89,9 @@ class PaperOrderExecutor:
         if result.fill is None or result.fill.quantity <= 0:
             return PaperExecutionOutcome(lifecycle.status, None, None, result.match.reason)
 
+        if result.fill_at_ns is None:
+            raise ValueError("fill_at_ns is required when a paper fill is present")
+
         filled_at = datetime.fromtimestamp(result.fill_at_ns / 1_000_000_000, tz=UTC)
         fill = Fill(
             client_order_id=order.client_order_id,

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -7,11 +7,13 @@ from quantx.domain.orders import Order
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.accounting import FillAccounting
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
-from quantx.execution.paper.broker import PaperBroker
-from quantx.execution.paper.evidence import SimulationEvidenceStatus
+from quantx.execution.paper.broker import PaperBroker, PaperExecutionResult
+from quantx.execution.paper.evidence import SimulationEvidence, SimulationEvidenceStatus
 from quantx.execution.paper.executor import PaperOrderExecutor
-from quantx.execution.paper.fills import MarketSnapshot
-from quantx.execution.paper.profile import ExecutionProfile, SlippageModel
+from quantx.execution.paper.fills import MarketSnapshot, SimulatedFill
+from quantx.execution.paper.matching import MatchDecision
+from quantx.execution.paper.order_types import PaperOrderSpec
+from quantx.execution.paper.profile import ExecutionProfile, OrderBookSnapshot, SlippageModel
 
 
 def make_order(order_type=OrderType.MARKET, quantity=Decimal("2")) -> Order:
@@ -46,7 +48,7 @@ def test_confirmed_fill_reaches_accounting() -> None:
         order,
         snapshot=snapshot,
         submitted_at_ns=1_000_000_000,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(UTC),
     )
 
     assert result.lifecycle_status is OrderLifecycleStatus.FILLED
@@ -62,7 +64,7 @@ def test_missing_snapshot_becomes_unknown_without_accounting() -> None:
         order,
         snapshot=None,
         submitted_at_ns=1_000_000_000,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(UTC),
     )
 
     assert result.lifecycle_status is OrderLifecycleStatus.UNKNOWN
@@ -86,9 +88,61 @@ def test_non_marketable_limit_remains_submitted() -> None:
         order,
         snapshot=snapshot,
         submitted_at_ns=1_000_000_000,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(UTC),
     )
 
     assert result.lifecycle_status is OrderLifecycleStatus.SUBMITTED
     assert result.fill is None
     assert result.ledger_entry is None
+
+
+class MissingFillTimestampBroker(PaperBroker):
+    def execute(
+        self,
+        order: PaperOrderSpec,
+        *,
+        snapshot: MarketSnapshot | None,
+        submitted_at_ns: int,
+        order_book: OrderBookSnapshot | None = None,
+    ) -> PaperExecutionResult:
+        return PaperExecutionResult(
+            evidence=SimulationEvidence(
+                SimulationEvidenceStatus.CONFIRMED,
+                "test confirmed execution",
+                source_timestamp_ns=submitted_at_ns,
+            ),
+            match=MatchDecision(True, Decimal("100"), "test executable"),
+            fill=SimulatedFill(
+                price=Decimal("100"),
+                quantity=Decimal("2"),
+                fee=Decimal("0"),
+            ),
+            fill_at_ns=None,
+        )
+
+
+def test_fill_requires_timestamp_when_present() -> None:
+    order = make_order()
+    executor = PaperOrderExecutor(
+        MissingFillTimestampBroker(
+            ExecutionProfile(
+                profile_id="missing-timestamp",
+                version="1",
+                slippage_model=SlippageModel.NONE,
+                fee_rate=Decimal("0"),
+            )
+        ),
+        FillAccounting(),
+    )
+
+    try:
+        executor.execute(
+            order,
+            snapshot=MarketSnapshot(Decimal("99"), Decimal("100"), Decimal("99.5")),
+            submitted_at_ns=1_000_000_000,
+            observed_at=datetime.now(UTC),
+        )
+    except ValueError as exc:
+        assert "fill_at_ns is required" in str(exc)
+    else:
+        raise AssertionError("missing fill timestamp was accepted")
