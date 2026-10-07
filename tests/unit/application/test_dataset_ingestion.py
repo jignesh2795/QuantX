@@ -107,6 +107,9 @@ def test_registered_dataset_is_retrieved_assessed_and_persisted_once():
     assert len(market_data.calls) == 1
     assert len(store.calls) == 1
     assert store.calls[0][1:] == ("dhan", "2026-01")
+    assert result.dataset_version.identity.dataset_id == "nse-equities"
+    assert result.dataset_version.identity.version == "2026-01"
+    assert result.dataset_version.identity.source_id == "dhan"
     assert result.inserted_count == 2
     assert result.quality.quality is DataQualityStatus.VALID
     assert result.quality.completeness is CompletenessStatus.COMPLETE
