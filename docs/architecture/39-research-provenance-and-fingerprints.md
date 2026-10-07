@@ -124,6 +124,15 @@ implementation. Missing runs and runs without persisted results fail closed.
 This slice does not add a persisted comparison artifact or duplicate result
 payloads.
 
+The experiment detail read side uses `ExperimentDetailReadService` to compose
+`ExperimentReadService` with the existing `ResearchRunReadService`. Its
+`ExperimentDetailSnapshot` exposes the logical experiment and ordered
+`ResearchRunSnapshot` values, including authoritative results only where the run
+read boundary can prove them. Non-completed runs may remain result-less; a
+completed run without a persisted result fails closed through the existing run
+snapshot invariant. No result-store or persistence ownership is moved into the
+detail service.
+
 ## Fail-closed rule
 
 When a run declares structured run configuration, the effective configuration
