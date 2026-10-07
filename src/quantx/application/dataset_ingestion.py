@@ -14,7 +14,7 @@ from datetime import datetime
 from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
 from quantx.ports.market_data import MarketDataPort, MarketDataStore
-from quantx.research.data_quality import HistoricalDataQuality, assess_candles
+from quantx.research.data_quality import DataQualityStatus, HistoricalDataQuality, assess_candles
 from quantx.research.dataset import DatasetVersion
 from quantx.research.dataset_catalog import DatasetCatalog
 
@@ -84,6 +84,8 @@ class HistoricalDatasetIngestionService:
             end=end,
         )
         quality = assess_candles(candles, expected_timestamps)
+        if quality.quality is DataQualityStatus.REJECTED:
+            raise ValueError("historical dataset quality rejected ingestion")
         inserted_count = self._store.save_candles(
             candles,
             source_id=registered.identity.source_id,
