@@ -49,9 +49,7 @@ Captured material inputs:
 | Broker constraints | name, minimum order value, minimum quantity, minimum margin amount/currency |
 | Starting capital | capital source, currency, cash, available cash, blocked cash, margin used, margin available, buying power |
 
-Strategy identity is taken from authoritative `StrategyIR` when the run uses the
-runtime-neutral evaluation service. A bare callable exposes no configuration, so
-identity stays absent rather than being introspected or invented.
+Strategy identity is taken from authoritative `StrategyIR` when the run uses the runtime-neutral evaluation service. A bare callable exposes no configuration, so identity stays absent rather than being introspected or invented.
 
 ## Canonicalization rules
 
@@ -119,6 +117,13 @@ inconsistent. Research results remain outside this snapshot and are rehydrated
 through `ResearchRunReadService`, preserving the existing result/provenance
 authority boundary.
 
+The application comparison read side uses `ExperimentComparisonReadService` to
+rehydrate two completed research runs through `ResearchRunReadService` and
+delegates comparison semantics to the existing `ExperimentManager.compare`
+implementation. Missing runs and runs without persisted results fail closed.
+This slice does not add a persisted comparison artifact or duplicate result
+payloads.
+
 ## Fail-closed rule
 
 When a run declares structured run configuration, the effective configuration
@@ -147,3 +152,5 @@ Reproducibility identity
 ```
 
 A result comparison should surface provenance differences before comparing headline metrics.
+
+---
