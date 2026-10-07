@@ -108,14 +108,15 @@ class _DhanClient(Protocol):
 class DhanSDKTransport:
     """Official DhanHQ SDK wrapper; vendor types never leave this class.
 
-    Timeout enforcement runs each blocking SDK call on a worker thread. Two
+    Timeout enforcement runs each blocking SDK call on a worker thread. Three
     lanes exist: state-changing submissions (``submit`` and the vendor cancel
     inside ``cancel``) share one single-worker lane and stay serialized, so a
     second submission can never overtake or run concurrently with an
-    in-flight one. Reconciliation and the read-only observations (``health``,
-    ``fund_limits``, ``positions``, ``quote_snapshot``, ``candles``) run on
-    a separate query lane, so a hung submission never blocks the recovery
-    read that must follow an uncertain submission. The timeout bounds the
+    in-flight one. Reconciliation runs on its own dedicated lane, so a
+    saturated read lane can never starve the recovery read that must follow
+    an uncertain submission. The remaining read-only observations (``health``,
+    ``fund_limits``, ``positions``, ``quote_snapshot``, ``candles``) share a
+    query lane. The timeout bounds the
     caller's wait; a slow SDK call may still complete in the background after
     the timeout, in which case its late result is discarded and the caller
     observes UNKNOWN/reconciliation-required (never a locally invented
@@ -126,6 +127,7 @@ class DhanSDKTransport:
     _client: _DhanClient = field(init=False, repr=False)
     _context: object = field(init=False, repr=False)
     _submit_executor: ThreadPoolExecutor = field(init=False, repr=False)
+    _reconcile_executor: ThreadPoolExecutor = field(init=False, repr=False)
     _query_executor: ThreadPoolExecutor = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -141,6 +143,9 @@ class DhanSDKTransport:
         self._context = context
         self._client = dhanhq(context)
         self._submit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dhan-sdk")
+        self._reconcile_executor = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="dhan-reconcile"
+        )
         self._query_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dhan-query")
 
     def _call_with_timeout(
@@ -221,7 +226,7 @@ class DhanSDKTransport:
             correlation_id,
             timeout=timeout,
             operation="reconcile",
-            executor=self._query_executor,
+            executor=self._reconcile_executor,
         )
         return _order_detail(response)
 
@@ -337,7 +342,7 @@ class DhanSDKTransport:
         (``DhanHostRuntime.close`` calls this); ``__del__`` is only a
         best-effort fallback and never blocks.
         """
-        for name in ("_submit_executor", "_query_executor"):
+        for name in ("_submit_executor", "_reconcile_executor", "_query_executor"):
             executor = getattr(self, name, None)
             if executor is None:
                 continue
@@ -348,7 +353,7 @@ class DhanSDKTransport:
 
     def __del__(self) -> None:  # pragma: no cover - defensive fallback only
         try:
-            for name in ("_submit_executor", "_query_executor"):
+            for name in ("_submit_executor", "_reconcile_executor", "_query_executor"):
                 executor = getattr(self, name, None)
                 if executor is not None:
                     executor.shutdown(wait=False, cancel_futures=True)

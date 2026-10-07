@@ -394,6 +394,79 @@ def test_hung_submit_times_out_for_caller(monkeypatch: pytest.MonkeyPatch) -> No
         transport.close()
 
 
+class _CountingHungFundsClient:
+    """Fake SDK client counting fund-limits entries; reads block until released."""
+
+    def __init__(self, entered: threading.Event, release: threading.Event, count: int) -> None:
+        self._entered = entered
+        self._release = release
+        self._count = count
+        self._seen = 0
+        self._lock = threading.Lock()
+
+    def get_fund_limits(self) -> object:
+        with self._lock:
+            self._seen += 1
+            if self._seen >= self._count:
+                self._entered.set()
+        assert self._release.wait(timeout=30)
+        return {"status": "success", "remarks": "", "data": {}}
+
+    def get_order_by_correlationID(self, correlation_id: str) -> object:  # noqa: N802
+        return {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "orderId": "reconciled-order",
+                "correlationId": correlation_id,
+                "orderStatus": "TRADED",
+                "averageTradedPrice": 0,
+                "filledQty": 0,
+                "exchangeTime": "2026-01-01 10:00:00",
+                "updateTime": "2026-01-01 10:00:00",
+            },
+        }
+
+    def get_positions(self) -> object:
+        return {"status": "success", "remarks": "", "data": []}
+
+    def place_order(self, **kwargs: object) -> object:
+        raise AssertionError("no submission is expected in this test")
+
+    def cancel_order(self, order_id: str) -> object:
+        raise AssertionError("no cancellation is expected in this test")
+
+
+def test_reconcile_proceeds_while_query_lane_saturated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A saturated read lane must not starve the recovery reconcile."""
+    entered = threading.Event()
+    release = threading.Event()
+    transport = _sdk_transport_without_sdk(
+        monkeypatch, _CountingHungFundsClient(entered, release, 4)
+    )
+    readers: list[threading.Thread] = []
+    try:
+        for _ in range(4):
+            reader = threading.Thread(
+                target=transport.fund_limits, kwargs={"timeout": 30.0}, daemon=True
+            )
+            reader.start()
+            readers.append(reader)
+        assert entered.wait(timeout=10)
+        detail = transport.reconcile("cid-1", timeout=5.0)
+        assert detail.order_id == "reconciled-order"
+        assert detail.order_status == "TRADED"
+    finally:
+        release.set()
+        for reader in readers:
+            reader.join(timeout=10)
+        transport.close()
+
+    assert all(not reader.is_alive() for reader in readers)
+
+
 def test_read_calls_time_out_without_hanging_caller(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
