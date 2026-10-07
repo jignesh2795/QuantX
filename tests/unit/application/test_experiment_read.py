@@ -140,9 +140,7 @@ class _EmptyRunRepository(ResearchRunRepository):
     ) -> ResearchRunRecord:
         raise NotImplementedError
 
-    def attach_manifest(
-        self, run_id: str, manifest: ResearchArtifactManifest
-    ) -> ResearchRunRecord:
+    def attach_manifest(self, run_id: str, manifest: ResearchArtifactManifest) -> ResearchRunRecord:
         raise NotImplementedError
 
     def fail_run(self, run_id: str, reason: str) -> ResearchRunRecord:
