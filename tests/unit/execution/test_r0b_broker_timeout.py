@@ -515,7 +515,7 @@ def test_call_with_timeout_enforces_bounded_wait() -> None:
     """The real executor wrapper times out a blocked callable via events."""
     transport = object.__new__(DhanSDKTransport)
     executor = ThreadPoolExecutor(max_workers=1)
-    transport._executor = executor
+    transport._submit_executor = executor
     try:
         entered = threading.Event()
         release = threading.Event()
@@ -528,7 +528,7 @@ def test_call_with_timeout_enforces_bounded_wait() -> None:
             return "late-success"
 
         with pytest.raises(DhanTimeoutError):
-            transport._call_with_timeout(slow, timeout=0.05, operation="submit")
+            transport._call_with_timeout(slow, timeout=0.05, operation="submit", executor=executor)
         assert entered.is_set()
 
         release.set()
