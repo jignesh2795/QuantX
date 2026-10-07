@@ -183,10 +183,12 @@ def _lifecycle_status(order_status: str) -> OrderLifecycleStatus:
 
 
 def build_dhan_recovery_provider(
-    adapter: DhanBrokerAdapter,
+    adapter: BrokerAdapter,
     request: PendingExecutionRecoveryRequest,
 ) -> DhanRecoveryEvidenceProvider:
     """Bind a Dhan adapter to one persisted recovery request for evidence reads."""
+    if not isinstance(adapter, DhanBrokerAdapter):
+        raise TypeError("Dhan recovery provider requires DhanBrokerAdapter")
     context = request.execution_context
     if context.broker_connection_id is None:
         raise ValueError("pending recovery requires a broker connection identity")
