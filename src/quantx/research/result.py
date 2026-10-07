@@ -143,4 +143,7 @@ class ResearchResult:
 
     @property
     def fingerprint(self) -> str:
-        return self.provenance.fingerprint()
+        provenance = self.provenance
+        if provenance is None:
+            raise ValueError("research result provenance is required for fingerprint")
+        return provenance.fingerprint()
