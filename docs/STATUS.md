@@ -1,9 +1,15 @@
 # QuantX Status
 
 ## Current state
-**Phase:** v0.1 implementation / execution-integrity, recovery, LIVE-control, and deterministic research hardening.
+**Authoritative main:** `bb3e710eaaefbe70f8a4c5026ad07a3ab0f1aa84`
 
-The repository contains an implemented domain, execution, research, India-market, integration, and reconciliation foundation. The active implementation track is execution-integrity hardening, developer-validation integrity, deterministic research/account-state fidelity, and stack integration.
+**R1-C1 through R1-C12:** complete.
+
+**R1-C13:** complete through C13.8, including durable research persistence, research-run orchestration and lifecycle binding, rehydration, experiment comparison/association/metadata persistence, experiment detail read, and the experiment write boundary.
+
+**Current planning target:** **R1-C14 — Deterministic Historical Dataset Ingestion & Provenance Composition.** C14 is planning-only at this state; implementation must compose the existing vendor-neutral market-data, dataset identity, quality, persistence, dataset-access, and research-provenance seams rather than introduce duplicate subsystems.
+
+The repository contains an implemented domain, execution, research, India-market, integration, reconciliation, and deterministic research foundation. Historical validation records below are retained as evidence/history and do not define the current milestone.
 
 **Latest externally validated recovery milestone:** `feat/production-recovery-entrypoint` at `efa4798a76d3576f31b5a2127381fb990c6a0915` with 665 passed, 0 failed, 0 errors, 0 skipped. The earlier 635-test checkpoint remains the last independently documented baseline on the pre-entrypoint recovery branch.
 
@@ -83,8 +89,14 @@ R1-C7 time-indexed historical account-state sampling is implemented and merged i
 
 R1-C6 execution-fidelity hardening is implemented and merged in PR #65. The final validated implementation head was `5a58318c3978b3a78da32847d717e8bc842a8ac8`; it was squash-merged to main as `8067e5f3b81344698b818d950373bbcc477c170a`. External revalidation reported **1168 passed, 0 failed, 0 errors, 1 skipped** (the optional Dhan SDK test). Changed-file Ruff, strict mypy for the two changed production files, and `git diff --check` all passed. The final C6 implementation touched only the paper/research execution-fidelity path and test/docs surfaces; it did not expand LIVE, reconciliation, retry, UNKNOWN, recovery, broker SDK, persistence, or integration boundaries.
 
-## Next direction
+## Current roadmap direction
 
-Before adding UI, AI, or a broad broker matrix, keep the current package boundaries stable. R1-C7 through R1-C11 are complete. The current implementation slice is R1-C12: canonical research run configuration. Structured material run configuration (strategy identity, effective execution/simulation settings, replay and sampling controls, policy fields, broker constraints, and starting capital) now participates in the single existing provenance fingerprint, with fail-closed verification when declared.tion-carried logical dataset identity must match the supplied provenance, still without catalog, inference, or execution-semantics changes. Margin evolution, financing/FX, and broader simulation realism remain deferred until evidence or architecture requires them. The LIVE/recovery boundary and production composition are implemented and externally validated. Issue #22 is now implemented as the Dhan production host slice on this branch: the production host/deployment boundary is documented in `docs/architecture/50-production-host-integration-boundary.md`; `ProductionRuntime` is implemented; Dhan host composition (`DhanHostConfig`/`DhanHostRuntime`/`build_dhan_host_runtime`) is the current implementation slice with 678/678 local tests passing. GitHub Actions is not a repository validation gate while billing is disabled; OpenCode/local validation remains the current execution gate. No production-broker end-to-end execution has been performed.
+R1-C1 through R1-C12 are complete. R1-C13 is complete through C13.8. The next engineering milestone is R1-C14.
 
-`uv.lock` may remain locally modified by environment operations and is not a project change unless dependencies intentionally change. GitHub Actions runs observed for this branch fail before executing workflow steps, so they are not treated as code-validation evidence.
+C14 establishes a deterministic, provider-neutral historical dataset ingestion application boundary that composes the existing `MarketDataPort`, `DatasetCatalog`, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance seams. Dataset identity is pre-declared and authoritative; observations remain lossless; completeness remains evidence-bound; persistence semantics remain centralized; and provider-specific behavior remains outside the dataset domain.
+
+The protected C14 salvage sources are `feat/m2-dataset-ingestion-workflow-v1` and `feat/dhan-host-market-data-wiring-v1`. They are not current implementation branches and must not be merged wholesale; their unique tests/design are source material for C14.
+
+C14 explicitly defers scheduling, retry orchestration, streaming, production historical-data service, distributed ingestion, cloud storage, generic ETL, UI, AI/ML, optimization, and broad broker expansion.
+
+GitHub Actions is not a repository validation gate while billing is disabled; OpenCode/local validation remains the execution gate. No production-broker end-to-end execution has been performed.
