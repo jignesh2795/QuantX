@@ -111,9 +111,13 @@ class ExperimentManager:
 
     def compare(self, left: ResearchResult, right: ResearchResult) -> ExperimentComparison:
         reasons: list[str] = []
+        left_provenance = left.provenance
+        right_provenance = right.provenance
+        if left_provenance is None or right_provenance is None:
+            raise ValueError("research result provenance is required for comparison")
         same_dataset = (
-            left.provenance.dataset_id == right.provenance.dataset_id
-            and left.provenance.dataset_version == right.provenance.dataset_version
+            left_provenance.dataset_id == right_provenance.dataset_id
+            and left_provenance.dataset_version == right_provenance.dataset_version
         )
         left_strategy = left.spec.strategy_identity()
         right_strategy = right.spec.strategy_identity()
