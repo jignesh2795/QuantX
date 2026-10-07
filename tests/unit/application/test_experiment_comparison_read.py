@@ -89,6 +89,7 @@ def _persist_completed(
             created_at=result.started_at,
         )
     )
+    run_repository.start_run(result.spec.run_id, result.started_at)
     result_store.save_result(result)
     run_repository.complete_run(result.spec.run_id, result, result.completed_at)
 
