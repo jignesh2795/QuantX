@@ -12,7 +12,8 @@ from quantx.execution.paper.executor import PaperOrderExecutor
 from quantx.execution.paper.evidence import SimulationEvidence, SimulationEvidenceStatus
 from quantx.execution.paper.fills import MarketSnapshot, SimulatedFill
 from quantx.execution.paper.matching import MatchDecision
-from quantx.execution.paper.profile import ExecutionProfile, SlippageModel
+from quantx.execution.paper.order_types import PaperOrderSpec, PaperOrderType
+from quantx.execution.paper.profile import ExecutionProfile, OrderBookSnapshot, SlippageModel
 
 
 def make_order(order_type=OrderType.MARKET, quantity=Decimal("2")) -> Order:
@@ -101,11 +102,11 @@ class MissingFillTimestampBroker(PaperBroker):
 
     def execute(
         self,
-        order,
+        order: PaperOrderSpec,
         *,
-        snapshot,
-        submitted_at_ns,
-        order_book=None,
+        snapshot: MarketSnapshot | None,
+        submitted_at_ns: int,
+        order_book: OrderBookSnapshot | None = None,
     ) -> PaperExecutionResult:
         return PaperExecutionResult(
             evidence=SimulationEvidence(
