@@ -133,6 +133,13 @@ completed run without a persisted result fails closed through the existing run
 snapshot invariant. No result-store or persistence ownership is moved into the
 detail service.
 
+The application write side uses `ExperimentWriteService` to create logical
+experiment metadata and attach existing research-run identities through the
+database-neutral `ExperimentRepository`. It delegates repository validation
+and persistence rather than duplicating SQLite rules, run lifecycle semantics,
+or result/provenance ownership. The service has no result-store, research-run
+repository, broker, network, or execution dependency.
+
 ## Fail-closed rule
 
 When a run declares structured run configuration, the effective configuration

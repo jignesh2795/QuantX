@@ -17,6 +17,7 @@ from .execution import ExecutionDispatchStatus, ExecutionOrchestrator, Execution
 from .experiment_comparison_read import ExperimentComparisonReadService
 from .experiment_detail_read import ExperimentDetailReadService, ExperimentDetailSnapshot
 from .experiment_read import ExperimentReadService, ExperimentSnapshot
+from .experiment_write import ExperimentWriteService
 from .pending_reconciliation import reconcile_pending_execution
 from .pending_recovery import (
     PendingExecutionRecoveryRunner,
@@ -52,6 +53,7 @@ __all__ = [
     "ExperimentDetailSnapshot",
     "ExperimentReadService",
     "ExperimentSnapshot",
+    "ExperimentWriteService",
     "DeterministicBacktestService",
     "EvidenceRefreshOutcome",
     "ExecutionDispatchStatus",
