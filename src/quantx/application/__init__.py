@@ -15,6 +15,7 @@ from .evidence_refresh import (
 )
 from .execution import ExecutionDispatchStatus, ExecutionOrchestrator, ExecutionResult
 from .experiment_comparison_read import ExperimentComparisonReadService
+from .experiment_detail_read import ExperimentDetailReadService, ExperimentDetailSnapshot
 from .experiment_read import ExperimentReadService, ExperimentSnapshot
 from .pending_reconciliation import reconcile_pending_execution
 from .pending_recovery import (
@@ -47,6 +48,8 @@ __all__ = [
     "ApplicationStartupResult",
     "DefinitiveEvidencePolicy",
     "ExperimentComparisonReadService",
+    "ExperimentDetailReadService",
+    "ExperimentDetailSnapshot",
     "ExperimentReadService",
     "ExperimentSnapshot",
     "DeterministicBacktestService",
