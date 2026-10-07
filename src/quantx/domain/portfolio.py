@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from .accounts import AccountId
-from .instruments import InstrumentId, MarketContext
+from .instruments import MarketContext
+from .value_objects import InstrumentId
 from .positions import Position
 from .value_objects import Money
 from .deployment import PortfolioId
