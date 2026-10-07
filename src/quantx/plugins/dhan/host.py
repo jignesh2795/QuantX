@@ -50,9 +50,14 @@ class DhanHostConfig:
 
     Timeout values bound the caller's wait, never the vendor SDK call itself:
     a slow SDK call may still complete in the background after the timeout and
-    its late result is discarded. Keep ``submit_timeout_seconds`` at or below
-    the vendor SDK's effective HTTP timeout so the configured bound remains
-    the operative one rather than the SDK's own abandonment point.
+    its late result is discarded. The pinned vendor SDK (see the ``dhan`` extra
+    in ``pyproject.toml``, currently version 2.2.0) enforces its own
+    per-request HTTP timeout (``DhanHTTP.HTTP_DEFAULT_TIME_OUT = 60``) and
+    surfaces SDK-side abandonment as a failure envelope, which the transport
+    maps to UNKNOWN. A submit timeout above 60s is therefore safe but
+    pointless: keep ``submit_timeout_seconds`` at or below 60 so the
+    configured bound remains the operative one. Revisit this note only when
+    the pinned SDK version changes.
     """
 
     database_path: str | Path
