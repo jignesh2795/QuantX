@@ -31,7 +31,7 @@ from .mapping import (
     parse_dhan_timestamp,
 )
 from .models import DhanInstrumentRef, DhanOrderDetail, DhanPositionSnapshot
-from .transport import DhanTimeoutError, DhanTransport
+from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanTimeoutError, DhanTransport
 
 
 @dataclass(slots=True)
@@ -44,6 +44,7 @@ class DhanBrokerAdapter:
     _submit_timeout: float
     _cancel_timeout: float
     _reconcile_timeout: float
+    _read_timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
     _capabilities: CapabilitySet = DHAN_CAPABILITIES
     _adapter_version: str = "dhan-0.1"
 
@@ -54,6 +55,7 @@ class DhanBrokerAdapter:
             ("_submit_timeout", self._submit_timeout),
             ("_cancel_timeout", self._cancel_timeout),
             ("_reconcile_timeout", self._reconcile_timeout),
+            ("_read_timeout", self._read_timeout),
         ):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise ValueError(f"{name} must be a positive number")
@@ -79,7 +81,7 @@ class DhanBrokerAdapter:
             raise ValueError("Dhan adapter connection does not match execution request connection")
 
     def health(self) -> bool:
-        return self._transport.health()
+        return self._transport.health(timeout=self._read_timeout)
 
     def capabilities(self) -> CapabilitySet:
         return self._capabilities
@@ -212,7 +214,7 @@ class DhanBrokerAdapter:
 
     def account_state(self, *, currency: str = "INR") -> AccountFinancialState:
         """Expose the observed broker balance without inventing missing values."""
-        snapshot = self._transport.fund_limits()
+        snapshot = self._transport.fund_limits(timeout=self._read_timeout)
         return AccountFinancialState(
             account_id=self._connection.account_id,
             connection_id=self._connection.connection_id,
@@ -229,7 +231,7 @@ class DhanBrokerAdapter:
         Unknown instruments and unavailable observations fail closed; nothing
         is inferred or silently dropped.
         """
-        snapshot = self._transport.positions()
+        snapshot = self._transport.positions(timeout=self._read_timeout)
         if not snapshot.available:
             raise ValueError(f"Dhan position observation unavailable: {snapshot.message}")
         reverse: dict[tuple[str, str], InstrumentId] = {
@@ -265,7 +267,7 @@ class DhanBrokerAdapter:
         holdings endpoint, consumed as corroborating evidence only) is the
         correct boundary for settled-holdings questions.
         """
-        snapshot = self._transport.positions()
+        snapshot = self._transport.positions(timeout=self._read_timeout)
         if not snapshot.available:
             raise ValueError(f"Dhan position observation unavailable: {snapshot.message}")
         reverse: dict[tuple[str, str], InstrumentId] = {

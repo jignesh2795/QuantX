@@ -17,7 +17,7 @@ from quantx.domain.market_data import Candle, Quote
 from quantx.domain.value_objects import InstrumentId
 
 from .models import DhanInstrumentRef
-from .transport import DhanTransport
+from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanTransport
 
 _SUPPORTED_TIMEFRAMES = ("1m", "5m", "15m", "25m", "60m", "1d")
 
@@ -28,11 +28,14 @@ class DhanMarketDataAdapter:
 
     _instruments: dict[InstrumentId, tuple[Instrument, DhanInstrumentRef]]
     _transport: DhanTransport
+    _read_timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
 
     def quote(self, instrument: InstrumentId) -> Quote | None:
         """Return the latest broker quote snapshot, or None when unavailable."""
         reference = self._resolve(instrument)
-        snapshot = self._transport.quote_snapshot(reference.security_id, reference.exchange_segment)
+        snapshot = self._transport.quote_snapshot(
+            reference.security_id, reference.exchange_segment, timeout=self._read_timeout
+        )
         if snapshot is None:
             return None
         return Quote(
@@ -68,6 +71,7 @@ class DhanMarketDataAdapter:
             start=start,
             end=end,
             instrument_type=_sdk_instrument_type(canonical),
+            timeout=self._read_timeout,
         )
         candles = tuple(
             Candle(

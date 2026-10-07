@@ -39,14 +39,26 @@ from quantx.integrations.brokers import BrokerConnectionRef
 from .adapter import DhanBrokerAdapter
 from .models import DhanCredentials, DhanInstrumentRef
 from .recovery import build_dhan_recovery_provider
-from .transport import DhanSDKTransport, DhanTransport
+from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanSDKTransport, DhanTransport
 
 _DHAN_BROKER_ID = "dhan"
 
 
 @dataclass(frozen=True, slots=True)
 class DhanHostConfig:
-    """Explicit inputs required to host one Dhan deployment process."""
+    """Explicit inputs required to host one Dhan deployment process.
+
+    Timeout values bound the caller's wait, never the vendor SDK call itself:
+    a slow SDK call may still complete in the background after the timeout and
+    its late result is discarded. The pinned vendor SDK (see the ``dhan`` extra
+    in ``pyproject.toml``, currently version 2.2.0) enforces its own
+    per-request HTTP timeout (``DhanHTTP.HTTP_DEFAULT_TIME_OUT = 60``) and
+    surfaces SDK-side abandonment as a failure envelope, which the transport
+    maps to UNKNOWN. A submit timeout above 60s is therefore safe but
+    pointless: keep ``submit_timeout_seconds`` at or below 60 so the
+    configured bound remains the operative one. Revisit this note only when
+    the pinned SDK version changes.
+    """
 
     database_path: str | Path
     account_id: AccountId
@@ -56,6 +68,7 @@ class DhanHostConfig:
     submit_timeout_seconds: float
     cancel_timeout_seconds: float
     reconcile_timeout_seconds: float
+    read_timeout_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS
     credentials: DhanCredentials | None = None
     transport: DhanTransport | None = None
     local_order_provider: LocalOrderProvider | None = None
@@ -81,6 +94,7 @@ class DhanHostConfig:
             ("submit_timeout_seconds", self.submit_timeout_seconds),
             ("cancel_timeout_seconds", self.cancel_timeout_seconds),
             ("reconcile_timeout_seconds", self.reconcile_timeout_seconds),
+            ("read_timeout_seconds", self.read_timeout_seconds),
         ):
             _validate_timeout_seconds(name, value)
 
@@ -162,6 +176,7 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         _submit_timeout=config.submit_timeout_seconds,
         _cancel_timeout=config.cancel_timeout_seconds,
         _reconcile_timeout=config.reconcile_timeout_seconds,
+        _read_timeout=config.read_timeout_seconds,
     )
 
     def configure(registry: AccountConnectionRegistry) -> None:

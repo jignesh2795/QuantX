@@ -37,7 +37,7 @@ class DhanTimeoutError(Exception):
         super().__init__(f"Dhan {operation} timed out after {timeout}s")
 
 
-_DEFAULT_READ_TIMEOUT_SECONDS = 10.0
+DEFAULT_READ_TIMEOUT_SECONDS = 10.0
 
 
 @runtime_checkable
@@ -48,12 +48,12 @@ class DhanTransport(Protocol):
     and ``reconcile`` take an explicit ``timeout``. The read-only observations
     (``health``, ``fund_limits``, ``positions``, ``quote_snapshot``,
     ``candles``) take an optional ``timeout`` defaulting to
-    ``_DEFAULT_READ_TIMEOUT_SECONDS``; callers that need a tighter bound pass
-    it explicitly. A hung state-changing submission never blocks a
+    ``DEFAULT_READ_TIMEOUT_SECONDS``; hosts that need a tighter bound thread
+    an explicit value through the adapter instead. A hung state-changing submission never blocks a
     reconciliation or read-only observation behind it.
     """
 
-    def health(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> bool: ...
+    def health(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> bool: ...
 
     def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse: ...
 
@@ -62,11 +62,11 @@ class DhanTransport(Protocol):
     def reconcile(self, correlation_id: str, *, timeout: float) -> DhanOrderDetail: ...
 
     def fund_limits(
-        self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS
+        self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
     ) -> DhanFundsSnapshot: ...
 
     def positions(
-        self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS
+        self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
     ) -> DhanPositionsSnapshot: ...
 
     def quote_snapshot(
@@ -74,7 +74,7 @@ class DhanTransport(Protocol):
         security_id: str,
         exchange_segment: str,
         *,
-        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanQuoteSnapshot | None: ...
 
     def candles(
@@ -86,7 +86,7 @@ class DhanTransport(Protocol):
         start: datetime,
         end: datetime,
         instrument_type: str = "EQUITY",
-        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> tuple[DhanCandleSnapshot, ...]: ...
 
     def close(self) -> None: ...
@@ -164,7 +164,7 @@ class DhanSDKTransport:
             future.cancel()
             raise DhanTimeoutError(operation, timeout) from exc
 
-    def health(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> bool:
+    def health(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> bool:
         try:
             response = self._call_with_timeout(
                 self._client.get_fund_limits,
@@ -230,7 +230,7 @@ class DhanSDKTransport:
         )
         return _order_detail(response)
 
-    def fund_limits(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> DhanFundsSnapshot:
+    def fund_limits(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanFundsSnapshot:
         try:
             response = self._call_with_timeout(
                 self._client.get_fund_limits,
@@ -246,7 +246,7 @@ class DhanSDKTransport:
             )
         return _funds_snapshot(response)
 
-    def positions(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> DhanPositionsSnapshot:
+    def positions(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanPositionsSnapshot:
         try:
             response = self._call_with_timeout(
                 self._client.get_positions,
@@ -267,7 +267,7 @@ class DhanSDKTransport:
         security_id: str,
         exchange_segment: str,
         *,
-        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanQuoteSnapshot | None:
         """Re-observe one quote packet; transport failure means unavailable."""
         try:
@@ -296,7 +296,7 @@ class DhanSDKTransport:
         start: datetime,
         end: datetime,
         instrument_type: str = "EQUITY",
-        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> tuple[DhanCandleSnapshot, ...]:
         """Fetch normalized historical candles for one Dhan instrument."""
         try:
@@ -391,7 +391,7 @@ class InMemoryDhanTransport:
     def cancelled(self) -> tuple[str, ...]:
         return tuple(self._cancelled)
 
-    def health(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> bool:
+    def health(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> bool:
         return True
 
     def close(self) -> None:
@@ -424,7 +424,7 @@ class InMemoryDhanTransport:
             update_time="2026-01-01 10:00:00",
         )
 
-    def fund_limits(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> DhanFundsSnapshot:
+    def fund_limits(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanFundsSnapshot:
         return DhanFundsSnapshot(
             observed_at=datetime(2026, 1, 1, tzinfo=UTC),
             available_balance=self.funds_available_balance,
@@ -433,7 +433,7 @@ class InMemoryDhanTransport:
             message=self.funds_message,
         )
 
-    def positions(self, *, timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS) -> DhanPositionsSnapshot:
+    def positions(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanPositionsSnapshot:
         return DhanPositionsSnapshot(
             observed_at=datetime(2026, 1, 1, tzinfo=UTC),
             positions=self.position_snapshots,
@@ -446,7 +446,7 @@ class InMemoryDhanTransport:
         security_id: str,
         exchange_segment: str,
         *,
-        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanQuoteSnapshot | None:
         return self.quote_snapshots.get((security_id, exchange_segment))
 
@@ -459,7 +459,7 @@ class InMemoryDhanTransport:
         start: datetime,
         end: datetime,
         instrument_type: str = "EQUITY",
-        timeout: float = _DEFAULT_READ_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> tuple[DhanCandleSnapshot, ...]:
         return tuple(
             snapshot
