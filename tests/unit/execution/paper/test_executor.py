@@ -12,7 +12,7 @@ from quantx.execution.paper.executor import PaperOrderExecutor
 from quantx.execution.paper.evidence import SimulationEvidence, SimulationEvidenceStatus
 from quantx.execution.paper.fills import MarketSnapshot, SimulatedFill
 from quantx.execution.paper.matching import MatchDecision
-from quantx.execution.paper.order_types import PaperOrderSpec, PaperOrderType
+from quantx.execution.paper.order_types import PaperOrderSpec
 from quantx.execution.paper.profile import ExecutionProfile, OrderBookSnapshot, SlippageModel
 
 
@@ -97,9 +97,6 @@ def test_non_marketable_limit_remains_submitted() -> None:
 
 
 class MissingFillTimestampBroker(PaperBroker):
-    def __init__(self) -> None:
-        pass
-
     def execute(
         self,
         order: PaperOrderSpec,
@@ -126,7 +123,17 @@ class MissingFillTimestampBroker(PaperBroker):
 
 def test_fill_requires_timestamp_when_present() -> None:
     order = make_order()
-    executor = PaperOrderExecutor(MissingFillTimestampBroker(), FillAccounting())
+    executor = PaperOrderExecutor(
+        MissingFillTimestampBroker(
+            ExecutionProfile(
+                profile_id="missing-timestamp",
+                version="1",
+                slippage_model=SlippageModel.NONE,
+                fee_rate=Decimal("0"),
+            )
+        ),
+        FillAccounting(),
+    )
 
     try:
         executor.execute(
