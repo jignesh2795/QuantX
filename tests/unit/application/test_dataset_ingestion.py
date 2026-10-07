@@ -282,15 +282,8 @@ def test_store_failure_propagates():
             self.calls.append((tuple(candles), source_id, dataset_version))
             raise RuntimeError("store unavailable")
 
-    svc, market_data, _ = service((candle(),))
-    failing = FailingStore()
-    svc = HistoricalDatasetIngestionService(
-        catalog=InMemoryDatasetCatalog(),
-        market_data=market_data,
-        store=failing,
-    )
-    # Re-register because this service owns an explicit catalog boundary.
-    svc._catalog.register(
+    catalog = InMemoryDatasetCatalog()
+    catalog.register(
         DatasetVersion(
             identity=DatasetIdentity(
                 dataset_id="nse-equities",
@@ -300,6 +293,13 @@ def test_store_failure_propagates():
                 content_fingerprint=fingerprint_bytes(b"declared"),
             )
         )
+    )
+    market_data = FakeMarketData((candle(),))
+    failing = FailingStore()
+    svc = HistoricalDatasetIngestionService(
+        catalog=catalog,
+        market_data=market_data,
+        store=failing,
     )
 
     with pytest.raises(RuntimeError, match="store unavailable"):
