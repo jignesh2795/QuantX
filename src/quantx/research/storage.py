@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-import json
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
