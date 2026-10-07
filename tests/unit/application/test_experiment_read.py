@@ -97,10 +97,7 @@ def test_experiment_read_service_returns_none_for_missing_experiment(tmp_path: P
             run_repository=SqliteResearchRunRepository(database),
         )
 
-        assert (
-            service.get(UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"))
-            is None
-        )
+        assert service.get(UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")) is None
 
 
 class _MissingRunExperimentRepository(ExperimentRepository):
