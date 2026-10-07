@@ -280,7 +280,9 @@ def test_filesystem_result_decoder_public_path_round_trips_valid_payload(
 
     assert restored.result_id == result_id
     assert restored.metric("return") == Decimal("0.12")
-    assert restored.fingerprint == store.get_result(result_id).fingerprint
+    restored_from_store = store.get_result(result_id)
+    assert restored_from_store is not None
+    assert restored.fingerprint == restored_from_store.fingerprint
 
 
 def test_filesystem_result_decoder_rejects_malformed_metric_shape(tmp_path: Path) -> None:
