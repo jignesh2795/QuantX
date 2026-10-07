@@ -164,6 +164,7 @@ class ExecutionLifecycle:
         new_filled = self.filled_quantity + receipt.filled_quantity
         if new_filled > self.order_quantity:
             raise ValueError("cumulative fills exceed order quantity")
+        next_status: OrderStatus
         if receipt.order_status in {
             OrderStatus.CANCELLED,
             OrderStatus.REJECTED,
