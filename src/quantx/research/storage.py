@@ -91,9 +91,12 @@ def _required_string_list(payload: Mapping[str, object], field_name: str) -> tup
     value = payload.get(field_name)
     if not isinstance(value, list):
         raise ValueError(f"{field_name} must be an array")
-    if not all(isinstance(item, str) for item in value):
-        raise ValueError(f"{field_name} must contain strings")
-    return tuple(value)
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} must contain strings")
+        result.append(item)
+    return tuple(result)
 
 
 def _metrics(payload: Mapping[str, object]) -> tuple[tuple[str, Decimal], ...]:
@@ -104,13 +107,14 @@ def _metrics(payload: Mapping[str, object]) -> tuple[tuple[str, Decimal], ...]:
     for item in value:
         if not isinstance(item, list) or len(item) != 2:
             raise ValueError("metrics must contain [string, decimal-string] pairs")
-        if not isinstance(item[0], str) or not isinstance(item[1], str):
+        metric_name, metric_value_text = item
+        if not isinstance(metric_name, str) or not isinstance(metric_value_text, str):
             raise ValueError("metrics must contain [string, decimal-string] pairs")
         try:
-            metric_value = Decimal(item[1])
+            metric_value = Decimal(metric_value_text)
         except InvalidOperation as exc:
             raise ValueError("metrics must contain valid decimal strings") from exc
-        metrics.append((item[0], metric_value))
+        metrics.append((metric_name, metric_value))
     return tuple(metrics)
 
 
