@@ -19,6 +19,7 @@ from quantx.domain.risk import RiskResult
 from .dispatch import ExecutionDispatchResult, ExecutionDispatcher
 from .idempotency import InMemoryIdempotencyStore, IdempotencyStore, request_fingerprint
 from .lifecycle import ExecutionLifecycleService
+from .market_data import MarketSnapshot
 from .receipts.lifecycle import ExecutionLifecycle
 from .receipts.models import ExecutionReceipt
 
@@ -313,7 +314,7 @@ class ExecutionContinuationService:
         chain: ExecutionContinuationChain,
         parent_request: ApprovedExecutionRequest,
         continuation: ApprovedExecutionRequest,
-        receipt_id,
+        receipt_id: UUID,
     ) -> ExecutionContinuationResult:
         repository = self._lifecycle_service.receipt_repository
         if repository is None:
@@ -355,7 +356,7 @@ class ExecutionContinuationService:
         parent_request: ApprovedExecutionRequest,
         continuation: ApprovedExecutionRequest,
         *,
-        snapshot,
+        snapshot: MarketSnapshot | None,
     ) -> ExecutionContinuationResult:
         fingerprint = request_fingerprint(continuation)
         decision = self._idempotency.reserve_or_get(
@@ -580,7 +581,7 @@ class ExecutionContinuationService:
         policy_result: PolicyResult | None = None,
         required_margin: Decimal = Decimal("0"),
         requested_quantity: Decimal | None = None,
-        snapshot=None,
+        snapshot: MarketSnapshot | None = None,
     ) -> ExecutionContinuationResult:
         """Prepare and dispatch the next child from authoritative chain state."""
         chain, continuation = self._prepare_chain_continuation(
@@ -611,7 +612,7 @@ class ExecutionContinuationService:
         policy_result: PolicyResult | None = None,
         required_margin: Decimal = Decimal("0"),
         requested_quantity: Decimal | None = None,
-        snapshot=None,
+        snapshot: MarketSnapshot | None = None,
     ) -> ExecutionContinuationDispatchReconciliation:
         """Dispatch a continuation and require authoritative child reconciliation."""
         chain, continuation = self._prepare_chain_continuation(
@@ -650,7 +651,7 @@ class ExecutionContinuationService:
         risk_result: RiskResult,
         policy_result: PolicyResult | None = None,
         requested_quantity: Decimal | None = None,
-        snapshot=None,
+        snapshot: MarketSnapshot | None = None,
     ) -> ExecutionContinuationResult:
         """Build and dispatch one fresh child for the evidenced remainder."""
         lifecycle = self._lifecycle_service.reconcile(request)
