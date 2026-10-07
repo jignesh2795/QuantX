@@ -25,9 +25,12 @@ class PaperMatcher:
             return MatchDecision(True, snapshot.ask if side == "BUY" else snapshot.bid, "marketable")
 
         if order.order_type is PaperOrderType.LIMIT:
-            if side == "BUY" and order.limit_price >= snapshot.ask:
+            limit_price = order.limit_price
+            if limit_price is None:
+                raise ValueError("limit_price is required for limit matching")
+            if side == "BUY" and limit_price >= snapshot.ask:
                 return MatchDecision(True, snapshot.ask, "buy limit crosses ask")
-            if side == "SELL" and order.limit_price <= snapshot.bid:
+            if side == "SELL" and limit_price <= snapshot.bid:
                 return MatchDecision(True, snapshot.bid, "sell limit crosses bid")
             return MatchDecision(False, None, "limit not marketable")
 
