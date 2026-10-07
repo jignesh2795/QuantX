@@ -84,11 +84,15 @@ def service(values=(), inserted=0):
     )
     market_data = FakeMarketData(values)
     store = FakeStore(inserted)
-    return HistoricalDatasetIngestionService(
-        catalog=catalog,
-        market_data=market_data,
-        store=store,
-    ), market_data, store
+    return (
+        HistoricalDatasetIngestionService(
+            catalog=catalog,
+            market_data=market_data,
+            store=store,
+        ),
+        market_data,
+        store,
+    )
 
 
 def test_registered_dataset_is_retrieved_assessed_and_persisted_once():
@@ -280,9 +284,7 @@ def test_provider_failure_propagates_and_store_is_not_touched():
     )
     market_data = FailingMarketData()
     store = FakeStore()
-    svc = HistoricalDatasetIngestionService(
-        catalog=catalog, market_data=market_data, store=store
-    )
+    svc = HistoricalDatasetIngestionService(catalog=catalog, market_data=market_data, store=store)
 
     with pytest.raises(RuntimeError, match="provider unavailable"):
         svc.ingest(
