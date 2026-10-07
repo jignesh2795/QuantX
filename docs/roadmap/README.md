@@ -14,18 +14,31 @@ Broker/data adapters, capability discovery, historical data, Historify-style loc
 ## M3 — Simulation and Research
 Sandbox, paper execution, canonical backtesting, optimization, walk-forward, robustness and scenario testing.
 
-### R1-C execution-fidelity sequence
+### R1-C deterministic research and provenance sequence
 
-The current execution/research hardening sequence is:
+The completed R1-C sequence is:
 
-`C1 canonical historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar-aware gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution price/fill fidelity ✅ → C7 time-indexed account-state sampling ✅ → C8 account-state valuation provenance ✅`
+`C1 historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar/gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution-price/fill fidelity ✅ → C7 time-indexed account-state sampling ✅ → C8 valuation provenance ✅ → C9 multi-instrument synchronization ✅ → C10 backtest provenance binding ✅ → C11 dataset identity/evidence ✅ → C12 canonical research-run configuration ✅ → C13 research persistence/orchestration/experiments ✅`
 
-R1-C1 through R1-C8 are merged and externally revalidated. The next slice is selected from the remaining deterministic-research/account-state gaps rather than opening UI, AI, or broad broker-matrix work.
+### R1-C13 — Research persistence and experiments
 
-The R1-C6 planning and implementation record is in `r1-c6-execution-fidelity.md`.
-The R1-C7 planning and implementation record is in `r1-c7-time-indexed-account-state.md`.
-The R1-C8 planning and implementation record is in `r1-c8-account-state-valuation-provenance.md`.
-The selected next slice is documented in `r1-c9-multi-instrument-account-state-synchronization.md`.
+C13 is complete through C13.8. It established durable SQLite research persistence, research-run orchestration and lifecycle binding, run rehydration, experiment comparison and association, metadata ownership and persistence, experiment detail reads, and the thin experiment write boundary.
+
+C13 preserves the existing provenance and persistence seams; it does not introduce a competing research identity system.
+
+### R1-C14 — Deterministic Historical Dataset Ingestion & Provenance Composition
+
+C14 is the next planning target. It composes the existing `MarketDataPort`, dataset identity/catalog, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance boundaries into one deterministic historical ingestion workflow.
+
+The canonical lifecycle is:
+
+`pre-registered DatasetVersion → provider/MarketDataPort → C14 ingestion boundary → canonical candles → quality evidence → MarketDataStore → dataset-backed read → ResearchProvenance/ResearchRun`
+
+C14 is provider-neutral. Dhan is a concrete vertical proof, not the domain boundary. Existing Dhan/dataset branches are salvage sources and are not to be merged wholesale.
+
+C14 explicitly defers scheduling, streaming, distributed ingestion, cloud storage, generic ETL, production historical-data service, UI, AI/ML, optimization, and broad broker expansion.
+
+The C14 planning record is maintained separately from this master roadmap; implementation begins only after the requirements/invariants and boundary map are settled.
 
 ## M4 — Strategy Platform
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals.
