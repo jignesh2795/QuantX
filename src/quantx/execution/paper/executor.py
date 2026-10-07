@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import UTC, datetime
 
-from quantx.domain.enums import OrderStatus
 from quantx.domain.orders import Fill, Order
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.order_lifecycle import (
     OrderLifecycle,
     OrderLifecycleEvent,
     OrderLifecycleStatus,
+    OutcomeConfidence,
 )
 
 from .broker import PaperBroker
@@ -50,12 +49,14 @@ class PaperOrderExecutor:
             raise ValueError("observed_at must be timezone-aware")
 
         lifecycle = OrderLifecycle(order.client_order_id)
-        lifecycle.apply(OrderLifecycleEvent(
-            order_id=order.client_order_id,
-            status=OrderLifecycleStatus.SUBMITTED,
-            observed_at=observed_at,
-            source="paper",
-        ))
+        lifecycle.apply(
+            OrderLifecycleEvent(
+                order_id=order.client_order_id,
+                status=OrderLifecycleStatus.SUBMITTED,
+                observed_at=observed_at,
+                source="paper",
+            )
+        )
 
         paper_type = PaperOrderType(order.order_type.value)
         spec = PaperOrderSpec(
@@ -73,20 +74,22 @@ class PaperOrderExecutor:
         )
 
         if result.evidence.status is SimulationEvidenceStatus.INSUFFICIENT:
-            lifecycle.apply(OrderLifecycleEvent(
-                order_id=order.client_order_id,
-                status=OrderLifecycleStatus.UNKNOWN,
-                observed_at=observed_at,
-                source="paper",
-                message=result.evidence.reason,
-                confidence="UNCERTAIN",
-            ))
+            lifecycle.apply(
+                OrderLifecycleEvent(
+                    order_id=order.client_order_id,
+                    status=OrderLifecycleStatus.UNKNOWN,
+                    observed_at=observed_at,
+                    source="paper",
+                    message=result.evidence.reason,
+                    confidence=OutcomeConfidence.UNCERTAIN,
+                )
+            )
             return PaperExecutionOutcome(lifecycle.status, None, None, result.evidence.reason)
 
         if result.fill is None or result.fill.quantity <= 0:
             return PaperExecutionOutcome(lifecycle.status, None, None, result.match.reason)
 
-        filled_at = datetime.fromtimestamp(result.fill_at_ns / 1_000_000_000, tz=timezone.utc)
+        filled_at = datetime.fromtimestamp(result.fill_at_ns / 1_000_000_000, tz=UTC)
         fill = Fill(
             client_order_id=order.client_order_id,
             instrument=order.instrument,
@@ -100,11 +103,13 @@ class PaperOrderExecutor:
             if result.fill.partial
             else OrderLifecycleStatus.FILLED
         )
-        lifecycle.apply(OrderLifecycleEvent(
-            order_id=order.client_order_id,
-            status=status,
-            observed_at=filled_at,
-            source="paper",
-        ))
+        lifecycle.apply(
+            OrderLifecycleEvent(
+                order_id=order.client_order_id,
+                status=status,
+                observed_at=filled_at,
+                source="paper",
+            )
+        )
         ledger = self.accounting.apply(fill, fee=result.fill.fee)
         return PaperExecutionOutcome(lifecycle.status, ledger, fill, "paper fill applied")
