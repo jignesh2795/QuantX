@@ -8,8 +8,8 @@ from quantx.domain.value_objects import InstrumentId
 from quantx.execution.accounting import FillAccounting
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.paper.broker import PaperBroker, PaperExecutionResult
-from quantx.execution.paper.executor import PaperOrderExecutor
 from quantx.execution.paper.evidence import SimulationEvidence, SimulationEvidenceStatus
+from quantx.execution.paper.executor import PaperOrderExecutor
 from quantx.execution.paper.fills import MarketSnapshot, SimulatedFill
 from quantx.execution.paper.matching import MatchDecision
 from quantx.execution.paper.order_types import PaperOrderSpec
