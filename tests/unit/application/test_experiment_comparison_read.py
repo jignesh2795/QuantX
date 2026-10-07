@@ -8,11 +8,15 @@ import pytest
 from quantx.application import ExperimentComparisonReadService, ResearchRunReadService
 from quantx.research.provenance import ResearchProvenance
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
-from quantx.research.run import ResearchRunRecord, ResearchRunState
+from quantx.research.run import ResearchRunRecord
 from quantx.research.storage import InMemoryResearchRunRepository, InMemoryResearchStore
 
 
-def _provenance(*, dataset_id: str = "dataset-1", simulation_profile: str = "REALISTIC") -> ResearchProvenance:
+def _provenance(
+    *,
+    dataset_id: str = "dataset-1",
+    simulation_profile: str = "REALISTIC",
+) -> ResearchProvenance:
     return ResearchProvenance(
         dataset_id=dataset_id,
         dataset_version="v1",
