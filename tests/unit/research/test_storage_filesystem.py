@@ -17,7 +17,7 @@ from quantx.research.provenance import (
     StrategyConfiguration,
 )
 from quantx.research.result import ResearchResult, ResearchRunSpec, ResultQuality
-from quantx.research.storage import LocalFilesystemResearchStore
+from quantx.research.storage import LocalFilesystemResearchStore, research_result_from_payload
 
 
 def _result() -> ResearchResult:
@@ -252,3 +252,142 @@ def test_filesystem_structured_result_rejects_invalid_provenance_configuration(
 
     with pytest.raises(ValueError, match="latency_ms"):
         store.get_result(result.result_id)
+
+
+def _saved_result(tmp_path: Path) -> tuple[LocalFilesystemResearchStore, Path, UUID]:
+    store = LocalFilesystemResearchStore(tmp_path)
+    result = _result()
+    store.save_result(result)
+    path = tmp_path / "results" / (str(result.result_id) + ".json")
+    return store, path, result.result_id
+
+
+def test_filesystem_result_decoder_rejects_non_object_root(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="result must be an object"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_public_path_round_trips_valid_payload(
+    tmp_path: Path,
+) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    restored = research_result_from_payload(payload)
+
+    assert restored.result_id == result_id
+    assert restored.metric("return") == Decimal("0.12")
+    assert restored.fingerprint == store.get_result(result_id).fingerprint
+
+
+def test_filesystem_result_decoder_rejects_malformed_metric_shape(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["metrics"] = [["return"]]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metrics must contain \[string, decimal-string\] pairs"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_non_string_metric_name(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["metrics"] = [[7, "0.12"]]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metrics must contain"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_non_string_metric_value(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["metrics"] = [["return", 0.12]]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metrics must contain"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_invalid_metric_decimal(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["metrics"] = [["return", "not-a-decimal"]]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metrics must contain valid decimal strings"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_assumptions_string(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["assumptions"] = "not-an-array"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="assumptions must be an array"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_non_string_assumption(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["assumptions"] = [7]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="assumptions must contain strings"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_limitations_string(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["limitations"] = "not-an-array"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="limitations must be an array"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_non_string_limitation(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["limitations"] = [7]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="limitations must contain strings"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_invalid_quality(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["quality"] = "UNKNOWN_QUALITY"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="quality must be a valid ResultQuality value"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_non_string_timestamp(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["started_at"] = 123
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="started_at must be a string"):
+        store.get_result(result_id)
+
+
+def test_filesystem_result_decoder_rejects_invalid_result_id(tmp_path: Path) -> None:
+    store, path, result_id = _saved_result(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["result_id"] = "not-a-uuid"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="result_id must contain a valid UUID"):
+        store.get_result(result_id)
