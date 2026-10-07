@@ -13,6 +13,7 @@ from quantx.execution.order_lifecycle import (
     OrderLifecycle,
     OrderLifecycleEvent,
     OrderLifecycleStatus,
+    OutcomeConfidence,
 )
 
 from .broker import PaperBroker
@@ -79,7 +80,7 @@ class PaperOrderExecutor:
                 observed_at=observed_at,
                 source="paper",
                 message=result.evidence.reason,
-                confidence="UNCERTAIN",
+                confidence=OutcomeConfidence.UNCERTAIN,
             ))
             return PaperExecutionOutcome(lifecycle.status, None, None, result.evidence.reason)
 
