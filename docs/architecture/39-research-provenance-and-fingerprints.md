@@ -110,6 +110,15 @@ referenced `research_runs` row to exist. Existing research run/result stores rem
 authoritative for run state, result payloads, configuration, and provenance.
 Experiment comparison results are not persisted by this slice.
 
+The application read side uses `ExperimentReadService` to compose the durable
+experiment catalog with the existing `ResearchRunRepository`. An
+`ExperimentSnapshot` contains only the logical `Experiment` and its authoritative
+`ResearchRunRecord` instances. The read service rejects a catalog membership
+that cannot be resolved to an existing run or whose run ownership is
+inconsistent. Research results remain outside this snapshot and are rehydrated
+through `ResearchRunReadService`, preserving the existing result/provenance
+authority boundary.
+
 ## Fail-closed rule
 
 When a run declares structured run configuration, the effective configuration
