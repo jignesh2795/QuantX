@@ -152,8 +152,14 @@ class PaperSession:
         if instrument.market != request.execution_context.market:
             raise ValueError("resolved instrument market does not match the execution request")
 
-        if self._cash_ledger is None and cash is None:
+        cash_ledger = self._cash_ledger
+        if cash_ledger is None and cash is None:
             raise ValueError("cash is required when no cash ledger is configured")
+        if cash is not None:
+            cash_currency = cash.currency
+        else:
+            assert cash_ledger is not None
+            cash_currency = cash_ledger.balance.currency
         margin_reservation = None
         required_margin = request.required_margin
         if self._margin_ledger is not None and self._position_margin_policy is not None:
@@ -212,21 +218,10 @@ class PaperSession:
 
         if self._margin_ledger is not None:
             ledger_state = self._margin_ledger.state
-            margin_currency = (
-                cash.currency
-                if cash is not None
-                else self._cash_ledger.balance.currency
-                if self._cash_ledger is not None
-                else None
-            )
-            if margin_currency is None:
-                raise ValueError("cash is required when a margin ledger is configured")
-            margin_used = Money(ledger_state.used, margin_currency)
-            margin_available = Money(ledger_state.available, margin_currency)
+            margin_used = Money(ledger_state.used, cash_currency)
+            margin_available = Money(ledger_state.available, cash_currency)
         elif margin_used is None:
-            margin_used = Money.zero(
-                cash.currency if cash is not None else self._cash_ledger.balance.currency
-            )
+            margin_used = Money.zero(cash_currency)
 
         try:
             adapter = execution_adapter or self._executor
@@ -322,6 +317,7 @@ class PaperSession:
             )
             positions.append(position)
             entry_snapshot = self._market_snapshots.get(entry.instrument)
+            mark_price: Decimal | None = None
             if entry.instrument == snapshot.instrument and valuation_price is not None:
                 mark_price = valuation_price
             elif entry_snapshot is not None:
@@ -360,7 +356,10 @@ class PaperSession:
             else Money.zero(account_cash.currency)
         )
         gross_exposure = Money(
-            sum(abs(result.market_value) for result in valuation.valuations),
+            sum(
+                (abs(result.market_value) for result in valuation.valuations),
+                Decimal("0"),
+            ),
             account_cash.currency,
         )
         financial_state = AccountFinancialStateBuilder().from_cash_and_margin(
@@ -441,6 +440,7 @@ class PaperSession:
         for entry in entries:
             if entry.quantity == 0:
                 continue
+            mark: Decimal | None = None
             if entry.instrument == instrument.instrument_id:
                 mark = reference_price
                 multiplier = instrument.multiplier
@@ -489,7 +489,10 @@ class PaperSession:
         result = self._post_trade_risk.evaluate_projected_limits(
             margin_used=projected_margin_used,
             margin_available=projected_margin_available,
-            gross_exposure=Money(sum(x.amount for x in exposures), instrument.currency),
+            gross_exposure=Money(
+                sum((x.amount for x in exposures), Decimal("0")),
+                instrument.currency,
+            ),
             position_exposures=tuple(exposures),
         )
         if not result.allowed:
