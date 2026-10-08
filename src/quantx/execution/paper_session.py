@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.finance import CapitalSourceType
@@ -26,6 +26,7 @@ from quantx.execution.margin_ledger import MarginLedger, MarginReservation, Marg
 from quantx.execution.margin_policy import PositionMarginPolicy
 from quantx.execution.paper_engine import PaperExecutionEngine
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+from quantx.execution.receipts.models import ExecutionReceipt
 from quantx.domain.risk import RiskResult
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
 from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer, RiskEnforcementResult
@@ -35,7 +36,9 @@ from .market_data import MarketSnapshot
 
 
 class _ExecutionAdapter(Protocol):
-    def execute(self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot):
+    def execute(
+        self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot
+    ) -> ExecutionReceipt:
         ...
 
 
@@ -52,7 +55,9 @@ class _PartialContinuationAdapter:
         self._risk_result = risk_result
         self._requested_quantity = requested_quantity
 
-    def execute(self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot):
+    def execute(
+        self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot
+    ) -> ExecutionReceipt:
         return self._executor.execute(request, snapshot=snapshot)
 
 
@@ -112,7 +117,9 @@ class PaperSession:
     def margin_state(self) -> MarginState | None:
         return None if self._margin_ledger is None else self._margin_ledger.state
 
-    def release_margin(self, reservation_id, amount: Decimal | None = None) -> MarginReservation:
+    def release_margin(
+        self, reservation_id: UUID, amount: Decimal | None = None
+    ) -> MarginReservation:
         if self._margin_ledger is None:
             raise ValueError("no margin ledger is configured")
         return self._margin_ledger.release(reservation_id, amount)
