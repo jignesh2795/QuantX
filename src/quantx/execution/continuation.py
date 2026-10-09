@@ -215,9 +215,7 @@ class ExecutionContinuationService:
         requested_quantity: Decimal | None,
     ) -> tuple[ExecutionContinuationChain, ApprovedExecutionRequest]:
         chain = self.reconcile_chain(root_request, continuation_requests)
-        latest_request = (
-            continuation_requests[-1] if continuation_requests else root_request
-        )
+        latest_request = continuation_requests[-1] if continuation_requests else root_request
         if latest_request.order.client_order_id != chain.latest_lifecycle.client_order_id:
             raise ValueError("latest continuation request does not match chain lifecycle")
         if not chain.can_continue:
@@ -318,9 +316,7 @@ class ExecutionContinuationService:
     ) -> ExecutionContinuationResult:
         repository = self._lifecycle_service.receipt_repository
         if repository is None:
-            raise ValueError(
-                "authoritative receipt repository is required for continuation reuse"
-            )
+            raise ValueError("authoritative receipt repository is required for continuation reuse")
         receipt = repository.get(receipt_id)
         if receipt is None:
             raise ValueError(
@@ -333,9 +329,7 @@ class ExecutionContinuationService:
             continuation,
         )
         if authoritative is None:
-            raise ValueError(
-                "idempotency claim has no authoritative continuation receipt"
-            )
+            raise ValueError("idempotency claim has no authoritative continuation receipt")
         if authoritative.receipt_id != receipt.receipt_id:
             raise ValueError(
                 "idempotency claim does not reference the authoritative continuation receipt"
@@ -447,9 +441,7 @@ class ExecutionContinuationService:
         child_request: ApprovedExecutionRequest,
     ) -> PendingContinuationRecoveryStatus:
         """Inspect pending recovery state without dispatching or mutating a claim."""
-        if child_request.parent_client_order_id != str(
-            parent_request.order.client_order_id
-        ):
+        if child_request.parent_client_order_id != str(parent_request.order.client_order_id):
             raise ValueError("continuation child does not reference the parent order")
         fingerprint = request_fingerprint(child_request)
         decision = self._idempotency.check(
@@ -542,14 +534,8 @@ class ExecutionContinuationService:
     ) -> PendingContinuationRecoveryStatus:
         """Inspect recovery state after binding the claim to the latest chain stage."""
         self.reconcile_chain(root_request, continuation_requests)
-        parent_request = (
-            continuation_requests[-1]
-            if continuation_requests
-            else root_request
-        )
-        if child_request.parent_client_order_id != str(
-            parent_request.order.client_order_id
-        ):
+        parent_request = continuation_requests[-1] if continuation_requests else root_request
+        if child_request.parent_client_order_id != str(parent_request.order.client_order_id):
             raise ValueError("pending continuation child does not reference latest chain stage")
         return self.inspect_pending_continuation(parent_request, child_request)
 
@@ -561,14 +547,8 @@ class ExecutionContinuationService:
     ) -> ExecutionContinuationResult:
         """Recover the next chain child from authoritative evidence without dispatch."""
         self.reconcile_chain(root_request, continuation_requests)
-        parent_request = (
-            continuation_requests[-1]
-            if continuation_requests
-            else root_request
-        )
-        if child_request.parent_client_order_id != str(
-            parent_request.order.client_order_id
-        ):
+        parent_request = continuation_requests[-1] if continuation_requests else root_request
+        if child_request.parent_client_order_id != str(parent_request.order.client_order_id):
             raise ValueError("pending continuation child does not reference latest chain stage")
         return self.recover_pending_continuation(parent_request, child_request)
 
@@ -594,11 +574,7 @@ class ExecutionContinuationService:
         )
         return self._dispatch_or_reuse_chain_continuation(
             chain,
-            (
-                continuation_requests[-1]
-                if continuation_requests
-                else root_request
-            ),
+            continuation_requests[-1] if continuation_requests else root_request,
             continuation,
             snapshot=snapshot,
         )
@@ -623,9 +599,7 @@ class ExecutionContinuationService:
             required_margin=required_margin,
             requested_quantity=requested_quantity,
         )
-        parent_request = (
-            continuation_requests[-1] if continuation_requests else root_request
-        )
+        parent_request = continuation_requests[-1] if continuation_requests else root_request
         dispatched_result = self._dispatch_or_reuse_chain_continuation(
             chain,
             parent_request,
