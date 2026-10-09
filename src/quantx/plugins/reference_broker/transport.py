@@ -8,7 +8,7 @@ normalized execution contracts.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
@@ -84,7 +84,7 @@ class InMemoryReferenceBrokerTransport:
     ) -> None:
         self._accepted = accepted
         self._fill_price = fill_price
-        self._clock = clock or FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+        self._clock = clock or FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
         self.requests: list[ReferenceOrderRequest] = []
 
     def health(self) -> bool:
