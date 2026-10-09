@@ -222,6 +222,7 @@ def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
         def run(self, *, checked_at=None):
             from quantx.application.pending_recovery import PendingRecoveryRun
+
             return PendingRecoveryRun()
 
     runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
@@ -434,9 +435,7 @@ def test_operator_resolution_requires_identity(tmp_path) -> None:
                     reason="broker never received this",
                     resolved_at=RESOLVED_AT,
                 )
-        decision = unit_of_work.idempotency.check(
-            request.order.client_order_id, fingerprint
-        )
+        decision = unit_of_work.idempotency.check(request.order.client_order_id, fingerprint)
         assert decision.reservation_pending is True
     finally:
         database.close()
@@ -458,9 +457,7 @@ def test_operator_resolution_requires_reason(tmp_path) -> None:
                     reason=bad_reason,
                     resolved_at=RESOLVED_AT,
                 )
-        decision = unit_of_work.idempotency.check(
-            request.order.client_order_id, fingerprint
-        )
+        decision = unit_of_work.idempotency.check(request.order.client_order_id, fingerprint)
         assert decision.reservation_pending is True
     finally:
         database.close()
@@ -481,9 +478,7 @@ def test_operator_resolution_requires_matching_fingerprint(tmp_path) -> None:
                 reason="broker never received this",
                 resolved_at=RESOLVED_AT,
             )
-        decision = unit_of_work.idempotency.check(
-            request.order.client_order_id, fingerprint
-        )
+        decision = unit_of_work.idempotency.check(request.order.client_order_id, fingerprint)
         assert decision.reservation_pending is True
         assert decision.operator_resolved is False
     finally:
@@ -665,10 +660,7 @@ def test_recovery_never_invokes_operator_resolution(tmp_path) -> None:
         decision = unit_of_work.idempotency.check(order_id, fingerprint)
         assert decision.reservation_pending is True
         assert decision.operator_resolved is False
-        assert (
-            unit_of_work.idempotency.get_operator_resolution(order_id, fingerprint)
-            is None
-        )
+        assert unit_of_work.idempotency.get_operator_resolution(order_id, fingerprint) is None
     finally:
         database.close()
 
@@ -765,10 +757,7 @@ def test_eligible_policy_verdict_surfaces_without_resolving(tmp_path) -> None:
         assert decision.existing_receipt_id is None
         assert decision.operator_resolved is False
         assert SqliteReceiptRepository(database).get_by_client_order(order_id) is None
-        assert (
-            unit_of_work.idempotency.get_operator_resolution(order_id, fingerprint)
-            is None
-        )
+        assert unit_of_work.idempotency.get_operator_resolution(order_id, fingerprint) is None
     finally:
         database.close()
 
@@ -807,8 +796,7 @@ def test_sqlite_v3_to_current_migration_preserves_reservations(tmp_path) -> None
     raw = sqlite3.connect(str(path))
     try:
         raw.execute(
-            "CREATE TABLE schema_version "
-            "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+            "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
         )
         raw.execute(
             "CREATE TABLE idempotency_reservations (client_order_id TEXT PRIMARY KEY, "
@@ -884,9 +872,8 @@ def test_sqlite_v3_to_current_migration_preserves_reservations(tmp_path) -> None
     try:
         version = reopened.connection().execute("SELECT version FROM schema_version")
         assert version.fetchone()[0] == SCHEMA_VERSION
-        pending = (
-            SqliteUnitOfWork(reopened)
-            .idempotency.check(request.order.client_order_id, fingerprint)
+        pending = SqliteUnitOfWork(reopened).idempotency.check(
+            request.order.client_order_id, fingerprint
         )
         assert pending.reservation_pending is True
     finally:
