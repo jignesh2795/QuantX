@@ -38,10 +38,7 @@ class AccountConnectionRegistry:
         return tuple(
             item
             for item in self._connections.values()
-            if (
-                item.ref.account_id == account_id
-                and item.enabled
-            )
+            if (item.ref.account_id == account_id and item.enabled)
         )
 
     def candidates(
@@ -52,6 +49,5 @@ class AccountConnectionRegistry:
         return tuple(
             item
             for item in self.for_account(account_id)
-            if item.adapter.capabilities().require(required)
-            and item.adapter.health()
+            if item.adapter.capabilities().require(required) and item.adapter.health()
         )

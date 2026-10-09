@@ -58,8 +58,7 @@ class PluginDescriptor:
 
 
 class PluginFactory(Protocol):
-    def __call__(self) -> object:
-        ...
+    def __call__(self) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,9 +107,7 @@ class PluginRegistry:
         if kind is None:
             return registrations
         return tuple(
-            registration
-            for registration in registrations
-            if registration.descriptor.kind is kind
+            registration for registration in registrations if registration.descriptor.kind is kind
         )
 
     def transition(
@@ -124,10 +121,13 @@ class PluginRegistry:
         updated = replace(
             registration,
             state=state,
-            failure_reason=reason if state in {
+            failure_reason=reason
+            if state
+            in {
                 PluginLifecycle.DEGRADED,
                 PluginLifecycle.FAILED,
-            } else None,
+            }
+            else None,
         )
         self._registrations[plugin_id] = updated
         return updated

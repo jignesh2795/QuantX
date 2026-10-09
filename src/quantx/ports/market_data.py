@@ -14,8 +14,7 @@ from quantx.domain.value_objects import InstrumentId
 class MarketDataPort(Protocol):
     """Broker/vendor-neutral market-data interface."""
 
-    def quote(self, instrument: InstrumentId) -> Quote | None:
-        ...
+    def quote(self, instrument: InstrumentId) -> Quote | None: ...
 
     def candles(
         self,
@@ -24,14 +23,11 @@ class MarketDataPort(Protocol):
         timeframe: str,
         start: datetime,
         end: datetime,
-    ) -> Iterable[Candle]:
-        ...
+    ) -> Iterable[Candle]: ...
 
-    def subscribe(self, instruments: Iterable[InstrumentId]) -> None:
-        ...
+    def subscribe(self, instruments: Iterable[InstrumentId]) -> None: ...
 
-    def unsubscribe(self, instruments: Iterable[InstrumentId]) -> None:
-        ...
+    def unsubscribe(self, instruments: Iterable[InstrumentId]) -> None: ...
 
 
 @runtime_checkable

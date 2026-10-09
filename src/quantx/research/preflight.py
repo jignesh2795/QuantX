@@ -53,5 +53,7 @@ class ResearchPreflightGate:
     def require_ready(self, manifest: ResearchArtifactManifest) -> ResearchPreflightResult:
         result = self.check(manifest)
         if not result.is_ready:
-            raise RuntimeError("research preflight blocked: one or more artifacts failed integrity verification")
+            raise RuntimeError(
+                "research preflight blocked: one or more artifacts failed integrity verification"
+            )
         return result

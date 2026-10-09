@@ -27,7 +27,9 @@ class StrategyRegistry:
         try:
             factory = self._factories[(ir.strategy_id.value, ir.version)]
         except KeyError as exc:
-            raise KeyError(f"strategy is not registered: {ir.strategy_id.value}@{ir.version}") from exc
+            raise KeyError(
+                f"strategy is not registered: {ir.strategy_id.value}@{ir.version}"
+            ) from exc
         return factory()
 
     def _key(self, strategy_id: str, version: str) -> tuple[str, str]:

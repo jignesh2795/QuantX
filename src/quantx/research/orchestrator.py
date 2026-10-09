@@ -28,11 +28,10 @@ class ResearchRunOutcome:
 
     @property
     def runnable(self) -> bool:
-        return (
-            self.preflight_status is PreflightStatus.READY
-            and self.data_quality_status
-            in {DataQualityStatus.VALID, DataQualityStatus.VALID_WITH_WARNINGS}
-        )
+        return self.preflight_status is PreflightStatus.READY and self.data_quality_status in {
+            DataQualityStatus.VALID,
+            DataQualityStatus.VALID_WITH_WARNINGS,
+        }
 
 
 class ResearchOrchestrator:

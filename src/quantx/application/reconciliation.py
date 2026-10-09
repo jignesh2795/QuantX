@@ -205,8 +205,7 @@ class OrderStateReconciliationWorkflow:
                 and broker_order.connection_id != receipt.connection_id
             ):
                 return (
-                    "broker order evidence connection does not match "
-                    "execution receipt connection"
+                    "broker order evidence connection does not match execution receipt connection"
                 )
 
         if (

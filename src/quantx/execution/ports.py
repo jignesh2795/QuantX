@@ -12,8 +12,7 @@ from .receipts.models import ExecutionOutcome, ExecutionReceipt
 
 
 class ExecutionPort(Protocol):
-    def execute(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
-        ...
+    def execute(self, request: ApprovedExecutionRequest) -> ExecutionReceipt: ...
 
 
 class LiveExecutionPort(Protocol):
@@ -27,14 +26,11 @@ class LiveExecutionPort(Protocol):
     checks and translating the canonical request/receipt contracts.
     """
 
-    def submit(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
-        ...
+    def submit(self, request: ApprovedExecutionRequest) -> ExecutionReceipt: ...
 
-    def cancel(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
-        ...
+    def cancel(self, request: ApprovedExecutionRequest) -> ExecutionReceipt: ...
 
-    def reconcile(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
-        ...
+    def reconcile(self, request: ApprovedExecutionRequest) -> ExecutionReceipt: ...
 
 
 class MarketDataExecutionPort(Protocol):
@@ -43,8 +39,7 @@ class MarketDataExecutionPort(Protocol):
         request: ApprovedExecutionRequest,
         *,
         snapshot: MarketSnapshot | Candle,
-    ) -> ExecutionReceipt:
-        ...
+    ) -> ExecutionReceipt: ...
 
 
 __all__ = [

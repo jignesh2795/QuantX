@@ -55,11 +55,7 @@ class IndiaRuleScope:
     instrument_id: InstrumentId | None = None
 
     def is_unspecified(self) -> bool:
-        return (
-            self.exchange is None
-            and self.segment is None
-            and self.instrument_id is None
-        )
+        return self.exchange is None and self.segment is None and self.instrument_id is None
 
 
 @dataclass(frozen=True, slots=True)

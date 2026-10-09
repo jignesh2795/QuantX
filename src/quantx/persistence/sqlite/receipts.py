@@ -108,9 +108,7 @@ def receipt_from_payload(payload: str) -> ExecutionReceipt:
         receipt_id=UUID(data["receipt_id"]),
         order_id=UUID(data["order_id"]) if data["order_id"] is not None else None,
         order_quantity=(
-            Decimal(data["order_quantity"])
-            if data["order_quantity"] is not None
-            else None
+            Decimal(data["order_quantity"]) if data["order_quantity"] is not None else None
         ),
         account_id=AccountId(data["account_id"]) if data["account_id"] is not None else None,
         connection_id=BrokerConnectionId(data["connection_id"])
@@ -167,9 +165,7 @@ class SqliteReceiptRepository:
             return None
         return receipt_from_payload(row[0])
 
-    def list_by_correlation_id(
-        self, correlation_id: UUID | str
-    ) -> tuple[ExecutionReceipt, ...]:
+    def list_by_correlation_id(self, correlation_id: UUID | str) -> tuple[ExecutionReceipt, ...]:
         """Return immutable receipts correlated to one parent lifecycle.
 
         Correlation is stored inside the canonical immutable payload. The

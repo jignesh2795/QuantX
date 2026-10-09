@@ -20,7 +20,13 @@ class DatasetIdentity:
     metadata: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for name in (self.dataset_id, self.version, self.source_id, self.schema_version, self.content_fingerprint):
+        for name in (
+            self.dataset_id,
+            self.version,
+            self.source_id,
+            self.schema_version,
+            self.content_fingerprint,
+        ):
             if not name.strip():
                 raise ValueError("dataset identity fields must not be empty")
 

@@ -220,9 +220,7 @@ class PreTradeRiskEngine:
         if limits.max_snapshot_age is not None:
             age = evaluated_at - snapshot.observed_at
             if age < timedelta(0):
-                violations.append(
-                    "RISK_STATE_INCONSISTENT: risk snapshot is future-dated"
-                )
+                violations.append("RISK_STATE_INCONSISTENT: risk snapshot is future-dated")
             elif age > limits.max_snapshot_age:
                 violations.append(
                     f"RISK_SNAPSHOT_STALE: snapshot age {age} exceeds maximum "
@@ -244,13 +242,9 @@ class PreTradeRiskEngine:
         order_value = _order_value(intent, context)
         signed = _signed_notional(intent, order_value)
         if order_value is None or signed is None:
-            violations.append(
-                "RISK_VALUE_INVALID: order notional cannot be determined"
-            )
+            violations.append("RISK_VALUE_INVALID: order notional cannot be determined")
             decisions.append(
-                ConstraintDecision(
-                    ConstraintResult.REJECT, "order_notional", violations[-1]
-                )
+                ConstraintDecision(ConstraintResult.REJECT, "order_notional", violations[-1])
             )
             return RiskResult(RiskDecision.REJECT, "; ".join(violations), tuple(decisions))
 
@@ -353,15 +347,8 @@ class PreTradeRiskEngine:
         if limits.max_drawdown is not None:
             equity = _risk_number(snapshot.equity)
             high_water_mark = _risk_number(snapshot.high_water_mark)
-            if (
-                equity is None
-                or high_water_mark is None
-                or equity < 0
-                or high_water_mark <= 0
-            ):
-                self._reject_value(
-                    decisions, violations, "drawdown", "equity/high_water_mark"
-                )
+            if equity is None or high_water_mark is None or equity < 0 or high_water_mark <= 0:
+                self._reject_value(decisions, violations, "drawdown", "equity/high_water_mark")
             else:
                 drawdown = (high_water_mark - equity) / high_water_mark
                 self._check_limit(
@@ -377,9 +364,7 @@ class PreTradeRiskEngine:
 
         if violations:
             return RiskResult(RiskDecision.REJECT, "; ".join(violations), tuple(decisions))
-        return RiskResult(
-            RiskDecision.APPROVE, "pre-trade risk checks passed", tuple(decisions)
-        )
+        return RiskResult(RiskDecision.APPROVE, "pre-trade risk checks passed", tuple(decisions))
 
     @staticmethod
     def _check_limit(

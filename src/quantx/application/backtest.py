@@ -124,7 +124,8 @@ class BacktestResult:
     @property
     def rejected_count(self) -> int:
         return sum(
-            step.disposition in {
+            step.disposition
+            in {
                 BacktestDisposition.RISK_REJECTED,
                 BacktestDisposition.POLICY_REJECTED,
                 BacktestDisposition.APPROVAL_REQUIRED,
@@ -161,9 +162,7 @@ def _evidence_types(frames: tuple[ReplayFrame, ...]) -> tuple[str, ...]:
         elif isinstance(snapshot, MarketSnapshot):
             label = "QUOTE"
         else:
-            raise TypeError(
-                f"unsupported backtest observation payload: {type(snapshot).__name__}"
-            )
+            raise TypeError(f"unsupported backtest observation payload: {type(snapshot).__name__}")
         if label not in ordered:
             ordered.append(label)
     return tuple(ordered)
@@ -176,7 +175,7 @@ def _execution_models(receipts: tuple[ExecutionReceipt, ...]) -> tuple[str, ...]
             continue
         model_id = next(
             (
-                item[len(_MODEL_ID_PREFIX):]
+                item[len(_MODEL_ID_PREFIX) :]
                 for item in receipt.assumptions
                 if item.startswith(_MODEL_ID_PREFIX)
             ),
@@ -241,9 +240,7 @@ def _backtest_fidelity(
         quality=quality,
         execution_models=_execution_models(receipts),
         evidence_types=_evidence_types(frames),
-        limitations=_fidelity_limitations(
-            frames, steps, volume_participation_rate, slippage_bps
-        ),
+        limitations=_fidelity_limitations(frames, steps, volume_participation_rate, slippage_bps),
     )
 
 
@@ -470,9 +467,7 @@ class DeterministicBacktestService:
             raise ValueError("SELL signal must carry a SELL intent")
 
     @staticmethod
-    def _candle_stop_disposition(
-        intent: TradeIntent, snapshot: HistoricalSnapshot
-    ) -> str | None:
+    def _candle_stop_disposition(intent: TradeIntent, snapshot: HistoricalSnapshot) -> str | None:
         """Block candle stop orders whose outcome OHLCV cannot establish.
 
         A stop whose trigger the observed bar cannot confirm would need an
@@ -785,9 +780,7 @@ class DeterministicBacktestService:
                 snapshot=snapshot,
             )
             receipts.append(receipt)
-            account_states.append(
-                account_state_tracker.record(receipt, snapshot=snapshot)
-            )
+            account_states.append(account_state_tracker.record(receipt, snapshot=snapshot))
 
             steps.append(
                 BacktestStep(
@@ -808,12 +801,12 @@ class DeterministicBacktestService:
         return BacktestResult(
             data_quality=replay.quality.status,
             fidelity=_backtest_fidelity(
-            frames_tuple,
-            steps_tuple,
-            receipts_tuple,
-            candle_volume_participation_rate,
-            effective_slippage_bps,
-        ),
+                frames_tuple,
+                steps_tuple,
+                receipts_tuple,
+                candle_volume_participation_rate,
+                effective_slippage_bps,
+            ),
             steps=steps_tuple,
             receipts=receipts_tuple,
             ledger=accounting.snapshot(),

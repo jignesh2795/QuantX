@@ -47,39 +47,49 @@ class OrderLifecycle:
 
     _allowed: dict[OrderLifecycleStatus, frozenset[OrderLifecycleStatus]] = {
         OrderLifecycleStatus.CREATED: frozenset({OrderLifecycleStatus.SUBMITTED}),
-        OrderLifecycleStatus.SUBMITTED: frozenset({
-            OrderLifecycleStatus.ACKNOWLEDGED,
-            OrderLifecycleStatus.PARTIALLY_FILLED,
-            OrderLifecycleStatus.FILLED,
-            OrderLifecycleStatus.REJECTED,
-            OrderLifecycleStatus.UNKNOWN,
-        }),
-        OrderLifecycleStatus.ACKNOWLEDGED: frozenset({
-            OrderLifecycleStatus.PARTIALLY_FILLED,
-            OrderLifecycleStatus.FILLED,
-            OrderLifecycleStatus.CANCEL_PENDING,
-            OrderLifecycleStatus.REJECTED,
-            OrderLifecycleStatus.UNKNOWN,
-        }),
-        OrderLifecycleStatus.PARTIALLY_FILLED: frozenset({
-            OrderLifecycleStatus.PARTIALLY_FILLED,
-            OrderLifecycleStatus.FILLED,
-            OrderLifecycleStatus.CANCEL_PENDING,
-            OrderLifecycleStatus.UNKNOWN,
-        }),
-        OrderLifecycleStatus.CANCEL_PENDING: frozenset({
-            OrderLifecycleStatus.CANCELLED,
-            OrderLifecycleStatus.PARTIALLY_FILLED,
-            OrderLifecycleStatus.FILLED,
-            OrderLifecycleStatus.UNKNOWN,
-        }),
-        OrderLifecycleStatus.UNKNOWN: frozenset({
-            OrderLifecycleStatus.ACKNOWLEDGED,
-            OrderLifecycleStatus.PARTIALLY_FILLED,
-            OrderLifecycleStatus.FILLED,
-            OrderLifecycleStatus.CANCELLED,
-            OrderLifecycleStatus.REJECTED,
-        }),
+        OrderLifecycleStatus.SUBMITTED: frozenset(
+            {
+                OrderLifecycleStatus.ACKNOWLEDGED,
+                OrderLifecycleStatus.PARTIALLY_FILLED,
+                OrderLifecycleStatus.FILLED,
+                OrderLifecycleStatus.REJECTED,
+                OrderLifecycleStatus.UNKNOWN,
+            }
+        ),
+        OrderLifecycleStatus.ACKNOWLEDGED: frozenset(
+            {
+                OrderLifecycleStatus.PARTIALLY_FILLED,
+                OrderLifecycleStatus.FILLED,
+                OrderLifecycleStatus.CANCEL_PENDING,
+                OrderLifecycleStatus.REJECTED,
+                OrderLifecycleStatus.UNKNOWN,
+            }
+        ),
+        OrderLifecycleStatus.PARTIALLY_FILLED: frozenset(
+            {
+                OrderLifecycleStatus.PARTIALLY_FILLED,
+                OrderLifecycleStatus.FILLED,
+                OrderLifecycleStatus.CANCEL_PENDING,
+                OrderLifecycleStatus.UNKNOWN,
+            }
+        ),
+        OrderLifecycleStatus.CANCEL_PENDING: frozenset(
+            {
+                OrderLifecycleStatus.CANCELLED,
+                OrderLifecycleStatus.PARTIALLY_FILLED,
+                OrderLifecycleStatus.FILLED,
+                OrderLifecycleStatus.UNKNOWN,
+            }
+        ),
+        OrderLifecycleStatus.UNKNOWN: frozenset(
+            {
+                OrderLifecycleStatus.ACKNOWLEDGED,
+                OrderLifecycleStatus.PARTIALLY_FILLED,
+                OrderLifecycleStatus.FILLED,
+                OrderLifecycleStatus.CANCELLED,
+                OrderLifecycleStatus.REJECTED,
+            }
+        ),
         OrderLifecycleStatus.FILLED: frozenset(),
         OrderLifecycleStatus.CANCELLED: frozenset(),
         OrderLifecycleStatus.REJECTED: frozenset(),

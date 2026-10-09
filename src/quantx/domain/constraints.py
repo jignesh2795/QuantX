@@ -36,14 +36,20 @@ def evaluate_broker_constraint(
     constraint: BrokerConstraint,
     candidate: TradeConstraintInput,
 ) -> ConstraintDecision:
-    if constraint.minimum_order_value is not None and candidate.order_value.amount < constraint.minimum_order_value:
+    if (
+        constraint.minimum_order_value is not None
+        and candidate.order_value.amount < constraint.minimum_order_value
+    ):
         return ConstraintDecision(
             ConstraintResult.REJECT,
             constraint.name,
             "order value is below the broker/venue minimum",
         )
 
-    if constraint.minimum_quantity is not None and candidate.quantity.value < constraint.minimum_quantity:
+    if (
+        constraint.minimum_quantity is not None
+        and candidate.quantity.value < constraint.minimum_quantity
+    ):
         return ConstraintDecision(
             ConstraintResult.REJECT,
             constraint.name,
@@ -89,4 +95,6 @@ def evaluate_capital(
             "required margin exceeds currently available margin",
         )
 
-    return ConstraintDecision(ConstraintResult.PASS, "margin_available", "sufficient available margin")
+    return ConstraintDecision(
+        ConstraintResult.PASS, "margin_available", "sufficient available margin"
+    )

@@ -72,9 +72,7 @@ class PostTradeRiskEngine:
 
         if limits.max_margin_utilization is not None:
             total = state.margin_used.amount + state.margin_available.amount
-            utilization = (
-                state.margin_used.amount / total if total > 0 else Decimal("0")
-            )
+            utilization = state.margin_used.amount / total if total > 0 else Decimal("0")
             if utilization > limits.max_margin_utilization:
                 reasons.append("maximum margin utilization exceeded")
 
@@ -85,9 +83,7 @@ class PostTradeRiskEngine:
 
         if limits.max_open_positions is not None:
             open_positions = sum(
-                1
-                for exposure in snapshot.position_exposures
-                if exposure.amount > 0
+                1 for exposure in snapshot.position_exposures if exposure.amount > 0
             )
             if open_positions > limits.max_open_positions:
                 reasons.append("maximum open positions exceeded")

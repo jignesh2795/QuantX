@@ -48,10 +48,7 @@ class BrokerOrderEvidence:
     def __post_init__(self) -> None:
         if self.status is BrokerOrderEvidenceStatus.FOUND and self.observation is None:
             raise ValueError("FOUND broker-order evidence requires an observation")
-        if (
-            self.status is not BrokerOrderEvidenceStatus.FOUND
-            and self.observation is not None
-        ):
+        if self.status is not BrokerOrderEvidenceStatus.FOUND and self.observation is not None:
             raise ValueError("non-FOUND broker-order evidence must not carry an observation")
 
     @classmethod
