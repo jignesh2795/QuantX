@@ -3,7 +3,13 @@ from decimal import Decimal
 import pytest
 
 from quantx.domain.enums import AssetClass
-from quantx.domain.instruments import Contract, Instrument, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Contract,
+    Instrument,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.value_objects import InstrumentId
 
 

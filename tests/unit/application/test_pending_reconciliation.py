@@ -397,6 +397,7 @@ def test_reconciliation_never_submits_to_broker() -> None:
     assert "broker" not in parameters
     assert "provider" in parameters
 
+
 def test_pending_context_round_trip_reconstructs_recovery_request() -> None:
     request = _request()
     fingerprint = request_fingerprint(request)

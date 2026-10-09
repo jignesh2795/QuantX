@@ -46,7 +46,6 @@ def test_missing_mark_is_not_invented() -> None:
         )
 
 
-
 def test_mark_preserves_timezone_aware_observation_time() -> None:
     observed_at = datetime(2026, 1, 5, 9, 15, tzinfo=UTC)
 

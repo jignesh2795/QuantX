@@ -3,7 +3,13 @@ from decimal import Decimal
 import pytest
 
 from quantx.domain.enums import AssetClass
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.execution.accounting import PositionLedgerEntry
 from quantx.execution.margin_policy import FixedPerUnitMarginPolicy
 
