@@ -2,7 +2,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from quantx.domain.accounts import AccountId, BrokerConnectionId
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion

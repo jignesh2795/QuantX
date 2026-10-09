@@ -6,7 +6,13 @@ def test_content_fingerprint_changes_when_source_bytes_change():
 
 
 def test_dataset_identity_fingerprint_is_order_independent_for_metadata():
-    base = dict(dataset_id="btc", version="2026-01", source_id="vendor-x", schema_version="1", content_fingerprint="abc")
+    base = dict(
+        dataset_id="btc",
+        version="2026-01",
+        source_id="vendor-x",
+        schema_version="1",
+        content_fingerprint="abc",
+    )
     left = DatasetIdentity(**base, metadata={"b": "2", "a": "1"})
     right = DatasetIdentity(**base, metadata={"a": "1", "b": "2"})
     assert left.fingerprint() == right.fingerprint()

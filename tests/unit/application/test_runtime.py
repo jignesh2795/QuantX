@@ -47,9 +47,7 @@ def test_runtime_runs_pending_recovery_once() -> None:
 
 
 def test_runtime_rejects_naive_startup_timestamp() -> None:
-    runtime = ApplicationRuntime(
-        pending_recovery=FakeRecovery(PendingRecoveryRun())
-    )
+    runtime = ApplicationRuntime(pending_recovery=FakeRecovery(PendingRecoveryRun()))
 
     with pytest.raises(ValueError, match="timezone-aware"):
         runtime.start(checked_at=datetime(2026, 1, 1, 12))

@@ -14,7 +14,13 @@ from quantx.domain.deployment import (
 from quantx.domain.enums import AssetClass, OrderSide
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.strategy import (

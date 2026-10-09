@@ -217,4 +217,3 @@ def test_receipt_from_order_requires_partial_quantity_for_partial() -> None:
             executed_at=datetime.now(UTC),
             fills=(_fill(order, quantity=order.quantity),),
         )
-

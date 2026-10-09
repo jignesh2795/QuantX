@@ -397,4 +397,3 @@ def test_zero_slippage_records_reference_and_realized_price() -> None:
     assert "realized_price=100" in receipt.assumptions
     assert "realized_quantity=10" in receipt.assumptions
     assert "remaining_quantity=0" in receipt.assumptions
-
