@@ -172,4 +172,3 @@ class ExecutionReceipt:
 ExecutionReceiptRecord = ExecutionReceipt
 ReceiptState = ExecutionOutcome
 ReceiptOutcome = ExecutionOutcome
-

@@ -149,9 +149,7 @@ class IndiaExecutionRuleEngine:
             self._check_product(spec, product, reject, accept)
 
         if violations:
-            return IndiaRuleResult(
-                IndiaRuleDecision.REJECT, "; ".join(violations), tuple(checks)
-            )
+            return IndiaRuleResult(IndiaRuleDecision.REJECT, "; ".join(violations), tuple(checks))
         return IndiaRuleResult(
             IndiaRuleDecision.APPROVE, "india execution rules passed", tuple(checks)
         )
@@ -227,18 +225,14 @@ class IndiaExecutionRuleEngine:
                 evaluated_at,
                 compatibility_evaluated=True,
             )
-        checks.append(
-            IndiaRuleCheck("rule_scope", True, "venue rule scope applies")
-        )
+        checks.append(IndiaRuleCheck("rule_scope", True, "venue rule scope applies"))
         self._check_order_type(order, reject, accept)
         self._check_snapshot_order_type(order, venue_rules, usable, reject, accept)
         self._check_time_in_force(order, venue_rules, usable, reject, accept)
         self._check_quantity(spec, order, reject, accept)
         self._check_quantity_freeze(order, venue_rules, usable, reject, accept)
         self._check_ticks(spec, order, reject, accept)
-        self._check_price_band(
-            order, venue_rules, usable, evaluated_at, reject, accept
-        )
+        self._check_price_band(order, venue_rules, usable, evaluated_at, reject, accept)
         self._check_derivative_metadata(spec, reject, accept)
         self._check_segment(spec, reject, accept)
         if product is not None:
@@ -480,8 +474,7 @@ class IndiaExecutionRuleEngine:
         if not usable or venue_rules.allowed_time_in_force is None:
             reject(
                 "time_in_force",
-                "INDIA_RULE_DATA_UNAVAILABLE: venue allowed time-in-force set "
-                "is unknown",
+                "INDIA_RULE_DATA_UNAVAILABLE: venue allowed time-in-force set is unknown",
             )
         elif order.time_in_force not in venue_rules.allowed_time_in_force:
             reject(
@@ -514,8 +507,7 @@ class IndiaExecutionRuleEngine:
         elif quantity > freeze:
             reject(
                 "quantity_freeze",
-                f"INDIA_QUANTITY_FREEZE_INVALID: quantity {quantity} exceeds "
-                f"freeze {freeze}",
+                f"INDIA_QUANTITY_FREEZE_INVALID: quantity {quantity} exceeds freeze {freeze}",
             )
         else:
             accept("quantity_freeze", "quantity is within the freeze limit")
@@ -544,13 +536,7 @@ class IndiaExecutionRuleEngine:
         lower = _is_number(band.lower_bound) if band is not None else None
         upper = _is_number(band.upper_bound) if band is not None else None
         band_usable = band is not None and band.effective_at <= evaluated_at
-        if (
-            not usable
-            or not band_usable
-            or lower is None
-            or upper is None
-            or lower > upper
-        ):
+        if not usable or not band_usable or lower is None or upper is None or lower > upper:
             reject(
                 "price_band",
                 "INDIA_RULE_DATA_UNAVAILABLE: applicable price band is unknown",
@@ -564,8 +550,7 @@ class IndiaExecutionRuleEngine:
             if number < lower or number > upper:
                 reject(
                     "price_band",
-                    f"INDIA_PRICE_BAND_INVALID: price {number} is outside "
-                    f"[{lower}, {upper}]",
+                    f"INDIA_PRICE_BAND_INVALID: price {number} is outside [{lower}, {upper}]",
                 )
                 return
         accept("price_band", "prices are within the applicable band")

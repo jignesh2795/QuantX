@@ -61,10 +61,16 @@ class FillAccounting:
 
         if old_qty == 0 or (old_qty > 0 and signed_fill > 0) or (old_qty < 0 and signed_fill < 0):
             total_abs = abs(old_qty) + abs(signed_fill)
-            avg = ((abs(old_qty) * current.average_price) + (abs(signed_fill) * fill.price)) / total_abs
+            avg = (
+                (abs(old_qty) * current.average_price) + (abs(signed_fill) * fill.price)
+            ) / total_abs
         elif new_qty == 0:
             avg = Decimal("0")
-            realized += (fill.price - current.average_price) * old_qty if old_qty > 0 else (current.average_price - fill.price) * abs(old_qty)
+            realized += (
+                (fill.price - current.average_price) * old_qty
+                if old_qty > 0
+                else (current.average_price - fill.price) * abs(old_qty)
+            )
         elif (old_qty > 0 and new_qty > 0) or (old_qty < 0 and new_qty < 0):
             closed = min(abs(old_qty), abs(signed_fill))
             if old_qty > 0:

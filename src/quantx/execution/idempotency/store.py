@@ -130,18 +130,14 @@ class PendingExecutionContext:
                     else Decimal(order_data["limit_price"])
                 ),
                 stop_price=(
-                    None
-                    if order_data["stop_price"] is None
-                    else Decimal(order_data["stop_price"])
+                    None if order_data["stop_price"] is None else Decimal(order_data["stop_price"])
                 ),
                 time_in_force=TimeInForce(order_data["time_in_force"]),
                 client_order_id=UUID(order_data["client_order_id"]),
                 status=OrderStatus(order_data["status"]),
                 created_at=datetime.fromisoformat(order_data["created_at"]),
                 intent_id=(
-                    None
-                    if order_data["intent_id"] is None
-                    else UUID(order_data["intent_id"])
+                    None if order_data["intent_id"] is None else UUID(order_data["intent_id"])
                 ),
                 strategy_id=order_data["strategy_id"],
                 strategy_version=order_data["strategy_version"],
@@ -189,7 +185,6 @@ class PendingExecutionRecoveryRecord:
             raise ValueError("pending recovery record needs context or error")
 
 
-
 class OperatorResolutionAction(StrEnum):
     """The only explicit operator closure for an unresolvable PENDING reservation."""
 
@@ -222,10 +217,7 @@ class OperatorResolution:
             raise ValueError("operator resolution reason must not be empty")
         if self.resolved_at.tzinfo is None or self.resolved_at.utcoffset() is None:
             raise ValueError("resolved_at must be timezone-aware")
-        if (
-            self.evidence_reference is not None
-            and not self.evidence_reference.strip()
-        ):
+        if self.evidence_reference is not None and not self.evidence_reference.strip():
             raise ValueError("evidence reference must not be blank")
 
 

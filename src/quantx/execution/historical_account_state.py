@@ -62,9 +62,7 @@ class HistoricalValuationEvidence:
             raise ValueError("unavailable valuation evidence requires a reason")
         if not self.unavailable:
             if self.mark_price is None or self.observed_at is None:
-                raise ValueError(
-                    "available valuation evidence requires price and observation time"
-                )
+                raise ValueError("available valuation evidence requires price and observation time")
             if self.reason is not None:
                 raise ValueError("available valuation evidence cannot carry a reason")
 
@@ -153,8 +151,7 @@ class HistoricalAccountStateTracker:
     ) -> None:
         if starting_financial_state.capital_source is CapitalSourceType.LIVE_BROKER:
             raise ValueError(
-                "historical account-state tracking requires configured "
-                "paper/backtest capital"
+                "historical account-state tracking requires configured paper/backtest capital"
             )
 
         self._capital_source = starting_financial_state.capital_source
@@ -186,9 +183,7 @@ class HistoricalAccountStateTracker:
                 price = None
                 source = "historical-replay-no-price"
         else:
-            raise TypeError(
-                f"unsupported historical snapshot type: {type(snapshot).__name__}"
-            )
+            raise TypeError(f"unsupported historical snapshot type: {type(snapshot).__name__}")
 
         self._marks[snapshot.instrument] = Mark(
             instrument_id=str(snapshot.instrument),
@@ -213,11 +208,7 @@ class HistoricalAccountStateTracker:
         if receipt.fee < 0:
             raise ValueError("receipt fee cannot be negative")
 
-        per_fill_fee = (
-            receipt.fee / Decimal(len(receipt.fills))
-            if receipt.fills
-            else Decimal("0")
-        )
+        per_fill_fee = receipt.fee / Decimal(len(receipt.fills)) if receipt.fills else Decimal("0")
 
         for fill in receipt.fills:
             self._accounting.apply(fill, fee=per_fill_fee)
@@ -230,8 +221,7 @@ class HistoricalAccountStateTracker:
                 if instrument is None:
                     self._cash_available = False
                     self._issue = (
-                        "instrument metadata unavailable for cash accounting: "
-                        f"{fill.instrument}"
+                        f"instrument metadata unavailable for cash accounting: {fill.instrument}"
                     )
                     break
                 try:
@@ -246,9 +236,7 @@ class HistoricalAccountStateTracker:
                     break
         elif receipt.fee != 0:
             self._cash_available = False
-            self._issue = (
-                "receipt fee cannot be allocated because the receipt has no fills"
-            )
+            self._issue = "receipt fee cannot be allocated because the receipt has no fills"
 
         result = self._snapshot(receipt.executed_at)
         self._snapshots[receipt.receipt_id] = result
@@ -375,9 +363,7 @@ class HistoricalAccountStateTracker:
                 realized_pnl=entry.realized_pnl,
             )
             valuation = self._valuator.value(position, mark)
-            signed_market_value += (
-                entry.quantity * mark.price * instrument.multiplier
-            )
+            signed_market_value += entry.quantity * mark.price * instrument.multiplier
             unrealized += valuation.unrealized_pnl
             gross_exposure += abs(entry.quantity) * mark.price * instrument.multiplier
             evidence.append(

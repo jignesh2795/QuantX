@@ -64,7 +64,9 @@ def execution_ready_from_evidence(
             ),
             ExecutionPrecondition(
                 "position_state",
-                lambda: None if position_state_status is None else position_state_status == "MATCHED",
+                lambda: (
+                    None if position_state_status is None else position_state_status == "MATCHED"
+                ),
             ),
             ExecutionPrecondition(
                 "connection_health",

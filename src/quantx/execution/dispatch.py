@@ -50,22 +50,16 @@ class ExecutionDispatcher:
             ExecutionMode.REPLAY,
         }:
             if self._paper_port is None:
-                raise ValueError(
-                    f"no paper execution adapter configured for {mode.value} mode"
-                )
+                raise ValueError(f"no paper execution adapter configured for {mode.value} mode")
             if snapshot is None:
                 raise ValueError(f"{mode.value} execution requires a market snapshot")
             if snapshot.instrument != request.order.instrument:
-                raise ValueError(
-                    "market snapshot instrument does not match the execution request"
-                )
+                raise ValueError("market snapshot instrument does not match the execution request")
             receipt = self._paper_port.execute(request, snapshot=snapshot)
             return ExecutionDispatchResult(request=request, receipt=receipt)
 
         if mode is ExecutionMode.LIVE:
-            raise ValueError(
-                "LIVE dispatch requires ExecutionOrchestrator with durable UnitOfWork"
-            )
+            raise ValueError("LIVE dispatch requires ExecutionOrchestrator with durable UnitOfWork")
 
         raise ValueError(f"execution mode {mode.value} is not dispatchable")
 

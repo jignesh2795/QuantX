@@ -66,9 +66,7 @@ class PointInTimeInstrumentRegistry:
         existing = self._rules.setdefault(rule.instrument_id, ())
         for other in existing:
             if self._overlaps(rule, other):
-                raise ValueError(
-                    f"overlapping instrument rules for {rule.instrument_id}"
-                )
+                raise ValueError(f"overlapping instrument rules for {rule.instrument_id}")
         self._rules[rule.instrument_id] = tuple(
             sorted((*existing, rule), key=lambda item: item.effective_from)
         )

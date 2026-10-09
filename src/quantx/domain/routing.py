@@ -7,7 +7,13 @@ from enum import StrEnum
 from typing import Iterable
 
 from .accounts import AccountId, BrokerConnection, BrokerConnectionId, ConnectionStatus
-from .constraints import ConstraintDecision, ConstraintResult, TradeConstraintInput, evaluate_broker_constraint, evaluate_capital
+from .constraints import (
+    ConstraintDecision,
+    ConstraintResult,
+    TradeConstraintInput,
+    evaluate_broker_constraint,
+    evaluate_capital,
+)
 from .finance import AccountFinancialState, BrokerConstraint
 from .instruments import Instrument
 from .value_objects import Money, Quantity
@@ -104,4 +110,6 @@ class RoutingPolicyEvaluator:
                 tuple(decisions),
             )
 
-        return RoutingResult(RoutingDecision.REJECT, None, "no candidate satisfied routing requirements")
+        return RoutingResult(
+            RoutingDecision.REJECT, None, "no candidate satisfied routing requirements"
+        )

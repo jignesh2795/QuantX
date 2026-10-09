@@ -184,10 +184,7 @@ class MarginLedger:
                 self.release(reservation.reservation_id, release_amount)
                 remaining -= release_amount
 
-        return tuple(
-            self._reservations[reservation.reservation_id]
-            for reservation in reservations
-        )
+        return tuple(self._reservations[reservation.reservation_id] for reservation in reservations)
 
     def release_for_flat_position(
         self,

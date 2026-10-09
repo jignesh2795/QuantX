@@ -56,13 +56,10 @@ class CanonicalOHLCVNormalizer:
         required = ("open", "high", "low", "close", "volume")
         missing = [name for name in required if name not in record.fields]
         if missing:
-            raise ValueError(
-                f"missing required historical fields: {', '.join(missing)}"
-            )
+            raise ValueError(f"missing required historical fields: {', '.join(missing)}")
 
         values = {
-            name: Decimal(str(record.fields[name]))
-            for name in ("open", "high", "low", "close")
+            name: Decimal(str(record.fields[name])) for name in ("open", "high", "low", "close")
         }
         volume = Decimal(str(record.fields["volume"]))
 

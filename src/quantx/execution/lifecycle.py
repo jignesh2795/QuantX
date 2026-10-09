@@ -14,6 +14,7 @@ from uuid import UUID
 from quantx.domain.execution_request import ApprovedExecutionRequest
 
 from .market_data import MarketSnapshot
+
 if TYPE_CHECKING:
     from quantx.persistence import ReceiptRepository
 
@@ -111,9 +112,7 @@ class ExecutionLifecycleService:
     ) -> tuple[ExecutionReceipt, ...]:
         if self._receipt_repository is None:
             return ()
-        receipts = self._receipt_repository.list_by_correlation_id(
-            request.order.client_order_id
-        )
+        receipts = self._receipt_repository.list_by_correlation_id(request.order.client_order_id)
         return tuple(
             receipt
             for receipt in receipts

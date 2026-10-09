@@ -246,9 +246,7 @@ class DhanBrokerAdapter:
                     "Dhan position has no canonical instrument mapping: "
                     f"{position.security_id}/{position.exchange_segment}"
                 )
-            states.append(
-                self._position_state(position, str(instrument_id), snapshot.observed_at)
-            )
+            states.append(self._position_state(position, str(instrument_id), snapshot.observed_at))
         return tuple(states)
 
     def position_state_for(self, instrument_id: str) -> PositionState | None:

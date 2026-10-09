@@ -16,8 +16,7 @@ from .accounting import PositionLedgerEntry
 class PositionMarginPolicy(Protocol):
     """Calculate explicit margin required for the resulting position."""
 
-    def required_margin(self, position: PositionLedgerEntry) -> Decimal:
-        ...
+    def required_margin(self, position: PositionLedgerEntry) -> Decimal: ...
 
 
 class FixedPerUnitMarginPolicy:

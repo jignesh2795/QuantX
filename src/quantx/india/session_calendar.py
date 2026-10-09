@@ -329,9 +329,7 @@ class IndiaSessionCalendar:
         if self._snapshot.known_on(previous_date):
             previous_windows = self._snapshot.windows_for(previous_date)
             if any(
-                window.crosses_midnight
-                and local_time < window.end
-                for window in previous_windows
+                window.crosses_midnight and local_time < window.end for window in previous_windows
             ):
                 return True
 

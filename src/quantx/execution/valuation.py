@@ -69,9 +69,17 @@ class MarkToMarketValuator:
 
         market_value = abs(position.quantity) * mark_price * position.instrument.multiplier
         if position.quantity > 0:
-            unrealized = (mark_price - position.average_price) * position.quantity * position.instrument.multiplier
+            unrealized = (
+                (mark_price - position.average_price)
+                * position.quantity
+                * position.instrument.multiplier
+            )
         elif position.quantity < 0:
-            unrealized = (position.average_price - mark_price) * abs(position.quantity) * position.instrument.multiplier
+            unrealized = (
+                (position.average_price - mark_price)
+                * abs(position.quantity)
+                * position.instrument.multiplier
+            )
         else:
             unrealized = Decimal("0")
 

@@ -119,9 +119,7 @@ class SqliteIdempotencyStore:
     ) -> IdempotencyDecision:
         if pending_context is not None:
             if pending_context.request_fingerprint != request_fingerprint:
-                raise ValueError(
-                    "pending execution context fingerprint does not match reservation"
-                )
+                raise ValueError("pending execution context fingerprint does not match reservation")
             if pending_context.order.client_order_id != client_order_id:
                 raise ValueError(
                     "pending execution context client_order_id does not match reservation"
@@ -248,10 +246,7 @@ class SqliteIdempotencyStore:
                 raise ValueError("client_order_id was reused with a different request")
             if existing is not None:
                 raise ValueError("cannot operator-resolve a completed reservation")
-            if (
-                self._resolution(connection, client_order_id, request_fingerprint)
-                is not None
-            ):
+            if self._resolution(connection, client_order_id, request_fingerprint) is not None:
                 raise ValueError("reservation is already operator-resolved")
             connection.execute(
                 "INSERT INTO operator_resolutions "

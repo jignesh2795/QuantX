@@ -9,4 +9,11 @@ from quantx.domain.market_data import Candle, MarketDataEvent, MarketDataType, Q
 MarketSnapshot = Quote
 QuoteSnapshot = MarketSnapshot
 
-__all__ = ["Candle", "MarketDataEvent", "MarketDataType", "Quote", "MarketSnapshot", "QuoteSnapshot"]
+__all__ = [
+    "Candle",
+    "MarketDataEvent",
+    "MarketDataType",
+    "Quote",
+    "MarketSnapshot",
+    "QuoteSnapshot",
+]

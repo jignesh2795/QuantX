@@ -272,13 +272,10 @@ class PaperExecutionEngine:
             raise PaperExecutionError("request does not match partial execution lifecycle")
         if self._receipt_repository is None:
             return lifecycle
-        receipts = self._receipt_repository.list_by_correlation_id(
-            request.order.client_order_id
-        )
+        receipts = self._receipt_repository.list_by_correlation_id(request.order.client_order_id)
         if not receipts:
             raise PaperExecutionError(
-                "authoritative execution receipts are unavailable; "
-                "reconciliation is required"
+                "authoritative execution receipts are unavailable; reconciliation is required"
             )
         try:
             return ExecutionLifecycle.rebuild(
@@ -329,4 +326,3 @@ class PaperExecutionEngine:
         if self._receipt_repository is not None:
             return self._receipt_repository.get_by_client_order(client_order_id)
         return self._receipts.get(client_order_id)
-

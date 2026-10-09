@@ -79,8 +79,7 @@ class ExecutionOrchestrator:
         india_session_evaluator: Callable[[ApprovedExecutionRequest], IndiaSessionResult]
         | None = None,
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
-        india_rule_evaluator: Callable[[ApprovedExecutionRequest], IndiaRuleResult]
-        | None = None,
+        india_rule_evaluator: Callable[[ApprovedExecutionRequest], IndiaRuleResult] | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._idempotency = idempotency or InMemoryIdempotencyStore()
@@ -160,8 +159,7 @@ class ExecutionOrchestrator:
                 or not india_session.provenance.strip()
                 or india_session.evaluated_at.tzinfo is None
                 or india_session.evaluated_at.utcoffset() is None
-                or india_session.exchange.value
-                != request.execution_context.market.venue
+                or india_session.exchange.value != request.execution_context.market.venue
                 or expected_segment is None
                 or india_session.segment is not expected_segment
             ):
@@ -280,8 +278,7 @@ class ExecutionOrchestrator:
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason=(
-                        "india LIVE execution requires authoritative B3 "
-                        "compatibility evidence"
+                        "india LIVE execution requires authoritative B3 compatibility evidence"
                     ),
                 )
             if india_rules.decision is not IndiaRuleDecision.APPROVE:
@@ -493,8 +490,7 @@ class ExecutionOrchestrator:
                     return ExecutionResult(
                         ExecutionDispatchStatus.UNKNOWN,
                         reason=(
-                            "idempotency reservation was not acquired; "
-                            "reconciliation is required"
+                            "idempotency reservation was not acquired; reconciliation is required"
                         ),
                     )
 

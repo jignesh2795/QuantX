@@ -123,16 +123,11 @@ class HistoricalDataQualityGate:
         expected_timestamps: Iterable[datetime] | None = None,
         calendar: HistoricalCalendar | None = None,
     ) -> HistoricalDataQuality:
-        if (
-            expected_interval_seconds is not None
-            and expected_interval_seconds <= 0
-        ):
+        if expected_interval_seconds is not None and expected_interval_seconds <= 0:
             raise ValueError("expected_interval_seconds must be positive")
 
         values = tuple(observations)
-        expected = (
-            None if expected_timestamps is None else tuple(expected_timestamps)
-        )
+        expected = None if expected_timestamps is None else tuple(expected_timestamps)
 
         issues: list[DataIssue] = []
         observed_timestamps: list[datetime] = []
@@ -175,10 +170,7 @@ class HistoricalDataQualityGate:
                 )
             seen_timestamps.add(timestamp)
 
-            if (
-                expected_instrument is not None
-                and value.instrument != expected_instrument
-            ):
+            if expected_instrument is not None and value.instrument != expected_instrument:
                 issues.append(
                     DataIssue(
                         DataIssueType.INSTRUMENT_MISMATCH,
@@ -200,8 +192,7 @@ class HistoricalDataQualityGate:
                 if (
                     expected_interval_seconds is not None
                     and timestamp > previous_timestamp
-                    and (timestamp - previous_timestamp).total_seconds()
-                    > expected_interval_seconds
+                    and (timestamp - previous_timestamp).total_seconds() > expected_interval_seconds
                 ):
                     gap_detected = True
                     unknown_calendar_timestamps: set[datetime] = set()
@@ -212,9 +203,7 @@ class HistoricalDataQualityGate:
                             seconds=expected_interval_seconds
                         )
                         while candidate < timestamp:
-                            expectation = calendar.historical_timestamp_expected(
-                                candidate
-                            )
+                            expectation = calendar.historical_timestamp_expected(candidate)
                             if expectation is True:
                                 gap_detected = True
                                 break
@@ -223,9 +212,7 @@ class HistoricalDataQualityGate:
                             candidate += timedelta(seconds=expected_interval_seconds)
 
                         if unknown_calendar_timestamps:
-                            calendar_unknown_timestamps.update(
-                                unknown_calendar_timestamps
-                            )
+                            calendar_unknown_timestamps.update(unknown_calendar_timestamps)
                             issues.append(
                                 DataIssue(
                                     DataIssueType.CALENDAR_UNKNOWN,
@@ -251,9 +238,7 @@ class HistoricalDataQualityGate:
 
         if expected is not None:
             invalid_expected = tuple(
-                value
-                for value in expected
-                if value.tzinfo is None or value.utcoffset() is None
+                value for value in expected if value.tzinfo is None or value.utcoffset() is None
             )
             if invalid_expected:
                 for timestamp in invalid_expected:

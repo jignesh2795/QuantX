@@ -145,9 +145,7 @@ class PendingExecutionRecoveryRunner:
         try:
             provider = self._provider_resolver(request)
             local_order = (
-                None
-                if self._local_order_provider is None
-                else self._local_order_provider(request)
+                None if self._local_order_provider is None else self._local_order_provider(request)
             )
             local_position = (
                 None
@@ -159,11 +157,7 @@ class PendingExecutionRecoveryRunner:
                 if self._local_account_provider is None
                 else self._local_account_provider(request)
             )
-            fills = (
-                ()
-                if self._fill_provider is None
-                else self._fill_provider(request, local_order)
-            )
+            fills = () if self._fill_provider is None else self._fill_provider(request, local_order)
             outcome = reconcile_pending_execution(
                 request,
                 fingerprint=context.request_fingerprint,
@@ -173,8 +167,7 @@ class PendingExecutionRecoveryRunner:
                 provider=provider,
                 unit_of_work=self._unit_of_work,
                 checked_at=checked_at,
-                evidence_policy=self._evidence_policy
-                or DefinitiveEvidencePolicy.live_recovery(),
+                evidence_policy=self._evidence_policy or DefinitiveEvidencePolicy.live_recovery(),
                 local_position=local_position,
                 local_account=local_account,
                 refresh_policy=self._refresh_policy,
