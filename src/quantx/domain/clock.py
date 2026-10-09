@@ -8,7 +8,7 @@ one time contract.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 class Clock(ABC):
@@ -24,7 +24,7 @@ class SystemClock(Clock):
     """Production clock backed by the system UTC clock."""
 
     def now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 class FixedClock(Clock):
@@ -64,7 +64,7 @@ class SimulatedClock(Clock):
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("clock timestamp must be timezone-aware")
-    return value.astimezone(timezone.utc)
+    return value.astimezone(UTC)
 
 
 __all__ = ["Clock", "FixedClock", "SimulatedClock", "SystemClock"]

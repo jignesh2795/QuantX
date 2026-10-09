@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Mapping
 from uuid import UUID, uuid4
@@ -54,7 +54,7 @@ class StrategySignal:
     instrument: InstrumentId
     action: SignalAction
     confidence: float
-    generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     reason: str = ""
     signal_id: UUID = field(default_factory=uuid4)
 
