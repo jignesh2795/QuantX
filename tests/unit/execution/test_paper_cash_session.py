@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -71,7 +71,7 @@ def _request(instrument: Instrument, side: OrderSide) -> ApprovedExecutionReques
 
 def test_stateful_paper_session_carries_cash_between_fills() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     session = PaperSession(
         executor=engine,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
@@ -79,7 +79,7 @@ def test_stateful_paper_session_carries_cash_between_fills() -> None:
     )
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("100"),
         ask=Decimal("100"),
         last=Decimal("100"),
@@ -107,7 +107,7 @@ def test_stateful_paper_session_applies_fees_to_cash_once() -> None:
 
     instrument = _instrument()
     engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(fee_bps=Decimal("10")),
     )
     session = PaperSession(
@@ -117,7 +117,7 @@ def test_stateful_paper_session_applies_fees_to_cash_once() -> None:
     )
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
@@ -132,7 +132,7 @@ def test_stateful_paper_session_applies_fees_to_cash_once() -> None:
 
 def test_paper_session_feeds_account_snapshot_to_post_trade_risk() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     gate = TradingGate()
     risk = PostTradeRiskEnforcer(
         limits=PostTradeRiskLimits(max_exposure=Money(Decimal("500"), "INR")),
@@ -146,7 +146,7 @@ def test_paper_session_feeds_account_snapshot_to_post_trade_risk() -> None:
     )
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
@@ -166,7 +166,7 @@ def test_paper_session_feeds_account_snapshot_to_post_trade_risk() -> None:
 
 def test_paper_session_keeps_margin_reservation_in_account_state() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     margin = MarginLedger(Decimal("3000"))
     session = PaperSession(
         executor=engine,
@@ -176,7 +176,7 @@ def test_paper_session_keeps_margin_reservation_in_account_state() -> None:
     )
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
