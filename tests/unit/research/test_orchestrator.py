@@ -19,9 +19,7 @@ def test_research_orchestrator_runs_without_quality_argument_mismatch() -> None:
         ask=Decimal("100"),
         last=Decimal("100"),
     )
-    series = HistoricalDataSeries((
-        HistoricalObservation(snapshot, "test", "1", 0),
-    ))
+    series = HistoricalDataSeries((HistoricalObservation(snapshot, "test", "1", 0),))
     store = InMemoryResearchStore()
     orchestrator = ResearchOrchestrator(
         preflight=ResearchPreflightGate(),

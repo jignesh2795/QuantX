@@ -58,9 +58,7 @@ def test_calendar_aware_gap_ignores_closed_period() -> None:
     assert result.completeness is CompletenessStatus.UNKNOWN
     assert result.calendar_version == "fixed-daily-v1"
     assert result.calendar_unknown_timestamps == ()
-    assert all(
-        issue.issue_type is not DataIssueType.GAP for issue in result.issues
-    )
+    assert all(issue.issue_type is not DataIssueType.GAP for issue in result.issues)
 
 
 def test_calendar_aware_gap_detects_missing_open_slot() -> None:
@@ -96,14 +94,9 @@ def test_unknown_calendar_is_explicit_and_does_not_infer_gap() -> None:
     assert result.quality is DataQualityStatus.DEGRADED
     assert result.completeness is CompletenessStatus.UNKNOWN
     assert result.calendar_version == "unknown-calendar-v1"
-    assert result.calendar_unknown_timestamps == (
-        datetime(2026, 1, 5, 9, 16, tzinfo=UTC),
-    )
+    assert result.calendar_unknown_timestamps == (datetime(2026, 1, 5, 9, 16, tzinfo=UTC),)
     assert all(issue.issue_type is not DataIssueType.GAP for issue in result.issues)
-    assert any(
-        issue.issue_type is DataIssueType.CALENDAR_UNKNOWN
-        for issue in result.issues
-    )
+    assert any(issue.issue_type is DataIssueType.CALENDAR_UNKNOWN for issue in result.issues)
 
 
 def test_invalid_expected_interval_rejected() -> None:
