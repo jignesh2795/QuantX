@@ -169,7 +169,7 @@ class ExecutionContinuationService:
         continuation_requests: tuple[ApprovedExecutionRequest, ...],
     ) -> ExecutionContinuationChain:
         """Rebuild every continuation stage under the root correlation."""
-        stages = []
+        stages: list[ExecutionLifecycle] = []
         parent_request = root_request
         parent_lifecycle = self._lifecycle_service.reconcile(root_request)
         if continuation_requests and not parent_lifecycle.can_continue:
@@ -191,17 +191,17 @@ class ExecutionContinuationService:
             parent_lifecycle = stage
             if index < len(continuation_requests) - 1 and not parent_lifecycle.can_continue:
                 raise ValueError("continuation chain stage lifecycle cannot continue")
-        stages = tuple(stages)
+        stage_tuple = tuple(stages)
         root = self._lifecycle_service.reconcile(root_request)
         total = root.filled_quantity + sum(
-            (stage.filled_quantity for stage in stages),
+            (stage.filled_quantity for stage in stage_tuple),
             Decimal("0"),
         )
         if total > root.order_quantity:
             raise ValueError("continuation chain fills exceed root order quantity")
         return ExecutionContinuationChain(
             root_lifecycle=root,
-            stages=(root, *stages),
+            stages=(root, *stage_tuple),
         )
 
     def _prepare_chain_continuation(
