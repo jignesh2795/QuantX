@@ -2,7 +2,12 @@ from decimal import Decimal
 
 from quantx.domain.accounts import AccountId
 from quantx.domain.capabilities import Capability
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import OrderSide
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
@@ -10,7 +15,9 @@ from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDec
 from quantx.domain.value_objects import InstrumentId
 
 
-def _intent(mode: ExecutionMode = ExecutionMode.PAPER, approval_required: bool = False) -> TradeIntent:
+def _intent(
+    mode: ExecutionMode = ExecutionMode.PAPER, approval_required: bool = False
+) -> TradeIntent:
     market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
@@ -42,11 +49,13 @@ def test_live_policy_fails_closed_when_live_trading_is_disabled() -> None:
     result = ExecutionPolicyEngine().evaluate(
         _intent(ExecutionMode.LIVE),
         PolicyContext(
-            granted_capabilities=frozenset({
-                Capability.CREATE_LIVE_ORDER.value,
-                Capability.EXECUTE_LIVE.value,
-                Capability.ACCESS_BROKER.value,
-            }),
+            granted_capabilities=frozenset(
+                {
+                    Capability.CREATE_LIVE_ORDER.value,
+                    Capability.EXECUTE_LIVE.value,
+                    Capability.ACCESS_BROKER.value,
+                }
+            ),
             live_trading_enabled=False,
         ),
     )
