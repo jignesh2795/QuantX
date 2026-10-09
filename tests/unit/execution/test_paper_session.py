@@ -3,12 +3,23 @@ from decimal import Decimal
 
 from quantx.domain.accounts import AccountId
 from quantx.domain.clock import FixedClock
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
 from quantx.domain.orders import Fill
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import Money
@@ -54,9 +65,7 @@ def _request() -> ApprovedExecutionRequest:
 
 
 def test_execute_account_and_value_uses_observed_mark() -> None:
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     instrument = _instrument()
     session = PaperSession(
         executor=engine,
@@ -146,9 +155,7 @@ def test_receipt_fee_flows_into_accounting_by_default() -> None:
 
 
 def test_missing_mark_produces_incomplete_valuation() -> None:
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     instrument = _instrument()
     session = PaperSession(
         executor=engine,
