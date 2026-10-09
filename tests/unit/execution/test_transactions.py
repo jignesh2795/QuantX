@@ -286,6 +286,7 @@ def test_duplicate_with_missing_receipt_fails_closed(monkeypatch) -> None:
     assert third.receipt is None
     assert calls == 1
 
+
 def test_live_coordinator_blocks_even_if_idempotency_reports_acquired(monkeypatch) -> None:
     client_order_id = uuid4()
     monkeypatch.setattr(

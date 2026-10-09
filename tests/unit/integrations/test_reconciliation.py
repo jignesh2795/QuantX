@@ -16,7 +16,9 @@ def test_matching_position_is_executable() -> None:
     account = AccountId("acct-1")
     connection = BrokerConnectionId("conn-1")
     now = datetime.now(timezone.utc)
-    state = PositionState(account, connection, "BTC", Decimal("1"), Decimal("100"), now, StateSource.BROKER)
+    state = PositionState(
+        account, connection, "BTC", Decimal("1"), Decimal("100"), now, StateSource.BROKER
+    )
     result = PositionReconciler().reconcile(
         state,
         state,
@@ -38,8 +40,12 @@ def test_stale_observed_position_blocks_execution() -> None:
     connection = BrokerConnectionId("conn-1")
     observed_at = datetime.now(timezone.utc) - timedelta(minutes=5)
     checked_at = datetime.now(timezone.utc)
-    local = PositionState(account, connection, "BTC", Decimal("1"), None, checked_at, StateSource.PAPER)
-    observed = PositionState(account, connection, "BTC", Decimal("1"), None, observed_at, StateSource.BROKER)
+    local = PositionState(
+        account, connection, "BTC", Decimal("1"), None, checked_at, StateSource.PAPER
+    )
+    observed = PositionState(
+        account, connection, "BTC", Decimal("1"), None, observed_at, StateSource.BROKER
+    )
     result = PositionReconciler().reconcile(
         local,
         observed,
