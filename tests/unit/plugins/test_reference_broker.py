@@ -101,7 +101,6 @@ def _approving_india_evaluator():
     return approve
 
 
-
 def _approving_india_session_evaluator():
     """B4 boundary is not under test here; provide explicit session evidence."""
 
@@ -120,6 +119,7 @@ def _approving_india_session_evaluator():
         )
 
     return allow
+
 
 def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
@@ -210,7 +210,6 @@ def test_reference_adapter_emits_domain_receipt_not_transport_response() -> None
     assert type(receipt).__name__ == "ExecutionReceipt"
     assert all(type(fill).__name__ == "Fill" for fill in receipt.fills)
     assert not hasattr(receipt, "outcome_code")
-
 
 
 def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> None:

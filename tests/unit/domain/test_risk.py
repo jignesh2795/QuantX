@@ -1,10 +1,21 @@
 from decimal import Decimal
 
 from quantx.domain.accounts import AccountId
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import AssetClass, OrderSide
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType, BrokerConstraint
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision
 from quantx.domain.value_objects import Money
@@ -13,7 +24,13 @@ from quantx.domain.value_objects import Money
 def _context() -> RiskContext:
     market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
     instrument = Instrument(
-        InstrumentId("NSE", "TCS"), "TCS", AssetClass.EQUITY, market, "INR", Decimal("0.05"), Decimal("1")
+        InstrumentId("NSE", "TCS"),
+        "TCS",
+        AssetClass.EQUITY,
+        market,
+        "INR",
+        Decimal("0.05"),
+        Decimal("1"),
     )
     financial = AccountFinancialState(
         CapitalSourceType.PAPER_CONFIGURED,
