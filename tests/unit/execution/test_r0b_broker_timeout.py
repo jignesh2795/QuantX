@@ -72,7 +72,6 @@ def _approving_india_evaluator():
     return approve
 
 
-
 def _approving_india_session_evaluator():
     """B4 boundary is not under test here; provide explicit session evidence."""
 
@@ -91,6 +90,7 @@ def _approving_india_session_evaluator():
         )
 
     return allow
+
 
 class SlowTransport(InMemoryDhanTransport):
     """Transport whose submit/health block on events until released."""
@@ -251,6 +251,7 @@ def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
         def run(self, *, checked_at=None):
             from quantx.application.pending_recovery import PendingRecoveryRun
+
             return PendingRecoveryRun()
 
     runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
