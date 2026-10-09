@@ -207,7 +207,6 @@ def _approving_india_evaluator():
     return approve
 
 
-
 def _approving_india_session_evaluator():
     """B4 boundary is not under test here; provide explicit session evidence."""
 
@@ -227,10 +226,12 @@ def _approving_india_session_evaluator():
 
     return allow
 
+
 def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
         def run(self, *, checked_at=None):
             from quantx.application.pending_recovery import PendingRecoveryRun
+
             return PendingRecoveryRun()
 
     runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
@@ -262,9 +263,7 @@ def test_existing_approve_path_passes_with_limits() -> None:
 def test_existing_broker_constraint_rejection_preserved() -> None:
     context = _context(
         broker_constraints=(
-            BrokerConstraint(
-                "min-value", "broker minimum", minimum_order_value=Decimal("5000")
-            ),
+            BrokerConstraint("min-value", "broker minimum", minimum_order_value=Decimal("5000")),
         )
     )
     result = _evaluate(_intent(quantity=Decimal("10")), context, _limits())
@@ -413,9 +412,7 @@ def test_portfolio_above_limit_rejects() -> None:
 
 def test_portfolio_missing_exposure_fails_closed() -> None:
     snapshot = _snapshot(current_portfolio_exposure=None)
-    result = _evaluate(
-        limits=_limits(max_portfolio_exposure=Decimal("100000")), snapshot=snapshot
-    )
+    result = _evaluate(limits=_limits(max_portfolio_exposure=Decimal("100000")), snapshot=snapshot)
     assert result.decision is RiskDecision.REJECT
     assert "RISK_VALUE_INVALID" in result.reason
 
@@ -702,12 +699,16 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
             assert decision.operator_resolved is False
         from quantx.persistence.sqlite import SqliteReceiptRepository
 
-        assert SqliteReceiptRepository(database).get_by_client_order(
-            request.order.client_order_id
-        ) is None
-        assert unit_of_work.idempotency.get_operator_resolution(
-            request.order.client_order_id, fingerprint
-        ) is None
+        assert (
+            SqliteReceiptRepository(database).get_by_client_order(request.order.client_order_id)
+            is None
+        )
+        assert (
+            unit_of_work.idempotency.get_operator_resolution(
+                request.order.client_order_id, fingerprint
+            )
+            is None
+        )
     finally:
         database.close()
 
@@ -764,6 +765,7 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+
         def exploding(request) -> RiskResult:
             raise RuntimeError("risk snapshot unavailable")
 

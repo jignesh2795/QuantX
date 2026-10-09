@@ -3,7 +3,12 @@ from decimal import Decimal
 import pytest
 
 from quantx.domain.accounts import AccountId
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import OrderSide
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
@@ -25,7 +30,9 @@ def _context(mode: ExecutionMode, connection_id=None) -> ExecutionContext:
 
 def test_order_is_derived_from_intent() -> None:
     intent = TradeIntent(
-        instrument=__import__("quantx.domain.value_objects", fromlist=["InstrumentId"]).InstrumentId("NSE", "TCS"),
+        instrument=__import__(
+            "quantx.domain.value_objects", fromlist=["InstrumentId"]
+        ).InstrumentId("NSE", "TCS"),
         side=OrderSide.BUY,
         quantity=Decimal("10"),
         execution_context=_context(ExecutionMode.PAPER),
@@ -38,7 +45,9 @@ def test_order_is_derived_from_intent() -> None:
 
 def test_live_execution_requires_broker_connection() -> None:
     order = Order(
-        instrument=__import__("quantx.domain.value_objects", fromlist=["InstrumentId"]).InstrumentId("NSE", "TCS"),
+        instrument=__import__(
+            "quantx.domain.value_objects", fromlist=["InstrumentId"]
+        ).InstrumentId("NSE", "TCS"),
         side=OrderSide.BUY,
         order_type=__import__("quantx.domain.enums", fromlist=["OrderType"]).OrderType.MARKET,
         quantity=Decimal("1"),
