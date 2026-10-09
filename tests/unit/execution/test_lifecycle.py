@@ -5,10 +5,21 @@ from uuid import uuid4
 import pytest
 
 from quantx.domain.accounts import AccountId
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType, TimeInForce
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.market_data import Quote
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
@@ -79,9 +90,7 @@ def _receipt(
         else ExecutionOutcome.PARTIALLY_FILLED
     )
     status = (
-        OrderStatus.FILLED
-        if outcome is ExecutionOutcome.FILLED
-        else OrderStatus.PARTIALLY_FILLED
+        OrderStatus.FILLED if outcome is ExecutionOutcome.FILLED else OrderStatus.PARTIALLY_FILLED
     )
     return ExecutionReceipt(
         request_id=uuid4(),
@@ -131,18 +140,16 @@ class _ReceiptRepository:
 
     def list_by_correlation_id(self, correlation_id):
         return tuple(
-            r for r in self.receipts
-            if r.correlation_id == str(correlation_id)
-            or r.client_order_id == correlation_id
+            r
+            for r in self.receipts
+            if r.correlation_id == str(correlation_id) or r.client_order_id == correlation_id
         )
 
 
 def test_dispatch_returns_lifecycle_from_receipt() -> None:
     request = _request()
     receipt = _receipt(request, "4")
-    service = ExecutionLifecycleService(
-        ExecutionDispatcher(paper_port=_PaperPort(receipt))
-    )
+    service = ExecutionLifecycleService(ExecutionDispatcher(paper_port=_PaperPort(receipt)))
 
     result = service.dispatch(request, snapshot=_snapshot())
 
