@@ -17,7 +17,7 @@ from quantx.domain.policy import PolicyResult
 from quantx.domain.risk import RiskResult
 
 from .dispatch import ExecutionDispatchResult, ExecutionDispatcher
-from .idempotency import InMemoryIdempotencyStore, IdempotencyStore, request_fingerprint
+from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
 from .lifecycle import ExecutionLifecycleService
 from .market_data import MarketSnapshot
 from .receipts.lifecycle import ExecutionLifecycle
@@ -560,7 +560,7 @@ class ExecutionContinuationService:
         child_request: ApprovedExecutionRequest,
     ) -> ExecutionContinuationResult:
         """Recover the next chain child from authoritative evidence without dispatch."""
-        chain = self.reconcile_chain(root_request, continuation_requests)
+        self.reconcile_chain(root_request, continuation_requests)
         parent_request = (
             continuation_requests[-1]
             if continuation_requests
