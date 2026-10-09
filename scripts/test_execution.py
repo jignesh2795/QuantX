@@ -6,8 +6,4 @@ import subprocess
 
 
 if __name__ == "__main__":
-    raise SystemExit(
-        subprocess.call(
-            ["uv", "run", "pytest", "tests/unit/execution", "-q"]
-        )
-    )
+    raise SystemExit(subprocess.call(["uv", "run", "pytest", "tests/unit/execution", "-q"]))
