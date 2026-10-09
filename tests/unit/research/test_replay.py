@@ -21,10 +21,12 @@ def _obs(ts: str, sequence: int) -> HistoricalObservation:
 
 
 def test_series_is_chronological_and_point_in_time() -> None:
-    series = HistoricalDataSeries([
-        _obs("2026-01-01T10:00:01", 1),
-        _obs("2026-01-01T10:00:00", 0),
-    ])
+    series = HistoricalDataSeries(
+        [
+            _obs("2026-01-01T10:00:01", 1),
+            _obs("2026-01-01T10:00:00", 0),
+        ]
+    )
     cutoff = datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
     values = series.as_of(cutoff)
     assert len(values) == 1
@@ -32,11 +34,13 @@ def test_series_is_chronological_and_point_in_time() -> None:
 
 
 def test_replay_never_reorders_or_looks_ahead() -> None:
-    series = HistoricalDataSeries([
-        _obs("2026-01-01T10:00:02", 2),
-        _obs("2026-01-01T10:00:00", 0),
-        _obs("2026-01-01T10:00:01", 1),
-    ])
+    series = HistoricalDataSeries(
+        [
+            _obs("2026-01-01T10:00:02", 2),
+            _obs("2026-01-01T10:00:00", 0),
+            _obs("2026-01-01T10:00:01", 1),
+        ]
+    )
     replay = HistoricalReplay(series)
     seen = []
     count = replay.run(lambda frame: seen.append(frame.observation.snapshot.timestamp))
