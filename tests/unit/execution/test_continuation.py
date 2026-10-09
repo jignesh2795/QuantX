@@ -13,7 +13,13 @@ from quantx.domain.deployment import (
 )
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType, TimeInForce
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.market_data import Quote
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
@@ -130,9 +136,9 @@ class _ReceiptRepository:
 
     def list_by_correlation_id(self, correlation_id):
         return tuple(
-            r for r in self.receipts
-            if r.correlation_id == str(correlation_id)
-            or r.client_order_id == correlation_id
+            r
+            for r in self.receipts
+            if r.correlation_id == str(correlation_id) or r.client_order_id == correlation_id
         )
 
 

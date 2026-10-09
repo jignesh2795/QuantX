@@ -71,9 +71,7 @@ def _rules(**overrides) -> IndiaVenueRuleSnapshot:
         "version": "NSE-EQ-2026-01",
         "provenance": "test-venue-rules",
         "effective_at": EFFECTIVE_AT,
-        "scope": IndiaRuleScope(
-            exchange=IndianExchange.NSE, segment=IndianSegment.EQUITY
-        ),
+        "scope": IndiaRuleScope(exchange=IndianExchange.NSE, segment=IndianSegment.EQUITY),
         "allowed_order_types": frozenset(
             {OrderType.MARKET, OrderType.LIMIT, OrderType.STOP, OrderType.STOP_LIMIT}
         ),
@@ -227,6 +225,7 @@ def test_incoherent_band_blocks() -> None:
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_RULE_DATA_UNAVAILABLE" in result.reason
 
+
 def test_future_effective_price_band_blocks() -> None:
     future_band = _band()
     future_band = PriceBandRuleSnapshot(
@@ -309,9 +308,7 @@ def test_mismatched_segment_scope_rejects() -> None:
 
 
 def test_mismatched_instrument_scope_rejects() -> None:
-    rules = _rules(
-        scope=IndiaRuleScope(instrument_id=InstrumentId("NSE", "INFY"))
-    )
+    rules = _rules(scope=IndiaRuleScope(instrument_id=InstrumentId("NSE", "INFY")))
     result = _compat(rules=rules)
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_RULE_SCOPE_MISMATCH" in result.reason
