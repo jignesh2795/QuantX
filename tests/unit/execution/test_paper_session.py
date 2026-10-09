@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.accounts import AccountId
@@ -65,7 +65,7 @@ def _request() -> ApprovedExecutionRequest:
 
 
 def test_execute_account_and_value_uses_observed_mark() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     instrument = _instrument()
     session = PaperSession(
         executor=engine,
@@ -75,7 +75,7 @@ def test_execute_account_and_value_uses_observed_mark() -> None:
         _request(),
         snapshot=QuoteSnapshot(
             instrument=instrument.instrument_id,
-            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
             bid=Decimal("99"),
             ask=Decimal("100"),
             last=Decimal("100"),
@@ -90,7 +90,7 @@ def test_execute_account_and_value_uses_observed_mark() -> None:
 
 def test_idempotent_receipt_does_not_double_apply_position_or_cash() -> None:
     engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(fee_bps=Decimal("10")),
     )
     instrument = _instrument()
@@ -107,7 +107,7 @@ def test_idempotent_receipt_does_not_double_apply_position_or_cash() -> None:
     request = _request()
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
@@ -128,7 +128,7 @@ def test_receipt_fee_flows_into_accounting_by_default() -> None:
     from quantx.execution.paper import PaperSimulationProfile
 
     engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(fee_bps=Decimal("10")),
     )
     instrument = _instrument()
@@ -141,7 +141,7 @@ def test_receipt_fee_flows_into_accounting_by_default() -> None:
         _request(),
         snapshot=QuoteSnapshot(
             instrument=instrument.instrument_id,
-            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
             bid=Decimal("99"),
             ask=Decimal("100"),
             last=Decimal("100"),
@@ -155,7 +155,7 @@ def test_receipt_fee_flows_into_accounting_by_default() -> None:
 
 
 def test_missing_mark_produces_incomplete_valuation() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     instrument = _instrument()
     session = PaperSession(
         executor=engine,
@@ -165,7 +165,7 @@ def test_missing_mark_produces_incomplete_valuation() -> None:
         _request(),
         snapshot=QuoteSnapshot(
             instrument=instrument.instrument_id,
-            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
             ask=Decimal("100"),
         ),
         cash=Money(Decimal("5000"), "INR"),
@@ -185,7 +185,7 @@ def test_partial_continuation_reuses_account_pipeline_and_post_trade_risk() -> N
     from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 
     instrument = _instrument()
-    clock = FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
     engine = PaperExecutionEngine(
         clock=clock,
         profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1"), fee_bps=Decimal("10")),
@@ -254,7 +254,7 @@ def test_partial_continuation_recalculates_position_margin_for_full_resulting_po
 
     instrument = _instrument()
     request = _request()
-    clock = FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
     engine = PaperExecutionEngine(
         clock=clock,
         profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1")),
@@ -324,7 +324,7 @@ def test_partial_continuation_is_blocked_before_executor_on_projected_position_e
 
     instrument = _instrument()
     request = _request()
-    clock = FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
     engine = PaperExecutionEngine(
         clock=clock,
         profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1")),
