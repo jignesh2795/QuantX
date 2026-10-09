@@ -1,4 +1,4 @@
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time, timezone
 from decimal import Decimal
 
 from quantx.research.calendar import FixedDailySessionCalendar, SessionStatus
@@ -15,7 +15,7 @@ def make_registry(status=TradabilityStatus.TRADABLE):
         (
             VersionedInstrumentRule(
                 instrument_id="TEST",
-                effective_from=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                effective_from=datetime(2026, 1, 1, tzinfo=UTC),
                 effective_to=None,
                 tick_size=Decimal("0.05"),
                 lot_size=Decimal("1"),
@@ -38,7 +38,7 @@ def test_market_open_and_instrument_tradable_is_executable():
         calendar=calendar,
         instrument_registry=make_registry(),
     )
-    context = resolver.resolve("TEST", datetime(2026, 2, 2, 10, tzinfo=timezone.utc))
+    context = resolver.resolve("TEST", datetime(2026, 2, 2, 10, tzinfo=UTC))
     assert context.session.status is SessionStatus.OPEN
     assert context.executable is True
     assert context.execution_block_reason is None
@@ -54,7 +54,7 @@ def test_closed_market_is_not_executable_even_when_instrument_is_tradable():
         calendar=calendar,
         instrument_registry=make_registry(),
     )
-    context = resolver.resolve("TEST", datetime(2026, 2, 1, 20, tzinfo=timezone.utc))
+    context = resolver.resolve("TEST", datetime(2026, 2, 1, 20, tzinfo=UTC))
     assert context.executable is False
     assert "market session" in context.execution_block_reason
 
@@ -69,7 +69,7 @@ def test_suspended_instrument_is_not_executable_during_open_session():
         calendar=calendar,
         instrument_registry=make_registry(TradabilityStatus.SUSPENDED),
     )
-    context = resolver.resolve("TEST", datetime(2026, 2, 2, 10, tzinfo=timezone.utc))
+    context = resolver.resolve("TEST", datetime(2026, 2, 2, 10, tzinfo=UTC))
     assert context.session.status is SessionStatus.OPEN
     assert context.executable is False
     assert "instrument status" in context.execution_block_reason

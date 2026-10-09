@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -11,9 +11,9 @@ from quantx.research.market_rules import (
 )
 
 
-T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
-T1 = datetime(2026, 2, 1, tzinfo=timezone.utc)
-T2 = datetime(2026, 3, 1, tzinfo=timezone.utc)
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
+T1 = datetime(2026, 2, 1, tzinfo=UTC)
+T2 = datetime(2026, 3, 1, tzinfo=UTC)
 
 
 def rule(start, end, *, version, status=TradabilityStatus.TRADABLE):
