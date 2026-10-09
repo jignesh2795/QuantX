@@ -228,11 +228,11 @@ class PaperSession:
             receipt = adapter.execute(request, snapshot=snapshot)
         except Exception:
             if margin_reservation is not None:
-                self._margin_ledger.release(margin_reservation.reservation_id)
+                self.release_margin(margin_reservation.reservation_id)
             raise
         if not receipt.fills:
             if margin_reservation is not None:
-                self._margin_ledger.release(margin_reservation.reservation_id)
+                self.release_margin(margin_reservation.reservation_id)
             raise ValueError("execution produced no fill")
 
         applied_fee = receipt.fee if fee is None else fee
