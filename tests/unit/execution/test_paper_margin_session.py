@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.clock import FixedClock
@@ -70,7 +70,7 @@ def _request(
 def _snapshot(instrument: Instrument) -> QuoteSnapshot:
     return QuoteSnapshot(
         instrument=instrument.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
@@ -79,7 +79,7 @@ def _snapshot(instrument: Instrument) -> QuoteSnapshot:
 
 def test_paper_session_tracks_margin_until_position_closes() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     session = PaperSession(
         executor=engine,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
