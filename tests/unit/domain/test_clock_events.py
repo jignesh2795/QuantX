@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.clock import FixedClock
@@ -7,8 +7,8 @@ from quantx.domain.events import GenericDomainEvent, OrderFilled
 
 
 def test_fixed_clock_normalizes_to_utc() -> None:
-    clock = FixedClock(datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc))
-    assert clock.now() == datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+    clock = FixedClock(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+    assert clock.now() == datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
 
 
 def test_fixed_clock_rejects_naive_datetime() -> None:
@@ -27,7 +27,7 @@ def test_event_bus_dispatches_to_matching_event_type() -> None:
 
     event = OrderFilled(
         event_id="evt-1",
-        occurred_at=datetime.now(timezone.utc),
+        occurred_at=datetime.now(UTC),
         correlation_id="corr-1",
         order_id="ord-1",
         fill_id="fill-1",
@@ -46,7 +46,7 @@ def test_event_bus_does_not_cross_dispatch_event_types() -> None:
 
     event = GenericDomainEvent(
         event_id="evt-2",
-        occurred_at=datetime.now(timezone.utc),
+        occurred_at=datetime.now(UTC),
         correlation_id="corr-2",
         event_type="test",
     )

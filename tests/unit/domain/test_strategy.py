@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -20,7 +20,7 @@ def test_signal_confidence_is_bounded() -> None:
             instrument=InstrumentId("NSE", "TCS"),
             action=SignalAction.BUY,
             confidence=1.2,
-            generated_at=datetime.now(timezone.utc),
+            generated_at=datetime.now(UTC),
         )
 
 
