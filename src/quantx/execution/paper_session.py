@@ -19,7 +19,10 @@ from quantx.domain.orders import Fill
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.positions import Position
 from quantx.domain.value_objects import Money
-from quantx.execution.account_financial_state import AccountFinancialSnapshot, AccountFinancialStateBuilder
+from quantx.execution.account_financial_state import (
+    AccountFinancialSnapshot,
+    AccountFinancialStateBuilder,
+)
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.cash_ledger import CashLedger, CashLedgerEntry
 from quantx.execution.margin_ledger import MarginLedger, MarginReservation, MarginState
@@ -38,8 +41,7 @@ from .market_data import MarketSnapshot
 class _ExecutionAdapter(Protocol):
     def execute(
         self, request: ApprovedExecutionRequest, *, snapshot: MarketSnapshot
-    ) -> ExecutionReceipt:
-        ...
+    ) -> ExecutionReceipt: ...
 
 
 class _PartialContinuationAdapter:
@@ -293,11 +295,7 @@ class PaperSession:
             margin_used = Money(ledger_state.used, margin_currency)
             margin_available = Money(ledger_state.available, margin_currency)
 
-        account_cash = (
-            self._cash_ledger.balance
-            if self._cash_ledger is not None
-            else cash
-        )
+        account_cash = self._cash_ledger.balance if self._cash_ledger is not None else cash
         assert account_cash is not None
         if cash is not None and cash.currency != account_cash.currency:
             raise ValueError("cash currency does not match the paper account")
@@ -322,7 +320,11 @@ class PaperSession:
                 mark_price = valuation_price
             elif entry_snapshot is not None:
                 mark_price = entry_snapshot.last
-                if mark_price is None and entry_snapshot.bid is not None and entry_snapshot.ask is not None:
+                if (
+                    mark_price is None
+                    and entry_snapshot.bid is not None
+                    and entry_snapshot.ask is not None
+                ):
                     mark_price = (entry_snapshot.bid + entry_snapshot.ask) / Decimal("2")
             else:
                 mark_price = None
@@ -351,9 +353,7 @@ class PaperSession:
         )
 
         margin_available_money = (
-            margin_available
-            if margin_available is not None
-            else Money.zero(account_cash.currency)
+            margin_available if margin_available is not None else Money.zero(account_cash.currency)
         )
         gross_exposure = Money(
             sum(
@@ -457,9 +457,7 @@ class PaperSession:
                 if entry_instrument is None:
                     raise ValueError("instrument metadata unavailable for projected continuation")
                 multiplier = entry_instrument.multiplier
-            exposures.append(
-                Money(abs(entry.quantity) * mark * multiplier, instrument.currency)
-            )
+            exposures.append(Money(abs(entry.quantity) * mark * multiplier, instrument.currency))
         if self._margin_ledger is not None:
             state = self._margin_ledger.state
             existing = sum(
@@ -547,4 +545,3 @@ class PaperSession:
             capital_source=capital_source,
             execution_adapter=adapter,
         )
-
