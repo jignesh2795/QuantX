@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -214,7 +214,7 @@ def test_stateful_session_values_multiple_open_positions() -> None:
         tick_size=Decimal("0.05"),
         lot_size=Decimal("1"),
     )
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     session = PaperSession(
         executor=engine,
         instrument_registry=InMemoryInstrumentRegistry((tcs, infy)),
@@ -223,14 +223,14 @@ def test_stateful_session_values_multiple_open_positions() -> None:
 
     tcs_snapshot = QuoteSnapshot(
         instrument=tcs.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
     )
     infy_snapshot = QuoteSnapshot(
         instrument=infy.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("199"),
         ask=Decimal("200"),
         last=Decimal("200"),
@@ -253,7 +253,7 @@ def test_stateful_session_values_multiple_open_positions() -> None:
 
 def test_paper_session_releases_position_linked_margin_when_flat() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     margin = MarginLedger(Decimal("3000"))
     session = PaperSession(
         executor=engine,
@@ -263,7 +263,7 @@ def test_paper_session_releases_position_linked_margin_when_flat() -> None:
     )
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
@@ -287,7 +287,7 @@ def test_paper_session_releases_position_linked_margin_when_flat() -> None:
 
 def test_position_margin_policy_resizes_on_partial_close() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     margin = MarginLedger(Decimal("3000"))
     session = PaperSession(
         executor=engine,
@@ -298,7 +298,7 @@ def test_position_margin_policy_resizes_on_partial_close() -> None:
     )
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
@@ -325,7 +325,7 @@ def test_position_margin_policy_resizes_on_partial_close() -> None:
 
 def test_position_margin_policy_blocks_before_execution_when_margin_is_insufficient() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
     margin = MarginLedger(Decimal("500"))
     session = PaperSession(
         executor=engine,
@@ -336,7 +336,7 @@ def test_position_margin_policy_blocks_before_execution_when_margin_is_insuffici
     )
     snapshot = QuoteSnapshot(
         instrument=instrument.instrument_id,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
         last=Decimal("100"),
