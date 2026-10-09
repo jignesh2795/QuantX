@@ -121,7 +121,6 @@ def _approving_india_evaluator():
     return approve
 
 
-
 def _approving_india_session_evaluator():
     """B4 boundary is not under test here; provide explicit session evidence."""
 
@@ -140,6 +139,7 @@ def _approving_india_session_evaluator():
         )
 
     return allow
+
 
 def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
