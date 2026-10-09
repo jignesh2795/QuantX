@@ -2,15 +2,31 @@ from decimal import Decimal
 from uuid import uuid4
 
 from quantx.domain.accounts import AccountId, BrokerConnectionId
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.ports import ExecutionReceipt, ExecutionOutcome, LiveExecutionPort
 from quantx.ports.broker import BrokerPort
-from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef, BrokerDescriptor, CapabilitySet
+from quantx.integrations.brokers import (
+    BrokerCapability,
+    BrokerConnectionRef,
+    BrokerDescriptor,
+    CapabilitySet,
+)
 from quantx.domain.orders import Fill
 
 
@@ -60,7 +76,9 @@ class ReferenceBroker:
         self._capabilities = CapabilitySet(
             frozenset({BrokerCapability.ORDER_SUBMISSION, BrokerCapability.MARKET_DATA})
         )
-        self.descriptor = BrokerDescriptor("reference", "Reference Broker", self._capabilities, "1.0")
+        self.descriptor = BrokerDescriptor(
+            "reference", "Reference Broker", self._capabilities, "1.0"
+        )
 
     @property
     def connection(self) -> BrokerConnectionRef:

@@ -2,7 +2,12 @@ from datetime import datetime, time, timezone
 
 from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import ExecutionMode
-from quantx.domain.sessions import SessionState, SessionWindow, TradingSession, TradingSessionSchedule
+from quantx.domain.sessions import (
+    SessionState,
+    SessionWindow,
+    TradingSession,
+    TradingSessionSchedule,
+)
 from quantx.execution.session_guard import SessionExecutionGuard
 
 
@@ -10,8 +15,7 @@ def _session(hour: int) -> TradingSession:
     schedule = TradingSessionSchedule(
         timezone="Asia/Kolkata",
         windows_by_weekday=tuple(
-            (day, (SessionWindow(time(9, 15), time(15, 30)),))
-            for day in range(5)
+            (day, (SessionWindow(time(9, 15), time(15, 30)),)) for day in range(5)
         ),
     )
     return TradingSession(

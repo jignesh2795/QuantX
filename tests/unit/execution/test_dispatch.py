@@ -67,9 +67,7 @@ def _request(
         portfolio_id=PortfolioId("portfolio-1"),
         deployment_id=StrategyDeploymentId("deploy-1"),
         market=instrument.market,
-        broker_connection_id=(
-            BrokerConnectionId("conn-1") if mode is ExecutionMode.LIVE else None
-        ),
+        broker_connection_id=(BrokerConnectionId("conn-1") if mode is ExecutionMode.LIVE else None),
         execution_mode=mode,
     )
     intent = TradeIntent(
@@ -81,9 +79,7 @@ def _request(
     )
     order = build_order_from_intent(intent)
     policy = (
-        PolicyResult(PolicyDecision.APPROVE, "approved")
-        if mode is ExecutionMode.LIVE
-        else None
+        PolicyResult(PolicyDecision.APPROVE, "approved") if mode is ExecutionMode.LIVE else None
     )
     return ApprovedExecutionRequest(
         order=order,
