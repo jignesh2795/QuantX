@@ -149,6 +149,7 @@ def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
         def run(self, *, checked_at=None):
             from quantx.application.pending_recovery import PendingRecoveryRun
+
             return PendingRecoveryRun()
 
     runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
@@ -191,9 +192,7 @@ def _approving_india_session_evaluator():
 
 
 def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
-    overrides.setdefault(
-        "india_session_evaluator", _approving_india_session_evaluator()
-    )
+    overrides.setdefault("india_session_evaluator", _approving_india_session_evaluator())
     return ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
@@ -224,6 +223,7 @@ def test_india_live_incomplete_session_evidence_fails_closed(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+
         def incomplete(request) -> IndiaSessionResult:
             return IndiaSessionResult(
                 IndiaSessionDecision.ALLOW,
@@ -255,6 +255,7 @@ def test_india_live_session_evaluator_exception_fails_closed(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+
         def exploding(request) -> IndiaSessionResult:
             raise RuntimeError("calendar provider unavailable")
 
@@ -276,6 +277,7 @@ def test_india_live_session_scope_mismatch_fails_closed(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+
         def mismatched(request) -> IndiaSessionResult:
             return IndiaSessionResult(
                 IndiaSessionDecision.ALLOW,
@@ -368,12 +370,16 @@ def test_india_rejection_blocks_before_reservation_and_submit(tmp_path) -> None:
             assert decision.reservation_pending is False
             assert decision.existing_receipt_id is None
             assert decision.operator_resolved is False
-        assert SqliteReceiptRepository(database).get_by_client_order(
-            request.order.client_order_id
-        ) is None
-        assert unit_of_work.idempotency.get_operator_resolution(
-            request.order.client_order_id, fingerprint
-        ) is None
+        assert (
+            SqliteReceiptRepository(database).get_by_client_order(request.order.client_order_id)
+            is None
+        )
+        assert (
+            unit_of_work.idempotency.get_operator_resolution(
+                request.order.client_order_id, fingerprint
+            )
+            is None
+        )
     finally:
         database.close()
 
@@ -396,12 +402,16 @@ def test_india_live_without_evaluator_fails_closed(tmp_path) -> None:
             assert decision.reservation_pending is False
             assert decision.existing_receipt_id is None
             assert decision.operator_resolved is False
-        assert SqliteReceiptRepository(database).get_by_client_order(
-            request.order.client_order_id
-        ) is None
-        assert unit_of_work.idempotency.get_operator_resolution(
-            request.order.client_order_id, fingerprint
-        ) is None
+        assert (
+            SqliteReceiptRepository(database).get_by_client_order(request.order.client_order_id)
+            is None
+        )
+        assert (
+            unit_of_work.idempotency.get_operator_resolution(
+                request.order.client_order_id, fingerprint
+            )
+            is None
+        )
     finally:
         database.close()
 
@@ -456,6 +466,7 @@ def test_failing_india_evaluator_fails_closed(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+
         def exploding(request) -> IndiaRuleResult:
             raise RuntimeError("spec catalog unavailable")
 
@@ -475,6 +486,7 @@ def test_india_rejection_precedes_risk_evaluation(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+
         def permissive_risk(request):
             return RiskResult(RiskDecision.APPROVE, "risk approved")
 
@@ -591,9 +603,7 @@ def _venue_rules(**overrides) -> IndiaVenueRuleSnapshot:
         "version": "NSE-EQ-2026-01",
         "provenance": "test-venue-rules",
         "effective_at": datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
-        "scope": IndiaRuleScope(
-            exchange=IndianExchange.NSE, segment=IndianSegment.EQUITY
-        ),
+        "scope": IndiaRuleScope(exchange=IndianExchange.NSE, segment=IndianSegment.EQUITY),
         "allowed_order_types": frozenset(
             {OrderType.MARKET, OrderType.LIMIT, OrderType.STOP, OrderType.STOP_LIMIT}
         ),
@@ -672,9 +682,10 @@ def test_compat_freeze_rejection_blocks_before_reservation(tmp_path) -> None:
             decision = check_uow.idempotency.check(request.order.client_order_id, fingerprint)
             assert decision.reservation_pending is False
             assert decision.existing_receipt_id is None
-        assert SqliteReceiptRepository(database).get_by_client_order(
-            request.order.client_order_id
-        ) is None
+        assert (
+            SqliteReceiptRepository(database).get_by_client_order(request.order.client_order_id)
+            is None
+        )
     finally:
         database.close()
 
