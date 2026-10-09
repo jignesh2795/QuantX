@@ -112,9 +112,7 @@ def _local_position(*, quantity="10", observed_at=CHECKED_AT) -> PositionState:
     )
 
 
-def _local_account(
-    *, cash="5000", margin="1200", observed_at=CHECKED_AT
-) -> AccountFinancialState:
+def _local_account(*, cash="5000", margin="1200", observed_at=CHECKED_AT) -> AccountFinancialState:
     return AccountFinancialState(
         AccountId("acct-1"),
         BrokerConnectionId("conn-1"),
@@ -350,9 +348,7 @@ def test_stray_position_does_not_block_target_recovery(tmp_path) -> None:
         request = _request()
         order_id = request.order.client_order_id
         fingerprint = _reserve(unit_of_work, request)
-        transport = _filled_transport(
-            position_snapshots=(_target_position(), _stray_position())
-        )
+        transport = _filled_transport(position_snapshots=(_target_position(), _stray_position()))
         adapter = _adapter(transport)
 
         # The strict whole-book listing still refuses the unmapped symbol.
@@ -429,11 +425,14 @@ def test_target_position_evidence_is_authoritative(tmp_path) -> None:
     assert state.instrument_id == "NSE:TCS"
     assert state.account_id == AccountId("acct-1")
     assert state.connection_id == BrokerConnectionId("conn-1")
-    assert provider.fetch_broker_position(
-        account_id=AccountId("acct-1"),
-        connection_id=BrokerConnectionId("conn-1"),
-        instrument_id="NSE:TCS",
-    ) == state
+    assert (
+        provider.fetch_broker_position(
+            account_id=AccountId("acct-1"),
+            connection_id=BrokerConnectionId("conn-1"),
+            instrument_id="NSE:TCS",
+        )
+        == state
+    )
 
 
 def test_cnc_absence_is_not_delivery_evidence(tmp_path) -> None:
@@ -508,9 +507,7 @@ def _runner(unit_of_work, adapter, request, **overrides):
     return (
         PendingExecutionRecoveryRunner(
             unit_of_work=unit_of_work,
-            provider_resolver=lambda recovered: build_dhan_recovery_provider(
-                adapter, recovered
-            ),
+            provider_resolver=lambda recovered: build_dhan_recovery_provider(adapter, recovered),
             **context_providers,
         ),
         fingerprint,

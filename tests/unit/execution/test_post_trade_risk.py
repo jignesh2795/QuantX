@@ -26,7 +26,9 @@ def _state(used: str, available: str) -> AccountFinancialState:
 
 def test_daily_loss_limit_breaches() -> None:
     result = PostTradeRiskEngine().evaluate(
-        PostTradeRiskSnapshot(_state("1000", "9000"), Money(Decimal("-501"), "INR"), Money(Decimal("1000"), "INR")),
+        PostTradeRiskSnapshot(
+            _state("1000", "9000"), Money(Decimal("-501"), "INR"), Money(Decimal("1000"), "INR")
+        ),
         PostTradeRiskLimits(max_daily_loss=Money(Decimal("500"), "INR")),
     )
     assert result.breached
@@ -35,7 +37,9 @@ def test_daily_loss_limit_breaches() -> None:
 
 def test_margin_utilization_limit_breaches() -> None:
     result = PostTradeRiskEngine().evaluate(
-        PostTradeRiskSnapshot(_state("7000", "3000"), Money(Decimal("0"), "INR"), Money(Decimal("1000"), "INR")),
+        PostTradeRiskSnapshot(
+            _state("7000", "3000"), Money(Decimal("0"), "INR"), Money(Decimal("1000"), "INR")
+        ),
         PostTradeRiskLimits(max_margin_utilization=Decimal("0.6")),
     )
     assert result.breached
@@ -44,14 +48,18 @@ def test_margin_utilization_limit_breaches() -> None:
 def test_exposure_limit_breaches_and_currency_mismatch_is_rejected() -> None:
     engine = PostTradeRiskEngine()
     result = engine.evaluate(
-        PostTradeRiskSnapshot(_state("100", "9900"), Money(Decimal("0"), "INR"), Money(Decimal("5001"), "INR")),
+        PostTradeRiskSnapshot(
+            _state("100", "9900"), Money(Decimal("0"), "INR"), Money(Decimal("5001"), "INR")
+        ),
         PostTradeRiskLimits(max_exposure=Money(Decimal("5000"), "INR")),
     )
     assert result.reasons == ("maximum gross exposure exceeded",)
 
     with pytest.raises(ValueError, match="currency"):
         engine.evaluate(
-            PostTradeRiskSnapshot(_state("100", "9900"), Money(Decimal("0"), "USD"), Money(Decimal("1"), "INR")),
+            PostTradeRiskSnapshot(
+                _state("100", "9900"), Money(Decimal("0"), "USD"), Money(Decimal("1"), "INR")
+            ),
             PostTradeRiskLimits(max_daily_loss=Money(Decimal("500"), "INR")),
         )
 
@@ -100,7 +108,9 @@ def test_max_open_positions_limit() -> None:
         ),
     )
     result = PostTradeRiskEngine().evaluate(
-        PostTradeRiskSnapshot(state.state, state.daily_pnl, state.gross_exposure, state.position_exposures),
+        PostTradeRiskSnapshot(
+            state.state, state.daily_pnl, state.gross_exposure, state.position_exposures
+        ),
         PostTradeRiskLimits(max_open_positions=1),
     )
     assert result.breached

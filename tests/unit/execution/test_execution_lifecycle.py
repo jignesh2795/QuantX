@@ -17,14 +17,18 @@ def test_partial_lifecycle_generates_deterministic_continuation_identity() -> No
         filled_quantity=Decimal("4"),
         status=OrderStatus.PARTIALLY_FILLED,
     )
-    assert lifecycle.continuation_client_order_id(Decimal("6")) == lifecycle.continuation_client_order_id(Decimal("6"))
+    assert lifecycle.continuation_client_order_id(
+        Decimal("6")
+    ) == lifecycle.continuation_client_order_id(Decimal("6"))
 
 
 def test_continuation_identity_changes_after_new_fill() -> None:
     order_id = uuid4()
     first = ExecutionLifecycle(order_id, Decimal("10"), Decimal("4"), OrderStatus.PARTIALLY_FILLED)
     second = ExecutionLifecycle(order_id, Decimal("10"), Decimal("7"), OrderStatus.PARTIALLY_FILLED)
-    assert first.continuation_client_order_id(Decimal("6")) != second.continuation_client_order_id(Decimal("3"))
+    assert first.continuation_client_order_id(Decimal("6")) != second.continuation_client_order_id(
+        Decimal("3")
+    )
 
 
 def test_child_receipt_updates_parent_lifecycle_without_overstating_completion() -> None:
@@ -83,7 +87,12 @@ def test_continuation_cannot_exceed_evidenced_remainder() -> None:
 def test_partial_continuation_executes_remaining_quantity_with_parent_correlation() -> None:
     from quantx.domain.accounts import AccountId
     from quantx.domain.clock import FixedClock
-    from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+    from quantx.domain.deployment import (
+        ExecutionContext,
+        ExecutionMode,
+        PortfolioId,
+        StrategyDeploymentId,
+    )
     from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
     from quantx.domain.order_intents import TradeIntent
     from quantx.domain.risk import RiskDecision, RiskResult
@@ -106,6 +115,7 @@ def test_partial_continuation_executes_remaining_quantity_with_parent_correlatio
         execution_context=context,
     )
     from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+
     request = ApprovedExecutionRequest(
         build_order_from_intent(intent),
         context,

@@ -297,9 +297,7 @@ def test_historical_timestamp_expectation_ignores_order_permissions() -> None:
         ),
     )
 
-    result = calendar.historical_timestamp_expected(
-        datetime(2026, 1, 5, 3, 45, tzinfo=UTC)
-    )
+    result = calendar.historical_timestamp_expected(datetime(2026, 1, 5, 3, 45, tzinfo=UTC))
 
     assert result is True
 
@@ -311,18 +309,8 @@ def test_historical_timestamp_expectation_preserves_holiday_and_unknown_states()
         valid_through=date(2026, 1, 9),
     )
 
-    assert (
-        calendar.historical_timestamp_expected(
-            datetime(2026, 1, 5, 5, 0, tzinfo=UTC)
-        )
-        is False
-    )
-    assert (
-        calendar.historical_timestamp_expected(
-            datetime(2026, 1, 10, 5, 0, tzinfo=UTC)
-        )
-        is None
-    )
+    assert calendar.historical_timestamp_expected(datetime(2026, 1, 5, 5, 0, tzinfo=UTC)) is False
+    assert calendar.historical_timestamp_expected(datetime(2026, 1, 10, 5, 0, tzinfo=UTC)) is None
 
 
 def test_historical_timestamp_expectation_handles_previous_overnight_session() -> None:
@@ -337,8 +325,6 @@ def test_historical_timestamp_expectation_handles_previous_overnight_session() -
         ),
     )
 
-    result = calendar.historical_timestamp_expected(
-        datetime(2026, 1, 5, 18, 30, tzinfo=UTC)
-    )
+    result = calendar.historical_timestamp_expected(datetime(2026, 1, 5, 18, 30, tzinfo=UTC))
 
     assert result is True
