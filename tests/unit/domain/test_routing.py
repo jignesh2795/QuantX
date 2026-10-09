@@ -3,7 +3,13 @@ from decimal import Decimal
 from quantx.domain.accounts import AccountId, BrokerConnection, BrokerConnectionId, ConnectionStatus
 from quantx.domain.enums import AssetClass
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType, BrokerConstraint
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.routing import RoutingCandidate, RoutingDecision, RoutingPolicyEvaluator
 from quantx.domain.value_objects import Money, Quantity
 

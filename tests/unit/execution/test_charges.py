@@ -82,10 +82,7 @@ def test_percentage_bps_charge_rejects_negative_rate() -> None:
 
 def test_zero_rate_is_explicitly_zero() -> None:
     model = PercentageBpsChargeModel(rate_bps=Decimal("0"))
-    result = model.calculate(
-        ChargeCalculationContext(transaction_value=Decimal("1000"))
-    )
+    result = model.calculate(ChargeCalculationContext(transaction_value=Decimal("1000")))
 
     assert result.total == Decimal("0")
     assert result.components[0] == ChargeComponent("modeled_fee", Decimal("0"))
-

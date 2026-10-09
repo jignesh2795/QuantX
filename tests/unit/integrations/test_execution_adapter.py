@@ -104,9 +104,7 @@ def test_broker_execution_adapter_rejects_direct_live_execution() -> None:
     submission = FakeSubmission(receipt)
     adapter = BrokerExecutionAdapter(submission)
 
-    request = SimpleNamespace(
-        execution_context=SimpleNamespace(execution_mode=ExecutionMode.LIVE)
-    )
+    request = SimpleNamespace(execution_context=SimpleNamespace(execution_mode=ExecutionMode.LIVE))
     with pytest.raises(ValueError, match="ExecutionOrchestrator.*UnitOfWork"):
         adapter.execute(request)  # type: ignore[arg-type]
 

@@ -6,7 +6,13 @@ import pytest
 from quantx.domain.enums import OrderSide
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
 from quantx.domain.order_intents import TradeIntent
-from quantx.domain.strategy import SignalAction, StrategyDefinition, StrategyId, StrategyResult, StrategySignal
+from quantx.domain.strategy import (
+    SignalAction,
+    StrategyDefinition,
+    StrategyId,
+    StrategyResult,
+    StrategySignal,
+)
 from quantx.domain.value_objects import InstrumentId
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.reference import BuyAndHoldStrategy
