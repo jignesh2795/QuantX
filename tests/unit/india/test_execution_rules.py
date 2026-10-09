@@ -70,9 +70,7 @@ def _order(**overrides) -> Order:
 
 
 def _validate(spec=None, order=None, product=None):
-    return IndiaExecutionRuleEngine().validate(
-        spec or _spec(), order or _order(), product=product
-    )
+    return IndiaExecutionRuleEngine().validate(spec or _spec(), order or _order(), product=product)
 
 
 def test_valid_single_unit_equity_quantity() -> None:
@@ -82,17 +80,13 @@ def test_valid_single_unit_equity_quantity() -> None:
 
 def test_valid_derivative_lot_multiple() -> None:
     spec = _derivative_spec(AssetClass.FUTURE)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("75")
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("75"))
     assert _validate(spec, order).decision is IndiaRuleDecision.APPROVE
 
 
 def test_invalid_non_lot_quantity() -> None:
     spec = _derivative_spec(AssetClass.FUTURE)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("30")
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("30"))
     result = _validate(spec, order)
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_LOT_SIZE_INVALID" in result.reason
@@ -114,9 +108,7 @@ def test_bool_quantity_rejected_by_engine() -> None:
 
 def test_decimal_exactness_respected() -> None:
     spec = _derivative_spec(AssetClass.FUTURE)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("75.0")
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("75.0"))
     assert _validate(spec, order).decision is IndiaRuleDecision.APPROVE
     fractional = _order(quantity=Decimal("2.5"))
     result = _validate(_spec(), fractional)
@@ -147,9 +139,7 @@ def test_valid_tick_multiples() -> None:
 
 
 def test_invalid_tick_multiple() -> None:
-    result = _validate(
-        _spec(), _order(order_type=OrderType.LIMIT, limit_price=Decimal("100.07"))
-    )
+    result = _validate(_spec(), _order(order_type=OrderType.LIMIT, limit_price=Decimal("100.07")))
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_PRICE_TICK_INVALID" in result.reason
 
@@ -157,28 +147,20 @@ def test_invalid_tick_multiple() -> None:
 def test_integer_tick_boundary() -> None:
     spec = _spec(tick_size=Decimal("1"))
     assert (
-        _validate(
-            spec, _order(order_type=OrderType.LIMIT, limit_price=Decimal("100"))
-        ).decision
+        _validate(spec, _order(order_type=OrderType.LIMIT, limit_price=Decimal("100"))).decision
         is IndiaRuleDecision.APPROVE
     )
-    result = _validate(
-        spec, _order(order_type=OrderType.LIMIT, limit_price=Decimal("100.5"))
-    )
+    result = _validate(spec, _order(order_type=OrderType.LIMIT, limit_price=Decimal("100.5")))
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_PRICE_TICK_INVALID" in result.reason
 
 
 def test_stop_price_checked() -> None:
     assert (
-        _validate(
-            _spec(), _order(order_type=OrderType.STOP, stop_price=Decimal("99.95"))
-        ).decision
+        _validate(_spec(), _order(order_type=OrderType.STOP, stop_price=Decimal("99.95"))).decision
         is IndiaRuleDecision.APPROVE
     )
-    result = _validate(
-        _spec(), _order(order_type=OrderType.STOP, stop_price=Decimal("99.93"))
-    )
+    result = _validate(_spec(), _order(order_type=OrderType.STOP, stop_price=Decimal("99.93")))
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_PRICE_TICK_INVALID" in result.reason
 
@@ -214,9 +196,7 @@ def test_market_order_needs_no_price() -> None:
 
 
 def test_bool_price_rejected() -> None:
-    result = _validate(
-        _spec(), _order(order_type=OrderType.LIMIT, limit_price=True)
-    )
+    result = _validate(_spec(), _order(order_type=OrderType.LIMIT, limit_price=True))
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_PRICE_TICK_INVALID" in result.reason
 
@@ -232,9 +212,7 @@ def test_invalid_tick_size_fails_closed() -> None:
 
 def test_valid_future_metadata() -> None:
     spec = _derivative_spec(AssetClass.FUTURE)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25")
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25"))
     assert _validate(spec, order).decision is IndiaRuleDecision.APPROVE
 
 
@@ -254,34 +232,26 @@ def test_future_missing_expiry_rejected() -> None:
 
 
 def test_future_missing_underlying_rejected() -> None:
-    result = _validate(
-        _derivative_spec(AssetClass.FUTURE, underlying=None), _future_order()
-    )
+    result = _validate(_derivative_spec(AssetClass.FUTURE, underlying=None), _future_order())
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
 
 
 def test_future_with_strike_rejected() -> None:
-    result = _validate(
-        _derivative_spec(AssetClass.FUTURE, strike=Decimal("100")), _future_order()
-    )
+    result = _validate(_derivative_spec(AssetClass.FUTURE, strike=Decimal("100")), _future_order())
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
 
 
 def test_future_with_option_type_rejected() -> None:
-    result = _validate(
-        _derivative_spec(AssetClass.FUTURE, option_type="CALL"), _future_order()
-    )
+    result = _validate(_derivative_spec(AssetClass.FUTURE, option_type="CALL"), _future_order())
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
 
 
 def test_valid_option_metadata() -> None:
     spec = _derivative_spec(AssetClass.OPTION)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JAN100CE"), quantity=Decimal("25")
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JAN100CE"), quantity=Decimal("25"))
     assert _validate(spec, order).decision is IndiaRuleDecision.APPROVE
 
 
@@ -311,9 +281,7 @@ def test_option_missing_fields_rejected() -> None:
 
 
 def test_option_invalid_type_rejected() -> None:
-    result = _validate(
-        _derivative_spec(AssetClass.OPTION, option_type="WEIRD"), _option_order()
-    )
+    result = _validate(_derivative_spec(AssetClass.OPTION, option_type="WEIRD"), _option_order())
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
 
@@ -330,9 +298,7 @@ def test_nse_equity_segment() -> None:
 
 def test_nse_derivatives_segment() -> None:
     spec = _derivative_spec(AssetClass.FUTURE)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25")
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25"))
     assert _validate(spec, order).decision is IndiaRuleDecision.APPROVE
 
 
@@ -373,60 +339,44 @@ def test_commodity_in_equity_segment_rejected() -> None:
 
 
 def test_fx_in_commodity_segment_rejected() -> None:
-    result = _validate(
-        _spec(asset_class=AssetClass.FX, segment=IndianSegment.COMMODITY), _order()
-    )
+    result = _validate(_spec(asset_class=AssetClass.FX, segment=IndianSegment.COMMODITY), _order())
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_SEGMENT_INVALID" in result.reason
 
 
 def test_unknown_asset_segment_fails_closed() -> None:
-    result = _validate(
-        _spec(asset_class=AssetClass.INDEX, segment=IndianSegment.EQUITY), _order()
-    )
+    result = _validate(_spec(asset_class=AssetClass.INDEX, segment=IndianSegment.EQUITY), _order())
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_SEGMENT_INVALID" in result.reason
 
 
 def test_valid_equity_cnc() -> None:
     assert (
-        _validate(_spec(), _order(), product=ProductType.CNC).decision
-        is IndiaRuleDecision.APPROVE
+        _validate(_spec(), _order(), product=ProductType.CNC).decision is IndiaRuleDecision.APPROVE
     )
 
 
 def test_valid_equity_mis() -> None:
     assert (
-        _validate(_spec(), _order(), product=ProductType.MIS).decision
-        is IndiaRuleDecision.APPROVE
+        _validate(_spec(), _order(), product=ProductType.MIS).decision is IndiaRuleDecision.APPROVE
     )
 
 
 def test_derivative_nrml() -> None:
     spec = _derivative_spec(AssetClass.FUTURE)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25")
-    )
-    assert _validate(spec, order, product=ProductType.NRML).decision is (
-        IndiaRuleDecision.APPROVE
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25"))
+    assert _validate(spec, order, product=ProductType.NRML).decision is (IndiaRuleDecision.APPROVE)
 
 
 def test_derivative_mis_permitted() -> None:
     spec = _derivative_spec(AssetClass.FUTURE)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25")
-    )
-    assert _validate(spec, order, product=ProductType.MIS).decision is (
-        IndiaRuleDecision.APPROVE
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25"))
+    assert _validate(spec, order, product=ProductType.MIS).decision is (IndiaRuleDecision.APPROVE)
 
 
 def test_equity_only_product_on_derivative_rejected() -> None:
     spec = _derivative_spec(AssetClass.FUTURE)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25")
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("25"))
     result = _validate(spec, order, product=ProductType.CNC)
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_PRODUCT_INVALID" in result.reason
@@ -434,9 +384,7 @@ def test_equity_only_product_on_derivative_rejected() -> None:
 
 def test_delivery_not_accepted_for_derivatives() -> None:
     spec = _derivative_spec(AssetClass.OPTION)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JAN100CE"), quantity=Decimal("25")
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JAN100CE"), quantity=Decimal("25"))
     result = _validate(spec, order, product=ProductType.DELIVERY)
     assert result.decision is IndiaRuleDecision.REJECT
     assert "INDIA_PRODUCT_INVALID" in result.reason
@@ -450,9 +398,7 @@ def test_nrml_not_available_for_equity() -> None:
 
 def test_result_is_deterministic_and_ordered() -> None:
     spec = _derivative_spec(AssetClass.FUTURE, expiry=None)
-    order = _order(
-        instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("30")
-    )
+    order = _order(instrument=InstrumentId("NSE", "NIFTY26JANFUT"), quantity=Decimal("30"))
     first = _validate(spec, order, product=ProductType.CNC)
     second = _validate(spec, order, product=ProductType.CNC)
     assert first.decision is second.decision is IndiaRuleDecision.REJECT
