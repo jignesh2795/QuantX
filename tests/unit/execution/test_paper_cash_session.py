@@ -5,11 +5,22 @@ import pytest
 
 from quantx.domain.accounts import AccountId
 from quantx.domain.clock import FixedClock
-from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
 from quantx.domain.enums import AssetClass, OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
-from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    InstrumentId,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import Money
@@ -60,9 +71,7 @@ def _request(instrument: Instrument, side: OrderSide) -> ApprovedExecutionReques
 
 def test_stateful_paper_session_carries_cash_between_fills() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     session = PaperSession(
         executor=engine,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
@@ -123,9 +132,7 @@ def test_stateful_paper_session_applies_fees_to_cash_once() -> None:
 
 def test_paper_session_feeds_account_snapshot_to_post_trade_risk() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     gate = TradingGate()
     risk = PostTradeRiskEnforcer(
         limits=PostTradeRiskLimits(max_exposure=Money(Decimal("500"), "INR")),
@@ -159,9 +166,7 @@ def test_paper_session_feeds_account_snapshot_to_post_trade_risk() -> None:
 
 def test_paper_session_keeps_margin_reservation_in_account_state() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     margin = MarginLedger(Decimal("3000"))
     session = PaperSession(
         executor=engine,
@@ -178,6 +183,7 @@ def test_paper_session_keeps_margin_reservation_in_account_state() -> None:
     )
     request = _request(instrument, OrderSide.BUY)
     from dataclasses import replace
+
     request = replace(request, required_margin=Decimal("1200"))
 
     result = session.execute_and_value(request, snapshot=snapshot)
@@ -208,9 +214,7 @@ def test_stateful_session_values_multiple_open_positions() -> None:
         tick_size=Decimal("0.05"),
         lot_size=Decimal("1"),
     )
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     session = PaperSession(
         executor=engine,
         instrument_registry=InMemoryInstrumentRegistry((tcs, infy)),
@@ -249,9 +253,7 @@ def test_stateful_session_values_multiple_open_positions() -> None:
 
 def test_paper_session_releases_position_linked_margin_when_flat() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     margin = MarginLedger(Decimal("3000"))
     session = PaperSession(
         executor=engine,
@@ -285,9 +287,7 @@ def test_paper_session_releases_position_linked_margin_when_flat() -> None:
 
 def test_position_margin_policy_resizes_on_partial_close() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     margin = MarginLedger(Decimal("3000"))
     session = PaperSession(
         executor=engine,
@@ -325,9 +325,7 @@ def test_position_margin_policy_resizes_on_partial_close() -> None:
 
 def test_position_margin_policy_blocks_before_execution_when_margin_is_insufficient() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(
-        clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-    )
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)))
     margin = MarginLedger(Decimal("500"))
     session = PaperSession(
         executor=engine,

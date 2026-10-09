@@ -57,9 +57,7 @@ def test_reconcile_two_sequential_continuations() -> None:
     )
     third_receipt = _receipt(second, "3")
 
-    repository = _ReceiptRepository(
-        (first_receipt, second_receipt, third_receipt)
-    )
+    repository = _ReceiptRepository((first_receipt, second_receipt, third_receipt))
     service = _service(repository, third_receipt)
 
     chain = service.reconcile_chain(root, (first, second))
@@ -148,7 +146,6 @@ def test_reconcile_chain_rejects_broken_parent_linkage() -> None:
         service.reconcile_chain(root, (first, malformed_second))
 
 
-
 def test_reconcile_chain_rejects_stage_quantity_above_parent_remainder() -> None:
     root = _request()
     root_receipt = _receipt(root, "8")
@@ -229,7 +226,6 @@ def test_reconcile_chain_rejects_continuation_after_terminal_stage() -> None:
         service.reconcile_chain(root, (first, second))
 
 
-
 def test_reconcile_chain_exposes_latest_partial_stage_as_continuable() -> None:
     root = _request()
     root_receipt = _receipt(root, "4")
@@ -285,7 +281,6 @@ def test_reconcile_chain_exposes_terminal_latest_stage_as_complete() -> None:
     assert not chain.can_continue
     assert chain.is_complete
     assert chain.aggregate_remaining_quantity == Decimal("5")
-
 
 
 def test_prepare_chain_continuation_uses_authoritative_latest_stage() -> None:
@@ -362,7 +357,6 @@ def test_prepare_chain_continuation_rejects_terminal_latest_stage() -> None:
             (first,),
             risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
         )
-
 
 
 def test_dispatch_chain_continuation_prepares_and_dispatches_latest_stage() -> None:
@@ -687,10 +681,13 @@ def test_pending_continuation_claim_is_resolved_from_authoritative_child() -> No
     assert not result.dispatch_performed
     assert result.dispatch.receipt is child_receipt
     assert port.requests == []
-    assert idempotency.check(
-        child.order.client_order_id,
-        fingerprint,
-    ).existing_receipt_id == child_receipt.receipt_id
+    assert (
+        idempotency.check(
+            child.order.client_order_id,
+            fingerprint,
+        ).existing_receipt_id
+        == child_receipt.receipt_id
+    )
 
 
 def test_recover_pending_continuation_resolves_from_authoritative_child() -> None:
@@ -727,10 +724,13 @@ def test_recover_pending_continuation_resolves_from_authoritative_child() -> Non
     assert result.parent_lifecycle.filled_quantity == Decimal("4")
     assert result.request is child
     assert port.requests == []
-    assert idempotency.check(
-        child.order.client_order_id,
-        fingerprint,
-    ).existing_receipt_id == child_receipt.receipt_id
+    assert (
+        idempotency.check(
+            child.order.client_order_id,
+            fingerprint,
+        ).existing_receipt_id
+        == child_receipt.receipt_id
+    )
 
 
 def test_recover_pending_continuation_requires_authoritative_evidence() -> None:
@@ -849,10 +849,13 @@ def test_recover_pending_chain_continuation_uses_latest_stage() -> None:
     assert result.dispatch.receipt is second_receipt
     assert not result.dispatch_performed
     assert port.requests == []
-    assert idempotency.check(
-        second.order.client_order_id,
-        fingerprint,
-    ).existing_receipt_id == second_receipt.receipt_id
+    assert (
+        idempotency.check(
+            second.order.client_order_id,
+            fingerprint,
+        ).existing_receipt_id
+        == second_receipt.receipt_id
+    )
 
 
 def test_recover_pending_chain_continuation_rejects_nonlatest_parent_link() -> None:
@@ -974,9 +977,7 @@ def test_completed_continuation_claim_must_reference_authoritative_receipt() -> 
         _receipt(child, "3"),
         executed_at=claimed_receipt.executed_at + timedelta(minutes=1),
     )
-    repository = _ReceiptRepository(
-        (root_receipt, claimed_receipt, authoritative_receipt)
-    )
+    repository = _ReceiptRepository((root_receipt, claimed_receipt, authoritative_receipt))
     idempotency = InMemoryIdempotencyStore()
     fingerprint = request_fingerprint(child)
     idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
@@ -994,7 +995,9 @@ def test_completed_continuation_claim_must_reference_authoritative_receipt() -> 
         idempotency_store=idempotency,
     )
 
-    with pytest.raises(ValueError, match="does not reference the authoritative continuation receipt"):
+    with pytest.raises(
+        ValueError, match="does not reference the authoritative continuation receipt"
+    ):
         service.dispatch_chain_continuation(
             root,
             (),
