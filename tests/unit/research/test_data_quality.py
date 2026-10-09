@@ -78,8 +78,7 @@ def test_unexpected_observed_timestamp() -> None:
     assert result.missing_timestamps == (T1,)
     assert result.unexpected_timestamps == (T2,)
     assert any(
-        issue.message == "observed timestamp was not in expected set"
-        for issue in result.issues
+        issue.message == "observed timestamp was not in expected set" for issue in result.issues
     )
 
 
@@ -89,9 +88,7 @@ def test_duplicate_timestamp() -> None:
     assert result.quality is DataQualityStatus.DEGRADED
     assert result.completeness is CompletenessStatus.COMPLETE
     assert result.duplicate_timestamps == (T0,)
-    assert any(
-        issue.message == "duplicate observation timestamp" for issue in result.issues
-    )
+    assert any(issue.message == "duplicate observation timestamp" for issue in result.issues)
 
 
 def test_out_of_order_observation() -> None:
@@ -100,8 +97,7 @@ def test_out_of_order_observation() -> None:
     assert result.quality is DataQualityStatus.DEGRADED
     assert result.out_of_order is True
     assert any(
-        issue.message == "observations are not chronologically ordered"
-        for issue in result.issues
+        issue.message == "observations are not chronologically ordered" for issue in result.issues
     )
 
 

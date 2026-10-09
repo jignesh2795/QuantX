@@ -75,15 +75,5 @@ def test_historical_timestamp_expectation_maps_open_and_closed() -> None:
         close_time=time(15, 30),
     )
 
-    assert (
-        calendar.historical_timestamp_expected(
-            datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
-        )
-        is True
-    )
-    assert (
-        calendar.historical_timestamp_expected(
-            datetime(2026, 8, 20, 16, 0, tzinfo=UTC)
-        )
-        is False
-    )
+    assert calendar.historical_timestamp_expected(datetime(2026, 8, 20, 10, 0, tzinfo=UTC)) is True
+    assert calendar.historical_timestamp_expected(datetime(2026, 8, 20, 16, 0, tzinfo=UTC)) is False
