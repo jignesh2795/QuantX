@@ -16,7 +16,7 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.policy import PolicyResult
 from quantx.domain.risk import RiskResult
 
-from .dispatch import ExecutionDispatchResult, ExecutionDispatcher
+from .dispatch import ExecutionDispatcher, ExecutionDispatchResult
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
 from .lifecycle import ExecutionLifecycleService
 from .market_data import MarketSnapshot
