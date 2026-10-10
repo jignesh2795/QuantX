@@ -21,9 +21,9 @@ from quantx.domain.instruments import (
     MarketRegion,
 )
 from quantx.domain.market_data import Quote
+from quantx.domain.orders import Fill, Order
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.domain.orders import Fill, Order
 from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.lifecycle import ExecutionLifecycleService
 from quantx.execution.market_data import MarketSnapshot
