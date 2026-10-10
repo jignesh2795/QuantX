@@ -215,6 +215,21 @@ def test_candles_reject_naive_boundaries() -> None:
         adapter.candles(InstrumentId("NSE", "TCS"), timeframe="1m", start=naive, end=T1)
 
 
+def test_candles_reject_naive_end_boundary() -> None:
+    adapter = _adapter()
+    naive = datetime(2026, 1, 1, 9, 16)
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        adapter.candles(InstrumentId("NSE", "TCS"), timeframe="1m", start=T0, end=naive)
+
+
+def test_candles_reject_backwards_range() -> None:
+    adapter = _adapter()
+
+    with pytest.raises(ValueError, match="must not precede"):
+        adapter.candles(InstrumentId("NSE", "TCS"), timeframe="1m", start=T2, end=T0)
+
+
 def test_malformed_candle_data_rejected() -> None:
     adapter = _adapter(
         InMemoryDhanTransport(
