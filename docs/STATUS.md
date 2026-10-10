@@ -1,13 +1,15 @@
 # QuantX Status
 
 ## Current state
-**Authoritative main:** `0196ceec6f46231eb5c9be0e6d5b983bfaa4746d`
+**Post-C14 integration base:** `e428c1f33e11fb535efb17f66ab9f2ce7dbef3e9` (PR #158 merge; `main` was verified at this SHA before this status/roadmap update).
 
 **R1-C1 through R1-C12:** complete.
 
 **R1-C13:** complete through C13.8, including durable research persistence, research-run orchestration and lifecycle binding, rehydration, experiment comparison/association/metadata persistence, experiment detail read, and the experiment write boundary.
 
-**Current target:** **R1-C14 — Deterministic Historical Dataset Ingestion & Provenance Composition.** C14.2–C14.9 are implemented, including the end-to-end deterministic dataset-to-research proof. Implementation must compose the existing vendor-neutral market-data, dataset identity, quality, persistence, dataset-access, and research-provenance seams rather than introduce duplicate subsystems.
+**R1-C14:** complete through C14.9, including provider/MarketDataPort composition, registered dataset identity, explicit quality evidence, durable candle persistence/readback, research provenance binding, and the end-to-end deterministic lifecycle proof. PR #158 is merged to `main` at the post-C14 integration base above.
+
+**Next milestone:** **V0.1 local-first host and integration readiness.** Begin with a criteria-to-code/test audit, then implement only demonstrated gaps in the executable local entrypoint, explicit configuration/secret boundaries, recovery-before-readiness lifecycle, and resource shutdown. Treat execution/recovery safety boundaries as frozen unless a concrete invariant violation is proven. Validation remains local; no real-broker LIVE-readiness claim is implied.
 
 The repository contains an implemented domain, execution, research, India-market, integration, reconciliation, and deterministic research foundation. Historical validation records below are retained as evidence/history and do not define the current milestone.
 
@@ -99,7 +101,7 @@ R1-C6 execution-fidelity hardening is implemented and merged in PR #65. The fina
 
 ## Current roadmap direction
 
-R1-C1 through R1-C12 are complete. R1-C13 is complete through C13.8. R1-C14 is implemented through C14.9 on the current pull-request branch; select the next engineering milestone after this stack is reviewed, merged, and main is revalidated.
+R1-C1 through R1-C12 are complete. R1-C13 is complete through C13.8. R1-C14 is complete through C14.9 and merged in PR #158. The next focus is V0.1 local-first host and integration readiness, starting with an audit of existing runtime composition against release criteria.
 
 C14 establishes a deterministic, provider-neutral historical dataset ingestion application boundary that composes the existing `MarketDataPort`, `DatasetCatalog`, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance seams. Dataset identity is pre-declared and authoritative; observations remain lossless; completeness remains evidence-bound; persistence semantics remain centralized; and provider-specific behavior remains outside the dataset domain.
 
