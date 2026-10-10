@@ -28,7 +28,7 @@ C13 preserves the existing provenance and persistence seams; it does not introdu
 
 ### R1-C14 — Deterministic Historical Dataset Ingestion & Provenance Composition
 
-C14 is in progress: the ingestion boundary (C14.2), provider composition (C14.3), identity binding (C14.4), quality binding (C14.5), and durable persistence composition (C14.6) are implemented, the Dhan vertical proofs (C14.7) are covered by dedicated composition tests, ingestion results bind to the canonical research-run identity (C14.8), and the end-to-end deterministic proof (C14.9) passes. It composes the existing `MarketDataPort`, dataset identity/catalog, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance boundaries into one deterministic historical ingestion workflow.
+C14.1–C14.9 are complete: the ingestion boundary (C14.2), provider composition (C14.3), identity binding (C14.4), quality binding (C14.5), and durable persistence composition (C14.6) are implemented, the Dhan vertical proofs (C14.7) are covered by dedicated composition tests, ingestion results bind to the canonical research-run identity (C14.8), and the end-to-end deterministic proof (C14.9) passes. It composes the existing `MarketDataPort`, dataset identity/catalog, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance boundaries into one deterministic historical ingestion workflow.
 
 The canonical lifecycle is:
 
