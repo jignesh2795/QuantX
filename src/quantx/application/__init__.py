@@ -7,6 +7,7 @@ from .backtest import (
     DeterministicBacktestService,
 )
 from .dataset_ingestion import HistoricalDatasetIngestionResult, HistoricalDatasetIngestionService
+from .dataset_research_binding import research_run_spec_from_ingestion
 from .evidence_refresh import (
     DefinitiveEvidencePolicy,
     EvidenceRefreshOutcome,
@@ -50,6 +51,7 @@ __all__ = [
     "ApplicationStartupResult",
     "HistoricalDatasetIngestionResult",
     "HistoricalDatasetIngestionService",
+    "research_run_spec_from_ingestion",
     "DefinitiveEvidencePolicy",
     "ExperimentComparisonReadService",
     "ExperimentDetailReadService",
