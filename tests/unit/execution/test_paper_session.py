@@ -10,7 +10,6 @@ from quantx.domain.deployment import (
     StrategyDeploymentId,
 )
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
-from quantx.domain.orders import Fill
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import (
@@ -21,10 +20,11 @@ from quantx.domain.instruments import (
     MarketRegion,
 )
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.orders import Fill
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import Money
-from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile, QuoteSnapshot
 from quantx.execution.accounting import FillAccounting
+from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile, QuoteSnapshot
 from quantx.execution.paper_session import PaperSession
 
 
@@ -181,8 +181,8 @@ def test_partial_continuation_reuses_account_pipeline_and_post_trade_risk() -> N
     from quantx.execution.paper_engine import PaperSimulationProfile
     from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
     from quantx.execution.post_trade_risk import PostTradeRiskLimits
-    from quantx.execution.trading_gate import TradingGate
     from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+    from quantx.execution.trading_gate import TradingGate
 
     instrument = _instrument()
     clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
@@ -319,8 +319,8 @@ def test_partial_continuation_recalculates_position_margin_for_full_resulting_po
 def test_partial_continuation_is_blocked_before_executor_on_projected_position_exposure() -> None:
     from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
     from quantx.execution.post_trade_risk import PostTradeRiskLimits
-    from quantx.execution.trading_gate import TradingGate
     from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+    from quantx.execution.trading_gate import TradingGate
 
     instrument = _instrument()
     request = _request()
