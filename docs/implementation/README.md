@@ -22,7 +22,7 @@ OpenCode is the local validation harness; implementation changes are made on the
 
 ## Current focus
 
-Execution integrity and reconciliation. Do not start a broad package migration or UI/AI subsystem while an existing boundary can be hardened incrementally.
+R1-C14 dataset ingestion/provenance composition is complete on `main`. The next focus is v0.1 local-first host and integration readiness, starting with an acceptance-criteria audit of the existing runtime, production composition, and entrypoints. Execution/recovery internals are considered stable unless a concrete invariant violation is demonstrated. Do not start broad package migration, UI/AI, distributed infrastructure, or a wider broker matrix while the existing integration path remains to be proven.
 
 ## Batch history
 

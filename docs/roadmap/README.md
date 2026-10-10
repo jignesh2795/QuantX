@@ -40,7 +40,34 @@ C14.8 provenance binding and the C14.9 end-to-end deterministic proof are comple
 
 C14 explicitly defers scheduling, streaming, distributed ingestion, cloud storage, generic ETL, production historical-data service, UI, AI/ML, optimization, and broad broker expansion.
 
-The C14 planning record is maintained separately from this master roadmap; with C14.9 complete, further sequencing follows the normal roadmap process.
+The detailed C14 planning record remains the implementation history. C14.9 is now merged on `main` in PR #158; the next implementation phase shifts from dataset composition to local-first host/integration readiness.
+
+## Next milestone — V0.1 Local-First Host & Integration Readiness
+
+### Objective
+
+Close the gap between QuantX's tested application components and a documented, executable local process lifecycle. Start with an audit, not a greenfield host or broad subsystem.
+
+### Sequence
+
+1. **Acceptance audit:** locate the canonical v0.1 acceptance criteria, repair any stale documentation references, and map each criterion to current code, tests, and evidence.
+2. **Host gap analysis:** inspect `ProductionRuntime`, `ApplicationRuntime`, the Dhan host composition, configuration, and existing command-line/package entrypoints. Identify the smallest missing operational seam; do not assume a new CLI or server is needed until the inventory is complete.
+3. **Minimal local entrypoint:** if the audit proves a gap, compose existing components using explicit configuration. Keep credentials and vendor transports outside domain/application core, choose no default account or connection, and make startup recovery complete before the host reports execution readiness.
+4. **Lifecycle and recovery proof:** test startup success/failure, pending-recovery visibility, fail-closed behavior, database/resource closure, and restart behavior with SQLite and in-memory adapters. The host must not submit a broker order during startup recovery.
+5. **Release evidence:** document the supported local invocation, prerequisites, configuration fields, shutdown behavior, and exact local validation commands. Mark v0.1 release readiness only against explicit acceptance criteria.
+
+### Exit criteria
+
+- Every v0.1 criterion has a code/test/evidence mapping or an explicit blocker.
+- One supported local invocation exercises the documented host lifecycle, or the audit demonstrates why a host entrypoint is out of scope for v0.1.
+- Recovery failure prevents readiness; no default account, connection, credentials, or broker is silently selected.
+- Shutdown closes process-owned resources and restart tests verify durable state as applicable.
+- Focused and full local tests, Ruff, mypy where configured, and `git diff --check` pass at the exact reviewed commit.
+- No UI, AI/agent subsystem, cloud/distributed worker architecture, broad broker matrix, or real-broker order testing is introduced as part of this milestone. A local integration pass does not constitute production LIVE certification.
+
+### Guardrail
+
+Execution/recovery internals are frozen unless the acceptance audit finds a concrete invariant violation. Preserve the existing ports, adapters, persistence, reconciliation, and provenance boundaries; do not add parallel abstractions.
 
 ## M4 — Strategy Platform
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals.
