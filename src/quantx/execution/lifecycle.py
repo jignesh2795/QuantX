@@ -16,7 +16,7 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from .market_data import MarketSnapshot
 
 if TYPE_CHECKING:
-    from quantx.persistence import ReceiptRepository
+    from quantx.ports.persistence import ReceiptRepository
 
 from .dispatch import ExecutionDispatcher, ExecutionDispatchResult
 from .receipts.lifecycle import ExecutionLifecycle
