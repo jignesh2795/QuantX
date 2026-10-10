@@ -1,8 +1,8 @@
 # R1-C14 Deterministic Historical Dataset Ingestion & Provenance Composition
 
-**Status:** Planning.
+**Status:** In progress — C14.2–C14.6 implemented; C14.7 host and Dhan vertical proofs complete; C14.8/C14.9 open.
 
-**Baseline:** `main @ bb3e710eaaefbe70f8a4c5026ad07a3ab0f1aa84`
+**Baseline:** `main @ e72287ce84afdd8393bd8c4203e7c82dd2629abf`
 
 ## Objective
 
@@ -94,25 +94,25 @@ C14 should not silently create or infer dataset identity from provider/source in
 
 ## Proposed slices
 
-- C14.1 — roadmap/state reconciliation
-- C14.2 — ingestion contract and application boundary
-- C14.3 — provider/MarketDataPort composition
-- C14.4 — dataset identity/version binding
-- C14.5 — quality/evidence binding
-- C14.6 — durable persistence composition
-- C14.7 — Dhan vertical composition
-- C14.8 — research provenance binding
-- C14.9 — end-to-end deterministic proof
+- C14.1 — roadmap/state reconciliation (complete)
+- C14.2 — ingestion contract and application boundary (complete)
+- C14.3 — provider/MarketDataPort composition (complete)
+- C14.4 — dataset identity/version binding (complete)
+- C14.5 — quality/evidence binding (complete)
+- C14.6 — durable persistence composition (complete)
+- C14.7 — Dhan vertical composition (complete after the vertical and host-wiring proofs)
+- C14.8 — research provenance binding (not yet implemented)
+- C14.9 — end-to-end deterministic proof (not yet implemented)
 
 ## Salvage sources
 
 ### `feat/m2-dataset-ingestion-workflow-v1`
 
-Contains unique historical dataset-ingestion composition and Dhan-to-SQLite tests. Treat as source material; do not merge wholesale.
+Contains unique historical dataset-ingestion composition and Dhan-to-SQLite tests. Treat as source material; do not merge wholesale. Its `research/dataset_ingestion.py` module duplicates the canonical `application/dataset_ingestion.py` boundary and must not be revived; the Dhan-to-SQLite composition test was ported to the canonical service instead.
 
 ### `feat/dhan-host-market-data-wiring-v1`
 
-Contains unique Dhan host market-data composition and tests. Treat as source material; do not merge wholesale.
+Contains unique Dhan host market-data composition and tests. Treat as source material; do not merge wholesale. Its production host wiring is superseded by current mainline host wiring; the market-data wiring test was ported (adapted to the timeout-bearing config) instead.
 
 ## Explicit non-goals
 

@@ -1,13 +1,13 @@
 # QuantX Status
 
 ## Current state
-**Authoritative main:** `bb3e710eaaefbe70f8a4c5026ad07a3ab0f1aa84`
+**Authoritative main:** `e72287ce84afdd8393bd8c4203e7c82dd2629abf`
 
 **R1-C1 through R1-C12:** complete.
 
 **R1-C13:** complete through C13.8, including durable research persistence, research-run orchestration and lifecycle binding, rehydration, experiment comparison/association/metadata persistence, experiment detail read, and the experiment write boundary.
 
-**Current planning target:** **R1-C14 — Deterministic Historical Dataset Ingestion & Provenance Composition.** C14 is planning-only at this state; implementation must compose the existing vendor-neutral market-data, dataset identity, quality, persistence, dataset-access, and research-provenance seams rather than introduce duplicate subsystems.
+**Current target:** **R1-C14 — Deterministic Historical Dataset Ingestion & Provenance Composition.** C14.2–C14.6 are implemented; C14.7 host and Dhan vertical proof coverage is completed by this batch; C14.8/C14.9 remain open. Implementation must compose the existing vendor-neutral market-data, dataset identity, quality, persistence, dataset-access, and research-provenance seams rather than introduce duplicate subsystems.
 
 The repository contains an implemented domain, execution, research, India-market, integration, reconciliation, and deterministic research foundation. Historical validation records below are retained as evidence/history and do not define the current milestone.
 
@@ -19,13 +19,17 @@ The LIVE startup/readiness and trading-gate hardening merged in PR #33. Claude's
 
 ## Validation baseline
 
-The current externally reported validation evidence for the production-recovery stack remains **665 passed, 0 failed, 0 errors, 0 skipped** at `efa4798a76d3576f31b5a2127381fb990c6a0915`. This validation was run externally with OpenCode on `feat/production-recovery-entrypoint`; changed-file Ruff and `git diff --check` were clean. Repo-wide Ruff still reports 272 pre-existing errors. No production-broker end-to-end execution was claimed.
+A prior externally reported checkpoint for the production-recovery stack was **665 passed, 0 failed, 0 errors, 0 skipped** at `efa4798a76d3576f31b5a2127381fb990c6a0915`. This validation was run externally with OpenCode on `feat/production-recovery-entrypoint`; changed-file Ruff and `git diff --check` were clean. At that time, repo-wide Ruff reported 272 pre-existing errors. No production-broker end-to-end execution was claimed.
 
 This checkpoint validates the LIVE durability hardening, pending-recovery corruption isolation, and explicit startup lifecycle: LIVE requires a UnitOfWork-backed transaction path; completed broker submissions retain a durable receipt even when idempotency completion is uncertain; direct LIVE dispatcher/adapter bypasses are blocked; durable trading-gate state survives restart; pending LIVE reservation context is persisted and reconstructible across a simulated process restart; malformed pending contexts are isolated as per-context recovery failures; the default all-required recovery path can resolve with local position/account evidence; concurrent recovery passes resolve a pending reservation at most once; and an explicit application runtime runs pending recovery once before startup completes. The 635-test suite completed with zero failures, errors, or skipped tests.
 
 The 635-test validation was performed against the branch head after fast-forward sync at `e4d85ae6e4d61fe61bfbeba1c838fb7a428d1c9c`. The only Ruff finding was the pre-existing `I001` import-order issue in `src/quantx/application/execution.py`; a subsequent import-only cleanup was committed at `5817ce0f9cb2103f9ba05abfefa7495c5f2ec342`. `git diff --check` was clean; the local `uv.lock` modification was pre-existing environment noise and remained untouched. The import-only cleanup has not been independently re-run through the full suite in this environment.
 
 This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for this checkpoint, so this document does not claim GitHub CI independently executed that suite.
+
+## Current local validation evidence (R1-C14 vertical proofs)
+
+Local validation on the C14.7 vertical-proof branch `feat/r1c14-dhan-market-data-host-wiring-test-v1` (base `e72287ce84afdd8393bd8c4203e7c82dd2629abf`) reports **1399 passed, 0 failed, 1 skipped** in the full suite (the skip is the optional-Dhan-SDK test; no warnings were emitted across two consecutive runs). Repo-wide Ruff reports **zero findings**; strict mypy reports **no issues in 179 source files**; `git diff --check` is clean. This is local validation evidence; no GitHub Actions run is claimed and no production-broker end-to-end execution was performed.
 
 Recent continuation/recovery work includes:
 - explicit continuation lifecycle reconstruction from authoritative receipt evidence;

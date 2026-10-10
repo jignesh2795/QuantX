@@ -37,7 +37,8 @@ from quantx.integrations.reconciliation import (
 )
 from quantx.persistence.sqlite import SqliteReceiptRepository
 from quantx.plugins.dhan.host import DhanHostConfig, DhanHostRuntime, build_dhan_host_runtime
-from quantx.plugins.dhan.models import DhanCredentials, DhanInstrumentRef
+from quantx.plugins.dhan.market_data import DhanMarketDataAdapter
+from quantx.plugins.dhan.models import DhanCandleSnapshot, DhanCredentials, DhanInstrumentRef
 from quantx.plugins.dhan.transport import DhanSDKTransport, InMemoryDhanTransport
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
@@ -375,3 +376,42 @@ def test_host_read_timeout_defaults_to_bounded_constant(tmp_path) -> None:
 def test_host_rejects_non_positive_read_timeout(tmp_path) -> None:
     with pytest.raises(ValueError, match="read_timeout_seconds"):
         _config(tmp_path, read_timeout_seconds=0)
+
+
+def test_host_wires_market_data_adapter_to_same_transport(tmp_path) -> None:
+    transport = InMemoryDhanTransport(
+        candle_snapshots={
+            ("1333", "NSE_EQ"): (
+                DhanCandleSnapshot(
+                    timeframe="1m",
+                    timestamp=CHECKED_AT,
+                    open=Decimal("99"),
+                    high=Decimal("101"),
+                    low=Decimal("98"),
+                    close=Decimal("100"),
+                    volume=Decimal("1000"),
+                ),
+            )
+        }
+    )
+    host = build_dhan_host_runtime(_config(tmp_path, transport=transport))
+    try:
+        assert host.transport is transport
+        assert isinstance(host.market_data, DhanMarketDataAdapter)
+        candles = host.market_data.candles(
+            _instrument().instrument_id,
+            timeframe="1m",
+            start=CHECKED_AT,
+            end=CHECKED_AT,
+        )
+        assert len(candles) == 1
+        assert candles[0].instrument == _instrument().instrument_id
+        assert candles[0].timeframe == "1m"
+        assert candles[0].timestamp == CHECKED_AT
+        assert candles[0].open == Decimal("99")
+        assert candles[0].high == Decimal("101")
+        assert candles[0].low == Decimal("98")
+        assert candles[0].close == Decimal("100")
+        assert candles[0].volume == Decimal("1000")
+    finally:
+        host.close()
