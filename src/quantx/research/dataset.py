@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)

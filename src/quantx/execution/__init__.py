@@ -9,7 +9,7 @@ from .continuation import (
     PendingContinuationRecoveryState,
     PendingContinuationRecoveryStatus,
 )
-from .dispatch import ExecutionDispatchResult, ExecutionDispatcher
+from .dispatch import ExecutionDispatcher, ExecutionDispatchResult
 from .lifecycle import ExecutionLifecycleResult, ExecutionLifecycleService
 
 __all__ = [

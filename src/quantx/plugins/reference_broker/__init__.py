@@ -6,8 +6,8 @@ from quantx.plugins import (
     PluginFactory,
     PluginId,
     PluginKind,
-    PluginRegistry,
     PluginRegistration,
+    PluginRegistry,
 )
 
 from .adapter import ReferenceBrokerAdapter

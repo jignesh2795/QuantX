@@ -7,17 +7,18 @@ mark-to-market valuation without inventing balances or market data.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 from decimal import Decimal
+from typing import Protocol
 from uuid import UUID, uuid4
 
 from quantx.domain.deployment import ExecutionMode
-from quantx.domain.finance import CapitalSourceType
 from quantx.domain.enums import OrderSide
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.orders import Fill
+from quantx.domain.finance import CapitalSourceType
 from quantx.domain.instrument_registry import InstrumentRegistry
+from quantx.domain.orders import Fill
 from quantx.domain.positions import Position
+from quantx.domain.risk import RiskResult
 from quantx.domain.value_objects import Money
 from quantx.execution.account_financial_state import (
     AccountFinancialSnapshot,
@@ -28,11 +29,10 @@ from quantx.execution.cash_ledger import CashLedger, CashLedgerEntry
 from quantx.execution.margin_ledger import MarginLedger, MarginReservation, MarginState
 from quantx.execution.margin_policy import PositionMarginPolicy
 from quantx.execution.paper_engine import PaperExecutionEngine
-from quantx.execution.receipts.lifecycle import ExecutionLifecycle
-from quantx.execution.receipts.models import ExecutionReceipt
-from quantx.domain.risk import RiskResult
 from quantx.execution.portfolio_valuation import PortfolioValuationResult, PortfolioValuator
 from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer, RiskEnforcementResult
+from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+from quantx.execution.receipts.models import ExecutionReceipt
 from quantx.execution.valuation import Mark
 
 from .market_data import MarketSnapshot

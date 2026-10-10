@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Order
 from quantx.domain.policy import PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.domain.enums import OrderStatus
 
 from .models import ExecutionReceipt
 
