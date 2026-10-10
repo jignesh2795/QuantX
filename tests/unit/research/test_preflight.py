@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from quantx.research.artifacts import ResearchArtifact, ResearchArtifactManifest
-from quantx.research.preflight import PreflightStatus, ResearchPreflightGate
 from quantx.research.integrity import sha256_file
+from quantx.research.preflight import PreflightStatus, ResearchPreflightGate
 
 
 def _manifest(path: Path, expected_hash: str | None = None) -> ResearchArtifactManifest:

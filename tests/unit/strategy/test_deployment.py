@@ -16,8 +16,8 @@ from quantx.domain.strategy import StrategyDefinition, StrategyId
 from quantx.domain.value_objects import InstrumentId
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.deployment import StrategyDeploymentRuntime
-from quantx.strategy.registry import StrategyRegistry
 from quantx.strategy.reference import BuyAndHoldStrategy
+from quantx.strategy.registry import StrategyRegistry
 
 
 def _market() -> MarketContext:

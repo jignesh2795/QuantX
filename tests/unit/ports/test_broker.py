@@ -18,16 +18,16 @@ from quantx.domain.instruments import (
     MarketRegion,
 )
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.orders import Fill
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.ports import ExecutionReceipt, ExecutionOutcome, LiveExecutionPort
-from quantx.ports.broker import BrokerPort
+from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, LiveExecutionPort
 from quantx.integrations.brokers import (
     BrokerCapability,
     BrokerConnectionRef,
     BrokerDescriptor,
     CapabilitySet,
 )
-from quantx.domain.orders import Fill
+from quantx.ports.broker import BrokerPort
 
 
 def _instrument() -> Instrument:

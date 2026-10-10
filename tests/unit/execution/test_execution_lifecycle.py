@@ -85,6 +85,8 @@ def test_continuation_cannot_exceed_evidenced_remainder() -> None:
 
 
 def test_partial_continuation_executes_remaining_quantity_with_parent_correlation() -> None:
+    from datetime import UTC, datetime
+
     from quantx.domain.accounts import AccountId
     from quantx.domain.clock import FixedClock
     from quantx.domain.deployment import (
@@ -98,7 +100,6 @@ def test_partial_continuation_executes_remaining_quantity_with_parent_correlatio
     from quantx.domain.risk import RiskDecision, RiskResult
     from quantx.execution.market_data import MarketSnapshot
     from quantx.execution.paper import PaperExecutionEngine
-    from datetime import UTC, datetime
 
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
