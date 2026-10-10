@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -46,7 +46,7 @@ def test_child_receipt_updates_parent_lifecycle_without_overstating_completion()
         side=OrderSide.BUY,
         quantity=Decimal("2"),
         price=Decimal("100"),
-        filled_at=datetime.now(timezone.utc),
+        filled_at=datetime.now(UTC),
     )
     receipt = ExecutionReceipt(
         request_id=uuid4(),

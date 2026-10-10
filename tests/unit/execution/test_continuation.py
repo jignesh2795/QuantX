@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -76,7 +76,7 @@ def _receipt(
     *,
     receipt_id=None,
 ) -> ExecutionReceipt:
-    now = datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     fill = Fill(
         client_order_id=request.order.client_order_id,
         instrument=request.order.instrument,
@@ -103,7 +103,7 @@ def _snapshot() -> MarketSnapshot:
     request = _request()
     return Quote(
         request.order.instrument,
-        datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc),
+        datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
         last=Decimal("100"),
     )
 
