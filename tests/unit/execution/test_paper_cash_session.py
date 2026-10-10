@@ -24,9 +24,9 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import Money
-from quantx.execution.paper_engine import PaperExecutionEngine, QuoteSnapshot
 from quantx.execution.margin_ledger import MarginLedger
 from quantx.execution.margin_policy import FixedPerUnitMarginPolicy
+from quantx.execution.paper_engine import PaperExecutionEngine, QuoteSnapshot
 from quantx.execution.paper_session import PaperSession
 from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
 from quantx.execution.post_trade_risk import PostTradeRiskLimits
