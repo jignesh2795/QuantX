@@ -9,7 +9,7 @@
 
 **R1-C14:** complete through C14.9, including provider/MarketDataPort composition, registered dataset identity, explicit quality evidence, durable candle persistence/readback, research provenance binding, and the end-to-end deterministic lifecycle proof. PR #158 is merged to `main` at the post-C14 integration base above.
 
-**Next milestone:** **V0.1 local-first host and integration readiness.** Begin with a criteria-to-code/test audit, then implement only demonstrated gaps in the executable local entrypoint, explicit configuration/secret boundaries, recovery-before-readiness lifecycle, and resource shutdown. Treat execution/recovery safety boundaries as frozen unless a concrete invariant violation is proven. Validation remains local; no real-broker LIVE-readiness claim is implied.
+**Next milestone:** **V0.1 local-first host and integration readiness.** The read-only local audit is recorded in `docs/architecture/28-v0.1-acceptance-criteria.md`; the release gate remains open. Next implementation work should address the missing product entrypoint decision and the host-composed restart proof, while separately resolving the in-scope format and SDK-present mypy findings. Treat execution/recovery safety boundaries as frozen unless a concrete invariant violation is proven. Validation remains local; no real-broker LIVE-readiness claim is implied.
 
 The repository contains an implemented domain, execution, research, India-market, integration, reconciliation, and deterministic research foundation. Historical validation records below are retained as evidence/history and do not define the current milestone.
 
