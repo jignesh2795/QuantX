@@ -1,10 +1,8 @@
 from decimal import Decimal
 
 from quantx.domain.deployment import PortfolioId
-from quantx.domain.positions import Position
-from quantx.domain.value_objects import InstrumentId, Money
+from quantx.domain.value_objects import Money
 from quantx.execution.portfolio_valuation import PortfolioValuator
-from quantx.execution.valuation import Mark
 
 
 def test_portfolio_valuation_marks_only_supplied_positions():

@@ -3,7 +3,7 @@ from decimal import Decimal
 from quantx.domain.accounts import AccountId
 from quantx.domain.deployment import PortfolioId
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
-from quantx.domain.portfolio import Portfolio, PortfolioSnapshot, PositionLedger
+from quantx.domain.portfolio import Portfolio, PortfolioSnapshot
 from quantx.domain.value_objects import Money
 
 
