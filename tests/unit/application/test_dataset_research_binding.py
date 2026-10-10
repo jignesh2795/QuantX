@@ -10,10 +10,13 @@ from quantx.application.dataset_ingestion import HistoricalDatasetIngestionResul
 from quantx.application.dataset_research_binding import research_run_spec_from_ingestion
 from quantx.application.research_run import ResearchRunApplicationService
 from quantx.domain.clock import FixedClock
+from quantx.domain.market_data import Candle
+from quantx.domain.value_objects import InstrumentId
 from quantx.research.data_quality import (
     CompletenessStatus,
     DataQualityStatus,
     HistoricalDataQuality,
+    assess_candles,
 )
 from quantx.research.dataset import DatasetIdentity, DatasetVersion, fingerprint_bytes
 from quantx.research.provenance import ResearchProvenance, ResearchRunConfiguration
@@ -154,3 +157,51 @@ def test_bound_spec_completes_durable_run_lifecycle() -> None:
     stored = repository.get_run(spec.run_id)
     assert stored is not None
     assert stored == execution.run
+
+
+def _assessed_candle(timestamp) -> Candle:
+    return Candle(
+        instrument=InstrumentId("NSE", "TCS"),
+        timeframe="1m",
+        timestamp=timestamp,
+        open=Decimal("99"),
+        high=Decimal("101"),
+        low=Decimal("98"),
+        close=Decimal("100"),
+        volume=Decimal("1000"),
+    )
+
+
+_T0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+_T1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+_T2 = datetime(2026, 1, 1, 9, 17, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("expected_timestamps", "completeness"),
+    [
+        (None, CompletenessStatus.UNKNOWN),
+        ((_T0, _T1, _T2), CompletenessStatus.INCOMPLETE),
+    ],
+)
+def test_composition_preserves_unknown_or_incomplete_quality(
+    expected_timestamps, completeness
+) -> None:
+    candles = (_assessed_candle(_T0), _assessed_candle(_T1))
+    quality = assess_candles(candles, expected_timestamps)
+    assert quality.completeness is completeness
+    result = HistoricalDatasetIngestionResult(
+        dataset_version=_version(),
+        dataset_id="nse-equities",
+        version="2026-01",
+        source_id="dhan",
+        inserted_count=2,
+        quality=quality,
+    )
+    spec = _bind(result)
+    assert spec.dataset_id == "nse-equities"
+    assert spec.dataset_version == "2026-01"
+    assert spec.to_provenance().dataset_id == "nse-equities"
+    assert spec.to_provenance().dataset_version == "2026-01"
+    assert result.quality is quality
+    assert result.quality.completeness is completeness
