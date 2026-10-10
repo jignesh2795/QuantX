@@ -6,11 +6,17 @@ from decimal import Decimal
 import pytest
 
 from quantx.application.dataset_ingestion import HistoricalDatasetIngestionService
+from quantx.domain.enums import AssetClass
+from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
+from quantx.persistence.sqlite import SqliteDatabase
+from quantx.persistence.sqlite.market_data import SqliteMarketDataStore
+from quantx.plugins.dhan import DhanInstrumentRef, DhanMarketDataAdapter, InMemoryDhanTransport
+from quantx.plugins.dhan.models import DhanCandleSnapshot
 from quantx.research.data_quality import CompletenessStatus, DataQualityStatus
 from quantx.research.dataset import DatasetIdentity, DatasetVersion, fingerprint_bytes
-from quantx.research.dataset_catalog import InMemoryDatasetCatalog
+from quantx.research.dataset_catalog import FilesystemDatasetCatalog, InMemoryDatasetCatalog
 
 T0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
 T1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
@@ -27,6 +33,18 @@ def candle(timestamp=T0, *, instrument=INSTRUMENT, timeframe="1m"):
         low=Decimal("98"),
         close=Decimal("100"),
         volume=Decimal("1000"),
+    )
+
+
+def _dhan_instrument() -> Instrument:
+    return Instrument(
+        instrument_id=INSTRUMENT,
+        symbol="TCS",
+        asset_class=AssetClass.EQUITY,
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        currency="INR",
+        tick_size=Decimal("0.05"),
+        lot_size=Decimal("1"),
     )
 
 
@@ -383,3 +401,101 @@ def test_sqlite_store_preserves_dataset_binding_end_to_end(tmp_path):
     assert result.dataset_version.identity.dataset_id == "nse-equities"
     assert result.inserted_count == 2
     assert retrieved == (candle(T0), candle(T1))
+
+
+def test_dhan_adapter_composes_with_filesystem_catalog_and_sqlite_store(tmp_path) -> None:
+    snapshots = (
+        DhanCandleSnapshot(
+            timeframe="1m",
+            timestamp=T0,
+            open=Decimal("99"),
+            high=Decimal("101"),
+            low=Decimal("98"),
+            close=Decimal("100"),
+            volume=Decimal("1000"),
+        ),
+        DhanCandleSnapshot(
+            timeframe="1m",
+            timestamp=T1,
+            open=Decimal("100"),
+            high=Decimal("102"),
+            low=Decimal("99"),
+            close=Decimal("101"),
+            volume=Decimal("1100"),
+        ),
+    )
+    instrument = _dhan_instrument()
+    market_data = DhanMarketDataAdapter(
+        _instruments={
+            INSTRUMENT: (
+                instrument,
+                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
+            )
+        },
+        _transport=InMemoryDhanTransport(candle_snapshots={("1333", "NSE_EQ"): snapshots}),
+    )
+    catalog = FilesystemDatasetCatalog(tmp_path / "catalog")
+    catalog.register(
+        DatasetVersion(
+            identity=DatasetIdentity(
+                dataset_id="nse-equities",
+                version="2026-01",
+                source_id="dhan",
+                schema_version="1",
+                content_fingerprint=fingerprint_bytes(b"declared"),
+            )
+        )
+    )
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        store = SqliteMarketDataStore(database)
+        result = HistoricalDatasetIngestionService(
+            catalog=catalog, market_data=market_data, store=store
+        ).ingest(
+            dataset_id="nse-equities",
+            version="2026-01",
+            instrument=INSTRUMENT,
+            timeframe="1m",
+            start=T0,
+            end=T1,
+            expected_timestamps=(T0, T1),
+        )
+        retrieved = store.get_candles(
+            INSTRUMENT,
+            timeframe="1m",
+            start=T0,
+            end=T1,
+            source_id="dhan",
+            dataset_version="2026-01",
+        )
+    finally:
+        database.close()
+
+    assert result.inserted_count == 2
+    assert result.dataset_version.identity.dataset_id == "nse-equities"
+    assert result.dataset_version.identity.version == "2026-01"
+    assert result.source_id == "dhan"
+    assert result.quality.quality is DataQualityStatus.VALID
+    assert result.quality.completeness is CompletenessStatus.COMPLETE
+    assert retrieved == (
+        Candle(
+            instrument=INSTRUMENT,
+            timeframe="1m",
+            timestamp=T0,
+            open=Decimal("99"),
+            high=Decimal("101"),
+            low=Decimal("98"),
+            close=Decimal("100"),
+            volume=Decimal("1000"),
+        ),
+        Candle(
+            instrument=INSTRUMENT,
+            timeframe="1m",
+            timestamp=T1,
+            open=Decimal("100"),
+            high=Decimal("102"),
+            low=Decimal("99"),
+            close=Decimal("101"),
+            volume=Decimal("1100"),
+        ),
+    )
