@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -21,7 +21,7 @@ from quantx.strategy.runtime import StrategyRuntime
 
 def _event(symbol: str = "TCS") -> MarketDataEvent:
     instrument = InstrumentId("NSE", symbol)
-    timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
     return MarketDataEvent(
         MarketDataType.QUOTE,
         timestamp,

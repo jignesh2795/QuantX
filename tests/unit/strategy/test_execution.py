@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -40,7 +40,7 @@ def _market() -> MarketContext:
 
 def _event() -> MarketDataEvent:
     instrument = InstrumentId("NSE", "TCS")
-    timestamp = datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     return MarketDataEvent(
         MarketDataType.QUOTE,
         timestamp,

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
@@ -14,7 +14,7 @@ from quantx.strategy.reference import BuyAndHoldStrategy
 
 def _event() -> MarketDataEvent:
     instrument = InstrumentId("NSE", "TCS")
-    timestamp = datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     return MarketDataEvent(
         MarketDataType.QUOTE,
         timestamp,
