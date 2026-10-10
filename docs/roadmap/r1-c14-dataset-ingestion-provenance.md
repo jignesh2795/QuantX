@@ -2,7 +2,7 @@
 
 **Status:** Complete — C14.1–C14.9 implemented with the end-to-end deterministic proof passing.
 
-**Baseline:** `62f87b657cf66a3f078b069a6e522ec3801b6046` (C14.8 branch head; this proof branch is stacked on C14.8, not on `main`)
+**Implementation merge:** C14.9 and the complete C14 stack merged in PR #158 at `e428c1f33e11fb535efb17f66ab9f2ce7dbef3e9`. The post-merge roadmap/status synchronization was merged in PR #159 at `395e03b414ec2510c0f107e1deeb2ebc79271340`.
 
 ## Objective
 
