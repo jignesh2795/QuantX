@@ -13,6 +13,7 @@ from .dispatch import ExecutionDispatcher, ExecutionDispatchResult
 from .lifecycle import ExecutionLifecycleResult, ExecutionLifecycleService
 
 __all__ = [
+    "ExecutionContinuationChain",
     "ExecutionContinuationDispatchReconciliation",
     "ExecutionContinuationReconciliation",
     "ExecutionContinuationResult",
