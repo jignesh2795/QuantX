@@ -5,13 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 
 from .enums import AssetClass
 from .value_objects import InstrumentId
 
 
-class MarketRegion(str, Enum):
+class MarketRegion(StrEnum):
     """Top-level geographic or market jurisdiction classification."""
 
     INDIA = "INDIA"
@@ -25,7 +25,7 @@ class MarketRegion(str, Enum):
     GLOBAL = "GLOBAL"
 
 
-class MarketFamily(str, Enum):
+class MarketFamily(StrEnum):
     """Economic/venue family whose rules may differ materially."""
 
     EQUITY = "EQUITY"
