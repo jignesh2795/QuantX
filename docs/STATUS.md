@@ -99,7 +99,7 @@ R1-C6 execution-fidelity hardening is implemented and merged in PR #65. The fina
 
 ## Current roadmap direction
 
-R1-C1 through R1-C12 are complete. R1-C13 is complete through C13.8. The next engineering milestone is R1-C14.
+R1-C1 through R1-C12 are complete. R1-C13 is complete through C13.8. R1-C14 is implemented through C14.9 on the current pull-request branch; select the next engineering milestone after this stack is reviewed, merged, and main is revalidated.
 
 C14 establishes a deterministic, provider-neutral historical dataset ingestion application boundary that composes the existing `MarketDataPort`, `DatasetCatalog`, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance seams. Dataset identity is pre-declared and authoritative; observations remain lossless; completeness remains evidence-bound; persistence semantics remain centralized; and provider-specific behavior remains outside the dataset domain.
 
