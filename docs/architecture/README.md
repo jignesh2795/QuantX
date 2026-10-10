@@ -16,6 +16,10 @@ This directory contains the architecture record for QuantX.
 
 ## Other architecture areas
 
+Architecture decisions: `adr/` holds accepted ADR-lite records explaining why the target shape exists (modular monolith, plugin-first extensibility, event-driven core, one semantic lifecycle, Indian-market-first domain, broker adapters, modular-hybrid topology).
+
+Execution control path: `control-and-safety-path.md` describes the ordered, fail-closed execution path from intent to portfolio update and is the reference for control-path safety review.
+
 Plugin model/contracts: `04-plugin-model.md`, `13-plugin-contract.md`.
 
 Storage/message bus: `09-storage-and-message-bus.md`.
