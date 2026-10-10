@@ -12,7 +12,7 @@ from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionReceipt
 from quantx.execution.preconditions import PreconditionsResult, PreconditionsStatus
-from quantx.persistence import ReceiptRepository
+from quantx.ports.persistence import ReceiptRepository
 
 
 @dataclass(frozen=True, slots=True)

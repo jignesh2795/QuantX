@@ -16,7 +16,7 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.market_data import Candle
 from quantx.domain.orders import Fill
 from quantx.domain.risk import RiskResult
-from quantx.persistence import ReceiptRepository
+from quantx.ports.persistence import ReceiptRepository
 
 from .charges import (
     ChargeBreakdown,
