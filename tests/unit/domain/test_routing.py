@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from quantx.domain.accounts import AccountId, BrokerConnection, BrokerConnectionId, ConnectionStatus
 from quantx.domain.enums import AssetClass
-from quantx.domain.finance import AccountFinancialState, CapitalSourceType, BrokerConstraint
+from quantx.domain.finance import AccountFinancialState, BrokerConstraint, CapitalSourceType
 from quantx.domain.instruments import (
     Instrument,
     InstrumentId,
