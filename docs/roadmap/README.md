@@ -28,7 +28,7 @@ C13 preserves the existing provenance and persistence seams; it does not introdu
 
 ### R1-C14 — Deterministic Historical Dataset Ingestion & Provenance Composition
 
-C14 is in progress: the ingestion boundary (C14.2), provider composition (C14.3), identity binding (C14.4), quality binding (C14.5), and durable persistence composition (C14.6) are implemented, the Dhan vertical proofs (C14.7) are covered by dedicated composition tests, and ingestion results bind to the canonical research-run identity (C14.8). It composes the existing `MarketDataPort`, dataset identity/catalog, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance boundaries into one deterministic historical ingestion workflow.
+C14 is in progress: the ingestion boundary (C14.2), provider composition (C14.3), identity binding (C14.4), quality binding (C14.5), and durable persistence composition (C14.6) are implemented, the Dhan vertical proofs (C14.7) are covered by dedicated composition tests, ingestion results bind to the canonical research-run identity (C14.8), and the end-to-end deterministic proof (C14.9) passes. It composes the existing `MarketDataPort`, dataset identity/catalog, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance boundaries into one deterministic historical ingestion workflow.
 
 The canonical lifecycle is:
 
@@ -36,11 +36,11 @@ The canonical lifecycle is:
 
 C14 is provider-neutral. Dhan is a concrete vertical proof, not the domain boundary. Existing Dhan/dataset branches are salvage sources and are not to be merged wholesale.
 
-The next target is C14.9, the end-to-end deterministic proof; C14.8 provenance binding is complete.
+C14.8 provenance binding and the C14.9 end-to-end deterministic proof are complete; all C14 slices are implemented.
 
 C14 explicitly defers scheduling, streaming, distributed ingestion, cloud storage, generic ETL, production historical-data service, UI, AI/ML, optimization, and broad broker expansion.
 
-The C14 planning record is maintained separately from this master roadmap; remaining work is the C14.9 end-to-end deterministic proof.
+The C14 planning record is maintained separately from this master roadmap; with C14.9 complete, further sequencing follows the normal roadmap process.
 
 ## M4 — Strategy Platform
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals.
