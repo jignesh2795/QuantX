@@ -10,6 +10,10 @@ This directory contains the architecture record for QuantX.
 4. `34-capital-and-routing-invariants.md`, `40-execution-reliability-and-transaction-safety.md`, `43-execution-transaction-boundary.md`, `44-execution-and-integration-package-boundaries.md`, `45-execution-reliability-batch.md`, `47-execution-audit-findings.md`, `47-integration-boundaries.md`, `49-dhan-broker-plugin-boundary.md`
 5. `41-current-package-map.md`, `42-implementation-batch-plan.md`, `46-consolidation-status.md`, `51-historical-account-state.md`, `52-transaction-cost-and-charges.md`
 
+## v0.1 release gate
+
+`28-v0.1-acceptance-criteria.md` is the canonical v0.1 acceptance checklist. Its status table records the audited baseline; the open/closed release decision must follow the explicit release rule in that document rather than assuming all criteria pass.
+
 ## Other architecture areas
 
 Plugin model/contracts: `04-plugin-model.md`, `13-plugin-contract.md`.
