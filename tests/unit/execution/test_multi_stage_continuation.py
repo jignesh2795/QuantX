@@ -12,15 +12,15 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.continuation import (
     ExecutionContinuationChain,
     ExecutionContinuationDispatchReconciliation,
+    ExecutionContinuationService,
 )
+from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.idempotency import InMemoryIdempotencyStore, request_fingerprint
+from quantx.execution.lifecycle import ExecutionLifecycleService
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.receipts.models import ExecutionOutcome
 
-from .test_continuation import _PaperPort, _ReceiptRepository, _receipt, _request, _snapshot
-from quantx.execution.continuation import ExecutionContinuationService
-from quantx.execution.dispatch import ExecutionDispatcher
-from quantx.execution.lifecycle import ExecutionLifecycleService
+from .test_continuation import _PaperPort, _receipt, _ReceiptRepository, _request, _snapshot
 
 
 def _service(repository: _ReceiptRepository, receipt) -> ExecutionContinuationService:
