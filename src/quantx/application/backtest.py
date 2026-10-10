@@ -8,7 +8,7 @@ broker SDK or network dependency.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import StrEnum
 
@@ -769,8 +769,15 @@ class DeterministicBacktestService:
 
             if simulation_clock is not None:
                 simulation_clock.set_time(frame.observation.timestamp)
+            order = build_order_from_intent(intent)
+            if simulation_clock is not None:
+                # Replay evidence must carry the simulated occurrence time, not
+                # the wall-clock default: the venue stamps execution time from
+                # this same clock, so an order created "after" it executed
+                # would corrupt the recorded timeline.
+                order = replace(order, created_at=simulation_clock.now())
             request: ApprovedExecutionRequest = ApprovedExecutionRequest(
-                order=build_order_from_intent(intent),
+                order=order,
                 execution_context=intent.execution_context,
                 risk_result=risk,
                 policy_result=policy,
