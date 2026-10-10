@@ -1562,3 +1562,135 @@ def test_backtest_rejects_bare_callable_with_structured_provenance() -> None:
             provenance=_provenance_with(declared),
         )
     assert counting_calls == []
+
+
+_PRISTINE_PAPER_ENGINE = PaperExecutionEngine
+
+
+def _replay_time_recording_engine(monkeypatch) -> list[ApprovedExecutionRequest]:
+    """Capture every request the default paper engine sees, post-stamping."""
+    import quantx.application.backtest as backtest_module
+
+    captured: list[ApprovedExecutionRequest] = []
+
+    class _RecordingEngine(_PRISTINE_PAPER_ENGINE):
+        def execute(self, request, *, snapshot):
+            captured.append(request)
+            return super().execute(request, snapshot=snapshot)
+
+    monkeypatch.setattr(backtest_module, "PaperExecutionEngine", _RecordingEngine)
+    return captured
+
+
+def _buy_once_strategy(instrument, context):
+    def strategy(frame):
+        if frame.index == 0:
+            signal = StrategySignal(
+                StrategyId("replay-time"),
+                "1",
+                instrument.instrument_id,
+                SignalAction.BUY,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+            intent = TradeIntent(
+                instrument=instrument.instrument_id,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                execution_context=context,
+                strategy_id="replay-time",
+                strategy_version="1",
+            )
+            return StrategyResult(signal, intent)
+
+        signal = StrategySignal(
+            StrategyId("replay-time"),
+            "1",
+            instrument.instrument_id,
+            SignalAction.HOLD,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        return StrategyResult(signal, None)
+
+    return strategy
+
+
+def test_backtest_orders_carry_replay_occurrence_time_not_wall_clock(monkeypatch) -> None:
+    """Order evidence must carry the replay instant, never the wall-clock default.
+
+    The venue stamps execution time from the same simulation clock; an order
+    whose ``created_at`` stayed on the wall clock would claim to be created
+    after it executed, corrupting the recorded timeline and any durable
+    pending-context evidence that serializes ``created_at``.
+    """
+    instrument = _instrument()
+    context = _context()
+    captured = _replay_time_recording_engine(monkeypatch)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,))
+    ).run(
+        series=_series(),
+        strategy=_buy_once_strategy(instrument, context),
+        financial_state=_financial_state(),
+    )
+
+    assert result.executed_count == 1
+    assert len(captured) == 1
+    order = captured[0].order
+    assert order.created_at == datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    receipt = result.receipts[0]
+    assert receipt.executed_at == datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    assert order.created_at <= receipt.executed_at
+
+
+def test_backtest_repeated_runs_produce_identical_order_timestamps(monkeypatch) -> None:
+    """Same input data must yield identical order timestamps across runs."""
+    instrument = _instrument()
+    context = _context()
+    first_captured = _replay_time_recording_engine(monkeypatch)
+
+    DeterministicBacktestService(instrument_registry=InMemoryInstrumentRegistry((instrument,))).run(
+        series=_series(),
+        strategy=_buy_once_strategy(instrument, context),
+        financial_state=_financial_state(),
+    )
+
+    second_captured = _replay_time_recording_engine(monkeypatch)
+    DeterministicBacktestService(instrument_registry=InMemoryInstrumentRegistry((instrument,))).run(
+        series=_series(),
+        strategy=_buy_once_strategy(instrument, context),
+        financial_state=_financial_state(),
+    )
+
+    assert len(first_captured) == 1
+    assert len(second_captured) == 1
+    assert (
+        second_captured[0].order.created_at
+        == first_captured[0].order.created_at
+        == datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    )
+
+
+def test_backtest_respects_caller_supplied_engine_clock() -> None:
+    """The service stamps replay time only when it owns the simulation clock.
+
+    An injected engine keeps its own clock: the service must not override the
+    caller's time authority.
+    """
+    instrument = _instrument()
+    caller_clock = SimulatedClock(datetime(2020, 6, 1, 10, 0, tzinfo=UTC))
+    engine = PaperExecutionEngine(clock=caller_clock)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        execution_engine=engine,
+    ).run(
+        series=_series(),
+        strategy=_buy_once_strategy(instrument, _context()),
+        financial_state=_financial_state(),
+    )
+
+    assert result.executed_count == 1
+    assert result.receipts[0].executed_at == datetime(2020, 6, 1, 10, 0, tzinfo=UTC)
