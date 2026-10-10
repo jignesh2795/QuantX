@@ -1,6 +1,6 @@
 import pytest
 
-from quantx.domain.strategy import StrategyId, StrategyDefinition
+from quantx.domain.strategy import StrategyDefinition, StrategyId
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.ir import StrategyIR
 from quantx.strategy.registry import StrategyRegistry

@@ -17,23 +17,31 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.enums import AssetClass, OrderSide
+from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
+from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.market_data import Quote
-from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyContext, PolicyDecision, PolicyResult
+from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.strategy import (
     SignalAction,
     StrategyDefinition,
+    StrategyId,
     StrategyResult,
     StrategySignal,
-    StrategyId,
 )
-from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, Money
+from quantx.execution.charges import (
+    ChargeBreakdown,
+    ChargeCalculationContext,
+    ChargeComponent,
+    PercentageBpsChargeModel,
+)
+from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
+from quantx.execution.paper_session import PaperSession
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.provenance import (
     ExecutionConfiguration,
@@ -49,14 +57,6 @@ from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
-from quantx.execution.charges import (
-    ChargeBreakdown,
-    ChargeCalculationContext,
-    ChargeComponent,
-    PercentageBpsChargeModel,
-)
-from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
-from quantx.execution.paper_session import PaperSession
 
 
 def _instrument() -> Instrument:
