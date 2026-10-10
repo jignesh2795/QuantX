@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
@@ -51,7 +51,7 @@ def test_broker_execution_adapter_delegates_to_submission_plugin() -> None:
         client_order_id=uuid4(),
         outcome=ExecutionOutcome.UNKNOWN,
         order_status=OrderStatus.ACCEPTED,
-        executed_at=datetime.now(timezone.utc),
+        executed_at=datetime.now(UTC),
     )
     submission = FakeSubmission(receipt)
     adapter = BrokerExecutionAdapter(submission)
@@ -99,7 +99,7 @@ def test_broker_execution_adapter_rejects_direct_live_execution() -> None:
         client_order_id=uuid4(),
         outcome=ExecutionOutcome.UNKNOWN,
         order_status=OrderStatus.ACCEPTED,
-        executed_at=datetime.now(timezone.utc),
+        executed_at=datetime.now(UTC),
     )
     submission = FakeSubmission(receipt)
     adapter = BrokerExecutionAdapter(submission)

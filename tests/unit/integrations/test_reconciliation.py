@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
@@ -15,7 +15,7 @@ from quantx.integrations.reconciliation import (
 def test_matching_position_is_executable() -> None:
     account = AccountId("acct-1")
     connection = BrokerConnectionId("conn-1")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     state = PositionState(
         account, connection, "BTC", Decimal("1"), Decimal("100"), now, StateSource.BROKER
     )
@@ -38,8 +38,8 @@ def test_matching_position_is_executable() -> None:
 def test_stale_observed_position_blocks_execution() -> None:
     account = AccountId("acct-1")
     connection = BrokerConnectionId("conn-1")
-    observed_at = datetime.now(timezone.utc) - timedelta(minutes=5)
-    checked_at = datetime.now(timezone.utc)
+    observed_at = datetime.now(UTC) - timedelta(minutes=5)
+    checked_at = datetime.now(UTC)
     local = PositionState(
         account, connection, "BTC", Decimal("1"), None, checked_at, StateSource.PAPER
     )
@@ -65,7 +65,7 @@ def test_stale_observed_position_blocks_execution() -> None:
 def test_missing_observed_position_is_incomplete_and_blocks() -> None:
     account = AccountId("acct-1")
     connection = BrokerConnectionId("conn-1")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     local = PositionState(account, connection, "BTC", Decimal("1"), None, now, StateSource.PAPER)
     result = PositionReconciler().reconcile(
         local,
