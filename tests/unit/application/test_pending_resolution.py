@@ -48,6 +48,13 @@ from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
+from quantx.india.domain import IndianExchange, IndianSegment
+from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.india.session_calendar import (
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionResult,
+)
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.integrations.reconciliation import (
     BrokerOrderEvidence,
@@ -231,11 +238,55 @@ def _started_runtime() -> ApplicationRuntime:
 
 
 def _orchestrator(database, unit_of_work) -> ExecutionOrchestrator:
+    """Orchestrator with approving India layers so the idempotency guard is reached.
+
+    Without explicit session/rule evaluators, an India-LIVE request is blocked
+    at the session-calendar check before the idempotency reservation is ever
+    consulted, which would mask the operator-resolved guard under test here.
+    """
     return ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
         application_runtime=_started_runtime(),
+        india_rule_evaluator=_approving_india_rule_evaluator(),
+        india_session_evaluator=_approving_india_session_evaluator(),
     )
+
+
+def _approving_india_rule_evaluator():
+    """India rule layer is not under test here; approve to reach the guard."""
+
+    def approve(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.APPROVE,
+            "india compatibility approved for test",
+            rule_set_version="test-b3",
+            provenance="test-b3",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    return approve
+
+
+def _approving_india_session_evaluator():
+    """India session layer is not under test here; approve to reach the guard."""
+
+    def allow(request):
+        return IndiaSessionResult(
+            IndiaSessionDecision.ALLOW,
+            "india session approved for test",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=datetime(2026, 1, 5, 10, 0, tzinfo=UTC),
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
+            session_id="regular",
+            granted_permissions=frozenset({IndiaSessionPermission.ORDER_SUBMISSION}),
+            calendar_evaluated=True,
+        )
+
+    return allow
 
 
 def test_unknown_evidence_is_not_not_found(tmp_path) -> None:
