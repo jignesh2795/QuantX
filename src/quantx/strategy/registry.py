@@ -7,7 +7,6 @@ from collections.abc import Callable
 from .ir import StrategyIR
 from .runtime import ExecutableStrategy
 
-
 StrategyFactory = Callable[[], ExecutableStrategy]
 
 
