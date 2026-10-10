@@ -8,7 +8,6 @@ from uuid import UUID
 
 from quantx.domain.enums import OrderSide
 from quantx.domain.orders import Fill
-from quantx.domain.positions import Position
 from quantx.domain.value_objects import InstrumentId
 
 

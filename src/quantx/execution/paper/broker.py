@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 
 from .evidence import SimulationEvidence, SimulationEvidenceStatus
 from .fills import FillSimulator, MarketSnapshot, SimulatedFill
