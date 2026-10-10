@@ -415,3 +415,39 @@ def test_host_wires_market_data_adapter_to_same_transport(tmp_path) -> None:
         assert candles[0].volume == Decimal("1000")
     finally:
         host.close()
+
+
+def test_host_restart_preserves_resolved_execution_without_redispatch(tmp_path) -> None:
+    approved = _approved()
+    host = build_dhan_host_runtime(_resolving_config(tmp_path, approved))
+    try:
+        _seed_pending(host, approved)
+        first = host.start(checked_at=CHECKED_AT)
+
+        assert host.started
+        assert first.recovered == 1
+        assert host.transport.submitted == ()
+        assert host.transport.cancelled == ()
+        before = SqliteReceiptRepository(host.runtime.database).get_by_client_order(
+            approved.order.client_order_id
+        )
+        assert before is not None
+    finally:
+        host.close()
+
+    rebuilt = build_dhan_host_runtime(_resolving_config(tmp_path, approved))
+    try:
+        second = rebuilt.start(checked_at=CHECKED_AT)
+
+        assert rebuilt.started
+        assert second.recovered == 0
+        assert rebuilt.transport.submitted == ()
+        assert rebuilt.transport.cancelled == ()
+        after = SqliteReceiptRepository(rebuilt.runtime.database).get_by_client_order(
+            approved.order.client_order_id
+        )
+        assert after is not None
+        assert after == before
+        assert after.receipt_id == before.receipt_id
+    finally:
+        rebuilt.close()
