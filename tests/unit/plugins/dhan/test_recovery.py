@@ -29,7 +29,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
-from quantx.integrations.brokers import BrokerConnectionRef
+from quantx.integrations.brokers import BrokerConnectionRef, BrokerDescriptor, CapabilitySet
 from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidenceStatus
 from quantx.plugins.dhan.adapter import DhanBrokerAdapter
 from quantx.plugins.dhan.capabilities import DHAN_CAPABILITIES
@@ -188,6 +188,51 @@ def test_unknown_broker_status_maps_to_unknown_observation() -> None:
     observation = evidence.observation
     assert observation is not None
     assert observation.status is OrderLifecycleStatus.UNKNOWN
+
+
+def test_generic_broker_adapter_is_rejected_before_dhan_specific_access() -> None:
+    """The factory guard must fail closed before any Dhan-specific adapter access.
+
+    The application recovery boundary is typed against the generic
+    ``BrokerAdapter`` contract, so a non-Dhan adapter is type-compatible yet
+    unusable by the Dhan provider. The concrete-type guard must reject it up
+    front, rather than allowing an ``AttributeError`` from a later
+    Dhan-specific call.
+    """
+    request = _recovery_request()
+    accessed: list[str] = []
+
+    class GenericBrokerAdapter:
+        """Adapter satisfying ``BrokerAdapter`` but exposing no Dhan methods."""
+
+        @property
+        def descriptor(self) -> BrokerDescriptor:
+            accessed.append("descriptor")
+            return _adapter().descriptor
+
+        @property
+        def connection(self) -> BrokerConnectionRef:
+            accessed.append("connection")
+            return _adapter().connection
+
+        def health(self) -> bool:
+            accessed.append("health")
+            return True
+
+        def capabilities(self) -> CapabilitySet:
+            accessed.append("capabilities")
+            return _adapter().capabilities()
+
+        def __getattr__(self, name: str) -> object:
+            accessed.append(name)
+            raise AttributeError(name)
+
+    adapter = GenericBrokerAdapter()
+
+    with pytest.raises(TypeError, match="requires DhanBrokerAdapter"):
+        build_dhan_recovery_provider(adapter, request)
+
+    assert accessed == []
 
 
 def test_binding_mismatch_rejected_at_construction() -> None:
