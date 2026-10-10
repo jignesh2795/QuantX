@@ -10,7 +10,6 @@ from quantx.research.market_rules import (
     resolve_tradability,
 )
 
-
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 T1 = datetime(2026, 2, 1, tzinfo=UTC)
 T2 = datetime(2026, 3, 1, tzinfo=UTC)
