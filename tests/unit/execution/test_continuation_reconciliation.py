@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -173,7 +173,7 @@ def test_reconcile_continuation_rejects_terminal_parent_with_remaining_quantity(
         request_id=uuid4(),
         outcome=ExecutionOutcome.CANCELLED,
         order_status=OrderStatus.CANCELLED,
-        executed_at=datetime(2026, 1, 1, 9, 16, tzinfo=timezone.utc),
+        executed_at=datetime(2026, 1, 1, 9, 16, tzinfo=UTC),
         correlation_id=parent_request.correlation_id,
     )
     parent_lifecycle = ExecutionLifecycle.rebuild(
