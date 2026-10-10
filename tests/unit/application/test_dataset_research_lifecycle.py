@@ -22,7 +22,7 @@ from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
 from quantx.persistence.sqlite import SqliteDatabase
 from quantx.persistence.sqlite.market_data import SqliteMarketDataStore
-from quantx.persistence.sqlite.research import SqliteResearchRunRepository
+from quantx.persistence.sqlite.research import SqliteResearchRunRepository, SqliteResearchStore
 from quantx.plugins.dhan import DhanInstrumentRef, DhanMarketDataAdapter, InMemoryDhanTransport
 from quantx.plugins.dhan.models import DhanCandleSnapshot
 from quantx.research.data_quality import CompletenessStatus, DataQualityStatus
@@ -174,7 +174,7 @@ def test_declared_dataset_flows_deterministically_to_durable_research_run(tmp_pa
             started_at="2026-10-06T10:00:00+00:00",
             completed_at="2026-10-06T10:05:00+00:00",
             time_range_start="2026-01-01T09:15:00+00:00",
-            time_range_end="2026-01-01T15:30:00+00:00",
+            time_range_end="2026-01-01T09:16:00+00:00",
             metrics=(("inserted_count", Decimal("2")),),
         )
         execution = run_service.execute(spec, lambda: operation_result)
@@ -200,5 +200,9 @@ def test_declared_dataset_flows_deterministically_to_durable_research_run(tmp_pa
         assert reloaded is not None
         assert reloaded.state is ResearchRunState.COMPLETED
         assert reloaded.provenance_fingerprint == fingerprint
+        reloaded_result = SqliteResearchStore(reopened).get_result(operation_result.result_id)
+        assert reloaded_result is not None
+        assert reloaded_result == operation_result
+        assert reloaded_result.fingerprint == fingerprint
     finally:
         reopened.close()
