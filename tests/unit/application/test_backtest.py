@@ -228,7 +228,6 @@ def test_backtest_rejects_signal_intent_direction_mismatch() -> None:
 
 def test_backtest_rejects_nondeterministic_signal_timestamp() -> None:
     instrument = _instrument()
-    context = _context()
     nondeterministic_timestamp = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
 
     def strategy(_frame):
