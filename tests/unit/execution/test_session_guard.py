@@ -1,4 +1,4 @@
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 
 from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import ExecutionMode
@@ -20,7 +20,7 @@ def _session(hour: int) -> TradingSession:
     )
     return TradingSession(
         schedule=schedule,
-        clock=FixedClock(datetime(2026, 9, 28, hour, 0, tzinfo=timezone.utc)),
+        clock=FixedClock(datetime(2026, 9, 28, hour, 0, tzinfo=UTC)),
     )
 
 
@@ -39,7 +39,7 @@ def test_weekend_is_closed() -> None:
     )
     session = TradingSession(
         schedule=schedule,
-        clock=FixedClock(datetime(2026, 9, 27, 6, 0, tzinfo=timezone.utc)),
+        clock=FixedClock(datetime(2026, 9, 27, 6, 0, tzinfo=UTC)),
     )
     assert session.status().open is False
 
