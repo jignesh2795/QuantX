@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -6,7 +6,7 @@ from quantx.research.event_replay import EventReplayCatalog, EventReplayKind, Re
 
 
 def ts(hour: int) -> datetime:
-    return datetime(2025, 1, 1, hour, 0, tzinfo=timezone.utc)
+    return datetime(2025, 1, 1, hour, 0, tzinfo=UTC)
 
 
 def test_event_catalog_never_looks_ahead() -> None:
