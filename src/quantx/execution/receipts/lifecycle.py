@@ -122,7 +122,7 @@ class ExecutionLifecycle:
         receipts: tuple[ExecutionReceipt, ...] | list[ExecutionReceipt],
         *,
         correlation_id: UUID | str | None = None,
-    ) -> "ExecutionLifecycle":
+    ) -> ExecutionLifecycle:
         """Reconstruct lifecycle state from authoritative immutable receipts.
 
         Receipt identity is the deduplication boundary. Replaying the same
@@ -152,7 +152,7 @@ class ExecutionLifecycle:
         receipt: ExecutionReceipt,
         *,
         correlation_id: UUID | str | None = None,
-    ) -> "ExecutionLifecycle":
+    ) -> ExecutionLifecycle:
         accepted_correlation = (
             str(correlation_id) if correlation_id is not None else str(self.client_order_id)
         )
