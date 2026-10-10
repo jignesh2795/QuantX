@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, time, timezone
+from datetime import UTC, datetime, time
 from decimal import Decimal
 
 from quantx.research.calendar import FixedDailySessionCalendar, SessionStatus
