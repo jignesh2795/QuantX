@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
@@ -13,6 +14,20 @@ def _paper_request() -> object:
     return SimpleNamespace(
         execution_context=SimpleNamespace(execution_mode="paper"),
     )
+
+
+class _UnavailableStateStore:
+    """State store whose durable state can never be loaded."""
+
+    def load(self) -> TradingGateState | None:
+        return None
+
+    def save(self, state: TradingGateState) -> None:
+        return None
+
+    @contextmanager
+    def synchronize(self):
+        yield
 
 
 def test_gate_blocks_and_reports_reason() -> None:
@@ -118,3 +133,22 @@ def test_durable_gate_shared_store_serializes_submission_permit() -> None:
     assert not block_thread.is_alive()
     assert second.allow() is False
     assert second.state() == TradingGateState(False, "operator emergency stop")
+
+
+def test_durable_gate_missing_state_fails_closed() -> None:
+    """Unavailable durable state must never become an implicit approval."""
+    gate = DurableTradingGate(_UnavailableStateStore())
+
+    assert gate.allow() is False
+    assert gate.state() == TradingGateState(
+        enabled=False,
+        reason="durable trading-gate state is unavailable",
+    )
+
+
+def test_durable_gate_permit_fails_closed_when_state_unavailable() -> None:
+    """A submission permit must be refused when durable state cannot be loaded."""
+    gate = DurableTradingGate(_UnavailableStateStore())
+
+    with gate.submission_permit() as permitted:
+        assert permitted is False
