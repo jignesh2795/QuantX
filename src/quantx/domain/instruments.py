@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 
 from .enums import AssetClass
 from .value_objects import InstrumentId
@@ -50,7 +49,7 @@ class MarketContext:
     region: MarketRegion
     family: MarketFamily
     venue: str
-    country_code: Optional[str] = None
+    country_code: str | None = None
 
     def __post_init__(self) -> None:
         if not self.venue.strip():
@@ -92,10 +91,10 @@ class Contract:
     """Derivative/venue contract metadata layered over an instrument."""
 
     instrument: Instrument
-    underlying: Optional[InstrumentId] = None
-    expiry: Optional[datetime] = None
-    strike: Optional[Decimal] = None
-    option_type: Optional[str] = None
+    underlying: InstrumentId | None = None
+    expiry: datetime | None = None
+    strike: Decimal | None = None
+    option_type: str | None = None
 
     def __post_init__(self) -> None:
         if self.strike is not None and self.strike <= 0:
