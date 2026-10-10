@@ -1,8 +1,8 @@
 # R1-C14 Deterministic Historical Dataset Ingestion & Provenance Composition
 
-**Status:** In progress — C14.2–C14.6 implemented; C14.7 host and Dhan vertical proofs complete; C14.8/C14.9 open.
+**Status:** Complete — C14.1–C14.9 implemented with the end-to-end deterministic proof passing.
 
-**Baseline:** `main @ e72287ce84afdd8393bd8c4203e7c82dd2629abf`
+**Baseline:** `62f87b657cf66a3f078b069a6e522ec3801b6046` (C14.8 branch head; this proof branch is stacked on C14.8, not on `main`)
 
 ## Objective
 
@@ -101,8 +101,8 @@ C14 should not silently create or infer dataset identity from provider/source in
 - C14.5 — quality/evidence binding (complete)
 - C14.6 — durable persistence composition (complete)
 - C14.7 — Dhan vertical composition (complete after the vertical and host-wiring proofs)
-- C14.8 — research provenance binding (not yet implemented)
-- C14.9 — end-to-end deterministic proof (not yet implemented)
+- C14.8 — research provenance binding (complete)
+- C14.9 — end-to-end deterministic proof (complete)
 
 ## Salvage sources
 
