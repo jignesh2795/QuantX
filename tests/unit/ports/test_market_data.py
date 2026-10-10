@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.market_data import Candle, Quote
@@ -33,7 +33,7 @@ class ReferenceMarketData:
 
 def test_reference_market_data_adapter_conforms_to_port_behavior() -> None:
     instrument = InstrumentId("NSE", "TCS")
-    first = datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc)
+    first = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     quote = Quote(instrument, first, bid=Decimal("99"), ask=Decimal("100"), last=Decimal("100"))
     candle = Candle(
         instrument,

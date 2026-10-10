@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -10,7 +10,7 @@ from quantx.research.replay import HistoricalReplay
 
 
 def _obs(ts: str, sequence: int) -> HistoricalObservation:
-    timestamp = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+    timestamp = datetime.fromisoformat(ts).replace(tzinfo=UTC)
     snapshot = MarketSnapshot(
         instrument=InstrumentId("NSE", "TCS"),
         timestamp=timestamp,
@@ -27,7 +27,7 @@ def test_series_is_chronological_and_point_in_time() -> None:
             _obs("2026-01-01T10:00:00", 0),
         ]
     )
-    cutoff = datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+    cutoff = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
     values = series.as_of(cutoff)
     assert len(values) == 1
     assert values[0].snapshot.timestamp == cutoff
