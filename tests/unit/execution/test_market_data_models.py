@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.accounts import AccountId, BrokerConnectionId
@@ -42,7 +42,7 @@ def _request(side: OrderSide) -> ApprovedExecutionRequest:
 def test_market_snapshot_does_not_invent_missing_quote() -> None:
     snapshot = MarketSnapshot(
         instrument=InstrumentId("NSE", "TCS"),
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         last=Decimal("100"),
     )
     assert snapshot.mid is None
@@ -53,7 +53,7 @@ def test_market_snapshot_does_not_invent_missing_quote() -> None:
 def test_market_buy_uses_observed_ask() -> None:
     snapshot = MarketSnapshot(
         instrument=InstrumentId("NSE", "TCS"),
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         bid=Decimal("99"),
         ask=Decimal("100"),
     )

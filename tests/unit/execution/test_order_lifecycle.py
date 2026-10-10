@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -15,7 +15,7 @@ def event(order_id, status, confidence=OutcomeConfidence.CONFIRMED):
     return OrderLifecycleEvent(
         order_id=order_id,
         status=status,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime.now(UTC),
         source="test",
         confidence=confidence,
     )

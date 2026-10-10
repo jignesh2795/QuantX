@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -48,7 +48,7 @@ def _instrument() -> Instrument:
 
 def _snapshot(instrument: InstrumentId | None = None) -> MarketSnapshot:
     instrument = instrument or InstrumentId("NSE", "TCS")
-    timestamp = datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     return Quote(
         instrument,
         timestamp,
