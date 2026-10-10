@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import FrozenSet, Protocol
+from typing import Protocol
 
 
 class PluginKind(StrEnum):
@@ -47,8 +47,8 @@ class PluginDescriptor:
     name: str
     version: str
     kind: PluginKind
-    capabilities: FrozenSet[str] = frozenset()
-    market_contexts: FrozenSet[str] = frozenset()
+    capabilities: frozenset[str] = frozenset()
+    market_contexts: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if not self.name.strip():
