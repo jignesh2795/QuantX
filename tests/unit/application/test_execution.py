@@ -292,6 +292,37 @@ def test_paper_requires_an_observed_snapshot() -> None:
     assert "snapshot" in result.reason
 
 
+def test_orchestrator_carries_no_idempotency_store() -> None:
+    """The orchestrator owns no idempotency state of its own.
+
+    Paper/replay paths use their venue idempotency stores and LIVE uses
+    the durable ``UnitOfWork.idempotency`` transaction, so the dispatcher
+    constructs and dispatches identically without the removed store.
+    """
+    orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
+    assert not hasattr(orchestrator, "_idempotency")
+
+    request = _request(ExecutionMode.PAPER)
+    snapshot = Quote(
+        instrument=request.order.instrument,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        ask=Decimal("100"),
+    )
+    result = orchestrator.execute(request, snapshot=snapshot)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+
+
+def test_orchestrator_rejects_idempotency_argument() -> None:
+    """The removed ``idempotency`` constructor argument stays removed."""
+    with pytest.raises(TypeError):
+        ExecutionOrchestrator(
+            paper_executor=FakePaperExecutor(),
+            idempotency=InMemoryIdempotencyStore(),  # type: ignore[call-arg]
+        )
+
+
 def test_paper_rejects_snapshot_for_wrong_instrument() -> None:
     orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
     wrong = Quote(
