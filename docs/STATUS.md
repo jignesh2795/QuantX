@@ -1,7 +1,7 @@
 # QuantX Status
 
 ## Current state
-**Post-C14 integration base:** `e428c1f33e11fb535efb17f66ab9f2ce7dbef3e9` (PR #158 merge; `main` was verified at this SHA before this status/roadmap update).
+**v0.1 acceptance base:** `6f771b5044d7c971b5da2301901534a5156df361` (PR #164 merge; verified before this status update).
 
 **R1-C1 through R1-C12:** complete.
 
@@ -9,7 +9,7 @@
 
 **R1-C14:** complete through C14.9, including provider/MarketDataPort composition, registered dataset identity, explicit quality evidence, durable candle persistence/readback, research provenance binding, and the end-to-end deterministic lifecycle proof. PR #158 is merged to `main` at the post-C14 integration base above.
 
-**Next milestone:** **V0.1 local-first host and integration readiness.** The read-only local audit is recorded in `docs/architecture/28-v0.1-acceptance-criteria.md`; the release gate remains open. Next implementation work should address the missing product entrypoint decision and the host-composed restart proof, while separately resolving the in-scope format and SDK-present mypy findings. Treat execution/recovery safety boundaries as frozen unless a concrete invariant violation is proven. Validation remains local; no real-broker LIVE-readiness claim is implied.
+**V0.1 local-first host and integration readiness:** rebaselined at the acceptance base. PR #164 (host-composed restart regression) and PR #175 (optional Dhan SDK typing fix) are merged. Per ADR-008, v0.1 ships as a programmatic local-first library on the `DhanHostConfig` + `build_dhan_host_runtime()` → `DhanHostRuntime.start()` / `close()` bootstrap contract; the CLI is deferred and `docs/roadmap/feature-priorities.md` is aligned. The normative checklist in `docs/architecture/28-v0.1-acceptance-criteria.md` records every required criterion PASS with exact evidence (full suite 1483 passed, Ruff zero findings, strict mypy clean with and without the Dhan extra) and closes the release gate for the declared scope. Validation remains local; no real-broker LIVE-readiness claim is implied. This rebaseline changes documentation and one formatting-only test collapse; no production behavior changed.
 
 The repository contains an implemented domain, execution, research, India-market, integration, reconciliation, and deterministic research foundation. Historical validation records below are retained as evidence/history and do not define the current milestone.
 
@@ -77,7 +77,7 @@ The continuation implementation deliberately remains persistence-agnostic: it co
 
 ## Current adversarial findings
 
-The latest review of the 20-commit recovery sequence identified two additional LIVE control-path gaps: startup recovery was not a required dependency of `ExecutionOrchestrator`, and the gate check could race with broker submission. The current hardening branch addresses both. These changes are documented as implementation work pending independent validation; they do not rewrite the earlier historical validation checkpoints.
+No outstanding adversarial finding. The record below is historical: the review of the 20-commit recovery sequence identified two additional LIVE control-path gaps — startup recovery was not a required dependency of `ExecutionOrchestrator`, and the gate check could race with broker submission. Both were integrated (recovery-backed `ApplicationRuntime` startup dependency and submission-time trading-gate authorization) and are covered by the current green suite; they are not pending validation. A new finding will be recorded here only with exact evidence of an actual unresolved issue.
 
 ## Documentation policy
 
@@ -101,7 +101,7 @@ R1-C6 execution-fidelity hardening is implemented and merged in PR #65. The fina
 
 ## Current roadmap direction
 
-R1-C1 through R1-C12 are complete. R1-C13 is complete through C13.8. R1-C14 is complete through C14.9 and merged in PR #158. The next focus is V0.1 local-first host and integration readiness, starting with an audit of existing runtime composition against release criteria.
+V0.1 local-first host and integration readiness is acceptance-complete for the declared programmatic-library scope (ADR-008): the acceptance audit is done, the host-composed restart proof (PR #164) and the optional-SDK typing fix (PR #175) are merged, the CLI is explicitly deferred, and the release gate is closed per `docs/architecture/28-v0.1-acceptance-criteria.md`. R1-C13/C14 records below are historical milestones, not current work. Treat execution/recovery safety boundaries as frozen unless a concrete invariant violation is proven; no production-broker end-to-end execution has been performed.
 
 C14 establishes a deterministic, provider-neutral historical dataset ingestion application boundary that composes the existing `MarketDataPort`, `DatasetCatalog`, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance seams. Dataset identity is pre-declared and authoritative; observations remain lossless; completeness remains evidence-bound; persistence semantics remain centralized; and provider-specific behavior remains outside the dataset domain.
 
