@@ -125,6 +125,33 @@ def test_only_dhan_transport_contains_vendor_sdk_import() -> None:
     assert forbidden == []
 
 
+def test_dhan_sdk_mypy_override_covers_both_dependency_configurations() -> None:
+    """The optional SDK ships no py.typed/stubs, so mypy must silence it explicitly.
+
+    Without this override, ``uv run mypy`` reports import-not-found when the
+    dhan extra is absent and import-untyped (plus unused-ignore) when
+    dhanhq==2.2.0 is installed. The override must keep covering ``dhanhq``
+    itself and its submodules (e.g. ``dhanhq._market_feed``).
+    """
+    import tomllib
+    from pathlib import Path
+
+    pyproject = Path(__file__).resolve().parents[4] / "pyproject.toml"
+    with pyproject.open("rb") as handle:
+        config = tomllib.load(handle)
+    overrides = config.get("tool", {}).get("mypy", {}).get("overrides", [])
+    covered = set()
+    for override in overrides:
+        if not override.get("ignore_missing_imports"):
+            continue
+        modules = override.get("module", [])
+        if isinstance(modules, str):
+            modules = [modules]
+        covered.update(modules)
+    assert "dhanhq" in covered
+    assert "dhanhq.*" in covered
+
+
 def test_dhan_registration_hook() -> None:
     from quantx.plugins import PluginRegistry
     from quantx.plugins.dhan import DHAN_PLUGIN_DESCRIPTOR, register_dhan_broker

@@ -132,7 +132,7 @@ class DhanSDKTransport:
 
     def __post_init__(self) -> None:
         try:
-            from dhanhq import DhanContext, dhanhq  # type: ignore[import-not-found]
+            from dhanhq import DhanContext, dhanhq
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise RuntimeError("dhanhq SDK is not installed") from exc
 
@@ -271,7 +271,7 @@ class DhanSDKTransport:
     ) -> DhanQuoteSnapshot | None:
         """Re-observe one quote packet; transport failure means unavailable."""
         try:
-            from dhanhq._market_feed import MarketFeed  # type: ignore[import-not-found]
+            from dhanhq._market_feed import MarketFeed
         except ImportError:  # pragma: no cover - optional dependency
             return None
 
