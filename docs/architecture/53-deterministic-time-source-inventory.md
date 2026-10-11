@@ -19,15 +19,21 @@ use; never replay evidence).
 - `application/backtest.py:800` — `created_at=frame.observation.timestamp`:
   every backtest order carries the explicit replay occurrence time, on the
   default and the caller-supplied engine path. Replay/event time.
+- `domain/clock.py` — `Clock.is_deterministic` capability (conservative
+  default `False`; explicitly `True` on `FixedClock`/`SimulatedClock`,
+  explicitly `False` on `SystemClock`). Unknown or custom clocks are
+  non-deterministic until they declare otherwise.
 - `application/backtest.py:493` — `_require_engine_time_coherent`
-  preflight: reads the injected engine clock before executing and rejects
-  a clock behind the replay frame, so a rejected run records no
-  idempotency reservation/completion, no receipt write, no retained
-  receipt, and no lifecycle events.
+  preflight: rejects a non-deterministic engine clock, then a naive
+  reading, then a reading behind the replay frame — all before executing,
+  so a rejected run records no idempotency reservation/completion, no
+  receipt write, no retained receipt, and no lifecycle events.
 - `application/backtest.py:471` — `_require_coherent_execution_time`
   backstop: retained alongside preflight for a clock that moves between
-  validation and execution. A receipt or fill stamped before order
-  creation aborts the run instead of recording contradictory evidence.
+  validation and execution, or an engine that stamps from a different
+  source than its exposed clock. This exception detects residual
+  divergence; it does not roll back venue state already written by the
+  engine. Prevention lives in the preflight check.
 - `application/backtest.py:453` — signal timestamp guard (pre-existing):
   any signal whose `generated_at` differs from the replay frame is rejected.
 - `application/backtest.py:558` — `clock=simulation_clock`: the service-owned

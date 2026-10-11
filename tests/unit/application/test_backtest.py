@@ -12,7 +12,7 @@ from quantx.application.backtest import (
     DeterministicBacktestService,
 )
 from quantx.domain.accounts import AccountId
-from quantx.domain.clock import Clock, FixedClock, SimulatedClock
+from quantx.domain.clock import Clock, FixedClock, SimulatedClock, SystemClock
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -1884,6 +1884,10 @@ class _AdvancingClock(Clock):
         self._current = start
         self._step = step
 
+    @property
+    def is_deterministic(self) -> bool:
+        return True
+
     def now(self) -> datetime:
         current = self._current
         self._current = current + self._step
@@ -2016,3 +2020,75 @@ def test_backtest_accepts_advancing_clock_ahead_of_replay_time() -> None:
             assert fill.filled_at >= order_time
     assert first_requests[0].order.created_at == second_requests[0].order.created_at
     assert first_result.receipts[0].executed_at == second_result.receipts[0].executed_at
+
+
+def test_backtest_rejects_system_clock_for_replay() -> None:
+    """Wall-clock time can never back replay evidence, even when ahead.
+
+    A `SystemClock` reads ahead of the historical frames, so the old
+    coherence check alone would admit it. The determinism gate rejects it
+    before execution, leaving the venue exactly as it was: no idempotency
+    reservation or completion, no durable receipt, no retained receipt,
+    and no lifecycle events.
+    """
+    instrument = _instrument()
+    store = _RecordingIdempotencyStore()
+    repository = _RecordingReceiptRepository()
+    engine = PaperExecutionEngine(
+        clock=SystemClock(),
+        idempotency_store=store,
+        receipt_repository=repository,
+    )
+
+    with pytest.raises(ValueError, match="must be deterministic for replay"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=_buy_once_strategy(instrument, _context()),
+            financial_state=_financial_state(),
+        )
+
+    assert store.reserve_calls == []
+    assert store.complete_calls == []
+    assert store.list_pending_contexts() == ()
+    assert store.list_pending_recovery_records() == ()
+    assert repository.saves == []
+    assert engine.events() == ()
+    assert engine._receipts == {}
+
+
+class _UndeclaredClock(Clock):
+    """Fixed-time clock that does not declare determinism."""
+
+    def __init__(self, current: datetime) -> None:
+        self._current = current
+
+    def now(self) -> datetime:
+        return self._current
+
+
+def test_backtest_rejects_clock_without_determinism_declaration() -> None:
+    """The conservative default treats undeclared clocks as non-deterministic.
+
+    This clock always returns the replay frame time, yet the run must still
+    reject it: replay admits only clocks that explicitly declare the
+    deterministic capability, and the rejection must precede execution.
+    """
+    instrument = _instrument()
+    frame_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    engine = PaperExecutionEngine(clock=_UndeclaredClock(frame_time))
+
+    with pytest.raises(ValueError, match="must be deterministic for replay"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=_buy_once_strategy(instrument, _context()),
+            financial_state=_financial_state(),
+        )
+
+    assert engine.events() == ()
+    assert engine._receipts == {}

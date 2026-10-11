@@ -470,12 +470,15 @@ class DeterministicBacktestService:
 
     @staticmethod
     def _require_coherent_execution_time(order: Order, receipt: ExecutionReceipt) -> None:
-        """Fail closed when the execution clock contradicts replay time.
+        """Detect residual clock divergence after execution.
 
-        Backstop for the pre-execution check below: it covers a clock that
-        moves between validation and execution. A receipt or fill stamped
-        before the order was created would corrupt the recorded timeline,
-        so the run aborts instead of recording contradictory evidence.
+        Backstop for the pre-execution check above: it covers a clock that
+        moves between validation and execution, or an engine that stamps
+        from a different source than its exposed clock. This exception does
+        not roll back venue state already written by the engine — it aborts
+        the run so contradictory evidence is never recorded in the
+        backtest result. Prevention lives in the preflight check; this is
+        detection only.
         """
         if receipt.executed_at < order.created_at:
             raise ValueError(
@@ -493,16 +496,24 @@ class DeterministicBacktestService:
     def _require_engine_time_coherent(
         execution_engine: PaperExecutionEngine, frame_time: datetime
     ) -> None:
-        """Fail closed before execution when the engine clock predates replay.
+        """Fail closed before execution unless the engine clock is replay-safe.
 
-        Reading the injected clock up front keeps a rejected run free of
-        venue side effects: no idempotency reservation, no receipt write, no
-        retained receipt, no lifecycle events. A clock behind the replay
-        frame can never produce coherent evidence, so the run aborts before
-        executing. Monotonic forward movement between this read and execution
-        cannot break coherence, only increase the margin.
+        Reading the injected clock up front keeps a rejected run free of venue
+        side effects: no idempotency reservation, no receipt write, no retained
+        receipt, no lifecycle events. Only an explicitly deterministic clock is
+        admitted — wall-clock time can never be replay evidence, even when it
+        currently reads ahead of the frame. A deterministic clock behind the
+        replay frame can never produce coherent evidence either, so the run
+        aborts before executing. Monotonic forward movement between this read
+        and execution cannot break coherence, only increase the margin.
         """
-        engine_now = execution_engine.clock.now()
+        engine_clock = execution_engine.clock
+        if not engine_clock.is_deterministic:
+            raise ValueError(
+                "injected execution clock must be deterministic for replay: "
+                "wall-clock time cannot back replay evidence"
+            )
+        engine_now = engine_clock.now()
         if engine_now.tzinfo is None or engine_now.utcoffset() is None:
             raise ValueError("injected execution clock must return a timezone-aware timestamp")
         if engine_now < frame_time:
