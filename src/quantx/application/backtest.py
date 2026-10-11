@@ -18,6 +18,7 @@ from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.orders import Order
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
@@ -467,6 +468,27 @@ class DeterministicBacktestService:
             raise ValueError("SELL signal must carry a SELL intent")
 
     @staticmethod
+    def _require_coherent_execution_time(order: Order, receipt: ExecutionReceipt) -> None:
+        """Fail closed when the execution clock contradicts replay time.
+
+        A caller-supplied engine keeps its own clock, which the service must
+        not rewrite — but a receipt or fill stamped before the order was
+        created would corrupt the recorded timeline, so the run aborts
+        instead of recording contradictory evidence.
+        """
+        if receipt.executed_at < order.created_at:
+            raise ValueError(
+                "injected execution clock predates the replay frame: "
+                "receipt execution precedes order creation"
+            )
+        for fill in receipt.fills:
+            if fill.filled_at < order.created_at:
+                raise ValueError(
+                    "injected execution clock predates the replay frame: "
+                    "fill precedes order creation"
+                )
+
+    @staticmethod
     def _candle_stop_disposition(intent: TradeIntent, snapshot: HistoricalSnapshot) -> str | None:
         """Block candle stop orders whose outcome OHLCV cannot establish.
 
@@ -769,13 +791,14 @@ class DeterministicBacktestService:
 
             if simulation_clock is not None:
                 simulation_clock.set_time(frame.observation.timestamp)
-            order = build_order_from_intent(intent)
-            if simulation_clock is not None:
-                # Replay evidence must carry the simulated occurrence time, not
-                # the wall-clock default: the venue stamps execution time from
-                # this same clock, so an order created "after" it executed
-                # would corrupt the recorded timeline.
-                order = replace(order, created_at=simulation_clock.now())
+            # The order always carries the explicit replay occurrence time,
+            # including on the caller-supplied engine path: the wall-clock
+            # default must never reach replay evidence, and the service must
+            # not silently rewrite the caller's own execution clock.
+            order = replace(
+                build_order_from_intent(intent),
+                created_at=frame.observation.timestamp,
+            )
             request: ApprovedExecutionRequest = ApprovedExecutionRequest(
                 order=order,
                 execution_context=intent.execution_context,
@@ -786,6 +809,7 @@ class DeterministicBacktestService:
                 request,
                 snapshot=snapshot,
             )
+            self._require_coherent_execution_time(order, receipt)
             receipts.append(receipt)
             account_states.append(account_state_tracker.record(receipt, snapshot=snapshot))
 

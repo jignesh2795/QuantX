@@ -1674,27 +1674,65 @@ def test_backtest_repeated_runs_produce_identical_order_timestamps(monkeypatch) 
     )
 
 
-def test_backtest_respects_caller_supplied_engine_clock() -> None:
-    """The service stamps replay time only when it owns the simulation clock.
+def test_backtest_injected_engine_clock_determines_execution_time() -> None:
+    """A caller-supplied engine keeps its own execution clock.
 
-    An injected engine keeps its own clock: the service must not override the
-    caller's time authority.
+    The service stamps the order with the replay occurrence time but must
+    not override the caller's time authority: with an aligned injected
+    clock the receipt carries the caller's instant, and equivalent runs
+    agree on every timestamp.
+    """
+    frame_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    instrument = _instrument()
+
+    def _run_once() -> BacktestResult:
+        caller_clock = SimulatedClock(frame_time)
+        engine = PaperExecutionEngine(clock=caller_clock)
+        return DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=_buy_once_strategy(instrument, _context()),
+            financial_state=_financial_state(),
+        )
+
+    first = _run_once()
+    second = _run_once()
+
+    for result in (first, second):
+        assert result.executed_count == 1
+        receipt = result.receipts[0]
+        assert receipt.executed_at == frame_time
+        assert receipt.fills, "expected at least one simulated fill"
+        for fill in receipt.fills:
+            assert fill.filled_at == frame_time
+    assert first.receipts[0].executed_at == second.receipts[0].executed_at
+    assert [fill.filled_at for fill in first.receipts[0].fills] == [
+        fill.filled_at for fill in second.receipts[0].fills
+    ]
+
+
+def test_backtest_rejects_injected_engine_clock_before_replay_time() -> None:
+    """An injected clock that contradicts replay time fails closed.
+
+    The service stamps the order with the replay occurrence time; a receipt
+    executed before the order was created would corrupt the recorded
+    timeline, so the run aborts instead of recording it.
     """
     instrument = _instrument()
     caller_clock = SimulatedClock(datetime(2020, 6, 1, 10, 0, tzinfo=UTC))
     engine = PaperExecutionEngine(clock=caller_clock)
 
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
-        execution_engine=engine,
-    ).run(
-        series=_series(),
-        strategy=_buy_once_strategy(instrument, _context()),
-        financial_state=_financial_state(),
-    )
-
-    assert result.executed_count == 1
-    assert result.receipts[0].executed_at == datetime(2020, 6, 1, 10, 0, tzinfo=UTC)
+    with pytest.raises(ValueError, match="predates the replay frame"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=_buy_once_strategy(instrument, _context()),
+            financial_state=_financial_state(),
+        )
 
 
 def test_backtest_rejects_signal_using_wall_clock_default() -> None:
