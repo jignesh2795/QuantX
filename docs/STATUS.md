@@ -77,7 +77,7 @@ The continuation implementation deliberately remains persistence-agnostic: it co
 
 ## Current adversarial findings
 
-The latest review of the 20-commit recovery sequence identified two additional LIVE control-path gaps: startup recovery was not a required dependency of `ExecutionOrchestrator`, and the gate check could race with broker submission. The current hardening branch addresses both. These changes are documented as implementation work pending independent validation; they do not rewrite the earlier historical validation checkpoints.
+No outstanding adversarial finding. The record below is historical: the review of the 20-commit recovery sequence identified two additional LIVE control-path gaps — startup recovery was not a required dependency of `ExecutionOrchestrator`, and the gate check could race with broker submission. Both were integrated (recovery-backed `ApplicationRuntime` startup dependency and submission-time trading-gate authorization) and are covered by the current green suite; they are not pending validation. A new finding will be recorded here only with exact evidence of an actual unresolved issue.
 
 ## Documentation policy
 
@@ -101,7 +101,7 @@ R1-C6 execution-fidelity hardening is implemented and merged in PR #65. The fina
 
 ## Current roadmap direction
 
-R1-C1 through R1-C12 are complete. R1-C13 is complete through C13.8. R1-C14 is complete through C14.9 and merged in PR #158. The next focus is V0.1 local-first host and integration readiness, starting with an audit of existing runtime composition against release criteria.
+V0.1 local-first host and integration readiness is acceptance-complete for the declared programmatic-library scope (ADR-008): the acceptance audit is done, the host-composed restart proof (PR #164) and the optional-SDK typing fix (PR #175) are merged, the CLI is explicitly deferred, and the release gate is closed per `docs/architecture/28-v0.1-acceptance-criteria.md`. R1-C13/C14 records below are historical milestones, not current work. Treat execution/recovery safety boundaries as frozen unless a concrete invariant violation is proven; no production-broker end-to-end execution has been performed.
 
 C14 establishes a deterministic, provider-neutral historical dataset ingestion application boundary that composes the existing `MarketDataPort`, `DatasetCatalog`, historical-data quality, `MarketDataStore`, dataset-backed research access, and research provenance seams. Dataset identity is pre-declared and authoritative; observations remain lossless; completeness remains evidence-bound; persistence semantics remain centralized; and provider-specific behavior remains outside the dataset domain.
 
