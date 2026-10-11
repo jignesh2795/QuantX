@@ -77,9 +77,7 @@ def _bind(result=None, **overrides):
         "configuration_revision": "config-v1",
     }
     values.update(overrides)
-    return research_run_spec_from_ingestion(
-        _result() if result is None else result, **values
-    )
+    return research_run_spec_from_ingestion(_result() if result is None else result, **values)
 
 
 def test_binding_uses_registered_dataset_identity() -> None:

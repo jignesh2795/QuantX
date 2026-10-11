@@ -14,11 +14,11 @@
 - canonical backtest
 - Python strategy interface
 - REST/WebSocket foundation
-- CLI
 - contract tests
 
 ## Later platform priority
 
+- CLI (deferred from v0.1 by ADR-008; v0.1 ships the programmatic bootstrap contract instead)
 - multi-broker
 - sandbox/analyzer
 - Historify-style scheduling and data management
