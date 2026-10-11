@@ -44,5 +44,14 @@ python_version = "3.12"
 strict = true
 packages = ["quantx"]
 
+# The optional Dhan SDK (dhanhq==2.2.0) ships no py.typed marker or stubs, so
+# mypy reports import-not-found when the extra is absent and import-untyped
+# when it is installed. This module-scoped override keeps the vendor import
+# boundary quiet in both dependency configurations; SDK imports remain
+# confined to src/quantx/plugins/dhan/transport.py (enforced by test).
+[[tool.mypy.overrides]]
+module = ["dhanhq", "dhanhq.*"]
+ignore_missing_imports = true
+
 [tool.uv]
 default-groups = ["dev"]
