@@ -7,6 +7,7 @@ import pytest
 from quantx.application.backtest import (
     AccountStateSamplingPolicy,
     BacktestDisposition,
+    BacktestResult,
     DeterministicBacktestService,
 )
 from quantx.domain.accounts import AccountId
@@ -1694,3 +1695,97 @@ def test_backtest_respects_caller_supplied_engine_clock() -> None:
 
     assert result.executed_count == 1
     assert result.receipts[0].executed_at == datetime(2020, 6, 1, 10, 0, tzinfo=UTC)
+
+
+def test_backtest_rejects_signal_using_wall_clock_default() -> None:
+    """A signal that relies on the wall-clock default must fail closed.
+
+    Omitting ``generated_at`` stamps the process wall clock, which can never
+    match the replay frame. The run must reject it instead of letting replay
+    evidence silently carry wall-clock time.
+    """
+    instrument = _instrument()
+
+    def strategy(_frame):
+        signal = StrategySignal(
+            StrategyId("wall-clock-default"),
+            "1",
+            instrument.instrument_id,
+            SignalAction.HOLD,
+            1.0,
+        )
+        return StrategyResult(signal)
+
+    with pytest.raises(ValueError, match="timestamp"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=strategy,
+            financial_state=_financial_state(),
+        )
+
+
+def _evidence_timestamps(
+    result: BacktestResult, requests: list[ApprovedExecutionRequest]
+) -> tuple[str, ...]:
+    """Every timestamp-bearing semantic output of one backtest run, normalized."""
+    assert result.executed_count == 1
+    assert len(requests) == 1
+    assert len(result.receipts) == 1
+    receipt = result.receipts[0]
+    assert receipt.fills, "expected at least one simulated fill"
+    stamps = [
+        requests[0].order.created_at.isoformat(),
+        *(fill.filled_at.isoformat() for fill in receipt.fills),
+        receipt.executed_at.isoformat(),
+        *(step.timestamp for step in result.steps),
+        *(step.strategy_result.signal.generated_at.isoformat() for step in result.steps),
+        *(snapshot.timestamp.isoformat() for snapshot in result.account_states),
+        *(snapshot.timestamp.isoformat() for snapshot in result.account_state_series),
+    ]
+    return tuple(stamps)
+
+
+def test_backtest_repeated_runs_produce_identical_evidence_timestamps(monkeypatch) -> None:
+    """Equivalent replay inputs must not use process wall-clock time.
+
+    Runs the same two-frame series twice and asserts every timestamp-bearing
+    semantic output — order creation, fills, receipt execution, steps,
+    signals, and account states — is identical across runs and equals the
+    replay frame evidence, never the wall clock.
+    """
+    frame_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC).isoformat()
+    second_frame_time = datetime(2026, 1, 1, 9, 16, tzinfo=UTC).isoformat()
+    instrument = _instrument()
+    context = _context()
+
+    def _run() -> tuple[BacktestResult, list[ApprovedExecutionRequest]]:
+        captured = _replay_time_recording_engine(monkeypatch)
+        result = DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,))
+        ).run(
+            series=_series(),
+            strategy=_buy_once_strategy(instrument, context),
+            financial_state=_financial_state(),
+        )
+        return result, captured
+
+    first_result, first_requests = _run()
+    second_result, second_requests = _run()
+
+    first_evidence = _evidence_timestamps(first_result, first_requests)
+    second_evidence = _evidence_timestamps(second_result, second_requests)
+    assert first_evidence == second_evidence
+    assert first_evidence == (
+        frame_time,
+        frame_time,
+        frame_time,
+        frame_time,
+        second_frame_time,
+        frame_time,
+        second_frame_time,
+        frame_time,
+        frame_time,
+        second_frame_time,
+    )
