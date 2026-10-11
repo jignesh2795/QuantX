@@ -11,11 +11,7 @@ from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketRegion
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.idempotency import (
-    IdempotencyStore,
-    InMemoryIdempotencyStore,
-    PendingExecutionContext,
-)
+from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
@@ -71,7 +67,6 @@ class ExecutionOrchestrator:
         self,
         *,
         paper_executor: MarketDataExecutionPort | None = None,
-        idempotency: IdempotencyStore | None = None,
         unit_of_work: UnitOfWork | None = None,
         trading_gate: TradingGate | None = None,
         application_runtime: ApplicationRuntime | None = None,
@@ -82,7 +77,6 @@ class ExecutionOrchestrator:
         india_rule_evaluator: Callable[[ApprovedExecutionRequest], IndiaRuleResult] | None = None,
     ) -> None:
         self._paper_executor = paper_executor
-        self._idempotency = idempotency or InMemoryIdempotencyStore()
         self._unit_of_work = unit_of_work
         self._trading_gate = trading_gate or TradingGate()
         self._trading_gate_explicit = trading_gate is not None
