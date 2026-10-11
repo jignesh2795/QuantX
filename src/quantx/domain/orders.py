@@ -8,6 +8,13 @@ from .value_objects import InstrumentId
 
 
 def utc_now() -> datetime:
+    """Wall-clock default for interactive/LIVE construction only.
+
+    Replay paths must stamp time explicitly: the deterministic backtest
+    restamps orders to the replay occurrence time and the paper venue stamps
+    fills from the injected simulation clock. A replay record carrying this
+    default is a defect, not a fallback.
+    """
     return datetime.now(UTC)
 
 

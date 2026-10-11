@@ -54,6 +54,9 @@ class StrategySignal:
     instrument: InstrumentId
     action: SignalAction
     confidence: float
+    # Wall-clock default for interactive construction only. Replay callers
+    # must bind the market-event time explicitly: the deterministic backtest
+    # rejects any signal whose timestamp differs from the replay frame.
     generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     reason: str = ""
     signal_id: UUID = field(default_factory=uuid4)

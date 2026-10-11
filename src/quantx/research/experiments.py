@@ -17,6 +17,9 @@ class Experiment:
 
     experiment_id: UUID = field(default_factory=uuid4)
     name: str = ""
+    # Wall-clock default for researcher-driven creation only. Replay paths
+    # never construct experiments implicitly: durable reads pass the stored
+    # timestamp explicitly, so this default cannot leak into replay evidence.
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:

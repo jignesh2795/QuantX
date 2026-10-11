@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -18,6 +19,7 @@ from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.orders import Order
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
@@ -467,6 +469,60 @@ class DeterministicBacktestService:
             raise ValueError("SELL signal must carry a SELL intent")
 
     @staticmethod
+    def _require_coherent_execution_time(order: Order, receipt: ExecutionReceipt) -> None:
+        """Detect residual clock divergence after execution.
+
+        Backstop for the pre-execution check above: it covers a clock that
+        moves between validation and execution, or an engine that stamps
+        from a different source than its exposed clock. This exception does
+        not roll back venue state already written by the engine — it aborts
+        the run so contradictory evidence is never recorded in the
+        backtest result. Prevention lives in the preflight check; this is
+        detection only.
+        """
+        if receipt.executed_at < order.created_at:
+            raise ValueError(
+                "injected execution clock predates the replay frame: "
+                "receipt execution precedes order creation"
+            )
+        for fill in receipt.fills:
+            if fill.filled_at < order.created_at:
+                raise ValueError(
+                    "injected execution clock predates the replay frame: "
+                    "fill precedes order creation"
+                )
+
+    @staticmethod
+    def _require_engine_time_coherent(
+        execution_engine: PaperExecutionEngine, frame_time: datetime
+    ) -> None:
+        """Fail closed before execution unless the engine clock is replay-safe.
+
+        Reading the injected clock up front keeps a rejected run free of venue
+        side effects: no idempotency reservation, no receipt write, no retained
+        receipt, no lifecycle events. Only an explicitly deterministic clock is
+        admitted — wall-clock time can never be replay evidence, even when it
+        currently reads ahead of the frame. A deterministic clock behind the
+        replay frame can never produce coherent evidence either, so the run
+        aborts before executing. Monotonic forward movement between this read
+        and execution cannot break coherence, only increase the margin.
+        """
+        engine_clock = execution_engine.clock
+        if not engine_clock.is_deterministic:
+            raise ValueError(
+                "injected execution clock must be deterministic for replay: "
+                "wall-clock time cannot back replay evidence"
+            )
+        engine_now = engine_clock.now()
+        if engine_now.tzinfo is None or engine_now.utcoffset() is None:
+            raise ValueError("injected execution clock must return a timezone-aware timestamp")
+        if engine_now < frame_time:
+            raise ValueError(
+                "injected execution clock predates the replay frame: "
+                "execution cannot precede the replay occurrence time"
+            )
+
+    @staticmethod
     def _candle_stop_disposition(intent: TradeIntent, snapshot: HistoricalSnapshot) -> str | None:
         """Block candle stop orders whose outcome OHLCV cannot establish.
 
@@ -769,23 +825,26 @@ class DeterministicBacktestService:
 
             if simulation_clock is not None:
                 simulation_clock.set_time(frame.observation.timestamp)
-            order = build_order_from_intent(intent)
-            if simulation_clock is not None:
-                # Replay evidence must carry the simulated occurrence time, not
-                # the wall-clock default: the venue stamps execution time from
-                # this same clock, so an order created "after" it executed
-                # would corrupt the recorded timeline.
-                order = replace(order, created_at=simulation_clock.now())
+            # The order always carries the explicit replay occurrence time,
+            # including on the caller-supplied engine path: the wall-clock
+            # default must never reach replay evidence, and the service must
+            # not silently rewrite the caller's own execution clock.
+            order = replace(
+                build_order_from_intent(intent),
+                created_at=frame.observation.timestamp,
+            )
             request: ApprovedExecutionRequest = ApprovedExecutionRequest(
                 order=order,
                 execution_context=intent.execution_context,
                 risk_result=risk,
                 policy_result=policy,
             )
+            self._require_engine_time_coherent(execution_engine, frame.observation.timestamp)
             receipt = execution_engine.execute(
                 request,
                 snapshot=snapshot,
             )
+            self._require_coherent_execution_time(order, receipt)
             receipts.append(receipt)
             account_states.append(account_state_tracker.record(receipt, snapshot=snapshot))
 

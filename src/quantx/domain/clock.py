@@ -19,9 +19,23 @@ class Clock(ABC):
         """Return the current timezone-aware UTC instant."""
         raise NotImplementedError
 
+    @property
+    def is_deterministic(self) -> bool:
+        """Whether repeated reads are fixed by construction state.
+
+        Conservative default: unknown or custom implementations are treated
+        as non-deterministic unless they explicitly declare otherwise.
+        Replay paths admit only deterministic clocks.
+        """
+        return False
+
 
 class SystemClock(Clock):
     """Production clock backed by the system UTC clock."""
+
+    @property
+    def is_deterministic(self) -> bool:
+        return False
 
     def now(self) -> datetime:
         return datetime.now(UTC)
@@ -32,6 +46,10 @@ class FixedClock(Clock):
 
     def __init__(self, current: datetime) -> None:
         self._current = _as_utc(current)
+
+    @property
+    def is_deterministic(self) -> bool:
+        return True
 
     def now(self) -> datetime:
         return self._current
@@ -45,6 +63,10 @@ class SimulatedClock(Clock):
 
     def __init__(self, initial_time: datetime) -> None:
         self._current = _as_utc(initial_time)
+
+    @property
+    def is_deterministic(self) -> bool:
+        return True
 
     def now(self) -> datetime:
         return self._current

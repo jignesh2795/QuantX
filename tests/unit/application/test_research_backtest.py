@@ -159,3 +159,46 @@ def test_research_backtest_passes_declared_provenance_into_backtest() -> None:
     assert stored.result_id is None
     assert stored.failure_reason is not None
     assert "dataset_id" in stored.failure_reason
+
+
+def test_research_backtest_repeated_runs_produce_identical_records() -> None:
+    """Equivalent replay inputs must yield identical research records.
+
+    Operation timestamps come from the injected clock and the time range
+    from replay frames, so two runs under the same fixed clock agree on
+    every timestamp-bearing field. Only the random ``result_id`` may
+    differ between runs.
+    """
+    operation_time = datetime(2026, 10, 6, 10, 0, tzinfo=UTC).isoformat()
+    frame_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC).isoformat()
+
+    first = _service(
+        InMemoryResearchRunRepository(),
+        FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC)),
+    ).execute(
+        _spec(),
+        series=_series(),
+        strategy=_strategy,
+        financial_state=_financial_state(),
+    )
+    second = _service(
+        InMemoryResearchRunRepository(),
+        FixedClock(datetime(2026, 10, 6, 10, 0, tzinfo=UTC)),
+    ).execute(
+        _spec(),
+        series=_series(),
+        strategy=_strategy,
+        financial_state=_financial_state(),
+    )
+
+    for execution in (first, second):
+        assert execution.result.started_at == operation_time
+        assert execution.result.completed_at == operation_time
+        assert execution.result.time_range_start == frame_time
+        assert execution.result.time_range_end == frame_time
+    assert first.result.started_at == second.result.started_at
+    assert first.result.completed_at == second.result.completed_at
+    assert first.result.time_range_start == second.result.time_range_start
+    assert first.result.time_range_end == second.result.time_range_end
+    assert first.result.metrics == second.result.metrics
+    assert first.result.fingerprint == second.result.fingerprint
