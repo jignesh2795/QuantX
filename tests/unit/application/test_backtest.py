@@ -1,6 +1,7 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
@@ -11,7 +12,7 @@ from quantx.application.backtest import (
     DeterministicBacktestService,
 )
 from quantx.domain.accounts import AccountId
-from quantx.domain.clock import SimulatedClock
+from quantx.domain.clock import Clock, FixedClock, SimulatedClock
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -41,8 +42,10 @@ from quantx.execution.charges import (
     ChargeComponent,
     PercentageBpsChargeModel,
 )
+from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.paper_session import PaperSession
+from quantx.persistence import ReceiptRepository
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.provenance import (
     ExecutionConfiguration,
@@ -475,8 +478,6 @@ def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
     frame = HistoricalReplay(_series()).frames()[0]
     evaluated = evaluation.evaluate_replay_frame(frame, ir)
     assert evaluated.result.intent is not None
-
-    from quantx.domain.clock import SimulatedClock
 
     engine = PaperExecutionEngine(clock=SimulatedClock(frame.observation.timestamp))
     session = PaperSession(
@@ -1718,7 +1719,9 @@ def test_backtest_rejects_injected_engine_clock_before_replay_time() -> None:
 
     The service stamps the order with the replay occurrence time; a receipt
     executed before the order was created would corrupt the recorded
-    timeline, so the run aborts instead of recording it.
+    timeline, so the run aborts instead of recording it. The full
+    no-side-effects proof lives in
+    ``test_backtest_rejected_clock_leaves_no_venue_side_effects``.
     """
     instrument = _instrument()
     caller_clock = SimulatedClock(datetime(2020, 6, 1, 10, 0, tzinfo=UTC))
@@ -1827,3 +1830,189 @@ def test_backtest_repeated_runs_produce_identical_evidence_timestamps(monkeypatc
         frame_time,
         second_frame_time,
     )
+
+
+class _RecordingIdempotencyStore(InMemoryIdempotencyStore):
+    """Counts venue idempotency transitions to prove rejected runs are clean."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reserve_calls: list[tuple[UUID, str]] = []
+        self.complete_calls: list[tuple[UUID, str, UUID]] = []
+
+    def reserve_or_get(self, client_order_id, request_fingerprint, pending_context=None):
+        self.reserve_calls.append((client_order_id, request_fingerprint))
+        return super().reserve_or_get(client_order_id, request_fingerprint, pending_context)
+
+    def complete(self, client_order_id, request_fingerprint, receipt_id):
+        self.complete_calls.append((client_order_id, request_fingerprint, receipt_id))
+        return super().complete(client_order_id, request_fingerprint, receipt_id)
+
+
+class _RecordingReceiptRepository(ReceiptRepository):
+    """Counts durable receipt writes to prove rejected runs persist nothing."""
+
+    def __init__(self) -> None:
+        self._receipts = {}
+        self.saves: list = []
+
+    def save(self, receipt) -> None:
+        self.saves.append(receipt.receipt_id)
+        self._receipts[receipt.receipt_id] = receipt
+
+    def get(self, receipt_id):
+        return self._receipts.get(receipt_id)
+
+    def get_by_client_order(self, client_order_id):
+        for receipt in self._receipts.values():
+            if receipt.client_order_id == client_order_id:
+                return receipt
+        return None
+
+    def list_by_correlation_id(self, correlation_id):
+        return tuple(
+            receipt
+            for receipt in self._receipts.values()
+            if receipt.correlation_id == correlation_id
+        )
+
+
+class _AdvancingClock(Clock):
+    """Deterministic clock that advances on every read, like a live feed."""
+
+    def __init__(self, start: datetime, step: timedelta) -> None:
+        self._current = start
+        self._step = step
+
+    def now(self) -> datetime:
+        current = self._current
+        self._current = current + self._step
+        return current
+
+
+class _CapturingEngine(PaperExecutionEngine):
+    """Paper engine that records every request it executes."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.captured: list[ApprovedExecutionRequest] = []
+
+    def execute(self, request, *, snapshot):
+        self.captured.append(request)
+        return super().execute(request, snapshot=snapshot)
+
+
+def test_backtest_rejected_clock_leaves_no_venue_side_effects() -> None:
+    """A rejected injected clock must leave engine and stores untouched.
+
+    The preflight check fires before execution, so a run aborted for a
+    clock that predates the replay frame records no idempotency
+    reservation or completion, no durable receipt, no in-memory receipt,
+    and no lifecycle events.
+    """
+    instrument = _instrument()
+    store = _RecordingIdempotencyStore()
+    repository = _RecordingReceiptRepository()
+    engine = PaperExecutionEngine(
+        clock=SimulatedClock(datetime(2020, 6, 1, 10, 0, tzinfo=UTC)),
+        idempotency_store=store,
+        receipt_repository=repository,
+    )
+
+    with pytest.raises(ValueError, match="predates the replay frame"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=_buy_once_strategy(instrument, _context()),
+            financial_state=_financial_state(),
+        )
+
+    assert store.reserve_calls == []
+    assert store.complete_calls == []
+    assert store.list_pending_contexts() == ()
+    assert store.list_pending_recovery_records() == ()
+    assert repository.saves == []
+    assert engine.events() == ()
+    assert engine._receipts == {}
+
+
+def test_backtest_accepts_injected_clock_ahead_of_replay_time() -> None:
+    """A caller clock ahead of replay time is coherent and admitted.
+
+    The order still carries the replay occurrence time while the receipt
+    carries the caller's later instant; equivalent runs agree on every
+    timestamp.
+    """
+    frame_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    ahead = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
+    instrument = _instrument()
+
+    def _run_once() -> tuple[BacktestResult, list[ApprovedExecutionRequest]]:
+        engine = _CapturingEngine(clock=FixedClock(ahead))
+        result = DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=_buy_once_strategy(instrument, _context()),
+            financial_state=_financial_state(),
+        )
+        return result, engine.captured
+
+    first_result, first_requests = _run_once()
+    second_result, second_requests = _run_once()
+
+    for result, requests in ((first_result, first_requests), (second_result, second_requests)):
+        assert result.executed_count == 1
+        assert len(requests) == 1
+        assert requests[0].order.created_at == frame_time
+        receipt = result.receipts[0]
+        assert receipt.executed_at == ahead
+        assert receipt.fills, "expected at least one simulated fill"
+        for fill in receipt.fills:
+            assert fill.filled_at == ahead
+    assert first_requests[0].order.created_at == second_requests[0].order.created_at
+    assert first_result.receipts[0].executed_at == second_result.receipts[0].executed_at
+
+
+def test_backtest_accepts_advancing_clock_ahead_of_replay_time() -> None:
+    """An independently advancing clock stays coherent while ahead.
+
+    Each read moves the clock forward, so venue stamps land after the
+    replay occurrence time carried by the order. Equivalent runs with
+    fresh clocks agree exactly.
+    """
+    frame_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    start = datetime(2026, 6, 1, 0, 0, tzinfo=UTC)
+    instrument = _instrument()
+
+    def _run_once() -> tuple[BacktestResult, list[ApprovedExecutionRequest]]:
+        engine = _CapturingEngine(
+            clock=_AdvancingClock(start, timedelta(seconds=1)),
+        )
+        result = DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=_buy_once_strategy(instrument, _context()),
+            financial_state=_financial_state(),
+        )
+        return result, engine.captured
+
+    first_result, first_requests = _run_once()
+    second_result, second_requests = _run_once()
+
+    for result, requests in ((first_result, first_requests), (second_result, second_requests)):
+        assert result.executed_count == 1
+        order_time = requests[0].order.created_at
+        assert order_time == frame_time
+        receipt = result.receipts[0]
+        assert receipt.executed_at >= order_time
+        assert receipt.fills, "expected at least one simulated fill"
+        for fill in receipt.fills:
+            assert fill.filled_at >= order_time
+    assert first_requests[0].order.created_at == second_requests[0].order.created_at
+    assert first_result.receipts[0].executed_at == second_result.receipts[0].executed_at

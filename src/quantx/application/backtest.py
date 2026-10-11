@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -471,10 +472,10 @@ class DeterministicBacktestService:
     def _require_coherent_execution_time(order: Order, receipt: ExecutionReceipt) -> None:
         """Fail closed when the execution clock contradicts replay time.
 
-        A caller-supplied engine keeps its own clock, which the service must
-        not rewrite — but a receipt or fill stamped before the order was
-        created would corrupt the recorded timeline, so the run aborts
-        instead of recording contradictory evidence.
+        Backstop for the pre-execution check below: it covers a clock that
+        moves between validation and execution. A receipt or fill stamped
+        before the order was created would corrupt the recorded timeline,
+        so the run aborts instead of recording contradictory evidence.
         """
         if receipt.executed_at < order.created_at:
             raise ValueError(
@@ -487,6 +488,28 @@ class DeterministicBacktestService:
                     "injected execution clock predates the replay frame: "
                     "fill precedes order creation"
                 )
+
+    @staticmethod
+    def _require_engine_time_coherent(
+        execution_engine: PaperExecutionEngine, frame_time: datetime
+    ) -> None:
+        """Fail closed before execution when the engine clock predates replay.
+
+        Reading the injected clock up front keeps a rejected run free of
+        venue side effects: no idempotency reservation, no receipt write, no
+        retained receipt, no lifecycle events. A clock behind the replay
+        frame can never produce coherent evidence, so the run aborts before
+        executing. Monotonic forward movement between this read and execution
+        cannot break coherence, only increase the margin.
+        """
+        engine_now = execution_engine.clock.now()
+        if engine_now.tzinfo is None or engine_now.utcoffset() is None:
+            raise ValueError("injected execution clock must return a timezone-aware timestamp")
+        if engine_now < frame_time:
+            raise ValueError(
+                "injected execution clock predates the replay frame: "
+                "execution cannot precede the replay occurrence time"
+            )
 
     @staticmethod
     def _candle_stop_disposition(intent: TradeIntent, snapshot: HistoricalSnapshot) -> str | None:
@@ -805,6 +828,7 @@ class DeterministicBacktestService:
                 risk_result=risk,
                 policy_result=policy,
             )
+            self._require_engine_time_coherent(execution_engine, frame.observation.timestamp)
             receipt = execution_engine.execute(
                 request,
                 snapshot=snapshot,

@@ -19,14 +19,21 @@ use; never replay evidence).
 - `application/backtest.py:800` — `created_at=frame.observation.timestamp`:
   every backtest order carries the explicit replay occurrence time, on the
   default and the caller-supplied engine path. Replay/event time.
-- `application/backtest.py:471` — `_require_coherent_execution_time`:
-  fail-closed guard; a receipt or fill stamped before order creation aborts
-  the run instead of recording contradictory evidence. Reachable from
-  replay/backtest/paper whenever a caller-supplied engine is used.
+- `application/backtest.py:493` — `_require_engine_time_coherent`
+  preflight: reads the injected engine clock before executing and rejects
+  a clock behind the replay frame, so a rejected run records no
+  idempotency reservation/completion, no receipt write, no retained
+  receipt, and no lifecycle events.
+- `application/backtest.py:471` — `_require_coherent_execution_time`
+  backstop: retained alongside preflight for a clock that moves between
+  validation and execution. A receipt or fill stamped before order
+  creation aborts the run instead of recording contradictory evidence.
 - `application/backtest.py:453` — signal timestamp guard (pre-existing):
   any signal whose `generated_at` differs from the replay frame is rejected.
 - `application/backtest.py:558` — `clock=simulation_clock`: the service-owned
   venue clock, advanced per frame. Injected operation time.
+- `execution/paper_engine.py:85` — read-only `clock` property exposing the
+  injected time authority for preflight checks; the engine never rewrites it.
 
 ## Replay/event time (explicit; no wall clock)
 
@@ -64,6 +71,10 @@ use; never replay evidence).
   operation times (`research/result.py:145` derives from spec provenance).
 - `plugins/reference_broker/transport.py:87` — deterministic `FixedClock`
   default; wall clock only if a host injects `SystemClock`.
+- `domain/sessions.py:63,68` (`TradingSession`) and
+  `india/session_calendar.py:144,156` (`IndiaSessionEvaluator`,
+  explicitly the LIVE session boundary) — clock-backed session checks on
+  LIVE paths only; never reachable from replay/backtest.
 - `domain/clock.py:14,23,30,43` — `Clock` port, `SystemClock`,
   `FixedClock`, `SimulatedClock` definitions.
 

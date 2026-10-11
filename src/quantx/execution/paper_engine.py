@@ -81,6 +81,15 @@ class PaperExecutionEngine:
         self._receipts: dict[UUID, ExecutionReceipt] = {}
         self._events: list[object] = []
 
+    @property
+    def clock(self) -> Clock:
+        """The injected execution clock, exposed read-only for preflight checks.
+
+        Callers validating replay coherence read the time authority without
+        touching engine state; the engine never rewrites it.
+        """
+        return self._clock
+
     def execute(
         self,
         request: ApprovedExecutionRequest,
