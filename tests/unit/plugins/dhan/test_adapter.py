@@ -250,6 +250,47 @@ def test_reconcile_rejects_mismatched_broker_correlation_id() -> None:
     assert "mismatched correlation" in receipt.message
 
 
+def test_reconcile_fails_closed_when_broker_omits_correlation_echo() -> None:
+    """A success observation without the correlation echo is not bindable evidence."""
+
+    class AbsentCorrelationTransport(InMemoryDhanTransport):
+        def reconcile(self, correlation_id, *, timeout):  # type: ignore[no-untyped-def]
+            detail = super().reconcile(correlation_id, timeout=timeout)
+            return replace(detail, correlation_id=None)
+
+    receipt = _adapter(
+        AbsentCorrelationTransport(
+            response_status="TRADED",
+            filled_quantity=Decimal("2"),
+            average_traded_price=Decimal("101"),
+        )
+    ).reconcile(_request())
+
+    assert receipt.outcome is ExecutionOutcome.UNKNOWN
+    assert receipt.order_status is OrderStatus.UNKNOWN
+    assert "did not confirm the correlation id" in receipt.message
+
+
+def test_adapter_receipts_satisfy_live_identity_contract() -> None:
+    """Submit, cancel, and reconcile receipts are bound to the approved request."""
+    from quantx.execution.receipts.identity import validate_live_receipt_identity
+
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    adapter = _adapter(transport)
+    request = _request()
+
+    submitted = adapter.submit(request)
+    assert validate_live_receipt_identity(request, submitted) is None
+
+    cancelled = adapter.cancel(request)
+    assert cancelled.outcome is ExecutionOutcome.CANCELLED
+    assert validate_live_receipt_identity(request, cancelled) is None
+
+    reconciled = adapter.reconcile(request)
+    assert reconciled.outcome is ExecutionOutcome.ACCEPTED
+    assert validate_live_receipt_identity(request, reconciled) is None
+
+
 def test_reconcile_rejects_fill_above_canonical_order_quantity() -> None:
     transport = InMemoryDhanTransport(
         response_status="TRADED",

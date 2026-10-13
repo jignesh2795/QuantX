@@ -510,13 +510,7 @@ class ExecutionOrchestrator:
         # or used to complete the idempotency reservation.  Any mismatch leaves the
         # PENDING reservation intact so that reconciliation can resolve the outcome;
         # the foreign receipt is discarded without being written to the database.
-        identity_violation = validate_live_receipt_identity(
-            request,
-            receipt,
-            accepted_correlation=request.correlation_id
-            if request.parent_client_order_id is not None
-            else None,
-        )
+        identity_violation = validate_live_receipt_identity(request, receipt)
         if identity_violation is not None:
             return ExecutionResult(
                 ExecutionDispatchStatus.UNKNOWN,

@@ -102,9 +102,11 @@ class DhanRecoveryEvidenceProvider:
             )
         except Exception as exc:
             return BrokerOrderEvidence.unknown(f"Dhan order lookup failed: {exc}")
-        if detail.correlation_id is not None and detail.correlation_id != dhan_correlation_id(
-            self._correlation_id
-        ):
+        # A success observation without the correlation echo cannot be bound
+        # to the recovery request; missing echo evidence must not silently
+        # become definitive found evidence. The raised error keeps the
+        # reservation pending through the existing recovery machinery.
+        if detail.correlation_id != dhan_correlation_id(self._correlation_id):
             raise ValueError("Dhan order evidence correlation does not match recovery request")
         return BrokerOrderEvidence.found(
             OrderObservation(

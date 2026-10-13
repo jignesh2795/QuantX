@@ -201,10 +201,14 @@ class DhanSDKTransport:
 
         ``cancel`` first reconciles (one ``timeout`` window) and then issues
         the vendor cancel (a second ``timeout`` window), so the worst-case
-        broker interaction is approximately ``2 * timeout``.
+        broker interaction is approximately ``2 * timeout``. The vendor
+        cancel is issued only when the intermediate order detail confirms
+        the requested correlation id; a missing or mismatched echo means
+        the resolved order cannot be bound to the requested correlation,
+        so no cancellation is issued and the outcome stays UNKNOWN.
         """
         detail = self.reconcile(correlation_id, timeout=timeout)
-        if detail.order_id is None:
+        if detail.order_id is None or detail.correlation_id != correlation_id:
             return DhanOrderResponse(
                 order_id=None,
                 order_status="UNKNOWN",

@@ -166,13 +166,22 @@ class DhanBrokerAdapter:
             return self._unknown_receipt(request, f"Dhan reconcile timed out after {exc.timeout}s")
         except Exception as exc:
             return self._unknown_receipt(request, f"Dhan reconciliation failure: {exc}")
-        if detail.correlation_id is not None:
-            expected_correlation = dhan_correlation_id(request.correlation_id)
-            if detail.correlation_id != expected_correlation:
-                return self._unknown_receipt(
-                    request,
-                    "Dhan reconciliation returned a mismatched correlation id",
-                )
+        # The Dhan order detail is the only broker response that echoes the
+        # correlation id. A success observation without the echo cannot be
+        # bound to the requested order, so missing echo evidence must not
+        # silently become a definitive receipt; it stays UNKNOWN and the
+        # pending reservation remains with reconciliation.
+        if detail.correlation_id is None:
+            return self._unknown_receipt(
+                request,
+                "Dhan reconciliation response did not confirm the correlation id",
+            )
+        expected_correlation = dhan_correlation_id(request.correlation_id)
+        if detail.correlation_id != expected_correlation:
+            return self._unknown_receipt(
+                request,
+                "Dhan reconciliation returned a mismatched correlation id",
+            )
         outcome_value, status = normalize_status(detail.order_status)
         fills = self._fill_from_detail(request, detail)
         executed_at = (

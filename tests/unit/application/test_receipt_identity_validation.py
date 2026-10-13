@@ -6,15 +6,19 @@ test uses a deterministic fake broker; no network calls or credentials.
 
 Safety invariants tested:
 - Receipt with foreign client_order_id → UNKNOWN, reservation pending, no persist.
+- Receipt with absent correlation_id → UNKNOWN, reservation pending, no persist.
+- Receipt with foreign correlation_id → UNKNOWN, reservation pending, no persist.
+- Differing client_order_id is never accepted merely because a correlation matches.
+- Continuation child receipt accepted only with its parent correlation.
 - Account mismatch → UNKNOWN, reservation pending, no persist.
 - Connection mismatch → UNKNOWN, reservation pending, no persist.
-- Missing order_quantity → UNKNOWN, reservation pending, no persist.
-- Incorrect order_quantity → UNKNOWN, reservation pending, no persist.
+- Missing/incorrect order_quantity → UNKNOWN, reservation pending, no persist.
+- Missing/incorrect canonical order_id → UNKNOWN, reservation pending, no persist.
+- Receipt without source provenance → UNKNOWN, reservation pending, no persist.
 - Fill with wrong instrument → UNKNOWN, reservation pending, no persist.
 - Fill with wrong side → UNKNOWN, reservation pending, no persist.
 - Aggregate fills exceeding requested quantity → UNKNOWN, reservation pending, no persist.
 - Valid normal receipt → EXECUTED, receipt persisted, idempotency completed.
-- Legitimate continuation child receipt → accepted via parent/child correlation.
 - Mismatched receipt does not complete idempotency or become the persisted receipt.
 - Subsequent execution attempt remains blocked by pending reservation (no resubmit).
 """
@@ -23,7 +27,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.application.pending_recovery import PendingRecoveryRun
@@ -135,6 +139,8 @@ def _valid_receipt(request: ApprovedExecutionRequest) -> ExecutionReceipt:
         executed_at=request.order.created_at,
         simulated=False,
         source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=request.order.quantity,
         account_id=request.execution_context.account_id,
         connection_id=request.execution_context.broker_connection_id,
@@ -328,6 +334,10 @@ def test_validator_rejects_foreign_client_order_id() -> None:
         outcome=ExecutionOutcome.ACCEPTED,
         order_status=OrderStatus.ACCEPTED,
         executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=request.order.quantity,
         account_id=request.execution_context.account_id,
         connection_id=request.execution_context.broker_connection_id,
@@ -335,6 +345,134 @@ def test_validator_rejects_foreign_client_order_id() -> None:
     result = validate_live_receipt_identity(request, receipt)
     assert isinstance(result, ReceiptIdentityViolation)
     assert "client_order_id" in result.reason
+
+
+def test_validator_rejects_absent_correlation() -> None:
+    """A receipt whose client_order_id matches must still carry the correlation."""
+    request = _live_request()
+    receipt = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=None,  # absent
+        order_id=request.order.client_order_id,
+        order_quantity=request.order.quantity,
+        account_id=request.execution_context.account_id,
+        connection_id=request.execution_context.broker_connection_id,
+    )
+    result = validate_live_receipt_identity(request, receipt)
+    assert isinstance(result, ReceiptIdentityViolation)
+    assert "correlation_id" in result.reason
+
+
+def test_validator_rejects_foreign_correlation() -> None:
+    request = _live_request()
+    receipt = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id="some-other-correlation",  # foreign
+        order_id=request.order.client_order_id,
+        order_quantity=request.order.quantity,
+        account_id=request.execution_context.account_id,
+        connection_id=request.execution_context.broker_connection_id,
+    )
+    result = validate_live_receipt_identity(request, receipt)
+    assert isinstance(result, ReceiptIdentityViolation)
+    assert "correlation_id" in result.reason
+
+
+def test_validator_rejects_differing_client_order_id_even_with_matching_correlation() -> None:
+    """A matching correlation value alone must never buy acceptance."""
+    request = _live_request()
+    receipt = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=uuid4(),  # foreign client order
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,  # correlation matches the request
+        order_id=request.order.client_order_id,
+        order_quantity=request.order.quantity,
+        account_id=request.execution_context.account_id,
+        connection_id=request.execution_context.broker_connection_id,
+    )
+    result = validate_live_receipt_identity(request, receipt)
+    assert isinstance(result, ReceiptIdentityViolation)
+    assert "client_order_id" in result.reason
+
+
+def test_validator_rejects_absent_order_id() -> None:
+    request = _live_request()
+    receipt = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=None,  # absent canonical order identity
+        order_quantity=request.order.quantity,
+        account_id=request.execution_context.account_id,
+        connection_id=request.execution_context.broker_connection_id,
+    )
+    result = validate_live_receipt_identity(request, receipt)
+    assert isinstance(result, ReceiptIdentityViolation)
+    assert "order_id" in result.reason
+
+
+def test_validator_rejects_wrong_order_id() -> None:
+    request = _live_request()
+    receipt = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=uuid4(),  # foreign canonical order identity
+        order_quantity=request.order.quantity,
+        account_id=request.execution_context.account_id,
+        connection_id=request.execution_context.broker_connection_id,
+    )
+    result = validate_live_receipt_identity(request, receipt)
+    assert isinstance(result, ReceiptIdentityViolation)
+    assert "order_id" in result.reason
+
+
+def test_validator_rejects_receipt_without_source() -> None:
+    request = _live_request()
+    receipt = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=request.order.created_at,
+        simulated=False,
+        source="",  # anonymous receipt
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
+        order_quantity=request.order.quantity,
+        account_id=request.execution_context.account_id,
+        connection_id=request.execution_context.broker_connection_id,
+    )
+    result = validate_live_receipt_identity(request, receipt)
+    assert isinstance(result, ReceiptIdentityViolation)
+    assert "source" in result.reason
 
 
 def test_validator_rejects_account_mismatch() -> None:
@@ -345,6 +483,10 @@ def test_validator_rejects_account_mismatch() -> None:
         outcome=ExecutionOutcome.ACCEPTED,
         order_status=OrderStatus.ACCEPTED,
         executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=request.order.quantity,
         account_id=_FOREIGN_ACCOUNT_ID,  # wrong account
         connection_id=request.execution_context.broker_connection_id,
@@ -362,6 +504,10 @@ def test_validator_rejects_connection_mismatch() -> None:
         outcome=ExecutionOutcome.ACCEPTED,
         order_status=OrderStatus.ACCEPTED,
         executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=request.order.quantity,
         account_id=request.execution_context.account_id,
         connection_id=_FOREIGN_CONNECTION_ID,  # wrong connection
@@ -379,6 +525,10 @@ def test_validator_rejects_absent_account_id() -> None:
         outcome=ExecutionOutcome.ACCEPTED,
         order_status=OrderStatus.ACCEPTED,
         executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=request.order.quantity,
         account_id=None,  # absent
         connection_id=request.execution_context.broker_connection_id,
@@ -396,6 +546,10 @@ def test_validator_rejects_absent_connection_id() -> None:
         outcome=ExecutionOutcome.ACCEPTED,
         order_status=OrderStatus.ACCEPTED,
         executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=request.order.quantity,
         account_id=request.execution_context.account_id,
         connection_id=None,  # absent
@@ -413,6 +567,10 @@ def test_validator_rejects_absent_order_quantity() -> None:
         outcome=ExecutionOutcome.ACCEPTED,
         order_status=OrderStatus.ACCEPTED,
         executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=None,  # absent
         account_id=request.execution_context.account_id,
         connection_id=request.execution_context.broker_connection_id,
@@ -430,6 +588,10 @@ def test_validator_rejects_wrong_order_quantity() -> None:
         outcome=ExecutionOutcome.ACCEPTED,
         order_status=OrderStatus.ACCEPTED,
         executed_at=request.order.created_at,
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=Decimal("99"),  # wrong quantity
         account_id=request.execution_context.account_id,
         connection_id=request.execution_context.broker_connection_id,
@@ -457,6 +619,10 @@ def test_validator_rejects_fill_with_wrong_instrument() -> None:
         order_status=OrderStatus.PARTIALLY_FILLED,
         executed_at=request.order.created_at,
         fills=(fill,),
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=request.order.quantity,
         account_id=request.execution_context.account_id,
         connection_id=request.execution_context.broker_connection_id,
@@ -483,6 +649,10 @@ def test_validator_rejects_fill_with_wrong_side() -> None:
         order_status=OrderStatus.PARTIALLY_FILLED,
         executed_at=request.order.created_at,
         fills=(fill,),
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=request.order.quantity,
         account_id=request.execution_context.account_id,
         connection_id=request.execution_context.broker_connection_id,
@@ -512,6 +682,10 @@ def test_validator_rejects_aggregate_fill_exceeding_quantity() -> None:
         order_status=OrderStatus.PARTIALLY_FILLED,
         executed_at=request.order.created_at,
         fills=(fill,),
+        simulated=False,
+        source="fake-broker",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
         order_quantity=Decimal("3"),  # less than fill, but mismatches request too
         account_id=request.execution_context.account_id,
         connection_id=request.execution_context.broker_connection_id,
@@ -539,6 +713,10 @@ def test_foreign_client_order_id_produces_unknown_not_executed() -> None:
             outcome=ExecutionOutcome.ACCEPTED,
             order_status=OrderStatus.ACCEPTED,
             executed_at=req.order.created_at,
+            simulated=False,
+            source="fake-broker",
+            correlation_id=req.correlation_id,
+            order_id=req.order.client_order_id,
             order_quantity=req.order.quantity,
             account_id=req.execution_context.account_id,
             connection_id=req.execution_context.broker_connection_id,
@@ -559,6 +737,10 @@ def test_account_mismatch_produces_unknown() -> None:
             outcome=ExecutionOutcome.ACCEPTED,
             order_status=OrderStatus.ACCEPTED,
             executed_at=req.order.created_at,
+            simulated=False,
+            source="fake-broker",
+            correlation_id=req.correlation_id,
+            order_id=req.order.client_order_id,
             order_quantity=req.order.quantity,
             account_id=_FOREIGN_ACCOUNT_ID,  # wrong account
             connection_id=req.execution_context.broker_connection_id,
@@ -579,9 +761,61 @@ def test_connection_mismatch_produces_unknown() -> None:
             outcome=ExecutionOutcome.ACCEPTED,
             order_status=OrderStatus.ACCEPTED,
             executed_at=req.order.created_at,
+            simulated=False,
+            source="fake-broker",
+            correlation_id=req.correlation_id,
+            order_id=req.order.client_order_id,
             order_quantity=req.order.quantity,
             account_id=req.execution_context.account_id,
             connection_id=_FOREIGN_CONNECTION_ID,  # wrong connection
+        )
+    )
+    result = _orchestrator(unit_of_work).execute(request, broker=broker)
+    _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
+
+
+def test_absent_correlation_produces_unknown_and_keeps_pending() -> None:
+    """TC7a: Absent correlation → UNKNOWN, pending reservation, no persist."""
+    request = _live_request()
+    unit_of_work = _FakeUnitOfWork()
+    broker = _MismatchedBroker(
+        lambda req: ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=req.order.client_order_id,
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=req.order.created_at,
+            simulated=False,
+            source="fake-broker",
+            correlation_id=None,  # absent
+            order_id=req.order.client_order_id,
+            order_quantity=req.order.quantity,
+            account_id=req.execution_context.account_id,
+            connection_id=req.execution_context.broker_connection_id,
+        )
+    )
+    result = _orchestrator(unit_of_work).execute(request, broker=broker)
+    _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
+
+
+def test_foreign_correlation_produces_unknown_and_keeps_pending() -> None:
+    """TC7b: Foreign correlation → UNKNOWN, pending reservation, no persist."""
+    request = _live_request()
+    unit_of_work = _FakeUnitOfWork()
+    broker = _MismatchedBroker(
+        lambda req: ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=req.order.client_order_id,
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=req.order.created_at,
+            simulated=False,
+            source="fake-broker",
+            correlation_id="some-other-correlation",  # foreign
+            order_id=req.order.client_order_id,
+            order_quantity=req.order.quantity,
+            account_id=req.execution_context.account_id,
+            connection_id=req.execution_context.broker_connection_id,
         )
     )
     result = _orchestrator(unit_of_work).execute(request, broker=broker)
@@ -703,6 +937,10 @@ def test_mismatched_receipt_does_not_complete_idempotency() -> None:
             outcome=ExecutionOutcome.ACCEPTED,
             order_status=OrderStatus.ACCEPTED,
             executed_at=req.order.created_at,
+            simulated=False,
+            source="fake-broker",
+            correlation_id=req.correlation_id,
+            order_id=req.order.client_order_id,
             order_quantity=req.order.quantity,
             account_id=req.execution_context.account_id,
             connection_id=req.execution_context.broker_connection_id,
@@ -736,6 +974,10 @@ def test_subsequent_attempt_blocked_by_pending_reservation() -> None:
             outcome=ExecutionOutcome.ACCEPTED,
             order_status=OrderStatus.ACCEPTED,
             executed_at=req.order.created_at,
+            simulated=False,
+            source="fake-broker",
+            correlation_id=req.correlation_id,
+            order_id=req.order.client_order_id,
             order_quantity=req.order.quantity,
             account_id=req.execution_context.account_id,
             connection_id=req.execution_context.broker_connection_id,
@@ -754,80 +996,113 @@ def test_subsequent_attempt_blocked_by_pending_reservation() -> None:
     assert broker.submit_calls == 1  # broker must NOT have been called again
 
 
-def test_continuation_child_receipt_accepted_via_correlation() -> None:
-    """TC9: A legitimate continuation child receipt must satisfy the correlation contract."""
-    from quantx.execution.receipts.lifecycle import ExecutionLifecycle
-
-    parent_request = _live_request(quantity=Decimal("10"))
-
-    # Build a minimal continuation child request.
+def _continuation_pair(
+    *,
+    parent_quantity: Decimal = Decimal("10"),
+    parent_filled: Decimal = Decimal("4"),
+) -> tuple[ApprovedExecutionRequest, ApprovedExecutionRequest]:
+    """Build a parent LIVE request and its documented continuation child."""
+    parent_request = _live_request(quantity=parent_quantity)
     parent_lifecycle = ExecutionLifecycle(
         client_order_id=parent_request.order.client_order_id,
-        order_quantity=Decimal("10"),
-        filled_quantity=Decimal("4"),
+        order_quantity=parent_quantity,
+        filled_quantity=parent_filled,
         status=OrderStatus.PARTIALLY_FILLED,
     )
-    from quantx.domain.policy import PolicyResult
-    from quantx.domain.risk import RiskResult
-
     child_request = parent_lifecycle.continuation_request(
         parent_request,
         risk_result=RiskResult(RiskDecision.APPROVE, "fresh"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "fresh"),
     )
+    return parent_request, child_request
 
-    # Build a child receipt: client_order_id is the CHILD's, correlation_id is the PARENT's.
-    child_receipt = ExecutionReceipt(
+
+def _child_receipt(
+    child_request: ApprovedExecutionRequest,
+    parent_request: ApprovedExecutionRequest,
+    *,
+    correlation_id: str | None,
+    client_order_id: UUID | str | None = None,
+) -> ExecutionReceipt:
+    """Build a continuation child receipt with configurable identity fields."""
+    return ExecutionReceipt(
         request_id=uuid4(),
-        client_order_id=child_request.order.client_order_id,
+        client_order_id=(
+            child_request.order.client_order_id if client_order_id is None else client_order_id
+        ),
         outcome=ExecutionOutcome.ACCEPTED,
         order_status=OrderStatus.ACCEPTED,
         executed_at=child_request.order.created_at,
-        correlation_id=str(parent_request.order.client_order_id),
+        simulated=False,
+        source="fake-broker",
+        correlation_id=correlation_id,
+        order_id=child_request.order.client_order_id,
         order_quantity=child_request.order.quantity,
         account_id=child_request.execution_context.account_id,
         connection_id=child_request.execution_context.broker_connection_id,
     )
 
-    # Validate against the child request with the accepted parent correlation.
-    result = validate_live_receipt_identity(
+
+def test_continuation_child_receipt_accepted_via_parent_correlation() -> None:
+    """TC9: A child receipt bound to its own order id and the parent correlation passes."""
+    parent_request, child_request = _continuation_pair()
+    child_receipt = _child_receipt(
         child_request,
-        child_receipt,
-        accepted_correlation=child_request.correlation_id,
+        parent_request,
+        correlation_id=child_request.correlation_id,
     )
+    assert child_request.correlation_id == str(parent_request.order.client_order_id)
+    result = validate_live_receipt_identity(child_request, child_receipt)
     assert result is None, f"continuation child receipt must pass: {result}"
 
 
-def test_continuation_child_receipt_rejected_without_accepted_correlation() -> None:
-    """TC9b: A child receipt without accepted_correlation must be rejected."""
-    parent_request = _live_request(quantity=Decimal("10"))
-    parent_lifecycle = ExecutionLifecycle(
-        client_order_id=parent_request.order.client_order_id,
-        order_quantity=Decimal("10"),
-        filled_quantity=Decimal("4"),
-        status=OrderStatus.PARTIALLY_FILLED,
-    )
-    from quantx.domain.policy import PolicyResult
-    from quantx.domain.risk import RiskResult
-
-    child_request = parent_lifecycle.continuation_request(
+def test_continuation_child_receipt_rejected_against_parent_request() -> None:
+    """TC9b: A child receipt is not identity-valid for the parent request."""
+    parent_request, child_request = _continuation_pair()
+    child_receipt = _child_receipt(
+        child_request,
         parent_request,
-        risk_result=RiskResult(RiskDecision.APPROVE, "fresh"),
-        policy_result=PolicyResult(PolicyDecision.APPROVE, "fresh"),
+        correlation_id=child_request.correlation_id,
     )
-    child_receipt = ExecutionReceipt(
-        request_id=uuid4(),
-        client_order_id=child_request.order.client_order_id,
-        outcome=ExecutionOutcome.ACCEPTED,
-        order_status=OrderStatus.ACCEPTED,
-        executed_at=child_request.order.created_at,
-        correlation_id=str(parent_request.order.client_order_id),
-        order_quantity=child_request.order.quantity,
-        account_id=child_request.execution_context.account_id,
-        connection_id=child_request.execution_context.broker_connection_id,
-    )
-
-    # Without accepted_correlation: child client_order_id != parent request client_order_id.
     result = validate_live_receipt_identity(parent_request, child_receipt)
+    assert isinstance(result, ReceiptIdentityViolation)
+    assert "client_order_id" in result.reason
+
+
+def test_continuation_child_receipt_rejected_with_foreign_correlation() -> None:
+    """A child receipt must carry the parent correlation, not an arbitrary value."""
+    parent_request, child_request = _continuation_pair()
+    child_receipt = _child_receipt(
+        child_request,
+        parent_request,
+        correlation_id="some-unrelated-correlation",
+    )
+    result = validate_live_receipt_identity(child_request, child_receipt)
+    assert isinstance(result, ReceiptIdentityViolation)
+    assert "correlation_id" in result.reason
+
+
+def test_continuation_child_receipt_rejected_with_absent_correlation() -> None:
+    parent_request, child_request = _continuation_pair()
+    child_receipt = _child_receipt(
+        child_request,
+        parent_request,
+        correlation_id=None,
+    )
+    result = validate_live_receipt_identity(child_request, child_receipt)
+    assert isinstance(result, ReceiptIdentityViolation)
+    assert "correlation_id" in result.reason
+
+
+def test_continuation_child_receipt_rejected_with_foreign_client_order_id() -> None:
+    """A mismatched child client-order id is not accepted via a matching correlation."""
+    parent_request, child_request = _continuation_pair()
+    child_receipt = _child_receipt(
+        child_request,
+        parent_request,
+        correlation_id=child_request.correlation_id,  # parent correlation matches
+        client_order_id=uuid4(),  # but the order identity is foreign
+    )
+    result = validate_live_receipt_identity(child_request, child_receipt)
     assert isinstance(result, ReceiptIdentityViolation)
     assert "client_order_id" in result.reason

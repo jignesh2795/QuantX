@@ -288,6 +288,32 @@ def test_mismatched_correlation_rejected() -> None:
         )
 
 
+def test_absent_correlation_echo_rejected() -> None:
+    """Missing echo evidence must not silently become definitive found evidence."""
+
+    class AbsentEchoTransport(InMemoryDhanTransport):
+        def reconcile(self, correlation_id: str, *, timeout: float):
+            detail = super().reconcile(correlation_id, timeout=timeout)
+            return DhanOrderDetail(
+                order_id=detail.order_id,
+                correlation_id=None,
+                order_status=detail.order_status,
+                average_traded_price=detail.average_traded_price,
+                filled_quantity=detail.filled_quantity,
+                exchange_time=detail.exchange_time,
+                update_time=detail.update_time,
+            )
+
+    provider = _provider(transport=AbsentEchoTransport())
+
+    with pytest.raises(ValueError, match="correlation"):
+        provider.fetch_broker_order(
+            account_id=AccountId("acct-1"),
+            connection_id=BrokerConnectionId("conn-1"),
+            order_id=provider._order_id,
+        )
+
+
 def test_transport_failure_surfaces_as_unavailable() -> None:
     class FailingTransport(InMemoryDhanTransport):
         def reconcile(self, correlation_id: str, *, timeout: float):

@@ -11,15 +11,44 @@ present and wrong, or required-for-LIVE and absent. It does not
 reinterpret the receipt in any way; a failed validation always returns
 the diagnostic reason without inventing an alternative outcome.
 
-Continuation child receipts satisfy the invariant through the documented
-parent/child correlation contract: a receipt whose ``client_order_id``
-does not match the request but whose ``correlation_id`` matches the
-accepted parent correlation is treated as a valid child receipt. All
-remaining identity fields are still validated.
+Correlation contract (per operation, derived from the request itself):
 
-Paper/replay receipts are not subject to the LIVE-only provenance checks
-(``account_id``, ``connection_id``, ``order_quantity``) because those
-fields are legitimately absent from simulated receipts.
+- A normal LIVE request carries ``correlation_id == str(order.client_order_id)``;
+  the receipt must carry that exact correlation.
+- A continuation child request carries
+  ``correlation_id == parent_client_order_id``; the receipt must carry that
+  exact parent correlation. This matches the documented parent/child claim
+  contract enforced by ``ExecutionContinuationService``.
+- The receipt's ``client_order_id`` must always equal the request's
+  ``order.client_order_id``. A differing client-order id is never accepted
+  merely because some correlation value matches; the continuation child
+  receipt legitimately satisfies both rules because the child request's own
+  order id is the receipt identity and the parent correlation is the child
+  request's ``correlation_id``.
+
+Required provenance on the authoritative LIVE boundary:
+
+- ``correlation_id``: present and equal to the request correlation.
+- ``order_id``: present and equal to the receipt ``client_order_id``
+  (canonical order identity, stamped by every authoritative constructor).
+- ``account_id``: present and equal to the request account.
+- ``connection_id``: present and equal to the request broker connection.
+- ``order_quantity``: present and equal to the requested quantity.
+- ``source``: non-empty; an anonymous receipt cannot be attributed to the
+  adapter that produced it.
+
+Fields without a request-side expected value (``broker_order_id``,
+``simulated``, model/assumption descriptors) are deliberately not enforced
+here: the deterministic reference broker legitimately stamps
+``simulated=True``, and the orchestrator already gates which adapter may
+submit by connection/account identity before the broker call.
+
+Paper/replay receipts are not subject to this validator at all; it is
+invoked only on the authoritative LIVE submission boundary.
+
+A failed validation always means: unresolved UNKNOWN outcome, the foreign
+receipt is not persisted, the pending idempotency reservation stays
+PENDING, and reconciliation remains responsible for the outcome.
 """
 
 from __future__ import annotations
@@ -41,8 +70,6 @@ class ReceiptIdentityViolation:
 def validate_live_receipt_identity(
     request: ApprovedExecutionRequest,
     receipt: ExecutionReceipt,
-    *,
-    accepted_correlation: str | None = None,
 ) -> ReceiptIdentityViolation | None:
     """Validate that a LIVE broker receipt is bound to the approved request.
 
@@ -51,43 +78,56 @@ def validate_live_receipt_identity(
     failure. The caller must treat any violation as an unresolved outcome
     (UNKNOWN), keep the idempotency reservation pending, and not persist
     the foreign receipt as authoritative evidence.
-
-    Parameters
-    ----------
-    request:
-        The approved execution request whose identity the receipt must match.
-    receipt:
-        The broker-returned receipt to validate.
-    accepted_correlation:
-        The accepted parent correlation string for a continuation child receipt.
-        When provided, a receipt whose ``client_order_id`` does not match the
-        request's ``order.client_order_id`` is accepted if its
-        ``correlation_id`` equals this value. All remaining identity checks
-        still apply. Pass ``None`` for a normal (non-continuation) execution.
     """
     client_order_id = request.order.client_order_id
     order_quantity = request.order.quantity
     expected_account = request.execution_context.account_id
     expected_connection = request.execution_context.broker_connection_id
+    expected_correlation = request.correlation_id
 
     # --- Client order identity -------------------------------------------------
-    # A receipt must identify the requested order. A continuation child receipt
-    # is the only documented exception: its ``client_order_id`` differs from the
-    # parent but its ``correlation_id`` must equal the accepted parent correlation.
+    # The receipt must identify the requested order. There is no accepted
+    # exception: a continuation child request carries its own client_order_id,
+    # so a matching receipt satisfies this rule directly.
     if receipt.client_order_id != client_order_id:
-        if accepted_correlation is None or receipt.correlation_id != accepted_correlation:
-            return ReceiptIdentityViolation(
-                reason=(
-                    f"receipt client_order_id {receipt.client_order_id!r} does not match "
-                    f"request client_order_id {client_order_id!r}"
-                )
+        return ReceiptIdentityViolation(
+            reason=(
+                f"receipt client_order_id {receipt.client_order_id!r} does not match "
+                f"request client_order_id {client_order_id!r}"
             )
+        )
 
-    # --- Canonical order identity (optional field) ----------------------------
-    # When present, order_id must match. For a normal (non-continuation) receipt
-    # the expected order_id is the request's client_order_id; for a continuation
-    # child it is the child's own client_order_id.
-    if receipt.order_id is not None and receipt.order_id != receipt.client_order_id:
+    # --- Correlation identity (required for authoritative LIVE) ----------------
+    # Normal requests expect str(order.client_order_id); continuation child
+    # requests expect the parent client_order_id. Absent or foreign
+    # correlation is rejected in both cases.
+    if receipt.correlation_id is None:
+        return ReceiptIdentityViolation(
+            reason=(
+                "receipt correlation_id is absent; "
+                "authoritative LIVE receipt must carry the request correlation"
+            )
+        )
+    if receipt.correlation_id != expected_correlation:
+        return ReceiptIdentityViolation(
+            reason=(
+                f"receipt correlation_id {receipt.correlation_id!r} does not match "
+                f"request correlation {expected_correlation!r}"
+            )
+        )
+
+    # --- Canonical order identity (required for authoritative LIVE) ------------
+    # Every authoritative constructor (from_order, broker adapters) stamps the
+    # canonical order identity; a receipt without it did not come from a
+    # known authoritative construction path.
+    if receipt.order_id is None:
+        return ReceiptIdentityViolation(
+            reason=(
+                "receipt order_id is absent; "
+                "authoritative LIVE receipt must carry the canonical order identity"
+            )
+        )
+    if receipt.order_id != receipt.client_order_id:
         return ReceiptIdentityViolation(
             reason=(
                 f"receipt order_id {receipt.order_id!r} does not match "
@@ -141,6 +181,15 @@ def validate_live_receipt_identity(
             reason=(
                 f"receipt order_quantity {receipt.order_quantity!r} does not match "
                 f"request quantity {order_quantity!r}"
+            )
+        )
+
+    # --- Source provenance (required for authoritative LIVE) ------------------
+    if not receipt.source.strip():
+        return ReceiptIdentityViolation(
+            reason=(
+                "receipt source is absent; "
+                "authoritative LIVE receipt must identify its producing adapter"
             )
         )
 
