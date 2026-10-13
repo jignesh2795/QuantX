@@ -542,6 +542,7 @@ class UsBroker:
             executed_at=request.order.created_at,
             simulated=False,
             source="us-broker",
+            order_quantity=request.order.quantity,
             account_id=self._connection.account_id,
             connection_id=self._connection.connection_id,
         )

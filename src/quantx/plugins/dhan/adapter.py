@@ -123,6 +123,7 @@ class DhanBrokerAdapter:
             broker_order_id=response.order_id,
             correlation_id=request.correlation_id,
             order_id=request.order.client_order_id,
+            order_quantity=request.order.quantity,
             account_id=request.execution_context.account_id,
             connection_id=request.execution_context.broker_connection_id,
         )
@@ -150,6 +151,7 @@ class DhanBrokerAdapter:
             broker_order_id=response.order_id,
             correlation_id=request.correlation_id,
             order_id=request.order.client_order_id,
+            order_quantity=request.order.quantity,
             account_id=request.execution_context.account_id,
             connection_id=request.execution_context.broker_connection_id,
         )
@@ -191,6 +193,7 @@ class DhanBrokerAdapter:
             broker_order_id=detail.order_id,
             correlation_id=request.correlation_id,
             order_id=request.order.client_order_id,
+            order_quantity=request.order.quantity,
             account_id=request.execution_context.account_id,
             connection_id=request.execution_context.broker_connection_id,
         )

@@ -169,6 +169,7 @@ class FakeBroker:
             executed_at=request.order.created_at,
             simulated=False,
             source="fake-broker",
+            order_quantity=request.order.quantity,
             account_id=self.connection.account_id,
             connection_id=self.connection.connection_id,
         )
