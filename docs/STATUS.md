@@ -45,7 +45,7 @@ No GitHub Actions or paid CI was triggered for this evidence. No API keys,
 broker credentials, network-dependent tests, or real broker orders were
 used.
 
-## Current state
+## Historical v0.1 acceptance and R1-C completion baseline
 **v0.1 acceptance base:** `6f771b5044d7c971b5da2301901534a5156df361` (PR #164 merge; verified before this status update).
 
 **R1-C1 through R1-C12:** complete.
@@ -74,7 +74,7 @@ The 635-test validation was performed against the branch head after fast-forward
 
 This is the reported validation result for the checked commit. The available GitHub Actions status endpoint does not show an independent workflow run for this checkpoint, so this document does not claim GitHub CI independently executed that suite.
 
-## Current local validation evidence (R1-C14 vertical proofs)
+## Historical local validation evidence (R1-C14 vertical proofs)
 
 Local validation on the C14.7 vertical-proof branch `feat/r1c14-dhan-market-data-host-wiring-test-v1` (base `e72287ce84afdd8393bd8c4203e7c82dd2629abf`) reports **1399 passed, 0 failed, 1 skipped** in the full suite (the skip is the optional-Dhan-SDK test; no warnings were emitted across two consecutive runs). Repo-wide Ruff reports **zero findings**; strict mypy reports **no issues in 179 source files**; `git diff --check` is clean. This is local validation evidence; no GitHub Actions run is claimed and no production-broker end-to-end execution was performed.
 
@@ -120,7 +120,7 @@ M4.1 strategy-paper rehearsal is now merged in PR #218 (validated feature head `
 
 The continuation implementation deliberately remains persistence-agnostic: it consumes authoritative receipt/reconciliation contracts and does not introduce a database or broker network dependency by itself.
 
-## Current adversarial findings
+## Execution/recovery adversarial findings — latest recorded audit
 
 No outstanding adversarial finding. The record below is historical: the review of the 20-commit recovery sequence identified two additional LIVE control-path gaps — startup recovery was not a required dependency of `ExecutionOrchestrator`, and the gate check could race with broker submission. Both were integrated (recovery-backed `ApplicationRuntime` startup dependency and submission-time trading-gate authorization) and are covered by the current green suite; they are not pending validation. A new finding will be recorded here only with exact evidence of an actual unresolved issue.
 
@@ -144,7 +144,7 @@ R1-C7 time-indexed historical account-state sampling is implemented and merged i
 
 R1-C6 execution-fidelity hardening is implemented and merged in PR #65. The final validated implementation head was `5a58318c3978b3a78da32847d717e8bc842a8ac8`; it was squash-merged to main as `8067e5f3b81344698b818d950373bbcc477c170a`. External revalidation reported **1168 passed, 0 failed, 0 errors, 1 skipped** (the optional Dhan SDK test). Changed-file Ruff, strict mypy for the two changed production files, and `git diff --check` all passed. The final C6 implementation touched only the paper/research execution-fidelity path and test/docs surfaces; it did not expand LIVE, reconciliation, retry, UNKNOWN, recovery, broker SDK, persistence, or integration boundaries.
 
-## Current roadmap direction
+## V0.1 and R1-C roadmap context (historical baseline)
 
 V0.1 local-first host and integration readiness is acceptance-complete for the declared programmatic-library scope (ADR-008): the acceptance audit is done, the host-composed restart proof (PR #164) and the optional-SDK typing fix (PR #175) are merged, the CLI is explicitly deferred, and the release gate is closed per `docs/architecture/28-v0.1-acceptance-criteria.md`. R1-C13/C14 records below are historical milestones, not current work. Treat execution/recovery safety boundaries as frozen unless a concrete invariant violation is proven; no production-broker end-to-end execution has been performed.
 
