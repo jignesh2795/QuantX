@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from quantx.domain.enums import OrderStatus
 from quantx.domain.orders import Fill, Order
@@ -17,7 +18,7 @@ from quantx.execution.order_lifecycle import (
 from .broker import PaperBroker
 from .evidence import SimulationEvidenceStatus
 from .fills import MarketSnapshot
-from .order_types import PaperOrderSpec, PaperOrderType
+from .order_types import PaperOrderSpec, PaperOrderType, PaperTimeInForce
 from .profile import OrderBookSnapshot
 
 
@@ -59,12 +60,16 @@ class PaperOrderExecutor:
         )
 
         paper_type = PaperOrderType(order.order_type.value)
+        # Unsupported time-in-force values (FOK, GTC, ...) are rejected
+        # here rather than silently modeled as DAY or IOC.
+        time_in_force = PaperTimeInForce(order.time_in_force.value)
         spec = PaperOrderSpec(
             side=order.side.value,
             order_type=paper_type,
             quantity=order.quantity,
             limit_price=order.limit_price,
             stop_price=order.stop_price,
+            time_in_force=time_in_force,
         )
         result = self.broker.execute(
             spec,
@@ -87,6 +92,13 @@ class PaperOrderExecutor:
             return PaperExecutionOutcome(lifecycle.status, None, None, result.evidence.reason)
 
         if result.fill is None or result.fill.quantity <= 0:
+            if time_in_force is PaperTimeInForce.IOC:
+                # The immediate attempt is modeled and confirmed, but nothing
+                # executed: the unfilled quantity is cancelled, not rested.
+                self._cancel_remainder(lifecycle, order, Decimal("0"), observed_at)
+                return PaperExecutionOutcome(
+                    lifecycle.status, None, None, "ioc attempt executed nothing; cancelled"
+                )
             return PaperExecutionOutcome(lifecycle.status, None, None, result.match.reason)
 
         if result.fill_at_ns is None:
@@ -113,4 +125,30 @@ class PaperOrderExecutor:
             )
         )
         ledger = self.accounting.apply(fill, fee=result.fill.fee)
+        if time_in_force is PaperTimeInForce.IOC and result.fill.partial:
+            # Only the evidenced partial fill stands; the modeled remainder
+            # was not executed and is cancelled rather than rested.
+            self._cancel_remainder(lifecycle, order, result.fill.quantity, filled_at)
+            return PaperExecutionOutcome(
+                lifecycle.status, ledger, fill, "ioc partial fill; remainder cancelled"
+            )
         return PaperExecutionOutcome(lifecycle.status, ledger, fill, "paper fill applied")
+
+    @staticmethod
+    def _cancel_remainder(
+        lifecycle: OrderLifecycle,
+        order: Order,
+        filled_quantity: Decimal,
+        observed_at: datetime,
+    ) -> None:
+        """Record an IOC remainder cancellation against evidenced fills only."""
+        lifecycle.apply(
+            OrderLifecycleEvent(
+                order_id=order.client_order_id,
+                status=OrderStatus.CANCELLED,
+                observed_at=observed_at,
+                source="paper",
+                order_quantity=order.quantity,
+                filled_quantity=filled_quantity,
+            )
+        )
