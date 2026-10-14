@@ -98,6 +98,38 @@ _ALLOWED_TRANSITIONS = [
 ]
 
 
+@pytest.mark.parametrize(
+    ("status", "order_quantity", "filled_quantity"),
+    [
+        (OrderStatus.CREATED, None, None),
+        (OrderStatus.PENDING_SUBMIT, None, None),
+        (OrderStatus.SUBMITTED, None, None),
+        (OrderStatus.ACCEPTED, None, None),
+        (OrderStatus.PARTIALLY_FILLED, Decimal("10"), Decimal("4")),
+        (OrderStatus.CANCEL_PENDING, None, None),
+    ],
+)
+def test_repeated_status_observations_are_idempotent(
+    status,
+    order_quantity,
+    filled_quantity,
+):
+    order_id = uuid4()
+    lifecycle = OrderLifecycle(order_id)
+    observation = event(
+        order_id,
+        status,
+        order_quantity=order_quantity,
+        filled_quantity=filled_quantity,
+    )
+    if status is not OrderStatus.CREATED:
+        lifecycle.reconcile(observation)
+    before = (lifecycle.status, lifecycle.filled_quantity, lifecycle.anomalies)
+    lifecycle.apply(observation)
+    after = (lifecycle.status, lifecycle.filled_quantity, lifecycle.anomalies)
+    assert after == before
+
+
 @pytest.mark.parametrize(("current_status", "next_status"), _ALLOWED_TRANSITIONS)
 def test_canonical_lifecycle_all_allowed_transitions(
     current_status,

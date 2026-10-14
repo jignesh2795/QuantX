@@ -304,7 +304,11 @@ def _reduce_order_status(
     if observed_status is OrderStatus.UNKNOWN:
         return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
 
-    if strict_transition and observed_status not in _ORDER_STATUS_TRANSITIONS[current_status]:
+    if (
+        strict_transition
+        and observed_status is not current_status
+        and observed_status not in _ORDER_STATUS_TRANSITIONS[current_status]
+    ):
         if not reconciliation_authorized or not _is_reachable_status(
             current_status, observed_status
         ):
