@@ -60,6 +60,98 @@ def test_normal_order_lifecycle_uses_canonical_statuses_and_quantity_evidence():
         (OrderStatus.FILLED, Decimal("2"), Decimal("2")),
     ],
 )
+_ALLOWED_TRANSITIONS = [
+    (OrderStatus.CREATED, OrderStatus.PENDING_SUBMIT),
+    (OrderStatus.CREATED, OrderStatus.SUBMITTED),
+    (OrderStatus.CREATED, OrderStatus.FAILED),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.SUBMITTED),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.ACCEPTED),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.PARTIALLY_FILLED),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.FILLED),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.CANCEL_PENDING),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.CANCELLED),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.REJECTED),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.EXPIRED),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.UNKNOWN),
+    (OrderStatus.PENDING_SUBMIT, OrderStatus.FAILED),
+    (OrderStatus.SUBMITTED, OrderStatus.ACCEPTED),
+    (OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED),
+    (OrderStatus.SUBMITTED, OrderStatus.FILLED),
+    (OrderStatus.SUBMITTED, OrderStatus.CANCEL_PENDING),
+    (OrderStatus.SUBMITTED, OrderStatus.CANCELLED),
+    (OrderStatus.SUBMITTED, OrderStatus.REJECTED),
+    (OrderStatus.SUBMITTED, OrderStatus.EXPIRED),
+    (OrderStatus.SUBMITTED, OrderStatus.UNKNOWN),
+    (OrderStatus.ACCEPTED, OrderStatus.PARTIALLY_FILLED),
+    (OrderStatus.ACCEPTED, OrderStatus.FILLED),
+    (OrderStatus.ACCEPTED, OrderStatus.CANCEL_PENDING),
+    (OrderStatus.ACCEPTED, OrderStatus.CANCELLED),
+    (OrderStatus.ACCEPTED, OrderStatus.REJECTED),
+    (OrderStatus.ACCEPTED, OrderStatus.EXPIRED),
+    (OrderStatus.ACCEPTED, OrderStatus.UNKNOWN),
+    (OrderStatus.PARTIALLY_FILLED, OrderStatus.PARTIALLY_FILLED),
+    (OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED),
+    (OrderStatus.PARTIALLY_FILLED, OrderStatus.CANCEL_PENDING),
+    (OrderStatus.PARTIALLY_FILLED, OrderStatus.CANCELLED),
+    (OrderStatus.PARTIALLY_FILLED, OrderStatus.REJECTED),
+    (OrderStatus.PARTIALLY_FILLED, OrderStatus.EXPIRED),
+    (OrderStatus.PARTIALLY_FILLED, OrderStatus.UNKNOWN),
+    (OrderStatus.CANCEL_PENDING, OrderStatus.ACCEPTED),
+    (OrderStatus.CANCEL_PENDING, OrderStatus.PARTIALLY_FILLED),
+    (OrderStatus.CANCEL_PENDING, OrderStatus.FILLED),
+    (OrderStatus.CANCEL_PENDING, OrderStatus.CANCELLED),
+    (OrderStatus.CANCEL_PENDING, OrderStatus.REJECTED),
+    (OrderStatus.CANCEL_PENDING, OrderStatus.EXPIRED),
+    (OrderStatus.CANCEL_PENDING, OrderStatus.UNKNOWN),
+]
+
+
+@pytest.mark.parametrize(("current_status", "next_status"), _ALLOWED_TRANSITIONS)
+def test_canonical_lifecycle_all_allowed_transitions(
+    current_status,
+    next_status,
+):
+    order_id = uuid4()
+    lifecycle = OrderLifecycle(order_id)
+    if current_status is not OrderStatus.CREATED:
+        if current_status is OrderStatus.PARTIALLY_FILLED:
+            lifecycle.reconcile(
+                event(
+                    order_id,
+                    current_status,
+                    order_quantity=Decimal("10"),
+                    filled_quantity=Decimal("4"),
+                )
+            )
+        else:
+            lifecycle.reconcile(event(order_id, current_status))
+
+    if next_status is OrderStatus.FILLED:
+        next_event = event(
+            order_id,
+            next_status,
+            order_quantity=Decimal("10"),
+            filled_quantity=Decimal("10"),
+        )
+    elif next_status is OrderStatus.PARTIALLY_FILLED:
+        cumulative = (
+            Decimal("5")
+            if current_status is OrderStatus.PARTIALLY_FILLED
+            else Decimal("4")
+        )
+        next_event = event(
+            order_id,
+            next_status,
+            order_quantity=Decimal("10"),
+            filled_quantity=cumulative,
+        )
+    else:
+        next_event = event(order_id, next_status)
+
+    lifecycle.apply(next_event)
+    assert lifecycle.status is next_status
+
+
 def test_authoritative_reconciliation_accepts_first_observed_state(
     status,
     order_quantity,
@@ -176,7 +268,6 @@ def test_acknowledged_cancel_from_unknown_does_not_resolve_unknown_evidence():
 def test_terminal_status_is_absorbing(terminal_status):
     order_id = uuid4()
     lifecycle = OrderLifecycle(order_id)
-    lifecycle.apply(event(order_id, OrderStatus.SUBMITTED))
     if terminal_status is OrderStatus.FILLED:
         lifecycle.reconcile(
             event(
