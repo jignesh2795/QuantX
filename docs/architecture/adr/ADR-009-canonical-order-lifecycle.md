@@ -1,6 +1,19 @@
 # ADR-009: Canonical Order Lifecycle and Evidence Reduction
 
-Status: Proposed; implementation is a separate, sequenced change (QX-03 / issue #192)
+Status: Accepted. The decision was implemented on `main` across three
+sequenced slices: PR #213 (first migration slice — canonical vocabulary
+with `SUBMITTED`, consolidated evidence-preserving reducer, trusted
+reconciliation entrypoints; merged as `2785fbd`), PR #214 (Dhan lifecycle
+goldens and paper DAY/IOC semantics; merged as `1fbddc6`), and PR #216
+(receipt evidence-kind contract distinguishing cumulative observations
+from execution deltas, with legacy-payload compatibility; merged as
+`1aaf27b`). The "proposed target" language and the "current implementation
+baseline at the PR base" notes in the body below are preserved as the
+decision record. Migration steps the body marks as future work — notably
+removing the legacy policy after all consumers migrate, while
+`execution/order_lifecycle.py` and `execution/receipts/lifecycle.py`
+deliberately remain distinct modules — are still future work; nothing
+below implies deferred capabilities have shipped.
 
 ## Context
 

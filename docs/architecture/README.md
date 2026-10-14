@@ -7,7 +7,7 @@ This directory contains the architecture record for QuantX.
 1. `00-overview.md`, `01-principles.md`, `02-dependency-rules.md`
 2. `05-execution-environments.md`, `06-indian-market-domain.md`, `07-data-control-execution-planes.md`, `08-strategy-ir.md`
 3. `18-research-baseline.md`, `36-historical-data-integrity-and-no-hallucination.md`, `37-research-operational-integrity.md`, `39-research-provenance-and-fingerprints.md`, `40-point-in-time-market-rules.md`
-4. `34-capital-and-routing-invariants.md`, `40-execution-reliability-and-transaction-safety.md`, `43-execution-transaction-boundary.md`, `44-execution-and-integration-package-boundaries.md`, `45-execution-reliability-batch.md`, `47-execution-audit-findings.md`, `47-integration-boundaries.md`, `49-dhan-broker-plugin-boundary.md`
+4. `34-capital-and-routing-invariants.md`, `54-execution-reliability-and-transaction-safety.md`, `43-execution-transaction-boundary.md`, `44-execution-and-integration-package-boundaries.md`, `45-execution-reliability-batch.md`, `55-execution-audit-findings.md`, `47-integration-boundaries.md`, `49-dhan-broker-plugin-boundary.md`
 5. `41-current-package-map.md`, `42-implementation-batch-plan.md`, `46-consolidation-status.md`, `51-historical-account-state.md`, `52-transaction-cost-and-charges.md`
 
 ## v0.1 release gate
@@ -33,6 +33,18 @@ Deployment: `12-deployment-model.md`.
 ## Rules for future docs
 
 - Prefer the latest explicit architecture document when older numbered records conflict.
+- Numbered architecture documents use unique, append-only numeric prefixes:
+  a new document takes the next unused number (currently past `55-`),
+  and an existing document is never renumbered to fill a gap. When a
+  collision is found, the conflicting document moves to a new unused
+  number, the index above and every inbound reference are updated, and
+  the move is recorded with `git mv` so file history is preserved.
+  (`40-execution-reliability-and-transaction-safety.md` → `54-…` and
+  `47-execution-audit-findings.md` → `55-…` were resolved this way in
+  issue #186. `40-package-organization-and-module-boundaries.md`,
+  `40-point-in-time-market-rules.md`, and `47-integration-boundaries.md`
+  keep their numbers because automation and skill references point at
+  them.)
 - Do not create a new architecture file for every implementation batch.
 - Refine an existing canonical document when possible.
 - Put durable decisions in `docs/decisions/`.

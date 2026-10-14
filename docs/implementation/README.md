@@ -22,7 +22,7 @@ OpenCode is the local validation harness; implementation changes are made on the
 
 ## Current focus
 
-R1-C14 dataset ingestion/provenance composition is complete on `main`. The next focus is v0.1 local-first host and integration readiness, starting with an acceptance-criteria audit of the existing runtime, production composition, and entrypoints. Execution/recovery internals are considered stable unless a concrete invariant violation is demonstrated. Do not start broad package migration, UI/AI, distributed infrastructure, or a wider broker matrix while the existing integration path remains to be proven.
+R1-C14 dataset ingestion/provenance composition is complete on `main`. V0.1 local-first host and integration readiness is acceptance-complete for the declared programmatic-library scope (ADR-008; criteria and evidence in `docs/architecture/28-v0.1-acceptance-criteria.md`, current state in `docs/STATUS.md`), and the QX-03 canonical order lifecycle is implemented on `main` (ADR-009; PRs #213, #214 and #216). Execution/recovery internals are considered stable unless a concrete invariant violation is demonstrated. Do not start broad package migration, UI/AI, distributed infrastructure, or a wider broker matrix while the existing integration path remains to be proven.
 
 ## Batch history
 

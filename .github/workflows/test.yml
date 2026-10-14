@@ -20,6 +20,10 @@ jobs:
       - name: Sync project environment
         run: uv sync --locked --dev --extra dhan
       - name: Run Ruff lint checks
+        # Path-scoped for fast plugin feedback: these two steps lint and
+        # format-check only the Dhan plugin surface. The full-suite pytest
+        # step below still exercises the whole repository, so a failure
+        # anywhere outside these paths is caught there, not here.
         run: uv run ruff check src/quantx/plugins/dhan tests/unit/plugins/dhan
       - name: Check Ruff formatting
         run: uv run ruff format --check src/quantx/plugins/dhan tests/unit/plugins/dhan
