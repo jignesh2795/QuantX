@@ -40,9 +40,16 @@ C14.8 provenance binding and the C14.9 end-to-end deterministic proof are comple
 
 C14 explicitly defers scheduling, streaming, distributed ingestion, cloud storage, generic ETL, production historical-data service, UI, AI/ML, optimization, and broad broker expansion.
 
-The detailed C14 planning record remains the implementation history. C14.9 is now merged on `main` in PR #158; the next implementation phase shifts from dataset composition to local-first host/integration readiness.
+The detailed C14 planning record remains the implementation history. C14.9 is now merged on `main` in PR #158; the implementation phase then moved through local-first host/integration readiness, which is acceptance-complete under ADR-008 (see `docs/STATUS.md`).
 
-## Next milestone — V0.1 Local-First Host & Integration Readiness
+## Completed — V0.1 Local-First Host & Integration Readiness
+
+> **Completed.** The v0.1 acceptance gate is closed for the declared
+> programmatic local-first library scope (ADR-008); the sequence below is
+> the preserved record of how it was reached, not next work. Current state:
+> `docs/STATUS.md`. Next milestone: M4 Strategy Platform — the first
+> M4.1 vertical is selected through issue #178, with the engine-truth
+> context contract following separately in issue #196.
 
 ### Objective
 
