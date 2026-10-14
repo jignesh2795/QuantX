@@ -113,12 +113,20 @@ These are normalized mappings to verify against the current adapter's documented
 ## Acceptance criteria for the implementation issue
 
 - One canonical lifecycle status vocabulary and one canonical reduction policy are used by production consumers, with documented temporary shims only.
-- Table-driven tests cover valid/invalid transitions, direct observations with missing intermediate events, terminal absorption, late fills, quantity conflicts, duplicate evidence, cancellation races, and authority-gated `UNKNOWN` resolution.
+- Table-driven tests cover valid/invalid transitions, direct observations with missing intermediate events, terminal absorption, late fills, quantity conflicts, duplicate evidence, cancellation races, the `UNKNOWN` → positively acknowledged `CANCEL_PENDING` path (while retaining `requires_reconciliation`), and authority-gated `UNKNOWN` resolution.
 - Dhan golden sequences cover `TRANSIT`, `PENDING`, `PART_TRADED`, `TRADED`, `REJECTED`, `CANCELLED`, and `EXPIRED` from adapter mapping through lifecycle state.
 - Partial-fill plus IOC/remainder cancellation is a resolved `CANCELLED` order when evidence is consistent; remaining quantity is not automatically resubmitted.
 - Reconciliation is the only authority that resolves `UNKNOWN`; no adapter, timer, ordinary event, or ordinary submit/cancel response bypasses it.
 - No broker submission behavior, persistence schema, LIVE capability, or auto-retry semantics are expanded.
 - Exact-SHA test/static-analysis and diff-scope evidence is recorded; no production broker order is sent during validation.
+
+## Alternatives rejected
+
+- **Keep both lifecycle enums and reconcile them with ad hoc mappings.** This preserves the present drift and leaves each call site to choose policy.
+- **Use `ExecutionOutcome` as the aggregate order status.** A single operation's outcome is not the order's full, evidence-backed lifecycle state.
+- **Treat transport timeout, cancellation request, or broker not-found as definitive failure/cancellation.** These observations do not prove the order is absent or terminal and could permit unsafe duplicate submission.
+- **Perform a repository-wide rename or package migration in the P0 safety fixes.** The necessary consumer, serialization, and compatibility audit must precede incremental changes.
+- **Expand product surfaces while lifecycle semantics are ambiguous.** Strategy SDK, Flow/UI, scheduling, CLI, AI/agents, and broker breadth do not resolve this contract gap.
 
 ## Consequences
 
