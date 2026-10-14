@@ -267,10 +267,16 @@ class ExecutionLifecycle:
                 requires_reconciliation = True
             # A fresh authoritative observation confirming the same terminal
             # state can resolve a prior anomaly flag only when it adds no new fills.
-            if (
+            if new_filled == self.order_quantity and current_status is not OrderStatus.FILLED:
+                flag_anomaly(
+                    f"terminal status {current_status.value} conflicts with full-quantity fill evidence"
+                )
+                requires_reconciliation = True
+            elif (
                 authoritative_reconciliation
                 and receipt_status is current_status
                 and receipt.filled_quantity == 0
+                and new_filled < self.order_quantity
             ):
                 requires_reconciliation = False
             return result(current_status, needs_reconciliation=requires_reconciliation)

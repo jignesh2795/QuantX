@@ -342,3 +342,33 @@ def test_conflicting_duplicate_receipt_identity_remains_an_error() -> None:
         assert "receipt ID maps to conflicting receipt data" in str(exc)
     else:
         raise AssertionError("conflicting receipt identities must be rejected")
+
+
+def test_authoritative_cancel_confirmation_cannot_hide_full_fill_conflict() -> None:
+    order_id = uuid4()
+    cancelled = _receipt_with_status(
+        order_id, Decimal("10"), OrderStatus.CANCELLED, Decimal("0"), seconds=1
+    )
+    late_fill_a = _receipt_with_status(
+        order_id, Decimal("10"), OrderStatus.PARTIALLY_FILLED, Decimal("6"), seconds=2
+    )
+    late_fill_b = _receipt_with_status(
+        order_id, Decimal("10"), OrderStatus.PARTIALLY_FILLED, Decimal("4"), seconds=3
+    )
+    confirming_cancel = _receipt_with_status(
+        order_id, Decimal("10"), OrderStatus.CANCELLED, Decimal("0"), seconds=4
+    )
+
+    lifecycle = (
+        ExecutionLifecycle(order_id, Decimal("10"))
+        .apply(cancelled)
+        .apply(late_fill_a)
+        .apply(late_fill_b)
+        .apply(confirming_cancel, authoritative_reconciliation=True)
+    )
+
+    assert lifecycle.status is OrderStatus.CANCELLED
+    assert lifecycle.filled_quantity == Decimal("10")
+    assert lifecycle.requires_reconciliation
+    assert not lifecycle.is_complete
+    assert not lifecycle.can_continue
