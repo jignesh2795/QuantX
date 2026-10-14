@@ -18,7 +18,7 @@ Sandbox, paper execution, canonical backtesting, optimization, walk-forward, rob
 
 The completed R1-C sequence is:
 
-`C1 historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar/gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution-price/fill fidelity ✅ → C7 time-indexed account-state sampling ✅ → C8 valuation provenance ✅ → C9 multi-instrument synchronization ✅ → C10 backtest provenance binding ✅ → C11 dataset identity/evidence ✅ → C12 canonical research-run configuration ✅ → C13 research persistence/orchestration/experiments ✅`
+`C1 historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar/gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution-price/fill fidelity ✅ → C7 time-indexed account-state sampling ✅ → C8 valuation provenance ✅ → C9 multi-instrument synchronization ✅ → C10 backtest provenance binding ✅ → C11 dataset identity/evidence ✅ → C12 canonical research-run configuration ✅ → C13 research persistence/orchestration/experiments ✅ → C14 deterministic dataset ingestion/provenance composition ✅`
 
 ### R1-C13 — Research persistence and experiments
 
@@ -107,8 +107,8 @@ R1-C8 is complete: immutable valuation evidence records identify the instrument,
 
 C8 is research/backtest only. It does not change LIVE execution, risk, broker, reconciliation, retry, UNKNOWN, recovery, or capital semantics.
 
-### R1-C9 — Multi-instrument account-state synchronization
+### R1-C9 — Multi-instrument account-state synchronization (complete)
 
-The next deterministic-research slice will define and implement an explicit synchronization policy for time-indexed account-state sampling when a replay frame updates only one of several open-position instruments. The policy must distinguish exact-current evidence from deterministic as-of evidence and must never hide mark age or silently use future data.
+C9 is implemented and merged. It adds a separate time-indexed account-state series to backtests without changing the existing execution-event snapshots. Sampling occurs at replay-frame timestamps before current-frame strategy/execution effects, uses explicit current-frame marks for complete valuation, and becomes incomplete rather than reusing a stale mark. The policy distinguishes exact-current evidence from explicitly selected as-of-observed evidence without hiding mark age or admitting future data. See the historical C9 milestone record in `docs/STATUS.md`.
 
-C9 is research/backtest only. It does not change LIVE execution, risk, broker, reconciliation, retry, UNKNOWN, recovery, or capital semantics.
+C9 is research/backtest-only. It does not change LIVE execution, risk, broker, reconciliation, retry, UNKNOWN, recovery, or capital semantics.
