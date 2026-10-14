@@ -181,9 +181,7 @@ def _session(
 
 def _inputs(*timestamps: datetime) -> tuple[RehearsalInput, ...]:
     return tuple(
-        RehearsalInput(
-            event=_event(observed_at), snapshot=_snapshot(), submitted_at_ns=1_000_000_000
-        )
+        RehearsalInput(event=_event(observed_at), snapshot=_snapshot())
         for observed_at in timestamps
     )
 
@@ -390,7 +388,6 @@ def test_ioc_partial_fill_cancels_remainder_without_resubmission() -> None:
             RehearsalInput(
                 event=_event(observed_at),
                 snapshot=_snapshot(),
-                submitted_at_ns=1_000_000_000,
                 order_book=_thin_book(),
             ),
         )
@@ -408,9 +405,7 @@ def test_ioc_partial_fill_cancels_remainder_without_resubmission() -> None:
 
 def test_missing_snapshot_produces_no_fill_without_accounting() -> None:
     session, accounting = _session()
-    result = session.run(
-        (RehearsalInput(event=_event(), snapshot=None, submitted_at_ns=1_000_000_000),)
-    )
+    result = session.run((RehearsalInput(event=_event(), snapshot=None),))
 
     assert len(result.steps) == 1
     step = result.steps[0]
@@ -512,11 +507,6 @@ def test_malformed_signal_rejected() -> None:
         session.run(_inputs(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
 
 
-def test_negative_submitted_at_ns_rejected() -> None:
-    with pytest.raises(ValueError, match="submitted_at_ns"):
-        RehearsalInput(event=_event(), snapshot=_snapshot(), submitted_at_ns=-1)
-
-
 def test_venue_mismatch_rejected() -> None:
     session, _ = _session()
     foreign = InstrumentId("BSE", "TCS")
@@ -528,7 +518,7 @@ def test_venue_mismatch_rejected() -> None:
         Quote(foreign, observed_at, bid=Decimal("99"), ask=Decimal("100")),
     )
     with pytest.raises(ValueError, match="venue"):
-        session.run((RehearsalInput(event=event, snapshot=_snapshot(), submitted_at_ns=0),))
+        session.run((RehearsalInput(event=event, snapshot=_snapshot()),))
 
 
 # ---------------------------------------------------------------------------
@@ -665,3 +655,86 @@ def test_backtest_paper_order_sequence_parity() -> None:
 
     assert rehearsal_sequence == backtest_sequence
     assert rehearsal_sequence == ((InstrumentId("NSE", "TCS"), OrderSide.BUY, Decimal("2")),)
+
+
+# ---------------------------------------------------------------------------
+# Deterministic time-source contract
+# ---------------------------------------------------------------------------
+
+
+def test_fill_and_order_use_event_timeline() -> None:
+    """A 2026 event must produce 2026 order/fill timestamps, never 1970.
+
+    The rehearsal derives submission time from the market event (zero
+    modeled latency here), so the fill lands on the event instant. Order
+    creation is pinned to the same instant instead of wall-clock time.
+    """
+    session, _ = _session()
+    event_at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    result = session.run(_inputs(event_at))
+
+    assert len(result.steps) == 1
+    step = result.steps[0]
+    assert step.evaluation.result.signal.generated_at == event_at
+    assert step.preparation.request is not None
+    assert step.preparation.request.order.created_at == event_at
+    assert step.paper_outcome is not None
+    assert step.paper_outcome.fill is not None
+    assert step.paper_outcome.fill.filled_at == event_at
+    assert step.paper_outcome.fill.filled_at.year == 2026
+
+
+def test_fill_never_precedes_observation_at_zero_latency() -> None:
+    session, _ = _session()
+    event_at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    result = session.run(_inputs(event_at))
+
+    step = result.steps[0]
+    assert step.paper_outcome is not None
+    assert step.paper_outcome.fill is not None
+    assert step.paper_outcome.fill.filled_at >= event_at
+    assert step.preparation.request is not None
+    assert step.paper_outcome.fill.filled_at >= step.preparation.request.order.created_at
+
+
+def test_default_signal_timestamp_rejected() -> None:
+    """A strategy omitting generated_at gets wall-clock time, which must not
+    silently enter a deterministic rehearsal."""
+
+    class _WallClockSignalStrategy:
+        def on_market_data(self, context: StrategyContext):
+            return StrategyResult(
+                signal=StrategySignal(
+                    strategy_id=context.ir.strategy_id,
+                    strategy_version=context.ir.version,
+                    instrument=context.event.instrument,
+                    action=SignalAction.HOLD,
+                    confidence=1.0,
+                )
+            )
+
+    registry = StrategyRegistry()
+    registry.register("buy-and-hold", "1", _WallClockSignalStrategy)
+    session, _ = _session(registry=registry)
+    with pytest.raises(ValueError, match="signal timestamp"):
+        session.run(_inputs(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+
+
+def test_repeat_runs_agree_on_timestamps() -> None:
+    """Identical input twice yields identical timestamp-bearing outputs,
+    excluding only random identity fields."""
+    event_at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    first_session, _ = _session()
+    second_session, _ = _session()
+    first = first_session.run(_inputs(event_at)).steps[0]
+    second = second_session.run(_inputs(event_at)).steps[0]
+
+    assert first.evaluation.result.signal.generated_at == event_at
+    assert second.evaluation.result.signal.generated_at == event_at
+    assert first.preparation.request is not None
+    assert second.preparation.request is not None
+    assert first.preparation.request.order.created_at == event_at
+    assert second.preparation.request.order.created_at == event_at
+    assert first.paper_outcome is not None and first.paper_outcome.fill is not None
+    assert second.paper_outcome is not None and second.paper_outcome.fill is not None
+    assert first.paper_outcome.fill.filled_at == second.paper_outcome.fill.filled_at == event_at

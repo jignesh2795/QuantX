@@ -11,6 +11,7 @@ without any broker-submit path: execution flows exclusively through
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 
 from quantx.domain.deployment import ExecutionMode, StrategyDeployment
 from quantx.domain.finance import AccountFinancialState
@@ -36,21 +37,20 @@ from quantx.strategy.registry import StrategyRegistry
 class RehearsalInput:
     """Injected market evidence for one rehearsal step.
 
-    Time comes from the event itself: the paper executor observes
-    ``event.timestamp``, so there is no separate clock to diverge. A missing
-    snapshot means missing market evidence; the paper venue then produces
-    no fill rather than an invented one. An optional order book carries
-    depth evidence for partial-fill semantics.
+    A rehearsal runs on a single simulation timeline owned by the market
+    event: the paper executor observes ``event.timestamp``, the submitted
+    order is stamped from the same instant, and modeled venue latency is
+    added on top by the venue profile. There is deliberately no separate
+    injected submission clock, so contradictory timestamps (for example an
+    epoch-nanosecond submission against a 2026 event) cannot be expressed.
+    A missing snapshot means missing market evidence; the paper venue then
+    produces no fill rather than an invented one. An optional order book
+    carries depth evidence for partial-fill semantics.
     """
 
     event: MarketDataEvent
     snapshot: MarketSnapshot | None
-    submitted_at_ns: int
     order_book: OrderBookSnapshot | None = None
-
-    def __post_init__(self) -> None:
-        if self.submitted_at_ns < 0:
-            raise ValueError("submitted_at_ns cannot be negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +71,21 @@ class StrategyRehearsalResult:
     deployment: StrategyDeployment
     strategy_ir: StrategyIR
     steps: tuple[StrategyRehearsalStep, ...]
+
+
+_UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _event_submitted_at_ns(event: MarketDataEvent) -> int:
+    """Derive submission time from the event instant using exact integer math.
+
+    The paper venue interprets submission time as Unix epoch nanoseconds, so
+    the rehearsal derives it from the market event that caused the order.
+    ``timedelta`` fields are integers, which keeps the conversion exact where
+    a float epoch division would lose nanosecond precision.
+    """
+    delta = event.timestamp - _UNIX_EPOCH
+    return (delta.days * 86400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
 
 
 class StrategyRehearsalSession:
@@ -134,6 +149,8 @@ class StrategyRehearsalSession:
         if self._deployment.market.venue != event.instrument.venue:
             raise ValueError("deployment market venue does not match market event")
         evaluation = self._evaluation.evaluate(event, self._strategy_ir)
+        if evaluation.result.signal.generated_at != event.timestamp:
+            raise ValueError("strategy signal timestamp does not match market event")
         intent = evaluation.result.intent
         if intent is None:
             preparation = StrategyExecutionPreparation(
@@ -152,14 +169,23 @@ class StrategyRehearsalSession:
             self._financial_state,
             policy_context=self._policy_context,
         )
-        if preparation.request is None:
+        approved = preparation.request
+        if approved is None:
             return StrategyRehearsalStep(
                 event, evaluation, preparation, None, self._rejection_note(preparation)
             )
+        # Stamp order creation from the market event that caused the order.
+        # The shared ``build_order_from_intent`` default is wall-clock time
+        # for interactive construction; a rehearsal record carrying that
+        # default would be nondeterministic, so this path pins it here
+        # without changing the shared default. The recorded preparation
+        # carries the same deterministic order that reaches the paper venue.
+        deterministic = replace(approved, order=replace(approved.order, created_at=event.timestamp))
+        preparation = replace(preparation, request=deterministic)
         paper_outcome = self._paper_executor.execute(
-            preparation.request.order,
+            deterministic.order,
             snapshot=rehearsal_input.snapshot,
-            submitted_at_ns=rehearsal_input.submitted_at_ns,
+            submitted_at_ns=_event_submitted_at_ns(event),
             observed_at=event.timestamp,
             order_book=rehearsal_input.order_book,
         )
