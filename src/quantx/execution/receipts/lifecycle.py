@@ -262,7 +262,8 @@ class ExecutionLifecycle:
         if receipt.evidence_kind is ExecutionEvidenceKind.EXECUTION_DELTAS:
             new_filled = self.filled_quantity + receipt.filled_quantity
             if receipt.filled_quantity == Decimal("0"):
-                # Zero-fill delta receipt contributes status only; preserve existing observed_filled_quantity
+                # Zero-fill delta receipt contributes status only; preserve
+                # existing observed_filled_quantity
                 new_observed = self.observed_filled_quantity
             else:
                 new_observed = None

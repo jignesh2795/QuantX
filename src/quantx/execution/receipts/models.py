@@ -151,20 +151,13 @@ class ExecutionReceipt:
                     "partially filled receipt fills must be between zero and order quantity"
                 )
         else:
-            # CUMULATIVE_OBSERVATION: fills tuple may be empty; quantity is
-            # carried in observed_filled_quantity, not in additive fills.
-            # Still enforce that if fills are present, they must be valid.
+            # CUMULATIVE_OBSERVATION: quantity evidence lives exclusively in
+            # observed_filled_quantity and is never additive.  Carrying fills
+            # as well would present two conflicting quantity accounts for one
+            # receipt, so the shape itself is rejected rather than the fill
+            # contents being validated.
             if fills:
-                execution_ids = [fill.execution_id for fill in fills]
-                if len(execution_ids) != len(set(execution_ids)):
-                    raise ValueError("fills must have unique execution_id values")
-                if any(fill.instrument != order.instrument for fill in fills):
-                    raise ValueError("all fills must match the order instrument")
-                if any(fill.side is not order.side for fill in fills):
-                    raise ValueError("all fills must match the order side")
-                total_filled = sum((fill.quantity for fill in fills), Decimal("0"))
-                if total_filled > order.quantity:
-                    raise ValueError("fill quantity cannot exceed order quantity")
+                raise ValueError("cumulative observation receipts must not carry fills")
 
     @property
     def filled_quantity(self) -> Decimal:
@@ -216,6 +209,13 @@ class ExecutionReceipt:
             and self.observed_filled_quantity is None
         ):
             raise ValueError("cumulative observation receipts require an observed_filled_quantity")
+        if self.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION:
+            if self.fills:
+                raise ValueError("cumulative observation receipts must not carry fills")
+        elif self.observed_filled_quantity is not None or self.observed_average_price is not None:
+            raise ValueError(
+                "execution delta receipts must not carry cumulative observation fields"
+            )
 
 
 # Backward-compatible names used by early execution consumers.

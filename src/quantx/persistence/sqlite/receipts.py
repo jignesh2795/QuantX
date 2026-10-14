@@ -84,8 +84,20 @@ def receipt_to_payload(receipt: ExecutionReceipt) -> str:
 
 
 def receipt_from_payload(payload: str) -> ExecutionReceipt:
-    """Reconstruct a receipt through the canonical constructors for validation."""
+    """Reconstruct a receipt through the canonical constructors for validation.
+
+    Payloads written before the evidence-kind contract carry no
+    ``evidence_kind`` and no ``observed_*`` observation fields.  Those rows are
+    additive execution-delta receipts, so they default to
+    ``ExecutionEvidenceKind.EXECUTION_DELTAS`` with no observation metadata.
+    Reading them must not fabricate cumulative-observation evidence.
+    """
     data = json.loads(payload)
+    evidence_kind = ExecutionEvidenceKind(
+        data.get("evidence_kind", ExecutionEvidenceKind.EXECUTION_DELTAS.value)
+    )
+    raw_observed_quantity = data.get("observed_filled_quantity")
+    raw_observed_average_price = data.get("observed_average_price")
     fills = tuple(
         Fill(
             client_order_id=UUID(item["client_order_id"]),
@@ -126,16 +138,12 @@ def receipt_from_payload(payload: str) -> ExecutionReceipt:
         connection_id=BrokerConnectionId(data["connection_id"])
         if data["connection_id"] is not None
         else None,
-        evidence_kind=ExecutionEvidenceKind(data["evidence_kind"]),
+        evidence_kind=evidence_kind,
         observed_filled_quantity=(
-            Decimal(data["observed_filled_quantity"])
-            if data["observed_filled_quantity"] is not None
-            else None
+            Decimal(raw_observed_quantity) if raw_observed_quantity is not None else None
         ),
         observed_average_price=(
-            Decimal(data["observed_average_price"])
-            if data["observed_average_price"] is not None
-            else None
+            Decimal(raw_observed_average_price) if raw_observed_average_price is not None else None
         ),
     )
 
