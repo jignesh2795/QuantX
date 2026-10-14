@@ -165,5 +165,6 @@ def test_unknown_receipt_rebuild_is_fail_closed() -> None:
 
     assert lifecycle.status is OrderStatus.UNKNOWN
     assert lifecycle.remaining_quantity == Decimal("10")
+    assert lifecycle.requires_reconciliation
     assert not lifecycle.can_continue
-    assert lifecycle.is_complete
+    assert not lifecycle.is_complete
