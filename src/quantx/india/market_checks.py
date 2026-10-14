@@ -12,7 +12,6 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import ClassVar
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
@@ -25,11 +24,12 @@ from quantx.ports.market_checks import (
     MarketRuleCheckEvidence,
     PlacedCheck,
     RegionMarketPolicy,
+    contains_banned_text,
     normalize_market_context,
 )
 
 from .domain import IndianSegment
-from .execution_rules import IndiaRuleDecision, IndiaRuleResult
+from .execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
 from .session_calendar import IndiaSessionDecision, IndiaSessionResult
 
 _PUBLIC_RULE_CODES: frozenset[str] = frozenset(
@@ -67,11 +67,55 @@ def sanitize_rule_reason(reason: object) -> str | None:
         return None
     if reason.split(":", 1)[0].strip() not in _PUBLIC_RULE_CODES:
         return None
-    if _BATCH_CODE_PATTERN.search(reason) is not None:
-        return None
-    if "Traceback" in reason or 'File "' in reason:
+    if contains_banned_text(reason):
         return None
     return reason
+
+
+_APPROVED_SESSION_REJECTIONS: frozenset[str] = frozenset({"india trading session is closed"})
+"""Finite vocabulary of plain (non-code) session rejection reasons that
+may appear in public output. Anything else falls back to the static
+template without interpolating evaluator text."""
+
+
+def sanitize_session_rejection(reason: object) -> str | None:
+    """Return an approved public session rejection reason, else None.
+
+    A reason is public only when it is headed by an allow-listed
+    ``INDIA_*`` rule code or appears in the approved plain-text
+    vocabulary. Arbitrary evaluator text never reaches users.
+    """
+    if sanitize_rule_reason(reason) is not None:
+        return str(reason)  # already code-gated by sanitize_rule_reason
+    if isinstance(reason, str) and reason.strip() in _APPROVED_SESSION_REJECTIONS:
+        return reason.strip()
+    return None
+
+
+def sanitize_evidence_text(text: object) -> str | None:
+    """Return evidence metadata text safe for the public surface, else None.
+
+    Applies to provenance, rule-set versions, and rule-check reasons:
+    banned fragments (batch codenames, tracebacks, file paths) make the
+    value ineligible for public evidence.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None
+    if contains_banned_text(text):
+        return None
+    return text
+
+
+def _public_rule_check_reason(check: IndiaRuleCheck) -> str:
+    """Project one engine rule-check fact onto the public evidence surface.
+
+    Failed checks keep their reason only when it carries an allow-listed
+    ``INDIA_*`` rule code; passed checks and anything unapproved collapse
+    to fixed text. Banned fragments never reach serialized evidence.
+    """
+    if not check.passed:
+        return sanitize_rule_reason(check.reason) or "india rule check failed (details withheld)"
+    return "india rule check passed"
 
 
 def _family_segment(family: MarketFamily) -> IndianSegment | None:
@@ -111,14 +155,6 @@ class IndiaSessionCheck:
 
     evaluator: Callable[[ApprovedExecutionRequest], IndiaSessionResult]
     check_id: str = "india.session-calendar"
-    reasons_sanitized: ClassVar[bool] = True
-    failure_codes: ClassVar[frozenset[str]] = frozenset(
-        {
-            "india.session-calendar.evaluation-failed",
-            "india.session-calendar.evidence-missing",
-            "india.session-calendar.rejected",
-        }
-    )
 
     def __call__(self, request: ApprovedExecutionRequest) -> MarketCheckResult:
         try:
@@ -168,6 +204,8 @@ class IndiaSessionCheck:
                     venue=venue,
                 ),
             )
+        approved_version = sanitize_evidence_text(result.calendar_version)
+        approved_provenance = sanitize_evidence_text(result.provenance)
         evidence = MarketCheckEvidence(
             check_id=self.check_id,
             stage=MarketCheckStage.PRE_DISPATCH,
@@ -175,28 +213,26 @@ class IndiaSessionCheck:
             region=region,
             family=family,
             venue=venue,
-            rule_set_version=result.calendar_version,
-            provenance=result.provenance,
+            rule_set_version=approved_version,
+            provenance=approved_provenance,
             evaluated_at=result.evaluated_at,
             session_evaluated=True,
             session_exchange=result.exchange.value,
             session_segment=result.segment.value,
         )
         if result.decision is not IndiaSessionDecision.ALLOW:
-            session_reason = result.reason
-            if (
-                not session_reason.strip()
-                or _BATCH_CODE_PATTERN.search(session_reason) is not None
-                or "Traceback" in session_reason
-            ):
-                session_reason = "india session/calendar blocked the request"
-            else:
-                session_reason = f"india session/calendar blocked the request: {session_reason}"
+            approved = sanitize_session_rejection(result.reason)
+            session_reason = (
+                f"india session/calendar blocked the request: {approved}"
+                if approved is not None
+                else "india session/calendar blocked the request"
+            )
             return MarketCheckResult(
                 self.check_id,
                 MarketCheckOutcome.BLOCK,
                 "india.session-calendar.rejected",
                 session_reason,
+                detail="" if approved is not None else f"withheld: {result.reason}",
                 evidence=replace(evidence, outcome=MarketCheckOutcome.BLOCK),
             )
         return MarketCheckResult(
@@ -214,15 +250,6 @@ class IndiaCompatCheck:
 
     evaluator: Callable[[ApprovedExecutionRequest], IndiaRuleResult]
     check_id: str = "india.compatibility-rules"
-    reasons_sanitized: ClassVar[bool] = True
-    failure_codes: ClassVar[frozenset[str]] = frozenset(
-        {
-            "india.compatibility.evaluation-failed",
-            "india.compatibility.evidence-missing",
-            "india.compatibility.rejected",
-            "india.compatibility.malformed-evidence",
-        }
-    )
 
     def __call__(self, request: ApprovedExecutionRequest) -> MarketCheckResult:
         try:
@@ -266,6 +293,16 @@ class IndiaCompatCheck:
                     venue=venue,
                 ),
             )
+        approved_version = sanitize_evidence_text(result.rule_set_version)
+        approved_provenance = sanitize_evidence_text(result.provenance)
+        rule_checks = tuple(
+            MarketRuleCheckEvidence(
+                check.name if sanitize_evidence_text(check.name) is not None else "india-rule",
+                check.passed,
+                _public_rule_check_reason(check),
+            )
+            for check in result.checks
+        )
         evidence = MarketCheckEvidence(
             check_id=self.check_id,
             stage=MarketCheckStage.PRE_SUBMIT,
@@ -273,14 +310,11 @@ class IndiaCompatCheck:
             region=region,
             family=family,
             venue=venue,
-            rule_set_version=result.rule_set_version,
-            provenance=result.provenance,
+            rule_set_version=approved_version,
+            provenance=approved_provenance,
             evaluated_at=result.evaluated_at,
             compatibility_evaluated=True,
-            rule_checks=tuple(
-                MarketRuleCheckEvidence(check.name, check.passed, check.reason)
-                for check in result.checks
-            ),
+            rule_checks=rule_checks,
         )
         if result.decision is not IndiaRuleDecision.APPROVE:
             sanitized = sanitize_rule_reason(result.reason)

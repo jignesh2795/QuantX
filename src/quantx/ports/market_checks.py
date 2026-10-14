@@ -47,6 +47,8 @@ class MarketCheckFailureCode(StrEnum):
     INVALID_CONFIGURATION = "market-check.invalid-configuration"
     EVALUATION_FAILED = "market-check.evaluation-failed"
     MALFORMED_RESULT = "market-check.malformed-result"
+    PACK_BLOCKED = "market-check.pack-blocked"
+    PACK_UNAVAILABLE = "market-check.pack-unavailable"
 
 
 SKIPPED_STAGE_STATUS_CODE = "market-check.stage-skipped-by-policy"
@@ -60,7 +62,42 @@ masquerading as evaluated checks.
 _BATCH_CODE_PATTERN = re.compile(r"\bB\d+\b")
 _CHECK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _FAILURE_CODE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-_CHECK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+TRUSTED_PUBLIC_REASON_CHECK_IDS: frozenset[str] = frozenset(
+    {"india.session-calendar", "india.compatibility-rules"}
+)
+"""Core-owned registry of checks permitted to return trusted public reasons.
+
+Membership is decided by repository review of the producing code, never by
+a check's self-declaration. Checks absent from this registry always get
+static per-outcome fallback reasons regardless of any attribute they set.
+"""
+
+TRUSTED_FAILURE_CODES: dict[str, frozenset[str]] = {
+    "india.session-calendar": frozenset(
+        {
+            "india.session-calendar.evaluation-failed",
+            "india.session-calendar.evidence-missing",
+            "india.session-calendar.rejected",
+        }
+    ),
+    "india.compatibility-rules": frozenset(
+        {
+            "india.compatibility.evaluation-failed",
+            "india.compatibility.evidence-missing",
+            "india.compatibility.rejected",
+            "india.compatibility.malformed-evidence",
+        }
+    ),
+}
+"""Core-owned registry of trusted public failure codes per check identity.
+
+Only codes listed here may surface in ``blocking_failure_code`` or
+serialized evidence. Codes from checks absent from this registry are
+rewritten to the framework-owned ``PACK_BLOCKED``/``PACK_UNAVAILABLE``
+codes; framework-produced codes (``EVALUATION_FAILED``,
+``MALFORMED_RESULT``, ...) are runner-owned and never rewritten.
+"""
 
 
 def contains_banned_text(text: str) -> bool:
@@ -217,15 +254,11 @@ class MarketCheckSequence:
 class PreTradeCheck(Protocol):
     """One market-pack policy check evaluated against an approved request.
 
-    Optional trust metadata (read via ``getattr`` with safe defaults, never
-    required for protocol conformance):
-
-    - ``reasons_sanitized: bool`` — True only when the check's own reasons
-      are already sanitized (static messages or an allow-listed rule-code
-      contract reviewed with the pack). Untrusted checks get a static
-      fallback reason from the runner.
-    - ``failure_codes: frozenset[str]`` — the exact failure codes the check
-      may return; anything else fails closed as malformed.
+    Trust is never self-declared: whether a check may return trusted
+    public reasons and codes is decided solely by the core-owned
+    ``TRUSTED_PUBLIC_REASON_CHECK_IDS`` and ``TRUSTED_FAILURE_CODES``
+    registries keyed on the registered check identity. All other checks
+    get static fallback reasons and framework-owned rewritten codes.
     """
 
     @property
@@ -259,16 +292,24 @@ class RegionMarketPolicy:
 
 @dataclass(frozen=True, slots=True)
 class PlacedCheck:
-    """One check bound to a region and insertion point, in plan order."""
+    """One check bound to a region and insertion point, in plan order.
+
+    ``validated_check_id`` snapshots the identifier validated at
+    registration; the runner uses this snapshot instead of re-reading the
+    live object, so a check whose identifier changes or turns invalid
+    after registration fails closed against the registered identity.
+    """
 
     region: MarketRegion
     stage: MarketCheckStage
     check: PreTradeCheck
+    validated_check_id: str = ""
 
     def __post_init__(self) -> None:
         check_id = getattr(self.check, "check_id", None)
         if not isinstance(check_id, str) or not is_valid_check_id(check_id):
             raise ValueError("check id must use the identifier grammar and be codename-free")
+        object.__setattr__(self, "validated_check_id", check_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,8 +352,7 @@ class MarketPolicyConfig:
                     f"region {policy.region.value} requires a pack but declares no required stages"
                 )
         seen_checks = [
-            (placed.region, placed.stage, getattr(placed.check, "check_id", None))
-            for placed in self.checks
+            (placed.region, placed.stage, placed.validated_check_id) for placed in self.checks
         ]
         if len(set(seen_checks)) != len(seen_checks):
             raise ValueError("duplicate check identity for region and stage")
@@ -324,14 +364,10 @@ class MarketPolicyConfig:
                 return policy
         raise UnclassifiedRegion(f"unclassified region fails closed: {region.value}")
 
-    def checks_for(
-        self, region: MarketRegion, stage: MarketCheckStage
-    ) -> tuple[PreTradeCheck, ...]:
-        """Return checks for a region and stage in registration order."""
+    def checks_for(self, region: MarketRegion, stage: MarketCheckStage) -> tuple[PlacedCheck, ...]:
+        """Return placements for a region and stage in registration order."""
         return tuple(
-            placed.check
-            for placed in self.checks
-            if placed.region is region and placed.stage is stage
+            placed for placed in self.checks if placed.region is region and placed.stage is stage
         )
 
 
@@ -489,6 +525,8 @@ __all__ = [
     "PreTradeCheck",
     "RegionMarketPolicy",
     "SKIPPED_STAGE_STATUS_CODE",
+    "TRUSTED_FAILURE_CODES",
+    "TRUSTED_PUBLIC_REASON_CHECK_IDS",
     "UnclassifiedRegion",
     "UnknownMarketValue",
     "coerce_market_context",

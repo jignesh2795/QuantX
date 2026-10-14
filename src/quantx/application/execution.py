@@ -23,6 +23,8 @@ from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 from quantx.ports.market_checks import (
     SKIPPED_STAGE_STATUS_CODE,
+    TRUSTED_FAILURE_CODES,
+    TRUSTED_PUBLIC_REASON_CHECK_IDS,
     MarketCheckEvidence,
     MarketCheckFailureCode,
     MarketCheckOutcome,
@@ -31,9 +33,10 @@ from quantx.ports.market_checks import (
     MarketCheckStage,
     MarketPolicyConfig,
     MarketRuleCheckEvidence,
-    PreTradeCheck,
+    PlacedCheck,
     UnclassifiedRegion,
     UnknownMarketValue,
+    contains_banned_text,
     default_market_policy,
     is_valid_failure_code,
     sanitize_public_reason,
@@ -100,6 +103,17 @@ def _validated_evidence(
         return None
     if not all(isinstance(item, MarketRuleCheckEvidence) for item in evidence.rule_checks):
         return None
+    # Public evidence text policy: rule-check facts and metadata carrying
+    # batch codenames, tracebacks, or file fragments are rejected so the
+    # caller synthesizes a safe canonical entry instead.
+    if any(
+        contains_banned_text(item.reason) or contains_banned_text(item.name)
+        for item in evidence.rule_checks
+    ):
+        return None
+    for metadata in (evidence.rule_set_version, evidence.provenance):
+        if metadata is not None and contains_banned_text(metadata):
+            return None
     return evidence
 
 
@@ -126,9 +140,9 @@ class ExecutionOrchestrator:
         self._live_risk_evaluator = live_risk_evaluator
         self._market_policy = market_policy or default_market_policy()
 
-    @staticmethod
     def _run_market_stage(
-        checks: tuple[PreTradeCheck, ...],
+        self,
+        checks: tuple[PlacedCheck, ...],
         request: ApprovedExecutionRequest,
         *,
         stage: MarketCheckStage,
@@ -145,12 +159,13 @@ class ExecutionOrchestrator:
         Check exceptions, malformed results, and inconsistent evidence fail
         closed; raw diagnostics never reach user reasons.
         """
-        for check in checks:
-            check_id = getattr(check, "check_id", None) or type(check).__name__
-            trusted = getattr(check, "reasons_sanitized", False) is True
-            declared_codes = frozenset(
-                str(code) for code in (getattr(check, "failure_codes", frozenset()) or frozenset())
-            )
+        for placement in checks:
+            # Identity comes from the registration snapshot, never re-read
+            # from the live object, so a dynamic identifier cannot surface.
+            check = placement.check
+            check_id = placement.validated_check_id
+            trusted = check_id in TRUSTED_PUBLIC_REASON_CHECK_IDS
+            trusted_codes = TRUSTED_FAILURE_CODES.get(check_id)
             try:
                 result = check(request)
             except Exception as exc:
@@ -180,33 +195,49 @@ class ExecutionOrchestrator:
                     f"{check_id} returned a malformed result",
                     detail=f"unexpected result {type(result).__name__}",
                 )
-            else:
-                if result.outcome is not MarketCheckOutcome.PASS:
-                    # Sanitize only check-returned reasons here. Runner-synthesized
-                    # messages are static and trusted by construction, so they
-                    # bypass the sanitizer instead of being rewritten by it.
-                    sanitized = sanitize_public_reason(
-                        result.reason,
-                        check_id=check_id,
-                        blocked=result.outcome is MarketCheckOutcome.BLOCK,
-                        trusted=trusted,
+            elif result.outcome is not MarketCheckOutcome.PASS:
+                # Sanitize only check-returned reasons here. Runner-synthesized
+                # messages are static and trusted by construction, so they
+                # bypass the sanitizer instead of being rewritten by it.
+                sanitized = sanitize_public_reason(
+                    result.reason,
+                    check_id=check_id,
+                    blocked=result.outcome is MarketCheckOutcome.BLOCK,
+                    trusted=trusted,
+                )
+                if sanitized != result.reason:
+                    result = replace(
+                        result,
+                        reason=sanitized,
+                        detail=result.detail or f"withheld unsanitized reason for {check_id}",
                     )
-                    if sanitized != result.reason:
+                # Failure-code boundary: trusted checks may only return their
+                # registry-listed codes; every other check's code is rewritten
+                # to a framework-owned code so arbitrary pack vocabulary never
+                # reaches public structured evidence.
+                if trusted_codes is not None:
+                    if result.failure_code not in trusted_codes or not is_valid_failure_code(
+                        result.failure_code
+                    ):
                         result = replace(
                             result,
-                            reason=sanitized,
-                            detail=result.detail or f"withheld unsanitized reason for {check_id}",
+                            outcome=MarketCheckOutcome.UNAVAILABLE,
+                            failure_code=MarketCheckFailureCode.MALFORMED_RESULT,
+                            reason=f"{check_id} returned an undeclared failure code",
+                            detail=f"undeclared failure code {result.failure_code!r}",
                         )
-                if result.outcome is not MarketCheckOutcome.PASS and (
-                    result.failure_code not in declared_codes
-                    or not is_valid_failure_code(result.failure_code)
-                ):
-                    result = MarketCheckResult(
-                        check_id,
-                        MarketCheckOutcome.UNAVAILABLE,
-                        MarketCheckFailureCode.MALFORMED_RESULT,
-                        f"{check_id} returned an undeclared failure code",
-                        detail=f"undeclared failure code {result.failure_code!r}",
+                elif result.failure_code is MarketCheckFailureCode.EVALUATION_FAILED:
+                    pass  # framework-owned: retain for check exceptions
+                else:
+                    rewritten = (
+                        MarketCheckFailureCode.PACK_BLOCKED
+                        if result.outcome is MarketCheckOutcome.BLOCK
+                        else MarketCheckFailureCode.PACK_UNAVAILABLE
+                    )
+                    result = replace(
+                        result,
+                        failure_code=rewritten,
+                        detail=result.detail or f"withheld undeclared failure code for {check_id}",
                     )
             provided = result.evidence
             if provided is None:

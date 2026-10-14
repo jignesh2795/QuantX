@@ -121,13 +121,12 @@ def _live_orchestrator(**overrides) -> ExecutionOrchestrator:
 
 
 class _ToyCheck:
-    """Test-only pack check with a fixed verdict and call recording.
+    """Test-only untrusted pack check with a fixed verdict and call recording.
 
-    Untrusted by default: reasons fall back to the runner static message
-    unless a test opts into trust explicitly.
+    Trust is registry-owned, so this check is always untrusted: its reasons
+    fall back to runner static messages and its codes are rewritten to the
+    framework-owned pack codes.
     """
-
-    failure_codes = frozenset({"toy.pack.rejected"})
 
     def __init__(
         self,
@@ -154,7 +153,7 @@ class _ToyCheck:
         return MarketCheckResult(
             self._check_id,
             self._outcome,
-            "toy.pack.rejected",
+            "toy.pack.unapproved-code",
             self._reason,
             evidence=MarketCheckEvidence(
                 check_id=self._check_id,
@@ -351,7 +350,7 @@ def test_toy_pa_block_runs_before_session_guard() -> None:
     assert result.check_evidence is not None
     assert [entry.check_id for entry in result.check_evidence.entries] == ["NORTH_AMERICA.pre-a"]
     assert result.check_evidence.blocking_check_id == "NORTH_AMERICA.pre-a"
-    assert result.check_evidence.blocking_failure_code == "toy.pack.rejected"
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.PACK_BLOCKED)
 
 
 def test_toy_pb_block_runs_after_broker_checks_before_submit() -> None:
@@ -997,7 +996,7 @@ def _lying_evidence_check() -> _ToyCheck:
             return MarketCheckResult(
                 result.check_id,
                 MarketCheckOutcome.BLOCK,
-                "toy.pack.rejected",
+                "toy.pack.unapproved-code",
                 "lying check verdict",
                 evidence=false_evidence,
             )
@@ -1031,13 +1030,12 @@ def test_evidence_mismatch_fails_closed(tamper: str) -> None:
 
     class _TamperingCheck:
         check_id = "na.honest"
-        failure_codes = frozenset({"toy.pack.rejected"})
 
         def __call__(self, request):
             return MarketCheckResult(
                 "na.honest",
                 MarketCheckOutcome.BLOCK,
-                "toy.pack.rejected",
+                "toy.pack.unapproved-code",
                 "tampering check verdict",
                 evidence=tampered,
             )
@@ -1132,10 +1130,9 @@ def test_replacing_pack_cannot_disable_session_guard() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _untrusted_check(reason: str, code: str = "toy.pack.rejected"):
+def _untrusted_check(reason: str, code: str = "toy.pack.unapproved-code"):
     class _Untrusted:
         check_id = "na.untrusted"
-        failure_codes = frozenset({"toy.pack.rejected"})
 
         def __call__(self, request):
             return MarketCheckResult(
@@ -1197,12 +1194,10 @@ def test_untrusted_filename_reason_replaced() -> None:
 def test_trusted_b3_reason_still_replaced() -> None:
     class _TrustedB3:
         check_id = "na.trusted"
-        reasons_sanitized = True
-        failure_codes = frozenset({"toy.pack.rejected"})
 
         def __call__(self, request):
             return MarketCheckResult(
-                "na.trusted", MarketCheckOutcome.BLOCK, "toy.pack.rejected", "B3 outage"
+                "na.trusted", MarketCheckOutcome.BLOCK, "toy.pack.unapproved-code", "B3 outage"
             )
 
     config = _untrusted_policy(_TrustedB3())
@@ -1213,30 +1208,74 @@ def test_trusted_b3_reason_still_replaced() -> None:
     assert "B3" not in result.reason
 
 
-def test_undeclared_failure_code_rejected() -> None:
-    class _SneakyCode:
-        check_id = "na.sneaky"
-        failure_codes = frozenset({"toy.pack.rejected"})
+def test_self_declared_trust_is_ignored() -> None:
+    """A generic check self-declaring ``reasons_sanitized`` gains nothing:
+    registry membership, not self-declaration, authorizes trusted reasons."""
+
+    class _SelfTrusted:
+        check_id = "na.self-trusted"
+        reasons_sanitized = True
 
         def __call__(self, request):
             return MarketCheckResult(
-                "na.sneaky", MarketCheckOutcome.BLOCK, "B3.internal-override", "clean reason"
+                "na.self-trusted",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.unapproved-code",
+                "clean-looking internal ledger note XJ-99",
             )
 
-    config = _untrusted_policy(_SneakyCode())
+    config = _untrusted_policy(_SelfTrusted())
     result = _live_orchestrator(market_policy=config).execute(_us_request())
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert "B3.internal-override" not in result.reason
+    assert result.reason == "na.self-trusted blocked the request"
+    assert "XJ-99" not in result.reason
+
+
+def test_generic_own_clean_code_is_rewritten() -> None:
+    """A generic check's declared-and-returned code is never public: the
+    runner rewrites it to the framework-owned pack-blocked code."""
+
+    class _OwnCode:
+        check_id = "na.own-code"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "na.own-code", MarketCheckOutcome.BLOCK, "na.my-own-clean-code", "clean reason"
+            )
+
+    config = _untrusted_policy(_OwnCode())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "na.my-own-clean-code" not in (result.check_evidence.blocking_failure_code or "")
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "na.my-own-clean-code" not in payload
+
+
+def test_batch_code_failure_code_never_exposed() -> None:
+    class _BatchCode:
+        check_id = "na.batch-code"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "na.batch-code", MarketCheckOutcome.BLOCK, "B3.internal-override", "clean reason"
+            )
+
+    config = _untrusted_policy(_BatchCode())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "B3" not in (result.check_evidence.blocking_failure_code or "")
-    assert result.check_evidence is not None
-    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "B3" not in payload
 
 
-def test_malformed_failure_code_characters_rejected() -> None:
+def test_malformed_failure_code_characters_rewritten() -> None:
     class _WeirdCode:
         check_id = "na.weird"
-        failure_codes = frozenset({"has space", "a/b", "x:y"})
 
         def __call__(self, request):
             return MarketCheckResult("na.weird", MarketCheckOutcome.BLOCK, "has space", "clean")
@@ -1245,8 +1284,57 @@ def test_malformed_failure_code_characters_rejected() -> None:
     result = _live_orchestrator(market_policy=config).execute(_us_request())
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.check_evidence is not None
+    assert "has space" not in (result.check_evidence.blocking_failure_code or "")
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+
+
+def test_trusted_check_undeclared_code_fails_closed() -> None:
+    """A registry-trusted check returning a code outside its registered set
+    fails closed as malformed rather than surfacing the foreign code."""
+
+    class _RogueIndia:
+        check_id = "india.session-calendar"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "india.session-calendar",
+                MarketCheckOutcome.BLOCK,
+                "india.session-calendar.escape-hatch",
+                "india session/calendar blocked the request",
+            )
+
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+    )
+    config = MarketPolicyConfig(
+        regions=regions,
+        checks=(PlacedCheck(MarketRegion.INDIA, MarketCheckStage.PRE_DISPATCH, _RogueIndia()),),
+    )
+    result = _live_orchestrator(market_policy=config).execute(_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
     assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+    assert "escape-hatch" not in (result.check_evidence.blocking_failure_code or "")
+
+
+def test_generic_exception_keeps_framework_code() -> None:
+    """A generic check exception retains the framework-owned
+    EVALUATION_FAILED code; it is not reclassified for being undeclared."""
+
+    class _Exploding:
+        check_id = "na.exploding"
+
+        def __call__(self, request):
+            raise RuntimeError("pack infrastructure unavailable")
+
+    config = _untrusted_policy(_Exploding())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.EVALUATION_FAILED)
 
 
 @pytest.mark.parametrize(
@@ -1276,10 +1364,9 @@ def test_valid_check_ids_accepted(good_id: str) -> None:
 def test_raw_string_outcome_fails_closed() -> None:
     class _RawOutcome:
         check_id = "na.raw"
-        failure_codes = frozenset({"toy.pack.rejected"})
 
         def __call__(self, request):
-            return MarketCheckResult("na.raw", "BLOCK", "toy.pack.rejected", "clean reason")
+            return MarketCheckResult("na.raw", "BLOCK", "toy.pack.unapproved-code", "clean reason")
 
     config = _untrusted_policy(_RawOutcome())
     result = _live_orchestrator(market_policy=config).execute(_us_request())
@@ -1292,7 +1379,6 @@ def test_raw_string_outcome_fails_closed() -> None:
 def test_raw_string_stage_fails_closed() -> None:
     class _RawStage:
         check_id = "na.rawstage"
-        failure_codes = frozenset({"toy.pack.rejected"})
 
         def __call__(self, request):
             evidence = MarketCheckEvidence(
@@ -1306,7 +1392,7 @@ def test_raw_string_stage_fails_closed() -> None:
             return MarketCheckResult(
                 "na.rawstage",
                 MarketCheckOutcome.BLOCK,
-                "toy.pack.rejected",
+                "toy.pack.unapproved-code",
                 "clean",
                 evidence=evidence,
             )
@@ -1322,11 +1408,10 @@ def test_raw_string_stage_fails_closed() -> None:
 def test_mismatched_result_check_id_fails_closed() -> None:
     class _Impostor:
         check_id = "na.impostor"
-        failure_codes = frozenset({"toy.pack.rejected"})
 
         def __call__(self, request):
             return MarketCheckResult(
-                "na.someone-else", MarketCheckOutcome.BLOCK, "toy.pack.rejected", "clean"
+                "na.someone-else", MarketCheckOutcome.BLOCK, "toy.pack.unapproved-code", "clean"
             )
 
     config = _untrusted_policy(_Impostor())
@@ -1344,7 +1429,7 @@ def test_synthesized_evidence_serializes() -> None:
 
     assert result.check_evidence is not None
     payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
-    assert json.loads(payload)["blocking_failure_code"] == "toy.pack.rejected"
+    assert json.loads(payload)["blocking_failure_code"] == "market-check.pack-blocked"
     assert json.loads(payload)["entries"][0]["outcome"] == "BLOCK"
 
 
@@ -1390,3 +1475,220 @@ def test_ordinary_evidence_rejects_skipped_code() -> None:
             venue="NYSE",
             stage_status_code="something-else",
         )
+
+
+# ---------------------------------------------------------------------------
+# Registration-snapshot identity binding
+# ---------------------------------------------------------------------------
+
+
+def test_dynamic_check_id_change_fails_closed() -> None:
+    """A check whose identifier changes after registration fails closed
+    against the registered snapshot; the malformed id never surfaces."""
+
+    class _Shifting:
+        check_id = "na.shifted-at-runtime"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "na.impostor-after-registration",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.unapproved-code",
+                "clean reason",
+            )
+
+    config = _untrusted_policy(_Shifting())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert result.check_evidence.blocking_check_id == "na.shifted-at-runtime"
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "na.impostor-after-registration" not in payload
+
+
+# ---------------------------------------------------------------------------
+# Evidence payload text policy (rule checks, provenance, versions)
+# ---------------------------------------------------------------------------
+
+
+def _compat_policy(rule_evaluator) -> MarketPolicyConfig:
+    from quantx.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
+
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+    )
+    return MarketPolicyConfig(
+        regions=regions,
+        checks=(
+            PlacedCheck(
+                MarketRegion.INDIA,
+                MarketCheckStage.PRE_DISPATCH,
+                IndiaSessionCheck(_india_approving_session()),
+            ),
+            PlacedCheck(
+                MarketRegion.INDIA, MarketCheckStage.PRE_SUBMIT, IndiaCompatCheck(rule_evaluator)
+            ),
+        ),
+    )
+
+
+def test_rule_level_banned_text_sanitized() -> None:
+    """An allow-listed aggregate rejection with a banned rule-level reason
+    blocks with the approved reason; serialized evidence carries only the
+    fixed withheld text."""
+    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+
+    def evaluator(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            checks=(
+                IndiaRuleCheck("lot", False, "B3 bucket mismatch for unit 42"),
+                IndiaRuleCheck("tick", True, "tick size ok"),
+            ),
+            rule_set_version="test",
+            provenance="test",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    broker = _RecordingBroker(_instrument())
+    result = _live_orchestrator(market_policy=_compat_policy(evaluator)).execute(
+        _request(), broker=broker
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "INDIA_LOT_SIZE_INVALID" in result.reason
+    assert broker.submit_calls == 0
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "B3" not in payload
+    assert '"reason": "india rule check failed (details withheld)"' in payload
+    assert '"reason": "india rule check passed"' in payload
+
+
+def test_rule_level_untrusted_text_sanitized() -> None:
+    """Clean-looking but unapproved rule-level text is replaced by the fixed
+    withheld message; the allow-listed aggregate reason is preserved."""
+    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+
+    def evaluator(request):
+
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            checks=(IndiaRuleCheck("lot", False, "internal margin ledger XJ-99 note"),),
+            rule_set_version="test",
+            provenance="test",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    broker = _RecordingBroker(_instrument())
+    result = _live_orchestrator(market_policy=_compat_policy(evaluator)).execute(
+        _request(), broker=broker
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "INDIA_LOT_SIZE_INVALID" in result.reason
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "XJ-99" not in payload
+    assert '"reason": "india rule check failed (details withheld)"' in payload
+
+
+def test_evidence_provenance_metadata_gated() -> None:
+    """Banned provenance/version metadata is dropped from public evidence."""
+    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+
+    def evaluator(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            checks=(IndiaRuleCheck("lot", False, "INDIA_LOT_SIZE_INVALID: nope"),),
+            rule_set_version="rules-v1",
+            provenance='File "secret.py" leak',
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    broker = _RecordingBroker(_instrument())
+    result = _live_orchestrator(market_policy=_compat_policy(evaluator)).execute(
+        _request(), broker=broker
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    compat_entries = [
+        entry
+        for entry in result.check_evidence.entries
+        if entry.check_id == "india.compatibility-rules"
+    ]
+    assert len(compat_entries) == 1
+    assert compat_entries[0].provenance is None
+    assert compat_entries[0].rule_set_version == "rules-v1"
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "secret.py" not in payload
+
+
+def test_session_rejection_untrusted_text_normalized() -> None:
+    """A session evaluator returning clean but unapproved text is normalized
+    to the static template without interpolating the evaluator text."""
+
+    from quantx.india.domain import IndianExchange, IndianSegment
+    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+
+    def closed(request):
+        return IndiaSessionResult(
+            IndiaSessionDecision.BLOCK,
+            "venue ops note XJ-42: session halted",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=datetime(2026, 1, 5, 10, 0, tzinfo=UTC),
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
+            calendar_evaluated=True,
+        )
+
+    from quantx.india.market_checks import india_market_policy
+
+    config = india_market_policy(session_evaluator=closed)
+    result = _live_orchestrator(market_policy=config).execute(_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "india session/calendar blocked the request"
+    assert "XJ-42" not in result.reason
+
+
+def test_session_rejection_approved_message_preserved() -> None:
+    """The approved plain session rejection stays intelligible."""
+
+    from quantx.india.domain import IndianExchange, IndianSegment
+    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+
+    def closed(request):
+        return IndiaSessionResult(
+            IndiaSessionDecision.BLOCK,
+            "india trading session is closed",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=datetime(2026, 1, 5, 10, 0, tzinfo=UTC),
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
+            calendar_evaluated=True,
+        )
+
+    from quantx.india.market_checks import india_market_policy
+
+    config = india_market_policy(session_evaluator=closed)
+    result = _live_orchestrator(market_policy=config).execute(_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert (
+        result.reason
+        == "india session/calendar blocked the request: india trading session is closed"
+    )
