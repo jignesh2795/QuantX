@@ -95,7 +95,7 @@ class ExecutionReceipt:
         observed_average_price: Decimal | None = None,
     ) -> ExecutionReceipt:
         """Construct a receipt while binding fill evidence to the canonical order."""
-        cls._validate_fills_against_order(order, fills, outcome)
+        cls._validate_fills_against_order(order, fills, outcome, evidence_kind)
         return cls(
             request_id=request_id,
             client_order_id=order.client_order_id,
@@ -129,25 +129,42 @@ class ExecutionReceipt:
         order: Order,
         fills: tuple[Fill, ...],
         outcome: ExecutionOutcome,
+        evidence_kind: ExecutionEvidenceKind = ExecutionEvidenceKind.EXECUTION_DELTAS,
     ) -> None:
-        execution_ids = [fill.execution_id for fill in fills]
-        if len(execution_ids) != len(set(execution_ids)):
-            raise ValueError("fills must have unique execution_id values")
-        if any(fill.instrument != order.instrument for fill in fills):
-            raise ValueError("all fills must match the order instrument")
-        if any(fill.side is not order.side for fill in fills):
-            raise ValueError("all fills must match the order side")
-        total_filled = sum((fill.quantity for fill in fills), Decimal("0"))
-        if total_filled > order.quantity:
-            raise ValueError("fill quantity cannot exceed order quantity")
-        if outcome is ExecutionOutcome.FILLED and total_filled != order.quantity:
-            raise ValueError("filled receipt fills must equal order quantity")
-        if outcome is ExecutionOutcome.PARTIALLY_FILLED and not (
-            Decimal("0") < total_filled < order.quantity
-        ):
-            raise ValueError(
-                "partially filled receipt fills must be between zero and order quantity"
-            )
+        if evidence_kind is ExecutionEvidenceKind.EXECUTION_DELTAS:
+            execution_ids = [fill.execution_id for fill in fills]
+            if len(execution_ids) != len(set(execution_ids)):
+                raise ValueError("fills must have unique execution_id values")
+            if any(fill.instrument != order.instrument for fill in fills):
+                raise ValueError("all fills must match the order instrument")
+            if any(fill.side is not order.side for fill in fills):
+                raise ValueError("all fills must match the order side")
+            total_filled = sum((fill.quantity for fill in fills), Decimal("0"))
+            if total_filled > order.quantity:
+                raise ValueError("fill quantity cannot exceed order quantity")
+            if outcome is ExecutionOutcome.FILLED and total_filled != order.quantity:
+                raise ValueError("filled receipt fills must equal order quantity")
+            if outcome is ExecutionOutcome.PARTIALLY_FILLED and not (
+                Decimal("0") < total_filled < order.quantity
+            ):
+                raise ValueError(
+                    "partially filled receipt fills must be between zero and order quantity"
+                )
+        else:
+            # CUMULATIVE_OBSERVATION: fills tuple may be empty; quantity is
+            # carried in observed_filled_quantity, not in additive fills.
+            # Still enforce that if fills are present, they must be valid.
+            if fills:
+                execution_ids = [fill.execution_id for fill in fills]
+                if len(execution_ids) != len(set(execution_ids)):
+                    raise ValueError("fills must have unique execution_id values")
+                if any(fill.instrument != order.instrument for fill in fills):
+                    raise ValueError("all fills must match the order instrument")
+                if any(fill.side is not order.side for fill in fills):
+                    raise ValueError("all fills must match the order side")
+                total_filled = sum((fill.quantity for fill in fills), Decimal("0"))
+                if total_filled > order.quantity:
+                    raise ValueError("fill quantity cannot exceed order quantity")
 
     @property
     def filled_quantity(self) -> Decimal:

@@ -261,9 +261,13 @@ class ExecutionLifecycle:
 
         if receipt.evidence_kind is ExecutionEvidenceKind.EXECUTION_DELTAS:
             new_filled = self.filled_quantity + receipt.filled_quantity
-            new_observed = None
-            new_delta_seen = True
-            if self.observed_filled_quantity is not None:
+            if receipt.filled_quantity == Decimal("0"):
+                # Zero-fill delta receipt contributes status only; preserve existing observed_filled_quantity
+                new_observed = self.observed_filled_quantity
+            else:
+                new_observed = None
+            new_delta_seen = self.delta_evidence_seen or receipt.filled_quantity > Decimal("0")
+            if new_delta_seen and self.observed_filled_quantity is not None:
                 flag_anomaly(
                     "mixed cumulative observation and execution delta evidence without "
                     "disjointness proof"
