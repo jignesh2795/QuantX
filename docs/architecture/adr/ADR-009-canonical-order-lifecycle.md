@@ -1,6 +1,12 @@
 # ADR-009: Canonical Order Lifecycle and Evidence Reduction
 
-Status: Proposed; implementation is a separate, sequenced change (QX-03 / issue #192)
+Status: Accepted; implemented on `main` by PR #214 (QX-03 Dhan goldens and
+paper IOC semantics) together with the PR #216 receipt evidence-kind
+contract (`ExecutionEvidenceKind`: cumulative observations vs. execution
+deltas, legacy-payload compatibility). The "proposed target" language in
+the body below is preserved as the decision record; where the body says
+"current implementation baseline at the PR base", that baseline predates
+the merged implementation.
 
 ## Context
 

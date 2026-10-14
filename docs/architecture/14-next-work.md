@@ -1,5 +1,12 @@
 # Next Architecture Work
 
+> **Historical record — not current policy.** This document is a
+> pre-implementation draft preserved unchanged for provenance; its plan
+> (specification before any implementation) no longer describes the
+> repository. Current state: `docs/STATUS.md`. Architecture entry point:
+> `docs/architecture/README.md`. Package map:
+> `docs/architecture/41-current-package-map.md`.
+
 The next work item is to complete the full QuantX v0.1 architecture specification from these drafts.
 
 Priority order:

@@ -1,5 +1,14 @@
 # QuantX V0.1 P0 — Canonical Contracts
 
+> **Historical record — not current policy.** This document was written
+> against the `feat/v0.1-implementation` baseline and is preserved unchanged
+> for provenance. Its branch-scoped statements (notably "before UI, broker
+> adapters, AI agents, or persistent storage are allowed", the GitHub Actions
+> validation note, and the "Next slice" plan) are superseded: broker
+> adapters, persistent storage, and later slices are implemented on `main`.
+> Current state: `docs/STATUS.md`. Package map:
+> `docs/architecture/41-current-package-map.md`.
+
 Status: implementation baseline on `feat/v0.1-implementation`.
 
 ## Purpose

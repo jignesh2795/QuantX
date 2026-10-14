@@ -13,11 +13,12 @@
 - historical data storage
 - canonical backtest
 - Python strategy interface
-- REST/WebSocket foundation
 - contract tests
 
 ## Later platform priority
 
+- REST/WebSocket foundation (M5 control plane; behind Gate 5 per
+  `docs/roadmap/decision-gates.md`, not in the declared v0.1 scope)
 - CLI (deferred from v0.1 by ADR-008; v0.1 ships the programmatic bootstrap contract instead)
 - multi-broker
 - sandbox/analyzer

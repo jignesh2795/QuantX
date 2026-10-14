@@ -1,5 +1,37 @@
 # QuantX Status
 
+## Post-merge state — PR #214 (QX-03 canonical order lifecycle)
+
+`main` is at `1fbddc69982722a03ba13bdde76aa8aa76c85d94` (Merge pull request
+#214). The merged PR #214 head was
+`675d351915671168a0e0c4af38ba82f05c85022f`; a post-merge audit proved the
+merged tree and the tested tree byte-identical (`git diff 675d351 1fbddc6`
+empty, merge parents exactly `1aaf27b` + `675d351`). PR #214 brings the
+QX-03 canonical order lifecycle (ADR-009): Dhan lifecycle goldens for all
+seven vendor statuses, explicit paper DAY/IOC semantics, and — via the
+merged PR #216 contract — cumulative-observation receipt evidence
+(`ExecutionEvidenceKind`) with legacy-payload compatibility. Issue #192
+remains open pending acceptance.
+
+The following is implementer-reported **local validation** at the tested
+head `675d351`, not GitHub Actions results and not independently executed
+in this reconciliation:
+
+- Full default suite: **1,690 passed, 1 skipped** across three consecutive
+  runs, plus a passing warnings-as-errors run.
+- Dhan-extra suite (`uv sync --frozen --extra dhan`): **130 passed**.
+- Focused Dhan lifecycle goldens: 6 passed; goldens plus paper suite:
+  53 passed; broader execution/Dhan/persistence/application suites:
+  1,106 passed, 1 skipped.
+- `uv run ruff check`: all checks passed. `uv run ruff format --check src tests`:
+  350 files already formatted. `uv run mypy`: no issues in 182 source
+  files, with the Dhan extra both absent and installed. Frozen sync and
+  `git diff --check`: clean.
+
+No GitHub Actions or paid CI was triggered for this evidence. No API keys,
+broker credentials, network-dependent tests, or real broker orders were
+used.
+
 ## Current state
 **v0.1 acceptance base:** `6f771b5044d7c971b5da2301901534a5156df361` (PR #164 merge; verified before this status update).
 
