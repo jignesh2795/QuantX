@@ -1,6 +1,6 @@
 # ADR-009: Canonical Order Lifecycle and Evidence Reduction
 
-Status: Accepted for design; implementation is a separate, sequenced change (QX-03 / issue #192)
+Status: Proposed; implementation is a separate, sequenced change (QX-03 / issue #192)
 
 ## Context
 
