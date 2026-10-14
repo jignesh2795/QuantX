@@ -58,6 +58,9 @@ masquerading as evaluated checks.
 """
 
 _BATCH_CODE_PATTERN = re.compile(r"\bB\d+\b")
+_CHECK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_FAILURE_CODE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_CHECK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 def contains_banned_text(text: str) -> bool:
@@ -65,14 +68,39 @@ def contains_banned_text(text: str) -> bool:
     return _BATCH_CODE_PATTERN.search(text) is not None or "Traceback" in text or 'File "' in text
 
 
-def sanitize_public_reason(reason: object, *, check_id: str, blocked: bool) -> str:
-    """Return a user-safe reason, replacing untrusted text with a static message.
+def is_valid_check_id(check_id: object) -> bool:
+    """Enforce the narrow check-identifier grammar plus the banned-text rule.
 
-    Clean pack-authored reasons pass through unchanged; anything that is
-    not a non-empty string or that contains banned content becomes a fixed
-    per-outcome message naming only the registered check identity.
+    Compatible with existing identifiers such as ``india.session-calendar``
+    and ``NORTH_AMERICA.pre-a``; rejects spaces, newlines, control
+    characters, arbitrary punctuation, and diagnostic fragments.
     """
-    if isinstance(reason, str) and reason.strip() and not contains_banned_text(reason):
+    return (
+        isinstance(check_id, str)
+        and _CHECK_ID_PATTERN.fullmatch(check_id) is not None
+        and not contains_banned_text(check_id)
+    )
+
+
+def is_valid_failure_code(code: object) -> bool:
+    """Enforce the narrow failure-code grammar plus the banned-text rule."""
+    return (
+        isinstance(code, str)
+        and _FAILURE_CODE_PATTERN.fullmatch(code) is not None
+        and not contains_banned_text(code)
+    )
+
+
+def sanitize_public_reason(reason: object, *, check_id: str, blocked: bool, trusted: bool) -> str:
+    """Return a user-safe reason under the core-owned trust policy.
+
+    A reason passes through only when the producing check is trusted
+    (its vocabulary is reviewed: static messages or an allow-listed
+    rule-code contract) and the text itself is a clean non-empty string
+    without banned content. Everything else becomes a fixed per-outcome
+    message naming only the registered check identity.
+    """
+    if trusted and isinstance(reason, str) and reason.strip() and not contains_banned_text(reason):
         return reason
     if blocked:
         return f"{check_id} blocked the request"
@@ -187,7 +215,18 @@ class MarketCheckSequence:
 
 @runtime_checkable
 class PreTradeCheck(Protocol):
-    """One market-pack policy check evaluated against an approved request."""
+    """One market-pack policy check evaluated against an approved request.
+
+    Optional trust metadata (read via ``getattr`` with safe defaults, never
+    required for protocol conformance):
+
+    - ``reasons_sanitized: bool`` — True only when the check's own reasons
+      are already sanitized (static messages or an allow-listed rule-code
+      contract reviewed with the pack). Untrusted checks get a static
+      fallback reason from the runner.
+    - ``failure_codes: frozenset[str]`` — the exact failure codes the check
+      may return; anything else fails closed as malformed.
+    """
 
     @property
     def check_id(self) -> str: ...
@@ -228,10 +267,8 @@ class PlacedCheck:
 
     def __post_init__(self) -> None:
         check_id = getattr(self.check, "check_id", None)
-        if not isinstance(check_id, str) or not check_id.strip():
-            raise ValueError("check id must not be empty")
-        if contains_banned_text(check_id):
-            raise ValueError("check id must not contain batch codes or diagnostic fragments")
+        if not isinstance(check_id, str) or not is_valid_check_id(check_id):
+            raise ValueError("check id must use the identifier grammar and be codename-free")
 
 
 @dataclass(frozen=True, slots=True)
@@ -457,6 +494,8 @@ __all__ = [
     "coerce_market_context",
     "contains_banned_text",
     "default_market_policy",
+    "is_valid_check_id",
+    "is_valid_failure_code",
     "market_evidence_to_mapping",
     "normalize_market_context",
     "sanitize_public_reason",

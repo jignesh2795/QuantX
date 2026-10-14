@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import ClassVar
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
@@ -110,6 +111,14 @@ class IndiaSessionCheck:
 
     evaluator: Callable[[ApprovedExecutionRequest], IndiaSessionResult]
     check_id: str = "india.session-calendar"
+    reasons_sanitized: ClassVar[bool] = True
+    failure_codes: ClassVar[frozenset[str]] = frozenset(
+        {
+            "india.session-calendar.evaluation-failed",
+            "india.session-calendar.evidence-missing",
+            "india.session-calendar.rejected",
+        }
+    )
 
     def __call__(self, request: ApprovedExecutionRequest) -> MarketCheckResult:
         try:
@@ -205,6 +214,15 @@ class IndiaCompatCheck:
 
     evaluator: Callable[[ApprovedExecutionRequest], IndiaRuleResult]
     check_id: str = "india.compatibility-rules"
+    reasons_sanitized: ClassVar[bool] = True
+    failure_codes: ClassVar[frozenset[str]] = frozenset(
+        {
+            "india.compatibility.evaluation-failed",
+            "india.compatibility.evidence-missing",
+            "india.compatibility.rejected",
+            "india.compatibility.malformed-evidence",
+        }
+    )
 
     def __call__(self, request: ApprovedExecutionRequest) -> MarketCheckResult:
         try:

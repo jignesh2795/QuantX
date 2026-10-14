@@ -35,6 +35,7 @@ from quantx.ports.market_checks import (
     UnclassifiedRegion,
     UnknownMarketValue,
     default_market_policy,
+    is_valid_failure_code,
     sanitize_public_reason,
     select_market_policy,
 )
@@ -146,6 +147,10 @@ class ExecutionOrchestrator:
         """
         for check in checks:
             check_id = getattr(check, "check_id", None) or type(check).__name__
+            trusted = getattr(check, "reasons_sanitized", False) is True
+            declared_codes = frozenset(
+                str(code) for code in (getattr(check, "failure_codes", frozenset()) or frozenset())
+            )
             try:
                 result = check(request)
             except Exception as exc:
@@ -156,17 +161,18 @@ class ExecutionOrchestrator:
                     f"{check_id} evaluation failed closed",
                     detail=f"{type(exc).__name__}: {exc}",
                 )
-            if (
-                not isinstance(result, MarketCheckResult)
-                or type(result.outcome) is not MarketCheckOutcome
-                or result.outcome
-                not in (
+            shape_ok = (
+                isinstance(result, MarketCheckResult)
+                and type(result.outcome) is MarketCheckOutcome
+                and result.outcome
+                in (
                     MarketCheckOutcome.PASS,
                     MarketCheckOutcome.BLOCK,
                     MarketCheckOutcome.UNAVAILABLE,
                 )
-                or result.check_id != check_id
-            ):
+                and result.check_id == check_id
+            )
+            if not shape_ok:
                 result = MarketCheckResult(
                     check_id,
                     MarketCheckOutcome.UNAVAILABLE,
@@ -174,6 +180,34 @@ class ExecutionOrchestrator:
                     f"{check_id} returned a malformed result",
                     detail=f"unexpected result {type(result).__name__}",
                 )
+            else:
+                if result.outcome is not MarketCheckOutcome.PASS:
+                    # Sanitize only check-returned reasons here. Runner-synthesized
+                    # messages are static and trusted by construction, so they
+                    # bypass the sanitizer instead of being rewritten by it.
+                    sanitized = sanitize_public_reason(
+                        result.reason,
+                        check_id=check_id,
+                        blocked=result.outcome is MarketCheckOutcome.BLOCK,
+                        trusted=trusted,
+                    )
+                    if sanitized != result.reason:
+                        result = replace(
+                            result,
+                            reason=sanitized,
+                            detail=result.detail or f"withheld unsanitized reason for {check_id}",
+                        )
+                if result.outcome is not MarketCheckOutcome.PASS and (
+                    result.failure_code not in declared_codes
+                    or not is_valid_failure_code(result.failure_code)
+                ):
+                    result = MarketCheckResult(
+                        check_id,
+                        MarketCheckOutcome.UNAVAILABLE,
+                        MarketCheckFailureCode.MALFORMED_RESULT,
+                        f"{check_id} returned an undeclared failure code",
+                        detail=f"undeclared failure code {result.failure_code!r}",
+                    )
             provided = result.evidence
             if provided is None:
                 entries.append(
@@ -217,17 +251,6 @@ class ExecutionOrchestrator:
                 else:
                     entries.append(validated)
             if result.outcome is not MarketCheckOutcome.PASS:
-                sanitized = sanitize_public_reason(
-                    result.reason,
-                    check_id=check_id,
-                    blocked=result.outcome is MarketCheckOutcome.BLOCK,
-                )
-                if sanitized != result.reason:
-                    result = replace(
-                        result,
-                        reason=sanitized,
-                        detail=result.detail or f"withheld unsanitized reason for {check_id}",
-                    )
                 return result
         return None
 

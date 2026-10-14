@@ -121,7 +121,13 @@ def _live_orchestrator(**overrides) -> ExecutionOrchestrator:
 
 
 class _ToyCheck:
-    """Test-only pack check with a fixed verdict and call recording."""
+    """Test-only pack check with a fixed verdict and call recording.
+
+    Untrusted by default: reasons fall back to the runner static message
+    unless a test opts into trust explicitly.
+    """
+
+    failure_codes = frozenset({"toy.pack.rejected"})
 
     def __init__(
         self,
@@ -340,7 +346,7 @@ def test_toy_pa_block_runs_before_session_guard() -> None:
     result = orchestrator.execute(_us_request())
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == "toy check verdict"
+    assert result.reason == "NORTH_AMERICA.pre-a blocked the request"
     assert [call for call in calls] != []
     assert result.check_evidence is not None
     assert [entry.check_id for entry in result.check_evidence.entries] == ["NORTH_AMERICA.pre-a"]
@@ -355,7 +361,7 @@ def test_toy_pb_block_runs_after_broker_checks_before_submit() -> None:
     result = orchestrator.execute(_us_request(), broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == "toy check verdict"
+    assert result.reason == "NORTH_AMERICA.pre-b blocked the request"
     assert broker.submit_calls == 0
     assert result.check_evidence is not None
     assert [entry.check_id for entry in result.check_evidence.entries] == [
@@ -762,7 +768,7 @@ def test_check_without_identity_rejected_at_registration() -> None:
         def __call__(self, request):
             return None
 
-    with pytest.raises(ValueError, match="check id must not be empty"):
+    with pytest.raises(ValueError, match="identifier grammar"):
         PlacedCheck(MarketRegion.NORTH_AMERICA, MarketCheckStage.PRE_DISPATCH, _AnonymousCheck())
 
 
@@ -1025,6 +1031,7 @@ def test_evidence_mismatch_fails_closed(tamper: str) -> None:
 
     class _TamperingCheck:
         check_id = "na.honest"
+        failure_codes = frozenset({"toy.pack.rejected"})
 
         def __call__(self, request):
             return MarketCheckResult(
@@ -1118,3 +1125,268 @@ def test_replacing_pack_cannot_disable_session_guard() -> None:
     assert "closed" in result.reason
     assert result.check_evidence is not None
     assert [entry.check_id for entry in result.check_evidence.entries] == ["NORTH_AMERICA.pre-a"]
+
+
+# ---------------------------------------------------------------------------
+# Trust policy: untrusted reasons, codes, identifiers
+# ---------------------------------------------------------------------------
+
+
+def _untrusted_check(reason: str, code: str = "toy.pack.rejected"):
+    class _Untrusted:
+        check_id = "na.untrusted"
+        failure_codes = frozenset({"toy.pack.rejected"})
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "na.untrusted",
+                MarketCheckOutcome.BLOCK,
+                code,
+                reason,
+            )
+
+    return _Untrusted()
+
+
+def _untrusted_policy(check) -> MarketPolicyConfig:
+    regions = _regions_with_canonical_india(
+        RegionMarketPolicy(
+            region=MarketRegion.NORTH_AMERICA,
+            requires_pack=True,
+            required_stages=frozenset({MarketCheckStage.PRE_DISPATCH}),
+        )
+    )
+    return MarketPolicyConfig(
+        regions=regions,
+        checks=(PlacedCheck(MarketRegion.NORTH_AMERICA, MarketCheckStage.PRE_DISPATCH, check),),
+    )
+
+
+def test_untrusted_arbitrary_reason_replaced() -> None:
+    config = _untrusted_policy(
+        _untrusted_check("account overdrawn by internal ledger XJ-99, contact ops"),
+    )
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "na.untrusted blocked the request"
+    assert "XJ-99" not in result.reason
+
+
+def test_untrusted_traceback_reason_replaced() -> None:
+    config = _untrusted_policy(
+        _untrusted_check('boom\nTraceback (most recent call last):\n  File "x.py", line 1'),
+    )
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "na.untrusted blocked the request"
+    assert "Traceback" not in result.reason
+    assert "x.py" not in result.reason
+
+
+def test_untrusted_filename_reason_replaced() -> None:
+    config = _untrusted_policy(_untrusted_check('see File "secrets/vault.py" for details'))
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "na.untrusted blocked the request"
+    assert "vault.py" not in result.reason
+
+
+def test_trusted_b3_reason_still_replaced() -> None:
+    class _TrustedB3:
+        check_id = "na.trusted"
+        reasons_sanitized = True
+        failure_codes = frozenset({"toy.pack.rejected"})
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "na.trusted", MarketCheckOutcome.BLOCK, "toy.pack.rejected", "B3 outage"
+            )
+
+    config = _untrusted_policy(_TrustedB3())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "na.trusted blocked the request"
+    assert "B3" not in result.reason
+
+
+def test_undeclared_failure_code_rejected() -> None:
+    class _SneakyCode:
+        check_id = "na.sneaky"
+        failure_codes = frozenset({"toy.pack.rejected"})
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "na.sneaky", MarketCheckOutcome.BLOCK, "B3.internal-override", "clean reason"
+            )
+
+    config = _untrusted_policy(_SneakyCode())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "B3.internal-override" not in result.reason
+    assert "B3" not in (result.check_evidence.blocking_failure_code or "")
+    assert result.check_evidence is not None
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+
+
+def test_malformed_failure_code_characters_rejected() -> None:
+    class _WeirdCode:
+        check_id = "na.weird"
+        failure_codes = frozenset({"has space", "a/b", "x:y"})
+
+        def __call__(self, request):
+            return MarketCheckResult("na.weird", MarketCheckOutcome.BLOCK, "has space", "clean")
+
+    config = _untrusted_policy(_WeirdCode())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+
+
+@pytest.mark.parametrize(
+    "bad_id", ["has space", "line\nbreak", "tab\there", "a/b", "x:y", "B3-evil"]
+)
+def test_invalid_check_id_rejected_at_registration(bad_id: str) -> None:
+    class _BadId:
+        check_id = bad_id
+
+        def __call__(self, request):
+            return None
+
+    with pytest.raises(ValueError, match="identifier grammar"):
+        PlacedCheck(MarketRegion.NORTH_AMERICA, MarketCheckStage.PRE_DISPATCH, _BadId())
+
+
+@pytest.mark.parametrize(
+    "good_id",
+    ["india.session-calendar", "india.compatibility-rules", "NORTH_AMERICA.pre-a", "dup", "a"],
+)
+def test_valid_check_ids_accepted(good_id: str) -> None:
+    from quantx.ports.market_checks import is_valid_check_id
+
+    assert is_valid_check_id(good_id) is True
+
+
+def test_raw_string_outcome_fails_closed() -> None:
+    class _RawOutcome:
+        check_id = "na.raw"
+        failure_codes = frozenset({"toy.pack.rejected"})
+
+        def __call__(self, request):
+            return MarketCheckResult("na.raw", "BLOCK", "toy.pack.rejected", "clean reason")
+
+    config = _untrusted_policy(_RawOutcome())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+
+
+def test_raw_string_stage_fails_closed() -> None:
+    class _RawStage:
+        check_id = "na.rawstage"
+        failure_codes = frozenset({"toy.pack.rejected"})
+
+        def __call__(self, request):
+            evidence = MarketCheckEvidence(
+                check_id="na.rawstage",
+                stage="pre_dispatch",
+                outcome=MarketCheckOutcome.BLOCK,
+                region=MarketRegion.NORTH_AMERICA,
+                family=MarketFamily.EQUITY,
+                venue="NYSE",
+            )
+            return MarketCheckResult(
+                "na.rawstage",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.rejected",
+                "clean",
+                evidence=evidence,
+            )
+
+    config = _untrusted_policy(_RawStage())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+
+
+def test_mismatched_result_check_id_fails_closed() -> None:
+    class _Impostor:
+        check_id = "na.impostor"
+        failure_codes = frozenset({"toy.pack.rejected"})
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "na.someone-else", MarketCheckOutcome.BLOCK, "toy.pack.rejected", "clean"
+            )
+
+    config = _untrusted_policy(_Impostor())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.blocking_check_id == "na.impostor"
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+
+
+def test_synthesized_evidence_serializes() -> None:
+    config = _untrusted_policy(_untrusted_check("boom"))
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.check_evidence is not None
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert json.loads(payload)["blocking_failure_code"] == "toy.pack.rejected"
+    assert json.loads(payload)["entries"][0]["outcome"] == "BLOCK"
+
+
+def test_skipped_stage_code_and_serialization() -> None:
+    policy, _ = _toy_policy(optional_submit=True)
+    broker = _RecordingBroker(_us_instrument())
+    result = _live_orchestrator(market_policy=policy).execute(_us_request(), broker=broker)
+
+    assert result.check_evidence is not None
+    skipped = [
+        entry
+        for entry in result.check_evidence.entries
+        if entry.outcome is MarketCheckOutcome.SKIPPED
+    ]
+    assert len(skipped) == 1
+    assert skipped[0].stage_status_code == "market-check.stage-skipped-by-policy"
+    assert result.check_evidence.blocking_check_id is None
+    assert result.check_evidence.blocking_failure_code is None
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert '"stage_status_code": "market-check.stage-skipped-by-policy"' in payload
+
+
+def test_ordinary_evidence_rejects_skipped_code() -> None:
+    from quantx.ports.market_checks import SKIPPED_STAGE_STATUS_CODE
+
+    with pytest.raises(ValueError, match="only skipped evidence"):
+        MarketCheckEvidence(
+            check_id="x",
+            stage=MarketCheckStage.PRE_DISPATCH,
+            outcome=MarketCheckOutcome.PASS,
+            region=MarketRegion.NORTH_AMERICA,
+            family=MarketFamily.EQUITY,
+            venue="NYSE",
+            stage_status_code=SKIPPED_STAGE_STATUS_CODE,
+        )
+    with pytest.raises(ValueError, match="skipped-stage status code"):
+        MarketCheckEvidence(
+            check_id="x",
+            stage=MarketCheckStage.PRE_DISPATCH,
+            outcome=MarketCheckOutcome.SKIPPED,
+            region=MarketRegion.NORTH_AMERICA,
+            family=MarketFamily.EQUITY,
+            venue="NYSE",
+            stage_status_code="something-else",
+        )
