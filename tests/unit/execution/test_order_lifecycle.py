@@ -52,6 +52,42 @@ def test_normal_order_lifecycle_uses_canonical_statuses_and_quantity_evidence():
     assert not lifecycle.requires_reconciliation
 
 
+@pytest.mark.parametrize(
+    ("status", "order_quantity", "filled_quantity"),
+    [
+        (OrderStatus.ACCEPTED, None, None),
+        (OrderStatus.EXPIRED, None, None),
+        (OrderStatus.FILLED, Decimal("2"), Decimal("2")),
+    ],
+)
+def test_authoritative_reconciliation_accepts_first_observed_state(
+    status,
+    order_quantity,
+    filled_quantity,
+):
+    order_id = uuid4()
+    lifecycle = OrderLifecycle(order_id)
+    lifecycle.reconcile(
+        event(
+            order_id,
+            status,
+            order_quantity=order_quantity,
+            filled_quantity=filled_quantity,
+        )
+    )
+    assert lifecycle.status is status
+    assert not lifecycle.requires_reconciliation
+
+
+def test_authoritative_reconciliation_does_not_regress_to_submit_pending():
+    order_id = uuid4()
+    lifecycle = OrderLifecycle(order_id)
+    lifecycle.reconcile(event(order_id, OrderStatus.ACCEPTED))
+    with pytest.raises(ValueError, match="invalid order transition"):
+        lifecycle.reconcile(event(order_id, OrderStatus.PENDING_SUBMIT))
+    assert lifecycle.status is OrderStatus.ACCEPTED
+
+
 def test_acknowledged_order_can_be_cancelled_directly():
     order_id = uuid4()
     lifecycle = OrderLifecycle(order_id)
@@ -142,7 +178,7 @@ def test_terminal_status_is_absorbing(terminal_status):
     lifecycle = OrderLifecycle(order_id)
     lifecycle.apply(event(order_id, OrderStatus.SUBMITTED))
     if terminal_status is OrderStatus.FILLED:
-        lifecycle.apply(
+        lifecycle.reconcile(
             event(
                 order_id,
                 terminal_status,
@@ -151,7 +187,7 @@ def test_terminal_status_is_absorbing(terminal_status):
             )
         )
     else:
-        lifecycle.apply(event(order_id, terminal_status))
+        lifecycle.reconcile(event(order_id, terminal_status))
     contradictory = (
         OrderStatus.CANCELLED
         if terminal_status is not OrderStatus.CANCELLED

@@ -159,6 +159,20 @@ def is_terminal_order_status(status: OrderStatus) -> bool:
     return status in TERMINAL_ORDER_STATUSES
 
 
+def _is_reachable_status(current_status: OrderStatus, observed_status: OrderStatus) -> bool:
+    """Return whether the target can follow the current state without moving backwards."""
+    visited: set[OrderStatus] = set()
+    pending = list(_ORDER_STATUS_TRANSITIONS[current_status])
+    while pending:
+        candidate = pending.pop()
+        if candidate is observed_status:
+            return True
+        if candidate not in visited:
+            visited.add(candidate)
+            pending.extend(_ORDER_STATUS_TRANSITIONS[candidate] - visited)
+    return False
+
+
 def _reduce_order_status(
     current_status: OrderStatus,
     observed_status: OrderStatus,
@@ -291,7 +305,10 @@ def _reduce_order_status(
         return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
 
     if strict_transition and observed_status not in _ORDER_STATUS_TRANSITIONS[current_status]:
-        raise ValueError(f"invalid order transition: {current_status} -> {observed_status}")
+        if not reconciliation_authorized or not _is_reachable_status(
+            current_status, observed_status
+        ):
+            raise ValueError(f"invalid order transition: {current_status} -> {observed_status}")
 
     if order_quantity is not None and new_filled == order_quantity:
         if observed_status in CONTRADICTORY_TERMINAL_STATUSES:

@@ -15,6 +15,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from ..order_lifecycle import _reduce_order_status, is_terminal_order_status
 from .models import ExecutionReceipt
 
+
 @dataclass(frozen=True, slots=True)
 class ExecutionLifecycle:
     client_order_id: UUID | str
