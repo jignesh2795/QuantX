@@ -14,7 +14,6 @@ from quantx.domain.risk import RiskDecision, RiskResult
 
 from .models import ExecutionReceipt
 
-
 _TERMINAL_ORDER_STATUSES = frozenset(
     {
         OrderStatus.FILLED,
