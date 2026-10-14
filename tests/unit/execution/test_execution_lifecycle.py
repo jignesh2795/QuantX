@@ -380,9 +380,7 @@ def test_terminal_status_transition_matrix_is_absorbing(
 ) -> None:
     order_id = uuid4()
     order_quantity = Decimal("10")
-    filled_quantity = (
-        order_quantity if terminal_status is OrderStatus.FILLED else Decimal("2")
-    )
+    filled_quantity = order_quantity if terminal_status is OrderStatus.FILLED else Decimal("2")
     lifecycle = ExecutionLifecycle(
         order_id,
         order_quantity,
@@ -437,22 +435,14 @@ def test_reducer_quantity_invariants_over_decimal_grid() -> None:
             remaining = quantity - initial_filled
             for fill_fraction in (Decimal("0"), Decimal("0.25")):
                 added_fill = remaining * fill_fraction
-                initial_status = (
-                    OrderStatus.CREATED
-                    if initial_filled == 0
-                    else OrderStatus.PARTIALLY_FILLED
-                )
+                initial_status = OrderStatus.CREATED if initial_filled == 0 else OrderStatus.PARTIALLY_FILLED
                 lifecycle = ExecutionLifecycle(
                     order_id,
                     quantity,
                     filled_quantity=initial_filled,
                     status=initial_status,
                 )
-                receipt_status = (
-                    OrderStatus.ACCEPTED
-                    if added_fill == 0
-                    else OrderStatus.PARTIALLY_FILLED
-                )
+                receipt_status = OrderStatus.ACCEPTED if added_fill == 0 else OrderStatus.PARTIALLY_FILLED
                 receipt = _receipt_with_status(
                     order_id,
                     quantity,
@@ -476,16 +466,12 @@ def test_reducer_quantity_invariants_over_decimal_grid() -> None:
                 if updated.is_complete:
                     assert not updated.requires_reconciliation
                     assert updated.status is not OrderStatus.UNKNOWN
-                    assert (
-                        updated.remaining_quantity == 0
-                        or updated.status
-                        in {
-                            OrderStatus.CANCELLED,
-                            OrderStatus.REJECTED,
-                            OrderStatus.EXPIRED,
-                            OrderStatus.FAILED,
-                        }
-                    )
+                    assert updated.remaining_quantity == 0 or updated.status in {
+                        OrderStatus.CANCELLED,
+                        OrderStatus.REJECTED,
+                        OrderStatus.EXPIRED,
+                        OrderStatus.FAILED,
+                    }
     assert scenarios == 24
 
 
