@@ -52,7 +52,6 @@ AUTHORITATIVE_RESOLUTION_STATUSES = frozenset(
         OrderStatus.CANCELLED,
         OrderStatus.REJECTED,
         OrderStatus.EXPIRED,
-        OrderStatus.FAILED,
     }
 )
 CONTRADICTORY_TERMINAL_STATUSES = frozenset(
@@ -303,6 +302,30 @@ def _reduce_order_status(
 
     if observed_status is OrderStatus.UNKNOWN:
         return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
+
+    if (
+        observed_status is OrderStatus.FAILED
+        and current_status not in {OrderStatus.CREATED, OrderStatus.PENDING_SUBMIT}
+    ):
+        if strict_transition:
+            raise ValueError(
+                f"invalid order transition: {current_status} -> {observed_status}"
+            )
+        flag_anomaly(
+            "FAILED status conflicts with evidence that the order may have been live"
+        )
+        return result(current_status, needs_reconciliation=True)
+
+    if (
+        not strict_transition
+        and current_status is not OrderStatus.CREATED
+        and observed_status is not current_status
+        and not _is_reachable_status(current_status, observed_status)
+    ):
+        flag_anomaly(
+            f"unreachable status {observed_status.value} observed after {current_status.value}"
+        )
+        return result(current_status, needs_reconciliation=True)
 
     if (
         strict_transition

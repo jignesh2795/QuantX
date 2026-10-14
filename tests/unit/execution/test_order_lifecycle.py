@@ -203,6 +203,17 @@ def test_authoritative_reconciliation_accepts_first_observed_state(
     assert not lifecycle.requires_reconciliation
 
 
+def test_authoritative_reconciliation_does_not_resolve_unknown_as_failed():
+    order_id = uuid4()
+    lifecycle = OrderLifecycle(order_id)
+    lifecycle.apply(event(order_id, OrderStatus.SUBMITTED))
+    lifecycle.apply(event(order_id, OrderStatus.UNKNOWN, confidence=OutcomeConfidence.UNCERTAIN))
+    lifecycle.reconcile(event(order_id, OrderStatus.FAILED))
+    assert lifecycle.status is OrderStatus.UNKNOWN
+    assert lifecycle.requires_reconciliation
+    assert lifecycle.anomalies
+
+
 def test_authoritative_reconciliation_does_not_regress_to_submit_pending():
     order_id = uuid4()
     lifecycle = OrderLifecycle(order_id)
