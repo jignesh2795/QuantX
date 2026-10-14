@@ -485,3 +485,81 @@ def test_read_calls_time_out_without_hanging_caller(
     finally:
         release.set()
         transport.close()
+
+
+class _CancelEchoFakeDhanClient:
+    """Fake SDK client whose reconciliation detail carries a configurable echo."""
+
+    def __init__(self, correlation_echo: str | None) -> None:
+        self._correlation_echo = correlation_echo
+        self.cancel_calls: list[str] = []
+
+    def get_order_by_correlationID(self, correlation_id: str) -> object:  # noqa: N802
+        payload: dict[str, object] = {
+            "orderId": "resolved-order",
+            "orderStatus": "PENDING",
+        }
+        if self._correlation_echo is not None:
+            payload["correlationId"] = self._correlation_echo
+        return {"status": "success", "remarks": "", "data": payload}
+
+    def cancel_order(self, order_id: str) -> object:
+        self.cancel_calls.append(order_id)
+        return {
+            "status": "success",
+            "remarks": "",
+            "data": {"orderId": order_id, "orderStatus": "CANCELLED"},
+        }
+
+    def get_fund_limits(self) -> object:
+        return {"status": "success", "remarks": "", "data": {}}
+
+    def get_positions(self) -> object:
+        return {"status": "success", "remarks": "", "data": []}
+
+    def place_order(self, **kwargs: object) -> object:
+        raise AssertionError("no submission is expected in this test")
+
+
+def test_sdk_cancel_proceeds_when_correlation_echo_confirms(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A confirming correlation echo binds the resolution and permits the cancel."""
+    client = _CancelEchoFakeDhanClient(correlation_echo="requested-correlation")
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        response = transport.cancel("requested-correlation", timeout=5.0)
+        assert response.order_status == "CANCELLED"
+        assert client.cancel_calls == ["resolved-order"]
+    finally:
+        transport.close()
+
+
+def test_sdk_cancel_refuses_mismatched_correlation_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mismatched echo means the resolved order is not bindable; never cancel it."""
+    client = _CancelEchoFakeDhanClient(correlation_echo="different-correlation")
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        response = transport.cancel("requested-correlation", timeout=5.0)
+        assert response.order_status == "UNKNOWN"
+        assert response.order_id is None
+        assert client.cancel_calls == []
+    finally:
+        transport.close()
+
+
+def test_sdk_cancel_refuses_absent_correlation_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing echo evidence must not silently become a definitive cancellation."""
+    client = _CancelEchoFakeDhanClient(correlation_echo=None)
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        response = transport.cancel("requested-correlation", timeout=5.0)
+        assert response.order_status == "UNKNOWN"
+        assert response.order_id is None
+        assert client.cancel_calls == []
+    finally:
+        transport.close()

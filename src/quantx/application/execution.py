@@ -15,6 +15,7 @@ from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
+from quantx.execution.receipts.identity import validate_live_receipt_identity
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.trading_gate import TradingGate
@@ -503,6 +504,20 @@ class ExecutionOrchestrator:
                 ExecutionDispatchStatus.UNKNOWN,
                 receipt=receipt,
                 reason="broker returned an UNKNOWN receipt; reconciliation is required",
+            )
+        # Identity validation: the broker response must be demonstrably bound to
+        # the approved request before it can be persisted as authoritative evidence
+        # or used to complete the idempotency reservation.  Any mismatch leaves the
+        # PENDING reservation intact so that reconciliation can resolve the outcome;
+        # the foreign receipt is discarded without being written to the database.
+        identity_violation = validate_live_receipt_identity(request, receipt)
+        if identity_violation is not None:
+            return ExecutionResult(
+                ExecutionDispatchStatus.UNKNOWN,
+                reason=(
+                    f"broker receipt identity mismatch — keeping reservation pending "
+                    f"for reconciliation; {identity_violation.reason}"
+                ),
             )
         with unit_of_work:
             unit_of_work.receipts.save(receipt)
