@@ -8,19 +8,46 @@ adapters can share the same preparation semantics.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
+from quantx.domain.deployment import ExecutionContext, StrategyDeployment
 from quantx.domain.enums import OrderSide
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle, MarketDataEvent, Quote
+from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction
 
 from .deployment import StrategyExecutionDecision
+
+
+def bind_deployment_context(intent: TradeIntent, deployment: StrategyDeployment) -> TradeIntent:
+    """Attach the deployment's execution context to a strategy-produced intent.
+
+    The deployment is the authority for account, portfolio, deployment
+    identity, market, and execution mode. A rehearsal carries no broker
+    connection, so the bound context records ``broker_connection_id=None``
+    rather than inventing one. An intent that already carries a context
+    must match the deployment exactly; conflicting deployment evidence is
+    rejected, never silently overwritten.
+    """
+    bound = ExecutionContext(
+        account_id=deployment.account_id,
+        portfolio_id=deployment.portfolio_id,
+        deployment_id=deployment.deployment_id,
+        market=deployment.market,
+        broker_connection_id=None,
+        execution_mode=deployment.execution_mode,
+    )
+    if intent.execution_context is None:
+        return replace(intent, execution_context=bound)
+    if intent.execution_context != bound:
+        raise ValueError("intent execution context does not match deployment")
+    return intent
 
 
 @dataclass(frozen=True, slots=True)

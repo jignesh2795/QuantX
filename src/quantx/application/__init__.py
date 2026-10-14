@@ -41,6 +41,12 @@ from .recovery_composition import (
 )
 from .research_run_read import ResearchRunReadService, ResearchRunSnapshot
 from .runtime import ApplicationRuntime, ApplicationStartupResult, StartupRecoveryHook
+from .strategy_rehearsal import (
+    RehearsalInput,
+    StrategyRehearsalResult,
+    StrategyRehearsalSession,
+    StrategyRehearsalStep,
+)
 from .uncertain_submission import UncertainSubmissionReceiptRecovery
 
 __all__ = [
@@ -86,4 +92,8 @@ __all__ = [
     "build_application_runtime",
     "ResearchRunReadService",
     "ResearchRunSnapshot",
+    "RehearsalInput",
+    "StrategyRehearsalResult",
+    "StrategyRehearsalSession",
+    "StrategyRehearsalStep",
 ]

@@ -4,7 +4,11 @@ from .compiler import StrategyCompiler
 from .context import StrategyContext
 from .deployment import StrategyDeploymentRuntime, StrategyExecutionDecision
 from .evaluation import StrategyEvaluation, StrategyEvaluationService
-from .execution import StrategyExecutionPreparation, StrategyExecutionPreparer
+from .execution import (
+    StrategyExecutionPreparation,
+    StrategyExecutionPreparer,
+    bind_deployment_context,
+)
 from .ir import StrategyIR
 from .reference import BuyAndHoldStrategy, BuyThenCloseStrategy
 from .registry import StrategyRegistry
@@ -25,4 +29,5 @@ __all__ = [
     "StrategyIR",
     "StrategyRegistry",
     "StrategyRuntime",
+    "bind_deployment_context",
 ]
