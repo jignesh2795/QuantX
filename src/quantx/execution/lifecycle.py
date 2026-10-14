@@ -91,6 +91,7 @@ class ExecutionLifecycleService:
             request.order.quantity,
             receipts,
             correlation_id=correlation_id,
+            authoritative_reconciliation=True,
         )
 
     def _receipts_for_dispatch(

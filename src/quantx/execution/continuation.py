@@ -155,6 +155,7 @@ class ExecutionContinuationService:
             child_request.order.quantity,
             child_receipts,
             correlation_id=parent_id,
+            authoritative_reconciliation=True,
         )
         if child_lifecycle.filled_quantity > parent_lifecycle.remaining_quantity:
             raise ValueError("continuation fills exceed parent lifecycle remainder")

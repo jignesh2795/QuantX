@@ -213,3 +213,40 @@ def test_reconcile_rejects_missing_receipt_evidence() -> None:
 
     with pytest.raises(ValueError, match="receipts are unavailable"):
         service.reconcile(request)
+
+
+def test_reconcile_can_resolve_unknown_from_authoritative_receipt_history() -> None:
+    request = _request()
+    observed_at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    unknown = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.UNKNOWN,
+        order_status=OrderStatus.UNKNOWN,
+        executed_at=observed_at,
+        order_id=request.order.client_order_id,
+        order_quantity=request.order.quantity,
+        correlation_id=request.correlation_id,
+    )
+    confirmed = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=observed_at.replace(second=16),
+        order_id=request.order.client_order_id,
+        order_quantity=request.order.quantity,
+        correlation_id=request.correlation_id,
+    )
+    repository = _ReceiptRepository((unknown, confirmed))
+    service = ExecutionLifecycleService(
+        ExecutionDispatcher(),
+        receipt_repository=repository,
+    )
+
+    lifecycle = service.reconcile(request)
+
+    assert lifecycle.status is OrderStatus.ACCEPTED
+    assert not lifecycle.requires_reconciliation
+    assert not lifecycle.is_complete
+    assert not lifecycle.can_continue
