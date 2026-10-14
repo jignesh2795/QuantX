@@ -2,8 +2,6 @@
 
 > **Historical consolidation snapshot.** The validation references, historical test totals, and the former "active area" below describe an earlier consolidation phase, not the current milestone queue. Current state and ordering are maintained in `docs/STATUS.md` and `docs/roadmap/README.md`. M4.1 strategy-to-paper rehearsal is merged in PR #218; issue #197 is the next ordered design task before broader StrategyContext/callback work in #196.
 
-
-
 ## Purpose
 
 This document records the repository consolidation pass and keeps implementation aligned with the agreed modular architecture without adding parallel abstractions.
