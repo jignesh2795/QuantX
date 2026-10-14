@@ -14,6 +14,18 @@ class PaperOrderType(StrEnum):
     STOP_LIMIT = "STOP_LIMIT"
 
 
+class PaperTimeInForce(StrEnum):
+    """Time-in-force values with explicit paper-venue semantics.
+
+    Only DAY (resting) and IOC (immediate-or-cancel) are modeled. Any other
+    value (FOK, GTC, ...) is rejected at spec construction rather than
+    silently interpreted as DAY.
+    """
+
+    DAY = "DAY"
+    IOC = "IOC"
+
+
 @dataclass(frozen=True, slots=True)
 class PaperOrderSpec:
     side: str
@@ -21,6 +33,7 @@ class PaperOrderSpec:
     quantity: Decimal
     limit_price: Decimal | None = None
     stop_price: Decimal | None = None
+    time_in_force: PaperTimeInForce = PaperTimeInForce.DAY
 
     def __post_init__(self) -> None:
         if self.side.upper() not in {"BUY", "SELL"}:
