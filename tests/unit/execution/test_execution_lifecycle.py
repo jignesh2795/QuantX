@@ -68,6 +68,35 @@ def test_child_receipt_updates_parent_lifecycle_without_overstating_completion()
     assert updated.can_continue
 
 
+def test_child_unknown_receipt_keeps_parent_unresolved() -> None:
+    from dataclasses import replace
+
+    parent_id = uuid4()
+    lifecycle = ExecutionLifecycle(
+        parent_id,
+        Decimal("10"),
+        filled_quantity=Decimal("4"),
+        status=OrderStatus.PARTIALLY_FILLED,
+    )
+    child_id = lifecycle.continuation_client_order_id(Decimal("6"))
+    child_receipt = _receipt_with_status(
+        child_id,
+        Decimal("6"),
+        OrderStatus.UNKNOWN,
+        Decimal("0"),
+        seconds=1,
+    )
+    child_receipt = replace(child_receipt, correlation_id=str(parent_id))
+
+    updated = lifecycle.apply(child_receipt)
+
+    assert updated.status is OrderStatus.UNKNOWN
+    assert updated.filled_quantity == Decimal("4")
+    assert updated.requires_reconciliation
+    assert not updated.is_complete
+    assert not updated.can_continue
+
+
 def test_continuation_cannot_exceed_evidenced_remainder() -> None:
     lifecycle = ExecutionLifecycle(
         uuid4(),
@@ -142,7 +171,6 @@ def test_partial_continuation_executes_remaining_quantity_with_parent_correlatio
     assert receipt.client_order_id != request.order.client_order_id
     assert receipt.correlation_id == str(request.order.client_order_id)
     assert receipt.filled_quantity == Decimal("6")
-
 
 
 def _receipt_with_status(

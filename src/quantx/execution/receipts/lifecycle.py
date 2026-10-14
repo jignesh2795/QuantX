@@ -11,7 +11,6 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.orders import Order
 from quantx.domain.policy import PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
-
 from .models import ExecutionReceipt
 
 
@@ -269,7 +268,8 @@ class ExecutionLifecycle:
             # state can resolve a prior anomaly flag only when it adds no new fills.
             if new_filled == self.order_quantity and current_status is not OrderStatus.FILLED:
                 flag_anomaly(
-                    f"terminal status {current_status.value} conflicts with full-quantity fill evidence"
+                    f"terminal status {current_status.value} conflicts with "
+                    "full-quantity fill evidence"
                 )
                 requires_reconciliation = True
             elif (
@@ -279,6 +279,24 @@ class ExecutionLifecycle:
                 and new_filled < self.order_quantity
             ):
                 requires_reconciliation = False
+            return result(current_status, needs_reconciliation=requires_reconciliation)
+
+        # A correlated child receipt contributes fills to the parent aggregate,
+        # but its status describes the child order, not the parent order.
+        if str(receipt.client_order_id) != str(self.client_order_id):
+            if current_status is OrderStatus.UNKNOWN or receipt_status is OrderStatus.UNKNOWN:
+                if receipt_status is OrderStatus.UNKNOWN:
+                    flag_anomaly("correlated child receipt has UNKNOWN status")
+                else:
+                    flag_anomaly("correlated child receipt cannot resolve parent UNKNOWN status")
+                return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
+            if new_filled == self.order_quantity:
+                return result(OrderStatus.FILLED, needs_reconciliation=requires_reconciliation)
+            if new_filled > 0:
+                return result(
+                    OrderStatus.PARTIALLY_FILLED,
+                    needs_reconciliation=requires_reconciliation,
+                )
             return result(current_status, needs_reconciliation=requires_reconciliation)
 
         # UNKNOWN is not a final outcome. Ordinary receipt application cannot
@@ -346,10 +364,7 @@ class ExecutionLifecycle:
             flag_anomaly("FILLED status lacks full-quantity fill evidence")
             return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
 
-        if (
-            authoritative_reconciliation
-            and receipt_status in _AUTHORITATIVE_RESOLUTION_STATUSES
-        ):
+        if authoritative_reconciliation and receipt_status in _AUTHORITATIVE_RESOLUTION_STATUSES:
             requires_reconciliation = False
 
         if receipt_status in _TERMINAL_ORDER_STATUSES:

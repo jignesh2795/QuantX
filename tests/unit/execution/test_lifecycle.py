@@ -215,7 +215,6 @@ def test_reconcile_rejects_missing_receipt_evidence() -> None:
         service.reconcile(request)
 
 
-
 def test_reconcile_can_resolve_unknown_from_authoritative_receipt_history() -> None:
     request = _request()
     observed_at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
