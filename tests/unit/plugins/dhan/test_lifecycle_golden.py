@@ -36,7 +36,11 @@ from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.order_lifecycle import OrderLifecycle, OrderLifecycleEvent
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
-from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.receipts.models import (
+    ExecutionEvidenceKind,
+    ExecutionOutcome,
+    ExecutionReceipt,
+)
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidenceStatus
 from quantx.plugins.dhan.adapter import DhanBrokerAdapter
@@ -45,7 +49,10 @@ from quantx.plugins.dhan.models import DhanInstrumentRef
 from quantx.plugins.dhan.recovery import build_dhan_recovery_provider
 from quantx.plugins.dhan.transport import DhanTransport, InMemoryDhanTransport
 
-# (Dhan status, operation outcome, canonical order status, evidenced fills).
+# (Dhan status, operation outcome, canonical order status, cumulative observed
+# filled quantity). Dhan's filledQty is a cumulative broker observation, so the
+# last column is consumed as ``observed_filled_quantity`` on a
+# CUMULATIVE_OBSERVATION receipt, never as additive ``fills``.
 _GOLDEN = (
     ("TRANSIT", "ACCEPTED", OrderStatus.SUBMITTED, Decimal("0")),
     ("PENDING", "ACCEPTED", OrderStatus.ACCEPTED, Decimal("0")),
@@ -163,7 +170,9 @@ def test_reconcile_receipt_carries_golden_outcome_and_status() -> None:
 
         assert receipt.outcome is ExecutionOutcome(outcome)
         assert receipt.order_status is status
-        assert receipt.filled_quantity == filled
+        assert receipt.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION
+        assert receipt.fills == ()
+        assert receipt.observed_filled_quantity == filled
         _assert_receipt_guards(receipt, request)
 
 
@@ -178,6 +187,7 @@ def test_reconciled_status_reduces_into_lifecycle() -> None:
         )
 
         assert lifecycle.filled_quantity == filled
+        assert lifecycle.observed_filled_quantity == filled
         assert lifecycle.status is status
 
 
@@ -191,7 +201,9 @@ def test_partial_fill_then_cancel_retains_fill_without_continuation() -> None:
     partial = adapter.reconcile(request)
 
     assert partial.order_status is OrderStatus.PARTIALLY_FILLED
-    assert partial.filled_quantity == Decimal("1")
+    assert partial.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION
+    assert partial.fills == ()
+    assert partial.observed_filled_quantity == Decimal("1")
     _assert_receipt_guards(partial, request)
 
     transport.response_status = "CANCELLED"
@@ -199,12 +211,13 @@ def test_partial_fill_then_cancel_retains_fill_without_continuation() -> None:
 
     assert cancelled.order_status is OrderStatus.CANCELLED
     assert cancelled.outcome is ExecutionOutcome.CANCELLED
-    assert cancelled.filled_quantity == Decimal("1")
+    assert cancelled.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION
+    assert cancelled.fills == ()
+    assert cancelled.observed_filled_quantity == Decimal("1")
     _assert_receipt_guards(cancelled, request)
 
-    # The immutable receipt lifecycle consumes execution evidence, whereas
-    # the event facade below consumes cumulative broker observations. A single
-    # authoritative cancellation receipt must preserve the broker-reported
+    # Both receipts are cumulative observations of total filled so far, so the
+    # authoritative cancellation observation preserves the broker-reported
     # partial fill while resolving the unfilled remainder.
     receipt_lifecycle = ExecutionLifecycle.rebuild(
         request.order.client_order_id,
@@ -219,9 +232,9 @@ def test_partial_fill_then_cancel_retains_fill_without_continuation() -> None:
     assert not receipt_lifecycle.requires_reconciliation
 
     # OrderLifecycle is the documented event facade over the shared canonical
-    # reducer. Unlike immutable receipt fills, these observations carry a
-    # cumulative filled quantity, so replaying the observation does not add
-    # quantity unless the broker reports an increase.
+    # reducer. These events carry the broker's cumulative observed quantity
+    # directly, so replaying the observation does not add quantity unless the
+    # broker reports an increase.
     lifecycle = OrderLifecycle(request.order.client_order_id)
     lifecycle.apply(
         OrderLifecycleEvent(
@@ -239,7 +252,7 @@ def test_partial_fill_then_cancel_retains_fill_without_continuation() -> None:
                 observed_at=receipt.executed_at,
                 source=receipt.source,
                 order_quantity=request.order.quantity,
-                filled_quantity=receipt.filled_quantity,
+                filled_quantity=receipt.observed_filled_quantity,
             )
         )
 
