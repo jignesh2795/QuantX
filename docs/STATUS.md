@@ -1,8 +1,8 @@
 # QuantX Status
 
-## Current state — after PR #218 (M4.1 strategy-paper rehearsal)
+## Current state — post-M4.1, rebaselined in PR #219
 
-`main` is at `a0bf101b6f6bb87d11460cefb199932a768d6335` (Merge pull request #218). PR #218 merged the independently validated feature head `d99c12f3ae051f992722bee2bc8ea3253032fdc8` from `feat/m4-1-strategy-paper-rehearsal-v1`.
+PR #218 merged the independently validated M4.1 feature head `d99c12f3ae051f992722bee2bc8ea3253032fdc8` from `feat/m4-1-strategy-paper-rehearsal-v1` as feature merge commit `a0bf101b6f6bb87d11460cefb199932a768d6335`. That SHA is the PR #218 feature-merge anchor, not the current `main` HEAD. PR #219 subsequently merged the cross-document status rebaseline in commit `3893ea4f19bed3f6b4c0b5cdc70da9167e0e90b9` on 2026-10-14.
 
 M4.1 adds a deterministic, single-use Python strategy rehearsal from registry/runtime evaluation through deployment-owned execution-context binding, risk/policy preparation, and the existing paper executor. It admits enabled PAPER deployments only; it creates no broker-submit path and changes no execution/recovery semantics. The timestamp regression fix derives submission nanoseconds and order creation time from the market event and rejects strategy signal timestamps that differ from event time.
 
