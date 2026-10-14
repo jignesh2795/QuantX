@@ -281,9 +281,7 @@ def test_unknown_requires_authoritative_reconciliation_to_resolve() -> None:
         order_id, Decimal("10"), OrderStatus.ACCEPTED, Decimal("0"), seconds=2
     )
 
-    ordinary_reduction = ExecutionLifecycle.rebuild(
-        order_id, Decimal("10"), (unknown, accepted)
-    )
+    ordinary_reduction = ExecutionLifecycle.rebuild(order_id, Decimal("10"), (unknown, accepted))
     reconciled = ExecutionLifecycle.rebuild(
         order_id,
         Decimal("10"),
