@@ -63,6 +63,7 @@ from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.trading_gate import DurableTradingGate, InMemoryTradingGateStateStore
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.india.market_checks import india_market_policy
 from quantx.india.session_calendar import (
     IndiaSessionDecision,
     IndiaSessionPermission,
@@ -246,8 +247,10 @@ def _orchestrator(unit_of_work: _FakeUnitOfWork) -> ExecutionOrchestrator:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
-        india_rule_evaluator=_approving_india_evaluator(),
-        india_session_evaluator=_approving_india_session_evaluator(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
     )
 
 

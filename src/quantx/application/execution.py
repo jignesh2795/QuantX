@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import StrEnum
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.instruments import MarketRegion
+from quantx.domain.instruments import MarketFamily, MarketRegion
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
@@ -19,14 +19,22 @@ from quantx.execution.receipts.identity import validate_live_receipt_identity
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.trading_gate import TradingGate
-from quantx.india.domain import IndianSegment
-from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
-from quantx.india.session_calendar import (
-    IndiaSessionDecision,
-    IndiaSessionResult,
-)
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
+from quantx.ports.market_checks import (
+    MarketCheckEvidence,
+    MarketCheckFailureCode,
+    MarketCheckOutcome,
+    MarketCheckResult,
+    MarketCheckSequence,
+    MarketCheckStage,
+    MarketPolicyConfig,
+    PreTradeCheck,
+    UnclassifiedRegion,
+    UnknownMarketValue,
+    default_market_policy,
+    select_market_policy,
+)
 
 from .runtime import ApplicationRuntime
 
@@ -42,23 +50,11 @@ class ExecutionResult:
     status: ExecutionDispatchStatus
     receipt: ExecutionReceipt | None = None
     reason: str = ""
+    check_evidence: MarketCheckSequence | None = None
 
     @property
     def executed(self) -> bool:
         return self.status is ExecutionDispatchStatus.EXECUTED
-
-
-def _is_india_live_request(request: ApprovedExecutionRequest) -> bool:
-    """Detect India-market LIVE requests that must pass India rule evaluation.
-
-    Region (not venue text or broker identity) is the authority, so no
-    broker-specific naming convention can silently opt a request out of the
-    boundary. Non-India and non-LIVE requests are unaffected.
-    """
-    return (
-        request.execution_context.execution_mode is ExecutionMode.LIVE
-        and request.execution_context.market.region is MarketRegion.INDIA
-    )
 
 
 class ExecutionOrchestrator:
@@ -72,10 +68,8 @@ class ExecutionOrchestrator:
         trading_gate: TradingGate | None = None,
         application_runtime: ApplicationRuntime | None = None,
         session_guard: SessionExecutionGuard | None = None,
-        india_session_evaluator: Callable[[ApprovedExecutionRequest], IndiaSessionResult]
-        | None = None,
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
-        india_rule_evaluator: Callable[[ApprovedExecutionRequest], IndiaRuleResult] | None = None,
+        market_policy: MarketPolicyConfig | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._unit_of_work = unit_of_work
@@ -83,9 +77,99 @@ class ExecutionOrchestrator:
         self._trading_gate_explicit = trading_gate is not None
         self._application_runtime = application_runtime
         self._session_guard = session_guard
-        self._india_session_evaluator = india_session_evaluator
         self._live_risk_evaluator = live_risk_evaluator
-        self._india_rule_evaluator = india_rule_evaluator
+        self._market_policy = market_policy or default_market_policy()
+
+    @staticmethod
+    def _run_market_stage(
+        checks: tuple[PreTradeCheck, ...],
+        request: ApprovedExecutionRequest,
+        *,
+        stage: MarketCheckStage,
+        region: MarketRegion,
+        family: MarketFamily,
+        venue: str,
+        entries: list[MarketCheckEvidence],
+    ) -> MarketCheckResult | None:
+        """Run one stage's checks in registration order; BLOCKED on first failure.
+
+        Returns the blocking result, or None when every check passed. Each
+        executed check appends its evidence (or a minimal synthesized entry
+        when the check provides none) so the recorded prefix stays complete
+        and deterministic. Check exceptions and malformed results fail
+        closed; raw diagnostics never reach user reasons.
+        """
+        for check in checks:
+            check_id = getattr(check, "check_id", None) or type(check).__name__
+            try:
+                result = check(request)
+            except Exception as exc:
+                result = MarketCheckResult(
+                    check_id,
+                    MarketCheckOutcome.UNAVAILABLE,
+                    MarketCheckFailureCode.EVALUATION_FAILED,
+                    f"{check_id} evaluation failed closed",
+                    detail=f"{type(exc).__name__}: {exc}",
+                )
+            if not isinstance(result, MarketCheckResult) or result.outcome not in (
+                MarketCheckOutcome.PASS,
+                MarketCheckOutcome.BLOCK,
+                MarketCheckOutcome.UNAVAILABLE,
+            ):
+                result = MarketCheckResult(
+                    check_id,
+                    MarketCheckOutcome.UNAVAILABLE,
+                    MarketCheckFailureCode.MALFORMED_RESULT,
+                    f"{check_id} returned a malformed result",
+                    detail=f"unexpected result {type(result).__name__}",
+                )
+            entries.append(
+                result.evidence
+                if result.evidence is not None
+                else MarketCheckEvidence(
+                    check_id=result.check_id,
+                    stage=stage,
+                    outcome=result.outcome,
+                    region=region,
+                    family=family,
+                    venue=venue,
+                )
+            )
+            if result.outcome is not MarketCheckOutcome.PASS:
+                return result
+        return None
+
+    def _blocked_with_evidence(
+        self,
+        result: MarketCheckResult,
+        entries: list[MarketCheckEvidence],
+    ) -> ExecutionResult:
+        sequence = MarketCheckSequence(
+            entries=tuple(entries),
+            short_circuited=True,
+            blocking_check_id=result.check_id,
+            blocking_failure_code=result.failure_code,
+        )
+        return ExecutionResult(
+            ExecutionDispatchStatus.BLOCKED, reason=result.reason, check_evidence=sequence
+        )
+
+    @staticmethod
+    def _with_evidence_prefix(
+        result: ExecutionResult, entries: list[MarketCheckEvidence]
+    ) -> ExecutionResult:
+        """Attach the executed-check prefix to a downstream core outcome.
+
+        Outcomes produced after pack checks ran carry the recorded prefix
+        (no blocking check); paths with no executed checks keep evidence
+        absent, preserving the legacy core-only shape.
+        """
+        if entries and result.check_evidence is None:
+            return replace(
+                result,
+                check_evidence=MarketCheckSequence(entries=tuple(entries), short_circuited=False),
+            )
+        return result
 
     def execute(
         self,
@@ -125,53 +209,65 @@ class ExecutionOrchestrator:
                 reason=f"trading is blocked: {state.reason}",
             )
 
-        india_live = _is_india_live_request(request)
-        if india_live:
-            if self._india_session_evaluator is None:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=(
-                        "live execution for India-market requests requires "
-                        "an explicitly configured India session calendar"
-                    ),
-                )
-            try:
-                india_session = self._india_session_evaluator(request)
-            except Exception as exc:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=f"india session/calendar evaluation failed closed: {exc}",
-                )
-            expected_segment = {
-                "EQUITY": IndianSegment.EQUITY,
-                "DERIVATIVES": IndianSegment.DERIVATIVES,
-                "FX": IndianSegment.CURRENCY,
-                "COMMODITIES": IndianSegment.COMMODITY,
-            }.get(request.execution_context.market.family.value)
-            if (
-                not india_session.calendar_evaluated
-                or not india_session.calendar_version.strip()
-                or not india_session.provenance.strip()
-                or india_session.evaluated_at.tzinfo is None
-                or india_session.evaluated_at.utcoffset() is None
-                or india_session.exchange.value != request.execution_context.market.venue
-                or expected_segment is None
-                or india_session.segment is not expected_segment
-            ):
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=(
-                        "india LIVE execution requires authoritative India "
-                        "session/calendar evidence"
-                    ),
-                )
-            if india_session.decision is not IndiaSessionDecision.ALLOW:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=f"india session/calendar blocked the request: {india_session.reason}",
-                )
+        try:
+            selection = select_market_policy(
+                self._market_policy, request.execution_context.market, mode
+            )
+        except UnknownMarketValue:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="unknown market region or family fails closed",
+            )
+        except UnclassifiedRegion:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="unclassified market region fails closed",
+            )
+        check_entries: list[MarketCheckEvidence] = []
+        pack_applies = selection.applies_pack
 
-        if self._session_guard is not None and not india_live:
+        # P-A: pre-dispatch market policy at its existing position.
+        if pack_applies:
+            stage_checks = self._market_policy.checks_for(
+                selection.region, MarketCheckStage.PRE_DISPATCH
+            )
+            if not stage_checks:
+                if MarketCheckStage.PRE_DISPATCH in selection.policy.required_stages:
+                    return self._blocked_with_evidence(
+                        MarketCheckResult(
+                            f"{selection.region.value}.pre_dispatch",
+                            MarketCheckOutcome.UNAVAILABLE,
+                            MarketCheckFailureCode.MISSING_REQUIRED_STAGE,
+                            "required pre-dispatch market checks are missing for region "
+                            f"{selection.region.value}",
+                        ),
+                        check_entries,
+                    )
+                if MarketCheckStage.PRE_DISPATCH in selection.policy.optional_stages:
+                    check_entries.append(
+                        MarketCheckEvidence(
+                            check_id=f"{selection.region.value}.pre_dispatch",
+                            stage=MarketCheckStage.PRE_DISPATCH,
+                            outcome=MarketCheckOutcome.SKIPPED,
+                            region=selection.region,
+                            family=selection.family,
+                            venue=selection.venue,
+                        )
+                    )
+            else:
+                blocked = self._run_market_stage(
+                    stage_checks,
+                    request,
+                    stage=MarketCheckStage.PRE_DISPATCH,
+                    region=selection.region,
+                    family=selection.family,
+                    venue=selection.venue,
+                    entries=check_entries,
+                )
+                if blocked is not None:
+                    return self._blocked_with_evidence(blocked, check_entries)
+
+        if self._session_guard is not None and not selection.skip_session_guard:
             session = self._session_guard.check(mode)
             if not session.allowed:
                 return ExecutionResult(
@@ -207,108 +303,151 @@ class ExecutionOrchestrator:
             )
 
         if broker is None:
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason="live execution requires a broker adapter",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live execution requires a broker adapter",
+                ),
+                check_entries,
             )
 
         connection_id = request.execution_context.broker_connection_id
         if connection_id is None:
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason="live execution requires a broker connection",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live execution requires a broker connection",
+                ),
+                check_entries,
             )
 
         connection = broker.connection
         if connection.account_id != request.execution_context.account_id:
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason="broker account does not match execution request account",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker account does not match execution request account",
+                ),
+                check_entries,
             )
         if connection.connection_id != connection_id:
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason="broker connection does not match execution request connection",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker connection does not match execution request connection",
+                ),
+                check_entries,
             )
         if not broker.health():
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason="broker connection is not healthy",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker connection is not healthy",
+                ),
+                check_entries,
             )
 
         broker_instrument = broker.instrument(request.order.instrument)
         if broker_instrument is None:
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason="broker does not expose the requested canonical instrument",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker does not expose the requested canonical instrument",
+                ),
+                check_entries,
             )
         if broker_instrument.market != request.execution_context.market:
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason="broker instrument market does not match execution request market",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker instrument market does not match execution request market",
+                ),
+                check_entries,
             )
 
-        if self._india_rule_evaluator is None and _is_india_live_request(request):
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason=(
-                    "live execution for India-market requests requires "
-                    "an explicitly configured india rule evaluator"
-                ),
+        # P-B: pre-submit market policy at its existing position.
+        if pack_applies:
+            submit_checks = self._market_policy.checks_for(
+                selection.region, MarketCheckStage.PRE_SUBMIT
             )
-        if self._india_rule_evaluator is not None and _is_india_live_request(request):
-            try:
-                india_rules = self._india_rule_evaluator(request)
-            except Exception as exc:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=f"india execution-rule evaluation failed closed: {exc}",
+            if not submit_checks:
+                if MarketCheckStage.PRE_SUBMIT in selection.policy.required_stages:
+                    return self._blocked_with_evidence(
+                        MarketCheckResult(
+                            f"{selection.region.value}.pre_submit",
+                            MarketCheckOutcome.UNAVAILABLE,
+                            MarketCheckFailureCode.MISSING_REQUIRED_STAGE,
+                            "required pre-submit market checks are missing for region "
+                            f"{selection.region.value}",
+                        ),
+                        check_entries,
+                    )
+                if MarketCheckStage.PRE_SUBMIT in selection.policy.optional_stages:
+                    check_entries.append(
+                        MarketCheckEvidence(
+                            check_id=f"{selection.region.value}.pre_submit",
+                            stage=MarketCheckStage.PRE_SUBMIT,
+                            outcome=MarketCheckOutcome.SKIPPED,
+                            region=selection.region,
+                            family=selection.family,
+                            venue=selection.venue,
+                        )
+                    )
+            else:
+                blocked = self._run_market_stage(
+                    submit_checks,
+                    request,
+                    stage=MarketCheckStage.PRE_SUBMIT,
+                    region=selection.region,
+                    family=selection.family,
+                    venue=selection.venue,
+                    entries=check_entries,
                 )
-            if (
-                not india_rules.compatibility_evaluated
-                or india_rules.rule_set_version is None
-                or india_rules.provenance is None
-                or india_rules.evaluated_at is None
-            ):
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=(
-                        "india LIVE execution requires authoritative B3 compatibility evidence"
-                    ),
-                )
-            if india_rules.decision is not IndiaRuleDecision.APPROVE:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=f"india execution rules rejected the request: {india_rules.reason}",
-                )
+                if blocked is not None:
+                    return self._blocked_with_evidence(blocked, check_entries)
 
         required_capabilities = request.order.required_capabilities
         if required_capabilities and not broker.capabilities().require(required_capabilities):
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason="broker does not support all required execution capabilities",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker does not support all required execution capabilities",
+                ),
+                check_entries,
             )
 
         unit_of_work = self._unit_of_work
         if unit_of_work is None:
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason="live execution requires a durable UnitOfWork",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live execution requires a durable UnitOfWork",
+                ),
+                check_entries,
             )
         if self._live_risk_evaluator is not None:
             try:
                 live_risk = self._live_risk_evaluator(request)
             except Exception as exc:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=f"live pre-trade risk evaluation failed closed: {exc}",
+                return self._with_evidence_prefix(
+                    ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=f"live pre-trade risk evaluation failed closed: {exc}",
+                    ),
+                    check_entries,
                 )
             if live_risk.decision is not RiskDecision.APPROVE:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=f"live pre-trade risk rejected the request: {live_risk.reason}",
+                return self._with_evidence_prefix(
+                    ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=f"live pre-trade risk rejected the request: {live_risk.reason}",
+                    ),
+                    check_entries,
                 )
-        return self._execute_live_transactional(request, broker, unit_of_work)
+        live_result = self._execute_live_transactional(request, broker, unit_of_work)
+        if pack_applies:
+            return self._with_evidence_prefix(live_result, check_entries)
+        return live_result
 
     def continue_partial(
         self,

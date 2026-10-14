@@ -15,6 +15,12 @@ from .execution_rules import (
 )
 from .historical import IndianHistoricalOHLCVNormalizer
 from .instrument_catalog import IndianInstrumentCatalog
+from .market_checks import (
+    IndiaCompatCheck,
+    IndiaSessionCheck,
+    india_market_policy,
+    sanitize_rule_reason,
+)
 from .rule_data import IndiaRuleScope, IndiaVenueRuleSnapshot, PriceBandRuleSnapshot
 from .session_calendar import (
     IndiaSessionCalendar,
@@ -41,6 +47,8 @@ __all__ = [
     "OptionContractSpec",
     "PriceBandRuleSnapshot",
     "ProductType",
+    "IndiaCompatCheck",
+    "IndiaSessionCheck",
     "IndiaSessionCalendar",
     "IndiaSessionCalendarSnapshot",
     "IndiaSessionDayOverride",
@@ -48,4 +56,6 @@ __all__ = [
     "IndiaSessionPermission",
     "IndiaSessionResult",
     "IndiaSessionWindow",
+    "india_market_policy",
+    "sanitize_rule_reason",
 ]

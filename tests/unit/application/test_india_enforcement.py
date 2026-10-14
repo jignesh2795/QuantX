@@ -46,6 +46,7 @@ from quantx.india.execution_rules import (
     IndiaRuleDecision,
     IndiaRuleResult,
 )
+from quantx.india.market_checks import india_market_policy
 from quantx.india.rule_data import (
     IndiaRuleScope,
     IndiaVenueRuleSnapshot,
@@ -192,11 +193,18 @@ def _approving_india_session_evaluator():
 
 
 def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
-    overrides.setdefault("india_session_evaluator", _approving_india_session_evaluator())
+    session_evaluator = overrides.pop(
+        "india_session_evaluator", _approving_india_session_evaluator()
+    )
+    rule_evaluator = overrides.pop("india_rule_evaluator", None)
     return ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
         application_runtime=_started_runtime(),
+        market_policy=india_market_policy(
+            session_evaluator=session_evaluator,
+            rule_evaluator=rule_evaluator,
+        ),
         **overrides,
     )
 
@@ -213,7 +221,7 @@ def test_india_live_without_session_calendar_fails_closed(tmp_path) -> None:
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "India session calendar" in result.reason
+        assert "required pre-dispatch market checks are missing" in result.reason
         assert transport.submitted == ()
     finally:
         database.close()
@@ -394,7 +402,7 @@ def test_india_live_without_evaluator_fails_closed(tmp_path) -> None:
         result = orchestrator.execute(request, broker=_adapter(transport))
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "india rule evaluator" in result.reason
+        assert "required pre-submit market checks are missing" in result.reason
         assert transport.submitted == ()
         fingerprint = request_fingerprint(request)
         with SqliteUnitOfWork(database) as check_uow:
@@ -658,7 +666,7 @@ def test_india_live_b1_only_result_cannot_bypass_b3(tmp_path) -> None:
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "authoritative B3 compatibility evidence" in result.reason
+        assert "authoritative India venue-rule compatibility evidence" in result.reason
         assert transport.submitted == ()
     finally:
         database.close()
