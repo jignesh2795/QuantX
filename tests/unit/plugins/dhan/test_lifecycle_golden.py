@@ -233,6 +233,8 @@ def test_partial_fill_then_cancel_retains_fill_without_continuation() -> None:
     assert lifecycle.order_quantity - lifecycle.filled_quantity == Decimal("1")
     assert not lifecycle.requires_reconciliation
     assert not lifecycle.anomalies
+
+
 def test_recovery_observation_matches_adapter_status() -> None:
     for dhan_status, _outcome, status, filled in _GOLDEN:
         request = _request()
