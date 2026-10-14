@@ -1,9 +1,8 @@
 from uuid import uuid4
 
-from quantx.domain.enums import OrderStatus
-
 import pytest
 
+from quantx.domain.enums import OrderStatus
 from quantx.integrations.reconciliation import (
     OrderObservation,
     OrderReconciler,

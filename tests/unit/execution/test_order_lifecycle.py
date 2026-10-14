@@ -52,14 +52,6 @@ def test_normal_order_lifecycle_uses_canonical_statuses_and_quantity_evidence():
     assert not lifecycle.requires_reconciliation
 
 
-@pytest.mark.parametrize(
-    ("status", "order_quantity", "filled_quantity"),
-    [
-        (OrderStatus.ACCEPTED, None, None),
-        (OrderStatus.EXPIRED, None, None),
-        (OrderStatus.FILLED, Decimal("2"), Decimal("2")),
-    ],
-)
 _ALLOWED_TRANSITIONS = [
     (OrderStatus.CREATED, OrderStatus.PENDING_SUBMIT),
     (OrderStatus.CREATED, OrderStatus.SUBMITTED),
@@ -152,6 +144,14 @@ def test_canonical_lifecycle_all_allowed_transitions(
     assert lifecycle.status is next_status
 
 
+@pytest.mark.parametrize(
+    ("status", "order_quantity", "filled_quantity"),
+    [
+        (OrderStatus.ACCEPTED, None, None),
+        (OrderStatus.EXPIRED, None, None),
+        (OrderStatus.FILLED, Decimal("2"), Decimal("2")),
+    ],
+)
 def test_authoritative_reconciliation_accepts_first_observed_state(
     status,
     order_quantity,

@@ -12,7 +12,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderType, TimeInForce, OrderStatus
+from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType, TimeInForce
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
     PendingExecutionRecoveryRequest,
