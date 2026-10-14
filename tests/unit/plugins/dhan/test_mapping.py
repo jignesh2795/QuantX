@@ -89,22 +89,22 @@ def test_build_order_request_rejects_fractional_quantity() -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "expected"),
+    ("status", "expected_outcome", "expected_status"),
     [
-        ("PENDING", "ACCEPTED"),
-        ("TRANSIT", "ACCEPTED"),
-        ("PART_TRADED", "PARTIALLY_FILLED"),
-        ("TRADED", "FILLED"),
-        ("REJECTED", "REJECTED"),
-        ("CANCELLED", "CANCELLED"),
-        ("EXPIRED", "EXPIRED"),
-        ("something-new", "UNKNOWN"),
+        ("PENDING", "ACCEPTED", "ACCEPTED"),
+        ("TRANSIT", "ACCEPTED", "SUBMITTED"),
+        ("PART_TRADED", "PARTIALLY_FILLED", "PARTIALLY_FILLED"),
+        ("TRADED", "FILLED", "FILLED"),
+        ("REJECTED", "REJECTED", "REJECTED"),
+        ("CANCELLED", "CANCELLED", "CANCELLED"),
+        ("EXPIRED", "EXPIRED", "EXPIRED"),
+        ("something-new", "UNKNOWN", "UNKNOWN"),
     ],
 )
-def test_status_mapping(status: str, expected: str) -> None:
+def test_status_mapping(status: str, expected_outcome: str, expected_status: str) -> None:
     outcome, order_status = normalize_status(status)
-    assert outcome == expected
-    assert order_status.value == expected
+    assert outcome == expected_outcome
+    assert order_status.value == expected_status
 
 
 def test_dhan_timestamp_defaults_to_ist_when_timezone_is_omitted() -> None:

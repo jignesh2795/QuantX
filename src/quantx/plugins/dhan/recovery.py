@@ -13,7 +13,6 @@ from uuid import UUID
 
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.integrations.brokers import BrokerAdapter
 from quantx.integrations.reconciliation.account import AccountFinancialState
 from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidence
@@ -21,17 +20,7 @@ from quantx.integrations.reconciliation.orders import OrderObservation
 from quantx.integrations.reconciliation.positions import PositionState
 
 from .adapter import DhanBrokerAdapter
-from .mapping import dhan_correlation_id
-
-_DHAN_STATUS_TO_LIFECYCLE = {
-    "TRANSIT": OrderLifecycleStatus.ACKNOWLEDGED,
-    "PENDING": OrderLifecycleStatus.ACKNOWLEDGED,
-    "PART_TRADED": OrderLifecycleStatus.PARTIALLY_FILLED,
-    "TRADED": OrderLifecycleStatus.FILLED,
-    "REJECTED": OrderLifecycleStatus.REJECTED,
-    "CANCELLED": OrderLifecycleStatus.CANCELLED,
-}
-
+from .mapping import dhan_correlation_id, normalize_status
 
 class DhanRecoveryEvidenceProvider:
     """Reconciliation evidence bound to one Dhan account/connection/order.
@@ -111,7 +100,7 @@ class DhanRecoveryEvidenceProvider:
         return BrokerOrderEvidence.found(
             OrderObservation(
                 order_id=self._order_id,
-                status=_lifecycle_status(detail.order_status),
+                status=normalize_status(detail.order_status)[1],
                 requested_quantity=str(self._order_quantity),
                 filled_quantity=str(detail.filled_quantity),
                 broker_order_id=detail.order_id,
@@ -171,18 +160,6 @@ class DhanRecoveryEvidenceProvider:
             raise ValueError("recovery evidence connection does not match bound connection")
         if order_id != self._order_id:
             raise ValueError("recovery evidence order does not match bound order")
-
-
-def _lifecycle_status(order_status: str) -> OrderLifecycleStatus:
-    """Map a raw Dhan order status onto the canonical lifecycle vocabulary.
-
-    Unrecognized or expired broker states map to UNKNOWN rather than inventing
-    a lifecycle transition; UNKNOWN evidence can never resolve recovery.
-    """
-    normalized = order_status.strip().upper()
-    if normalized == "EXPIRED":
-        return OrderLifecycleStatus.UNKNOWN
-    return _DHAN_STATUS_TO_LIFECYCLE.get(normalized, OrderLifecycleStatus.UNKNOWN)
 
 
 def build_dhan_recovery_provider(

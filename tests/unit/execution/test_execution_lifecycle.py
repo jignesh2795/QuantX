@@ -200,6 +200,7 @@ def _receipt_with_status(
             ),
         )
     outcome = {
+        OrderStatus.SUBMITTED: ExecutionOutcome.ACCEPTED,
         OrderStatus.ACCEPTED: ExecutionOutcome.ACCEPTED,
         OrderStatus.PARTIALLY_FILLED: ExecutionOutcome.PARTIALLY_FILLED,
         OrderStatus.FILLED: ExecutionOutcome.FILLED,
@@ -347,9 +348,10 @@ def test_execution_lifecycle_transition_matrix(
         seconds=1,
     )
 
-    updated = lifecycle.apply(
-        receipt,
-        authoritative_reconciliation=authoritative_reconciliation,
+    updated = (
+        lifecycle.apply_from_reconciliation(receipt)
+        if authoritative_reconciliation
+        else lifecycle.apply(receipt)
     )
 
     assert updated.status is expected_status
@@ -543,11 +545,10 @@ def test_unknown_requires_authoritative_reconciliation_to_resolve() -> None:
     )
 
     ordinary_reduction = ExecutionLifecycle.rebuild(order_id, Decimal("10"), (unknown, accepted))
-    reconciled = ExecutionLifecycle.rebuild(
+    reconciled = ExecutionLifecycle.rebuild_from_reconciliation(
         order_id,
         Decimal("10"),
         (unknown, accepted),
-        authoritative_reconciliation=True,
     )
 
     assert ordinary_reduction.status is OrderStatus.UNKNOWN
@@ -651,7 +652,7 @@ def test_authoritative_cancel_confirmation_cannot_hide_full_fill_conflict() -> N
         .apply(cancelled)
         .apply(late_fill_a)
         .apply(late_fill_b)
-        .apply(confirming_cancel, authoritative_reconciliation=True)
+        .apply_from_reconciliation(confirming_cancel)
     )
 
     assert lifecycle.status is OrderStatus.CANCELLED

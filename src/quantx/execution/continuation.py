@@ -150,12 +150,11 @@ class ExecutionContinuationService:
             raise ValueError("continuation parent lifecycle cannot continue")
         if child_request.order.quantity > parent_lifecycle.remaining_quantity:
             raise ValueError("continuation request exceeds parent lifecycle remainder")
-        child_lifecycle = ExecutionLifecycle.rebuild(
+        child_lifecycle = ExecutionLifecycle.rebuild_from_reconciliation(
             child_request.order.client_order_id,
             child_request.order.quantity,
             child_receipts,
             correlation_id=parent_id,
-            authoritative_reconciliation=True,
         )
         if child_lifecycle.filled_quantity > parent_lifecycle.remaining_quantity:
             raise ValueError("continuation fills exceed parent lifecycle remainder")

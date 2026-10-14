@@ -12,7 +12,7 @@ from quantx.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from .models import DhanInstrumentRef, DhanOrderRequest, DhanPayload
 
 _DHAN_ORDER_STATUS: dict[str, tuple[str, OrderStatus]] = {
-    "TRANSIT": ("ACCEPTED", OrderStatus.ACCEPTED),
+    "TRANSIT": ("ACCEPTED", OrderStatus.SUBMITTED),
     "PENDING": ("ACCEPTED", OrderStatus.ACCEPTED),
     "PART_TRADED": ("PARTIALLY_FILLED", OrderStatus.PARTIALLY_FILLED),
     "TRADED": ("FILLED", OrderStatus.FILLED),
