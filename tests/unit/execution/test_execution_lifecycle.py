@@ -200,10 +200,12 @@ def _receipt_with_status(
             ),
         )
     outcome = {
+        OrderStatus.SUBMITTED: ExecutionOutcome.ACCEPTED,
         OrderStatus.ACCEPTED: ExecutionOutcome.ACCEPTED,
         OrderStatus.PARTIALLY_FILLED: ExecutionOutcome.PARTIALLY_FILLED,
         OrderStatus.FILLED: ExecutionOutcome.FILLED,
         OrderStatus.CANCELLED: ExecutionOutcome.CANCELLED,
+        OrderStatus.FAILED: ExecutionOutcome.UNKNOWN,
         OrderStatus.UNKNOWN: ExecutionOutcome.UNKNOWN,
     }[status]
     return ExecutionReceipt(
@@ -347,9 +349,10 @@ def test_execution_lifecycle_transition_matrix(
         seconds=1,
     )
 
-    updated = lifecycle.apply(
-        receipt,
-        authoritative_reconciliation=authoritative_reconciliation,
+    updated = (
+        lifecycle.apply_from_reconciliation(receipt)
+        if authoritative_reconciliation
+        else lifecycle.apply(receipt)
     )
 
     assert updated.status is expected_status
@@ -499,6 +502,50 @@ def test_cancelled_lifecycle_retains_late_fill_and_blocks_progression() -> None:
     assert not reduced.is_complete
 
 
+def test_receipt_reducer_does_not_regress_accepted_to_submitted() -> None:
+    order_id = uuid4()
+    lifecycle = ExecutionLifecycle(
+        order_id,
+        Decimal("10"),
+        status=OrderStatus.ACCEPTED,
+    )
+    stale_submitted = _receipt_with_status(
+        order_id,
+        Decimal("10"),
+        OrderStatus.SUBMITTED,
+        Decimal("0"),
+        seconds=1,
+    )
+
+    updated = lifecycle.apply(stale_submitted)
+
+    assert updated.status is OrderStatus.ACCEPTED
+    assert updated.requires_reconciliation
+    assert any("unreachable status SUBMITTED" in item for item in updated.anomalies)
+
+
+def test_failed_receipt_cannot_rewrite_a_possibly_live_order() -> None:
+    order_id = uuid4()
+    lifecycle = ExecutionLifecycle(
+        order_id,
+        Decimal("10"),
+        status=OrderStatus.ACCEPTED,
+    )
+    failed_receipt = _receipt_with_status(
+        order_id,
+        Decimal("10"),
+        OrderStatus.FAILED,
+        Decimal("0"),
+        seconds=1,
+    )
+
+    updated = lifecycle.apply(failed_receipt)
+
+    assert updated.status is OrderStatus.ACCEPTED
+    assert updated.requires_reconciliation
+    assert any("FAILED status conflicts" in item for item in updated.anomalies)
+
+
 def test_full_fill_status_cannot_be_overwritten_by_later_cancel() -> None:
     order_id = uuid4()
     lifecycle = ExecutionLifecycle(order_id, Decimal("10"))
@@ -543,11 +590,10 @@ def test_unknown_requires_authoritative_reconciliation_to_resolve() -> None:
     )
 
     ordinary_reduction = ExecutionLifecycle.rebuild(order_id, Decimal("10"), (unknown, accepted))
-    reconciled = ExecutionLifecycle.rebuild(
+    reconciled = ExecutionLifecycle.rebuild_from_reconciliation(
         order_id,
         Decimal("10"),
         (unknown, accepted),
-        authoritative_reconciliation=True,
     )
 
     assert ordinary_reduction.status is OrderStatus.UNKNOWN
@@ -651,7 +697,7 @@ def test_authoritative_cancel_confirmation_cannot_hide_full_fill_conflict() -> N
         .apply(cancelled)
         .apply(late_fill_a)
         .apply(late_fill_b)
-        .apply(confirming_cancel, authoritative_reconciliation=True)
+        .apply_from_reconciliation(confirming_cancel)
     )
 
     assert lifecycle.status is OrderStatus.CANCELLED

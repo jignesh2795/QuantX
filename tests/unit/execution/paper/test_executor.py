@@ -2,11 +2,12 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
+
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType
 from quantx.domain.orders import Order
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.accounting import FillAccounting
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.paper.broker import PaperBroker, PaperExecutionResult
 from quantx.execution.paper.evidence import SimulationEvidence, SimulationEvidenceStatus
 from quantx.execution.paper.executor import PaperOrderExecutor
@@ -51,7 +52,7 @@ def test_confirmed_fill_reaches_accounting() -> None:
         observed_at=datetime.now(UTC),
     )
 
-    assert result.lifecycle_status is OrderLifecycleStatus.FILLED
+    assert result.lifecycle_status is OrderStatus.FILLED
     assert result.fill is not None
     assert result.ledger_entry is not None
     assert result.fill.price == Decimal("100")
@@ -67,7 +68,7 @@ def test_missing_snapshot_becomes_unknown_without_accounting() -> None:
         observed_at=datetime.now(UTC),
     )
 
-    assert result.lifecycle_status is OrderLifecycleStatus.UNKNOWN
+    assert result.lifecycle_status is OrderStatus.UNKNOWN
     assert result.fill is None
     assert result.ledger_entry is None
 
@@ -91,7 +92,7 @@ def test_non_marketable_limit_remains_submitted() -> None:
         observed_at=datetime.now(UTC),
     )
 
-    assert result.lifecycle_status is OrderLifecycleStatus.SUBMITTED
+    assert result.lifecycle_status is OrderStatus.SUBMITTED
     assert result.fill is None
     assert result.ledger_entry is None
 
@@ -118,6 +119,76 @@ class MissingFillTimestampBroker(PaperBroker):
                 fee=Decimal("0"),
             ),
             fill_at_ns=None,
+        )
+
+
+class ContradictoryFillBroker(PaperBroker):
+    """Broker whose fill flag contradicts the evidenced fill quantity."""
+
+    def __init__(self, profile_id: str, quantity: Decimal, partial: bool) -> None:
+        super().__init__(
+            ExecutionProfile(
+                profile_id=profile_id,
+                version="1",
+                slippage_model=SlippageModel.NONE,
+                fee_rate=Decimal("0"),
+            )
+        )
+        self._quantity = quantity
+        self._partial = partial
+
+    def execute(
+        self,
+        order: PaperOrderSpec,
+        *,
+        snapshot: MarketSnapshot | None,
+        submitted_at_ns: int,
+        order_book: OrderBookSnapshot | None = None,
+    ) -> PaperExecutionResult:
+        return PaperExecutionResult(
+            evidence=SimulationEvidence(
+                SimulationEvidenceStatus.CONFIRMED,
+                "test confirmed execution",
+                source_timestamp_ns=submitted_at_ns,
+            ),
+            match=MatchDecision(True, Decimal("100"), "test executable"),
+            fill=SimulatedFill(
+                price=Decimal("100"),
+                quantity=self._quantity,
+                fee=Decimal("0"),
+                partial=self._partial,
+            ),
+            fill_at_ns=submitted_at_ns,
+        )
+
+
+def test_fill_flagged_full_without_full_quantity_is_rejected() -> None:
+    executor = PaperOrderExecutor(
+        ContradictoryFillBroker("false-full", Decimal("1"), partial=False),
+        FillAccounting(),
+    )
+
+    with pytest.raises(ValueError, match="full-quantity"):
+        executor.execute(
+            make_order(),
+            snapshot=MarketSnapshot(Decimal("99"), Decimal("100"), Decimal("99.5")),
+            submitted_at_ns=1_000_000_000,
+            observed_at=datetime.now(UTC),
+        )
+
+
+def test_fill_flagged_partial_with_full_quantity_is_rejected() -> None:
+    executor = PaperOrderExecutor(
+        ContradictoryFillBroker("false-partial", Decimal("2"), partial=True),
+        FillAccounting(),
+    )
+
+    with pytest.raises(ValueError, match="partial-quantity"):
+        executor.execute(
+            make_order(),
+            snapshot=MarketSnapshot(Decimal("99"), Decimal("100"), Decimal("99.5")),
+            submitted_at_ns=1_000_000_000,
+            observed_at=datetime.now(UTC),
         )
 
 

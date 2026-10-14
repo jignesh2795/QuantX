@@ -7,8 +7,8 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from uuid import UUID
 
+from quantx.domain.enums import OrderStatus
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 
 
 class OrderReconciliationStatus(StrEnum):
@@ -24,7 +24,7 @@ class OrderReconciliationStatus(StrEnum):
 @dataclass(frozen=True, slots=True)
 class OrderObservation:
     order_id: UUID
-    status: OrderLifecycleStatus
+    status: OrderStatus
     requested_quantity: str
     filled_quantity: str
     broker_order_id: str | None = None
@@ -45,9 +45,9 @@ class OrderObservation:
             raise ValueError("filled quantity cannot be negative")
         if filled > requested:
             raise ValueError("filled quantity cannot exceed requested quantity")
-        if self.status is OrderLifecycleStatus.FILLED and filled != requested:
+        if self.status is OrderStatus.FILLED and filled != requested:
             raise ValueError("filled status requires filled quantity to equal requested quantity")
-        if self.status is OrderLifecycleStatus.PARTIALLY_FILLED and not (0 < filled < requested):
+        if self.status is OrderStatus.PARTIALLY_FILLED and not (0 < filled < requested):
             raise ValueError(
                 "partially filled status requires filled quantity between "
                 "zero and requested quantity"

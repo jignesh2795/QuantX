@@ -10,7 +10,6 @@ from quantx.application.reconciliation import (
 )
 from quantx.domain.enums import OrderStatus
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.reconciliation import (
     AccountFinancialState,
@@ -46,7 +45,7 @@ def _receipt(
 
 def _observation(
     order_id: UUID,
-    status: OrderLifecycleStatus = OrderLifecycleStatus.FILLED,
+    status: OrderStatus = OrderStatus.FILLED,
     *,
     filled: str = "2",
     requested: str = "2",
@@ -141,8 +140,8 @@ def test_state_mismatch_is_mismatch() -> None:
 
     result = _workflow().reconcile(
         _receipt(order_id),
-        local_order=_observation(order_id, OrderLifecycleStatus.FILLED),
-        broker_order=_observation(order_id, OrderLifecycleStatus.REJECTED),
+        local_order=_observation(order_id, OrderStatus.FILLED),
+        broker_order=_observation(order_id, OrderStatus.REJECTED),
         checked_at=CHECKED_AT,
     )
 
@@ -157,13 +156,13 @@ def test_quantity_mismatch_is_mismatch() -> None:
         _receipt(order_id),
         local_order=_observation(
             order_id,
-            status=OrderLifecycleStatus.PARTIALLY_FILLED,
+            status=OrderStatus.PARTIALLY_FILLED,
             filled="2",
             requested="3",
         ),
         broker_order=_observation(
             order_id,
-            status=OrderLifecycleStatus.PARTIALLY_FILLED,
+            status=OrderStatus.PARTIALLY_FILLED,
             filled="1",
             requested="3",
         ),

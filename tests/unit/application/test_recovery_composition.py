@@ -18,7 +18,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderType, TimeInForce
+from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType, TimeInForce
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import (
     Instrument,
@@ -33,7 +33,6 @@ from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.integrations.account_registry import AccountConnectionRegistry, RegisteredConnection
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.integrations.reconciliation import (
@@ -156,7 +155,7 @@ def _reserve(tmp_path, approved: ApprovedExecutionRequest):
 def _local_order(approved: ApprovedExecutionRequest) -> OrderObservation:
     return OrderObservation(
         approved.order.client_order_id,
-        OrderLifecycleStatus.FILLED,
+        OrderStatus.FILLED,
         "2",
         "2",
         broker_order_id="dhan-test-order",

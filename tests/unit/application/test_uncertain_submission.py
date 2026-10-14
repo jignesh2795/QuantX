@@ -25,7 +25,7 @@ from quantx.domain.orders import Fill, Order
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
+from quantx.execution.receipts.models import ExecutionOutcome
 from quantx.integrations.reconciliation.orders import OrderObservation
 
 RECOVERED_AT = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -57,7 +57,7 @@ def _request() -> ApprovedExecutionRequest:
 
 def _observation(
     request: ApprovedExecutionRequest,
-    status: OrderLifecycleStatus,
+    status: OrderStatus,
     *,
     filled: str = "0",
     broker_order_id: str | None = "dhan-1",
@@ -82,17 +82,17 @@ def _fill(request: ApprovedExecutionRequest, quantity: str = "2") -> Fill:
     )
 
 
-def test_acknowledged_order_recovers_accepted_receipt() -> None:
+def test_accepted_order_recovers_accepted_receipt() -> None:
     request = _request()
     receipt = UncertainSubmissionReceiptRecovery().recover(
         request,
-        _observation(request, OrderLifecycleStatus.ACKNOWLEDGED),
+        _observation(request, OrderStatus.ACCEPTED),
         request_id=uuid4(),
         recovered_at=RECOVERED_AT,
     )
 
     assert receipt is not None
-    assert receipt.outcome.value == "ACCEPTED"
+    assert receipt.outcome is ExecutionOutcome.ACCEPTED
     assert receipt.order_status is OrderStatus.ACCEPTED
     assert receipt.order_id == request.order.client_order_id
     assert receipt.account_id == AccountId("acct-1")
@@ -102,12 +102,12 @@ def test_acknowledged_order_recovers_accepted_receipt() -> None:
 @pytest.mark.parametrize(
     ("status", "outcome"),
     [
-        (OrderLifecycleStatus.CANCELLED, "CANCELLED"),
-        (OrderLifecycleStatus.REJECTED, "REJECTED"),
+        (OrderStatus.CANCELLED, "CANCELLED"),
+        (OrderStatus.REJECTED, "REJECTED"),
     ],
 )
 def test_terminal_non_fill_states_recover_without_fabricating_fills(
-    status: OrderLifecycleStatus,
+    status: OrderStatus,
     outcome: str,
 ) -> None:
     request = _request()
@@ -129,7 +129,7 @@ def test_cancelled_order_requires_reported_fill_evidence() -> None:
     with pytest.raises(ValueError, match="fill quantity"):
         UncertainSubmissionReceiptRecovery().recover(
             request,
-            _observation(request, OrderLifecycleStatus.CANCELLED, filled="1"),
+            _observation(request, OrderStatus.CANCELLED, filled="1"),
             request_id=uuid4(),
             recovered_at=RECOVERED_AT,
         )
@@ -140,7 +140,7 @@ def test_cancelled_order_recovers_with_matching_fill_evidence() -> None:
     fill = _fill(request, "1")
     receipt = UncertainSubmissionReceiptRecovery().recover(
         request,
-        _observation(request, OrderLifecycleStatus.CANCELLED, filled="1"),
+        _observation(request, OrderStatus.CANCELLED, filled="1"),
         request_id=uuid4(),
         recovered_at=RECOVERED_AT,
         fills=(fill,),
@@ -157,7 +157,7 @@ def test_filled_order_requires_real_fill_evidence() -> None:
     with pytest.raises(ValueError, match="fill quantity"):
         UncertainSubmissionReceiptRecovery().recover(
             request,
-            _observation(request, OrderLifecycleStatus.FILLED, filled="2"),
+            _observation(request, OrderStatus.FILLED, filled="2"),
             request_id=uuid4(),
             recovered_at=RECOVERED_AT,
         )
@@ -168,7 +168,7 @@ def test_filled_order_reuses_canonical_order_and_real_fill() -> None:
     fill = _fill(request)
     receipt = UncertainSubmissionReceiptRecovery().recover(
         request,
-        _observation(request, OrderLifecycleStatus.FILLED, filled="2"),
+        _observation(request, OrderStatus.FILLED, filled="2"),
         request_id=uuid4(),
         recovered_at=RECOVERED_AT,
         fills=(fill,),
@@ -186,7 +186,7 @@ def test_partial_order_requires_matching_fill_quantity() -> None:
     with pytest.raises(ValueError, match="fill quantity"):
         UncertainSubmissionReceiptRecovery().recover(
             request,
-            _observation(request, OrderLifecycleStatus.PARTIALLY_FILLED, filled="1"),
+            _observation(request, OrderStatus.PARTIALLY_FILLED, filled="1"),
             request_id=uuid4(),
             recovered_at=RECOVERED_AT,
             fills=(_fill(request, "2"),),
@@ -198,7 +198,20 @@ def test_unresolved_lifecycle_status_does_not_create_receipt() -> None:
 
     receipt = UncertainSubmissionReceiptRecovery().recover(
         request,
-        _observation(request, OrderLifecycleStatus.UNKNOWN),
+        _observation(request, OrderStatus.UNKNOWN),
+        request_id=uuid4(),
+        recovered_at=RECOVERED_AT,
+    )
+
+    assert receipt is None
+
+
+def test_non_definitive_canonical_status_does_not_create_receipt() -> None:
+    request = _request()
+
+    receipt = UncertainSubmissionReceiptRecovery().recover(
+        request,
+        _observation(request, OrderStatus.SUBMITTED),
         request_id=uuid4(),
         recovered_at=RECOVERED_AT,
     )
@@ -210,7 +223,7 @@ def test_broker_identity_mismatch_is_rejected() -> None:
     request = _request()
     foreign = OrderObservation(
         uuid4(),
-        OrderLifecycleStatus.FILLED,
+        OrderStatus.FILLED,
         "2",
         "2",
         "dhan-1",
@@ -230,7 +243,7 @@ def test_broker_requested_quantity_mismatch_is_rejected() -> None:
     request = _request()
     foreign_quantity = OrderObservation(
         request.order.client_order_id,
-        OrderLifecycleStatus.FILLED,
+        OrderStatus.FILLED,
         "3",
         "3",
         "dhan-1",

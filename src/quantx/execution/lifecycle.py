@@ -86,12 +86,11 @@ class ExecutionLifecycleService:
         )
         if not receipts:
             raise ValueError("authoritative execution receipts are unavailable")
-        return ExecutionLifecycle.rebuild(
+        return ExecutionLifecycle.rebuild_from_reconciliation(
             request.order.client_order_id,
             request.order.quantity,
             receipts,
             correlation_id=correlation_id,
-            authoritative_reconciliation=True,
         )
 
     def _receipts_for_dispatch(

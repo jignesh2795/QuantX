@@ -17,7 +17,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderType, TimeInForce
+from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType, TimeInForce
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import (
     Instrument,
@@ -32,7 +32,6 @@ from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.integrations.reconciliation import (
     AccountFinancialState,
@@ -213,7 +212,7 @@ def test_cash_delta_does_not_block_recovery(tmp_path) -> None:
         outcome = reconcile_pending_execution(
             request,
             fingerprint=fingerprint,
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
             provider=_provider(adapter, request),
@@ -252,7 +251,7 @@ def test_margin_delta_does_not_block_recovery(tmp_path) -> None:
         outcome = reconcile_pending_execution(
             request,
             fingerprint=fingerprint,
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
             provider=_provider(adapter, request),
@@ -291,7 +290,7 @@ def test_contradictory_account_identity_stays_pending(tmp_path) -> None:
         outcome = reconcile_pending_execution(
             request,
             fingerprint=fingerprint,
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
             provider=_provider(adapter, request),
@@ -323,7 +322,7 @@ def test_strict_policy_still_rejects_cash_delta(tmp_path) -> None:
         outcome = reconcile_pending_execution(
             request,
             fingerprint=fingerprint,
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
             provider=_provider(adapter, request),
@@ -358,7 +357,7 @@ def test_stray_position_does_not_block_target_recovery(tmp_path) -> None:
         outcome = reconcile_pending_execution(
             request,
             fingerprint=fingerprint,
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
             provider=_provider(adapter, request),
@@ -388,7 +387,7 @@ def test_target_position_mismatch_still_blocks(tmp_path) -> None:
         outcome = reconcile_pending_execution(
             request,
             fingerprint=fingerprint,
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
             provider=_provider(adapter, request),
@@ -487,7 +486,7 @@ def _runner(unit_of_work, adapter, request, **overrides):
     context_providers = {
         "local_order_provider": lambda recovered: _observation(
             recovered.order.client_order_id,
-            OrderLifecycleStatus.FILLED,
+            OrderStatus.FILLED,
             filled="2",
         ),
         "local_position_provider": lambda recovered: _local_position(),

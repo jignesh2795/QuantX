@@ -12,7 +12,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderType, TimeInForce
+from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType, TimeInForce
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
     PendingExecutionRecoveryRequest,
@@ -28,7 +28,6 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.integrations.brokers import BrokerConnectionRef, BrokerDescriptor, CapabilitySet
 from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidenceStatus
 from quantx.plugins.dhan.adapter import DhanBrokerAdapter
@@ -151,7 +150,7 @@ def test_traded_detail_maps_to_filled_observation() -> None:
     assert evidence.status is BrokerOrderEvidenceStatus.FOUND
     observation = evidence.observation
     assert observation is not None
-    assert observation.status is OrderLifecycleStatus.FILLED
+    assert observation.status is OrderStatus.FILLED
     assert observation.requested_quantity == "2"
     assert observation.filled_quantity == "2"
     assert observation.broker_order_id == "dhan-test-order"
@@ -159,7 +158,30 @@ def test_traded_detail_maps_to_filled_observation() -> None:
     assert observation.connection_id == BrokerConnectionId("conn-1")
 
 
-def test_pending_detail_maps_to_acknowledged_observation() -> None:
+@pytest.mark.parametrize(
+    ("dhan_status", "expected_status"),
+    [
+        ("TRANSIT", OrderStatus.SUBMITTED),
+        ("PENDING", OrderStatus.ACCEPTED),
+        ("EXPIRED", OrderStatus.EXPIRED),
+    ],
+)
+def test_recovery_uses_the_canonical_dhan_status_mapping(
+    dhan_status: str,
+    expected_status: OrderStatus,
+) -> None:
+    provider = _provider(transport=InMemoryDhanTransport(response_status=dhan_status))
+    evidence = provider.fetch_broker_order(
+        account_id=AccountId("acct-1"),
+        connection_id=BrokerConnectionId("conn-1"),
+        order_id=provider._order_id,
+    )
+    assert evidence.status is BrokerOrderEvidenceStatus.FOUND
+    assert evidence.observation is not None
+    assert evidence.observation.status is expected_status
+
+
+def test_pending_detail_maps_to_accepted_observation() -> None:
     provider = _provider()
 
     evidence = provider.fetch_broker_order(
@@ -171,7 +193,7 @@ def test_pending_detail_maps_to_acknowledged_observation() -> None:
     assert evidence.status is BrokerOrderEvidenceStatus.FOUND
     observation = evidence.observation
     assert observation is not None
-    assert observation.status is OrderLifecycleStatus.ACKNOWLEDGED
+    assert observation.status is OrderStatus.ACCEPTED
 
 
 def test_unknown_broker_status_maps_to_unknown_observation() -> None:
@@ -187,7 +209,7 @@ def test_unknown_broker_status_maps_to_unknown_observation() -> None:
     assert evidence.status is BrokerOrderEvidenceStatus.FOUND
     observation = evidence.observation
     assert observation is not None
-    assert observation.status is OrderLifecycleStatus.UNKNOWN
+    assert observation.status is OrderStatus.UNKNOWN
 
 
 def test_generic_broker_adapter_is_rejected_before_dhan_specific_access() -> None:

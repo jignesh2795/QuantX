@@ -12,37 +12,8 @@ from quantx.domain.orders import Order
 from quantx.domain.policy import PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 
+from ..order_lifecycle import _reduce_order_status, is_terminal_order_status
 from .models import ExecutionReceipt
-
-_TERMINAL_ORDER_STATUSES = frozenset(
-    {
-        OrderStatus.FILLED,
-        OrderStatus.CANCELLED,
-        OrderStatus.REJECTED,
-        OrderStatus.EXPIRED,
-        OrderStatus.FAILED,
-    }
-)
-_AUTHORITATIVE_RESOLUTION_STATUSES = frozenset(
-    {
-        OrderStatus.ACCEPTED,
-        OrderStatus.PARTIALLY_FILLED,
-        OrderStatus.FILLED,
-        OrderStatus.CANCELLED,
-        OrderStatus.REJECTED,
-        OrderStatus.EXPIRED,
-        OrderStatus.FAILED,
-    }
-)
-_CONTRADICTORY_TERMINAL_STATUSES = frozenset(
-    {
-        OrderStatus.CANCELLED,
-        OrderStatus.REJECTED,
-        OrderStatus.EXPIRED,
-        OrderStatus.FAILED,
-        OrderStatus.CANCEL_PENDING,
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,14 +144,44 @@ class ExecutionLifecycle:
         receipts: tuple[ExecutionReceipt, ...] | list[ExecutionReceipt],
         *,
         correlation_id: UUID | str | None = None,
-        authoritative_reconciliation: bool = False,
     ) -> ExecutionLifecycle:
-        """Reconstruct lifecycle state from authoritative immutable receipts.
+        """Reconstruct lifecycle from receipts without granting reconciliation authority."""
+        return cls._rebuild(
+            client_order_id,
+            order_quantity,
+            receipts,
+            correlation_id=correlation_id,
+            reconciliation_authorized=False,
+        )
 
-        Receipt identity is the deduplication boundary. Replaying the same
-        persisted receipt twice must never double-count its fill. Receipts
-        are ordered deterministically by execution time and receipt ID.
-        """
+    @classmethod
+    def rebuild_from_reconciliation(
+        cls,
+        client_order_id: UUID | str,
+        order_quantity: Decimal,
+        receipts: tuple[ExecutionReceipt, ...] | list[ExecutionReceipt],
+        *,
+        correlation_id: UUID | str | None = None,
+    ) -> ExecutionLifecycle:
+        """Rebuild through the explicit trusted reconciliation entrypoint."""
+        return cls._rebuild(
+            client_order_id,
+            order_quantity,
+            receipts,
+            correlation_id=correlation_id,
+            reconciliation_authorized=True,
+        )
+
+    @classmethod
+    def _rebuild(
+        cls,
+        client_order_id: UUID | str,
+        order_quantity: Decimal,
+        receipts: tuple[ExecutionReceipt, ...] | list[ExecutionReceipt],
+        *,
+        correlation_id: UUID | str | None,
+        reconciliation_authorized: bool,
+    ) -> ExecutionLifecycle:
         unique: dict[UUID, ExecutionReceipt] = {}
         for receipt in receipts:
             existing = unique.get(receipt.receipt_id)
@@ -196,10 +197,10 @@ class ExecutionLifecycle:
             key=lambda receipt: (receipt.executed_at, str(receipt.receipt_id)),
         )
         for receipt in ordered:
-            lifecycle = lifecycle.apply(
+            lifecycle = lifecycle._apply_receipt(
                 receipt,
                 correlation_id=correlation_id,
-                authoritative_reconciliation=authoritative_reconciliation,
+                reconciliation_authorized=reconciliation_authorized,
             )
         return lifecycle
 
@@ -208,16 +209,34 @@ class ExecutionLifecycle:
         receipt: ExecutionReceipt,
         *,
         correlation_id: UUID | str | None = None,
-        authoritative_reconciliation: bool = False,
     ) -> ExecutionLifecycle:
-        """Reduce one receipt without reopening terminal orders or hiding anomalies.
+        """Apply ordinary receipt evidence; UNKNOWN cannot be resolved here."""
+        return self._apply_receipt(
+            receipt,
+            correlation_id=correlation_id,
+            reconciliation_authorized=False,
+        )
 
-        Receipt fill evidence is retained even when its status conflicts with an
-        already terminal lifecycle. UNKNOWN is unresolved by default; only a
-        caller rebuilding authoritative reconciliation history may resolve it
-        from a recognized broker status. Neither path automatically submits or
-        continues an order.
-        """
+    def apply_from_reconciliation(
+        self,
+        receipt: ExecutionReceipt,
+        *,
+        correlation_id: UUID | str | None = None,
+    ) -> ExecutionLifecycle:
+        """Apply a receipt through the explicit trusted reconciliation path."""
+        return self._apply_receipt(
+            receipt,
+            correlation_id=correlation_id,
+            reconciliation_authorized=True,
+        )
+
+    def _apply_receipt(
+        self,
+        receipt: ExecutionReceipt,
+        *,
+        correlation_id: UUID | str | None,
+        reconciliation_authorized: bool,
+    ) -> ExecutionLifecycle:
         accepted_correlation = (
             str(correlation_id) if correlation_id is not None else str(self.client_order_id)
         )
@@ -231,155 +250,92 @@ class ExecutionLifecycle:
         if new_filled > self.order_quantity:
             raise ValueError("cumulative fills exceed order quantity")
 
-        anomalies = list(self.anomalies)
-        requires_reconciliation = self.requires_reconciliation
-        current_status = self.status
-        receipt_status = receipt.order_status
-
-        def flag_anomaly(message: str) -> None:
-            if message not in anomalies:
-                anomalies.append(message)
-
-        def result(status: OrderStatus, *, needs_reconciliation: bool) -> ExecutionLifecycle:
+        # The shared reducer owns terminal absorption, UNKNOWN authority, and
+        # quantity-driven status decisions for a normal order receipt.
+        if is_terminal_order_status(self.status):
+            reduction = _reduce_order_status(
+                self.status,
+                receipt.order_status,
+                current_filled=self.filled_quantity,
+                added_fill=receipt.filled_quantity,
+                order_quantity=self.order_quantity,
+                requires_reconciliation=self.requires_reconciliation,
+                anomalies=self.anomalies,
+                reconciliation_authorized=reconciliation_authorized,
+            )
             return ExecutionLifecycle(
                 client_order_id=self.client_order_id,
                 order_quantity=self.order_quantity,
                 filled_quantity=new_filled,
-                status=status,
-                requires_reconciliation=needs_reconciliation,
-                anomalies=tuple(anomalies),
+                status=reduction.status,
+                requires_reconciliation=reduction.requires_reconciliation,
+                anomalies=reduction.anomalies,
             )
 
-        # Confirmed terminal states are absorbing. Later conflicting statuses
-        # cannot rewrite them, but any new fill quantity is retained as evidence.
-        if current_status in _TERMINAL_ORDER_STATUSES:
-            if receipt_status is not current_status:
-                flag_anomaly(
-                    f"conflicting status {receipt_status.value} observed after terminal "
-                    f"status {current_status.value}"
-                )
-                requires_reconciliation = True
-            if receipt.filled_quantity > 0 and current_status is not OrderStatus.FILLED:
-                flag_anomaly(
-                    f"late fill evidence observed after terminal status {current_status.value}"
-                )
-                requires_reconciliation = True
-            # A fresh authoritative observation confirming the same terminal
-            # state can resolve a prior anomaly flag only when it adds no new fills.
-            if new_filled == self.order_quantity and current_status is not OrderStatus.FILLED:
-                flag_anomaly(
-                    f"terminal status {current_status.value} conflicts with "
-                    "full-quantity fill evidence"
-                )
-                requires_reconciliation = True
-            elif (
-                authoritative_reconciliation
-                and receipt_status is current_status
-                and receipt.filled_quantity == 0
-                and new_filled < self.order_quantity
-            ):
-                requires_reconciliation = False
-            return result(current_status, needs_reconciliation=requires_reconciliation)
-
-        # A correlated child receipt contributes fills to the parent aggregate,
-        # but its status describes the child order, not the parent order.
+        # A correlated child receipt contributes quantity to the parent only;
+        # its status cannot resolve or overwrite the parent's state.
         if str(receipt.client_order_id) != str(self.client_order_id):
-            if current_status is OrderStatus.UNKNOWN or receipt_status is OrderStatus.UNKNOWN:
-                if receipt_status is OrderStatus.UNKNOWN:
+            anomaly_list = list(self.anomalies)
+
+            def flag_anomaly(message: str) -> None:
+                if message not in anomaly_list:
+                    anomaly_list.append(message)
+
+            if self.status is OrderStatus.UNKNOWN or receipt.order_status is OrderStatus.UNKNOWN:
+                if receipt.order_status is OrderStatus.UNKNOWN:
                     flag_anomaly("correlated child receipt has UNKNOWN status")
                 else:
                     flag_anomaly("correlated child receipt cannot resolve parent UNKNOWN status")
-                return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
+                return ExecutionLifecycle(
+                    client_order_id=self.client_order_id,
+                    order_quantity=self.order_quantity,
+                    filled_quantity=new_filled,
+                    status=OrderStatus.UNKNOWN,
+                    requires_reconciliation=True,
+                    anomalies=tuple(anomaly_list),
+                )
             if new_filled == self.order_quantity:
-                return result(OrderStatus.FILLED, needs_reconciliation=requires_reconciliation)
+                return ExecutionLifecycle(
+                    client_order_id=self.client_order_id,
+                    order_quantity=self.order_quantity,
+                    filled_quantity=new_filled,
+                    status=OrderStatus.FILLED,
+                    requires_reconciliation=self.requires_reconciliation,
+                    anomalies=tuple(anomaly_list),
+                )
             if new_filled > 0:
-                return result(
-                    OrderStatus.PARTIALLY_FILLED,
-                    needs_reconciliation=requires_reconciliation,
+                return ExecutionLifecycle(
+                    client_order_id=self.client_order_id,
+                    order_quantity=self.order_quantity,
+                    filled_quantity=new_filled,
+                    status=OrderStatus.PARTIALLY_FILLED,
+                    requires_reconciliation=self.requires_reconciliation,
+                    anomalies=tuple(anomaly_list),
                 )
-            return result(current_status, needs_reconciliation=requires_reconciliation)
-
-        # UNKNOWN is not a final outcome. Ordinary receipt application cannot
-        # resolve it, even if a later event happens to carry a familiar status.
-        if current_status is OrderStatus.UNKNOWN:
-            if (
-                not authoritative_reconciliation
-                or receipt_status not in _AUTHORITATIVE_RESOLUTION_STATUSES
-            ):
-                if receipt_status is not OrderStatus.UNKNOWN:
-                    flag_anomaly(
-                        f"status {receipt_status.value} cannot resolve UNKNOWN without "
-                        "authoritative reconciliation"
-                    )
-                return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
-
-            requires_reconciliation = False
-            if new_filled == self.order_quantity:
-                if receipt_status in _CONTRADICTORY_TERMINAL_STATUSES:
-                    flag_anomaly(
-                        f"status {receipt_status.value} conflicts with full-quantity fill evidence"
-                    )
-                    requires_reconciliation = True
-                return result(OrderStatus.FILLED, needs_reconciliation=requires_reconciliation)
-
-            if receipt_status is OrderStatus.FILLED:
-                flag_anomaly("FILLED status lacks full-quantity fill evidence")
-                return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
-
-            if receipt_status is OrderStatus.ACCEPTED and new_filled > 0:
-                flag_anomaly("ACCEPTED status conflicts with existing fill evidence")
-                return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
-
-            if receipt_status is OrderStatus.PARTIALLY_FILLED and new_filled == 0:
-                flag_anomaly("PARTIALLY_FILLED status has no fill evidence")
-                return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
-
-            if new_filled > 0 and receipt_status not in _TERMINAL_ORDER_STATUSES:
-                return result(
-                    OrderStatus.PARTIALLY_FILLED,
-                    needs_reconciliation=requires_reconciliation,
-                )
-            return result(receipt_status, needs_reconciliation=requires_reconciliation)
-
-        # From a known non-terminal state, fill quantity is the strongest signal
-        # of completion. A contradictory terminal receipt is retained as an
-        # anomaly instead of turning a fully filled order into CANCELLED/etc.
-        if receipt_status is OrderStatus.UNKNOWN:
-            return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
-
-        if new_filled == self.order_quantity:
-            if receipt_status in _CONTRADICTORY_TERMINAL_STATUSES:
-                flag_anomaly(
-                    f"status {receipt_status.value} conflicts with full-quantity fill evidence"
-                )
-                requires_reconciliation = True
-            elif (
-                authoritative_reconciliation
-                and receipt_status in _AUTHORITATIVE_RESOLUTION_STATUSES
-            ):
-                requires_reconciliation = False
-            return result(OrderStatus.FILLED, needs_reconciliation=requires_reconciliation)
-
-        if receipt_status is OrderStatus.FILLED:
-            flag_anomaly("FILLED status lacks full-quantity fill evidence")
-            return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
-
-        if authoritative_reconciliation and receipt_status in _AUTHORITATIVE_RESOLUTION_STATUSES:
-            requires_reconciliation = False
-
-        if receipt_status in _TERMINAL_ORDER_STATUSES:
-            return result(receipt_status, needs_reconciliation=requires_reconciliation)
-
-        if receipt_status is OrderStatus.CANCEL_PENDING:
-            return result(
-                OrderStatus.CANCEL_PENDING,
-                needs_reconciliation=requires_reconciliation,
+            return ExecutionLifecycle(
+                client_order_id=self.client_order_id,
+                order_quantity=self.order_quantity,
+                filled_quantity=new_filled,
+                status=self.status,
+                requires_reconciliation=self.requires_reconciliation,
+                anomalies=tuple(anomaly_list),
             )
 
-        if new_filled > 0:
-            return result(
-                OrderStatus.PARTIALLY_FILLED,
-                needs_reconciliation=requires_reconciliation,
-            )
-
-        return result(receipt_status, needs_reconciliation=requires_reconciliation)
+        reduction = _reduce_order_status(
+            self.status,
+            receipt.order_status,
+            current_filled=self.filled_quantity,
+            added_fill=receipt.filled_quantity,
+            order_quantity=self.order_quantity,
+            requires_reconciliation=self.requires_reconciliation,
+            anomalies=self.anomalies,
+            reconciliation_authorized=reconciliation_authorized,
+        )
+        return ExecutionLifecycle(
+            client_order_id=self.client_order_id,
+            order_quantity=self.order_quantity,
+            filled_quantity=new_filled,
+            status=reduction.status,
+            requires_reconciliation=reduction.requires_reconciliation,
+            anomalies=reduction.anomalies,
+        )

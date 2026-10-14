@@ -19,7 +19,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import OrderSide, OrderType
+from quantx.domain.enums import OrderSide, OrderStatus, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
@@ -29,7 +29,6 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
 from quantx.integrations.reconciliation import (
@@ -159,13 +158,13 @@ def test_definitive_positive_resolution(tmp_path, monkeypatch) -> None:
         request = _request()
         order_id = request.order.client_order_id
         unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
-        broker_order = _observation(order_id, OrderLifecycleStatus.FILLED, filled="2")
+        broker_order = _observation(order_id, OrderStatus.FILLED, filled="2")
         provider = ScriptedProvider(orders=[broker_order])
 
         outcome = reconcile_pending_execution(
             request,
             fingerprint="fp-a",
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
             provider=provider,
@@ -237,8 +236,8 @@ def test_mismatch_leaves_pending_without_terminal_state(tmp_path) -> None:
         outcome = reconcile_pending_execution(
             request,
             fingerprint="fp-a",
-            local_order=_observation(order_id, OrderLifecycleStatus.SUBMITTED),
-            broker_order=_observation(order_id, OrderLifecycleStatus.CANCELLED),
+            local_order=_observation(order_id, OrderStatus.SUBMITTED),
+            broker_order=_observation(order_id, OrderStatus.CANCELLED),
             provider=provider,
             unit_of_work=unit_of_work,
             checked_at=CHECKED_AT,
@@ -260,15 +259,13 @@ def test_fingerprint_mismatch_rejected(tmp_path) -> None:
         request = _request()
         order_id = request.order.client_order_id
         unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
 
         with pytest.raises(ValueError, match="different request"):
             reconcile_pending_execution(
                 request,
                 fingerprint="fp-b",
-                local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+                local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
                 broker_order=None,
                 fills=(_fill(request),),
                 provider=provider,
@@ -290,13 +287,11 @@ def test_already_complete_preserves_immutable_semantics(tmp_path) -> None:
         request = _request()
         order_id = request.order.client_order_id
         unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
         first = reconcile_pending_execution(
             request,
             fingerprint="fp-a",
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
             provider=provider,
@@ -312,11 +307,11 @@ def test_already_complete_preserves_immutable_semantics(tmp_path) -> None:
             reconcile_pending_execution(
                 request,
                 fingerprint="fp-a",
-                local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+                local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
                 broker_order=None,
                 fills=(_fill(request),),
                 provider=ScriptedProvider(
-                    orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
+                    orders=[_observation(order_id, OrderStatus.FILLED, filled="2")]
                 ),
                 unit_of_work=unit_of_work,
                 checked_at=CHECKED_AT,
@@ -336,9 +331,7 @@ def test_resolution_failure_leaves_no_partial_state(tmp_path, monkeypatch) -> No
         request = _request()
         order_id = request.order.client_order_id
         unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
 
         def boom(*args, **kwargs):
             raise RuntimeError("resolution unavailable")
@@ -348,7 +341,7 @@ def test_resolution_failure_leaves_no_partial_state(tmp_path, monkeypatch) -> No
             reconcile_pending_execution(
                 request,
                 fingerprint="fp-a",
-                local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+                local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
                 broker_order=None,
                 fills=(_fill(request),),
                 provider=provider,
@@ -430,9 +423,7 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
 
     database_b, unit_of_work_b = _database_and_uow(tmp_path)
     try:
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
         blocked = ExecutionTransactionCoordinator(
             idempotency=SqliteIdempotencyStore(database_b),
             preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
@@ -447,7 +438,7 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
         outcome = reconcile_pending_execution(
             request,
             fingerprint=fingerprint,
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=None,
             fills=(_fill(request),),
             provider=provider,
@@ -482,7 +473,7 @@ def test_pending_recovery_runner_resolves_with_default_all_required_evidence(tmp
         )
         broker_order = OrderObservation(
             order_id,
-            OrderLifecycleStatus.FILLED,
+            OrderStatus.FILLED,
             "2",
             "2",
             "dhan-1",
@@ -536,7 +527,7 @@ def test_pending_recovery_runner_resolves_with_default_all_required_evidence(tmp
             provider_resolver=lambda _: provider,
             local_order_provider=lambda recovered: OrderObservation(
                 recovered.order.client_order_id,
-                OrderLifecycleStatus.FILLED,
+                OrderStatus.FILLED,
                 "2",
                 "2",
                 "dhan-1",
@@ -573,15 +564,13 @@ def test_pending_recovery_runner_resolves_after_restart(tmp_path) -> None:
 
     database_b, unit_of_work_b = _database_and_uow(tmp_path)
     try:
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
         runner = PendingExecutionRecoveryRunner(
             unit_of_work=unit_of_work_b,
             provider_resolver=lambda _: provider,
             local_order_provider=lambda recovered: _observation(
                 recovered.order.client_order_id,
-                OrderLifecycleStatus.FILLED,
+                OrderStatus.FILLED,
                 filled="2",
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
@@ -632,9 +621,7 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
             # Scoped broker evidence, matching the LIVE safety contract
             # enforced during recovery: unscoped observations are rejected
             # as mismatches before any resolution is attempted.
-            return BrokerOrderEvidence.found(
-                _observation(order_id, OrderLifecycleStatus.FILLED, filled="2")
-            )
+            return BrokerOrderEvidence.found(_observation(order_id, OrderStatus.FILLED, filled="2"))
 
         def fetch_broker_position(self, **kwargs):
             return None
@@ -650,7 +637,7 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
             provider_resolver=lambda _: provider,
             local_order_provider=lambda recovered: _observation(
                 recovered.order.client_order_id,
-                OrderLifecycleStatus.FILLED,
+                OrderStatus.FILLED,
                 filled="2",
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
@@ -709,15 +696,13 @@ def test_pending_recovery_runner_isolates_malformed_context(tmp_path) -> None:
                     "{malformed-json",
                 ),
             )
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderLifecycleStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
         runner = PendingExecutionRecoveryRunner(
             unit_of_work=unit_of_work,
             provider_resolver=lambda _: provider,
             local_order_provider=lambda recovered: _observation(
                 recovered.order.client_order_id,
-                OrderLifecycleStatus.FILLED,
+                OrderStatus.FILLED,
                 filled="2",
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
@@ -769,7 +754,7 @@ def test_pending_recovery_runner_isolates_failed_context(tmp_path) -> None:
             orders=[
                 _observation(
                     request_ok.order.client_order_id,
-                    OrderLifecycleStatus.FILLED,
+                    OrderStatus.FILLED,
                     filled="2",
                 )
             ]
@@ -785,7 +770,7 @@ def test_pending_recovery_runner_isolates_failed_context(tmp_path) -> None:
             provider_resolver=provider_for,
             local_order_provider=lambda recovered: _observation(
                 recovered.order.client_order_id,
-                OrderLifecycleStatus.FILLED,
+                OrderStatus.FILLED,
                 filled="2",
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
@@ -815,7 +800,7 @@ def test_default_pending_reconciliation_requires_scoped_broker_order(tmp_path) -
         unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
         broker_order = _observation(
             order_id,
-            OrderLifecycleStatus.FILLED,
+            OrderStatus.FILLED,
             filled="2",
             account=None,
             connection=None,
@@ -860,7 +845,7 @@ def test_default_pending_reconciliation_requires_scoped_broker_order(tmp_path) -
         outcome = reconcile_pending_execution(
             request,
             fingerprint="fp-a",
-            local_order=_observation(order_id, OrderLifecycleStatus.FILLED, filled="2"),
+            local_order=_observation(order_id, OrderStatus.FILLED, filled="2"),
             broker_order=broker_order,
             fills=(_fill(request),),
             provider=provider,

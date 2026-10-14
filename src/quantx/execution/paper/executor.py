@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from quantx.domain.enums import OrderStatus
 from quantx.domain.orders import Fill, Order
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.order_lifecycle import (
     OrderLifecycle,
     OrderLifecycleEvent,
-    OrderLifecycleStatus,
     OutcomeConfidence,
 )
 
@@ -23,7 +23,7 @@ from .profile import OrderBookSnapshot
 
 @dataclass(frozen=True, slots=True)
 class PaperExecutionOutcome:
-    lifecycle_status: OrderLifecycleStatus
+    lifecycle_status: OrderStatus
     ledger_entry: PositionLedgerEntry | None
     fill: Fill | None
     reason: str
@@ -52,7 +52,7 @@ class PaperOrderExecutor:
         lifecycle.apply(
             OrderLifecycleEvent(
                 order_id=order.client_order_id,
-                status=OrderLifecycleStatus.SUBMITTED,
+                status=OrderStatus.SUBMITTED,
                 observed_at=observed_at,
                 source="paper",
             )
@@ -77,7 +77,7 @@ class PaperOrderExecutor:
             lifecycle.apply(
                 OrderLifecycleEvent(
                     order_id=order.client_order_id,
-                    status=OrderLifecycleStatus.UNKNOWN,
+                    status=OrderStatus.UNKNOWN,
                     observed_at=observed_at,
                     source="paper",
                     message=result.evidence.reason,
@@ -101,17 +101,15 @@ class PaperOrderExecutor:
             price=result.fill.price,
             filled_at=filled_at,
         )
-        status = (
-            OrderLifecycleStatus.PARTIALLY_FILLED
-            if result.fill.partial
-            else OrderLifecycleStatus.FILLED
-        )
+        status = OrderStatus.PARTIALLY_FILLED if result.fill.partial else OrderStatus.FILLED
         lifecycle.apply(
             OrderLifecycleEvent(
                 order_id=order.client_order_id,
                 status=status,
                 observed_at=filled_at,
                 source="paper",
+                order_quantity=order.quantity,
+                filled_quantity=result.fill.quantity,
             )
         )
         ledger = self.accounting.apply(fill, fee=result.fill.fee)
