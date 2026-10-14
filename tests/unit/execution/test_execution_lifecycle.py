@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
+
 from quantx.domain.enums import OrderSide, OrderStatus
 from quantx.domain.orders import Fill
 from quantx.domain.value_objects import InstrumentId
@@ -215,6 +217,276 @@ def _receipt_with_status(
         order_id=order_id,
         order_quantity=order_quantity,
     )
+
+
+@pytest.mark.parametrize(
+    (
+        "initial_status",
+        "initial_filled",
+        "receipt_status",
+        "receipt_filled",
+        "authoritative_reconciliation",
+        "expected_status",
+        "expected_reconciliation",
+    ),
+    [
+        (
+            OrderStatus.CREATED,
+            "0",
+            OrderStatus.ACCEPTED,
+            "0",
+            False,
+            OrderStatus.ACCEPTED,
+            False,
+        ),
+        (
+            OrderStatus.CREATED,
+            "0",
+            OrderStatus.PARTIALLY_FILLED,
+            "2",
+            False,
+            OrderStatus.PARTIALLY_FILLED,
+            False,
+        ),
+        (
+            OrderStatus.CREATED,
+            "0",
+            OrderStatus.FILLED,
+            "10",
+            False,
+            OrderStatus.FILLED,
+            False,
+        ),
+        (
+            OrderStatus.PARTIALLY_FILLED,
+            "4",
+            OrderStatus.PARTIALLY_FILLED,
+            "2",
+            False,
+            OrderStatus.PARTIALLY_FILLED,
+            False,
+        ),
+        (
+            OrderStatus.PARTIALLY_FILLED,
+            "4",
+            OrderStatus.CANCELLED,
+            "0",
+            False,
+            OrderStatus.CANCELLED,
+            False,
+        ),
+        (
+            OrderStatus.CANCELLED,
+            "0",
+            OrderStatus.PARTIALLY_FILLED,
+            "2",
+            False,
+            OrderStatus.CANCELLED,
+            True,
+        ),
+        (
+            OrderStatus.FILLED,
+            "10",
+            OrderStatus.CANCELLED,
+            "0",
+            False,
+            OrderStatus.FILLED,
+            True,
+        ),
+        (
+            OrderStatus.CREATED,
+            "0",
+            OrderStatus.UNKNOWN,
+            "0",
+            False,
+            OrderStatus.UNKNOWN,
+            True,
+        ),
+        (
+            OrderStatus.UNKNOWN,
+            "0",
+            OrderStatus.ACCEPTED,
+            "0",
+            False,
+            OrderStatus.UNKNOWN,
+            True,
+        ),
+        (
+            OrderStatus.UNKNOWN,
+            "0",
+            OrderStatus.ACCEPTED,
+            "0",
+            True,
+            OrderStatus.ACCEPTED,
+            False,
+        ),
+    ],
+)
+def test_execution_lifecycle_transition_matrix(
+    initial_status: OrderStatus,
+    initial_filled: str,
+    receipt_status: OrderStatus,
+    receipt_filled: str,
+    authoritative_reconciliation: bool,
+    expected_status: OrderStatus,
+    expected_reconciliation: bool,
+) -> None:
+    order_id = uuid4()
+    order_quantity = Decimal("10")
+    lifecycle = ExecutionLifecycle(
+        order_id,
+        order_quantity,
+        filled_quantity=Decimal(initial_filled),
+        status=initial_status,
+    )
+    receipt = _receipt_with_status(
+        order_id,
+        order_quantity,
+        receipt_status,
+        Decimal(receipt_filled),
+        seconds=1,
+    )
+
+    updated = lifecycle.apply(
+        receipt,
+        authoritative_reconciliation=authoritative_reconciliation,
+    )
+
+    assert updated.status is expected_status
+    assert updated.requires_reconciliation is expected_reconciliation
+    assert Decimal("0") <= updated.filled_quantity <= updated.order_quantity
+    assert updated.remaining_quantity + updated.filled_quantity == updated.order_quantity
+    if updated.status is OrderStatus.UNKNOWN or updated.requires_reconciliation:
+        assert not updated.is_complete
+        assert not updated.can_continue
+    if updated.can_continue:
+        assert updated.status is OrderStatus.PARTIALLY_FILLED
+        assert updated.remaining_quantity > 0
+        assert not updated.requires_reconciliation
+
+
+@pytest.mark.parametrize(
+    "terminal_status",
+    [
+        OrderStatus.FILLED,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+        OrderStatus.EXPIRED,
+        OrderStatus.FAILED,
+    ],
+)
+def test_terminal_status_transition_matrix_is_absorbing(
+    terminal_status: OrderStatus,
+) -> None:
+    order_id = uuid4()
+    order_quantity = Decimal("10")
+    filled_quantity = (
+        order_quantity if terminal_status is OrderStatus.FILLED else Decimal("2")
+    )
+    lifecycle = ExecutionLifecycle(
+        order_id,
+        order_quantity,
+        filled_quantity=filled_quantity,
+        status=terminal_status,
+    )
+    contradictory = _receipt_with_status(
+        order_id,
+        order_quantity,
+        OrderStatus.ACCEPTED,
+        Decimal("0"),
+        seconds=1,
+    )
+
+    updated = lifecycle.apply(contradictory)
+
+    assert updated.status is terminal_status
+    assert updated.requires_reconciliation
+    assert updated.anomalies
+    assert not updated.is_complete
+    assert not updated.can_continue
+
+
+@pytest.mark.parametrize(
+    ("order_quantity", "filled_quantity"),
+    [
+        (Decimal("0"), Decimal("0")),
+        (Decimal("-1"), Decimal("0")),
+        (Decimal("1"), Decimal("-0.1")),
+        (Decimal("1"), Decimal("1.1")),
+    ],
+)
+def test_lifecycle_rejects_invalid_quantity_bounds(
+    order_quantity: Decimal,
+    filled_quantity: Decimal,
+) -> None:
+    with pytest.raises(ValueError):
+        ExecutionLifecycle(
+            uuid4(),
+            order_quantity,
+            filled_quantity=filled_quantity,
+        )
+
+
+def test_reducer_quantity_invariants_over_decimal_grid() -> None:
+    """Exercise reducer invariants over a deterministic range of Decimal quantities."""
+    order_id = uuid4()
+    scenarios = 0
+    for quantity in (Decimal("1"), Decimal("2.5"), Decimal("10")):
+        for initial_fraction in (Decimal("0"), Decimal("0.25"), Decimal("0.5"), Decimal("0.75")):
+            initial_filled = quantity * initial_fraction
+            remaining = quantity - initial_filled
+            for fill_fraction in (Decimal("0"), Decimal("0.25")):
+                added_fill = remaining * fill_fraction
+                initial_status = (
+                    OrderStatus.CREATED
+                    if initial_filled == 0
+                    else OrderStatus.PARTIALLY_FILLED
+                )
+                lifecycle = ExecutionLifecycle(
+                    order_id,
+                    quantity,
+                    filled_quantity=initial_filled,
+                    status=initial_status,
+                )
+                receipt_status = (
+                    OrderStatus.ACCEPTED
+                    if added_fill == 0
+                    else OrderStatus.PARTIALLY_FILLED
+                )
+                receipt = _receipt_with_status(
+                    order_id,
+                    quantity,
+                    receipt_status,
+                    added_fill,
+                    seconds=scenarios + 1,
+                )
+                updated = lifecycle.apply(receipt)
+                scenarios += 1
+
+                assert Decimal("0") <= updated.filled_quantity <= quantity
+                assert updated.remaining_quantity == quantity - updated.filled_quantity
+                assert updated.remaining_quantity >= 0
+                if updated.status is OrderStatus.UNKNOWN or updated.requires_reconciliation:
+                    assert not updated.is_complete
+                    assert not updated.can_continue
+                if updated.can_continue:
+                    assert updated.status is OrderStatus.PARTIALLY_FILLED
+                    assert updated.remaining_quantity > 0
+                    assert not updated.requires_reconciliation
+                if updated.is_complete:
+                    assert not updated.requires_reconciliation
+                    assert updated.status is not OrderStatus.UNKNOWN
+                    assert (
+                        updated.remaining_quantity == 0
+                        or updated.status
+                        in {
+                            OrderStatus.CANCELLED,
+                            OrderStatus.REJECTED,
+                            OrderStatus.EXPIRED,
+                            OrderStatus.FAILED,
+                        }
+                    )
+    assert scenarios == 24
 
 
 def test_cancelled_lifecycle_retains_late_fill_and_blocks_progression() -> None:
