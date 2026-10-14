@@ -1,5 +1,7 @@
 # Execution Audit Findings
 
+> **Execution/recovery audit record.** The findings and invariants below remain useful background, but checkpoint SHAs, test totals, and the former closing "Next action" reflect earlier audit stages. Current milestone sequencing is in `docs/STATUS.md` and `docs/roadmap/README.md`; M4.1 merged in PR #218 and issue #197 is the next ordered design task before broader #196 StrategyContext/callback work.
+
 ## Current decisions
 
 The execution package is intentionally not split into folders merely for visual symmetry. A module remains standalone when it has one cohesive responsibility.
@@ -141,7 +143,7 @@ The final boundary audit found no alternate LIVE submission path in the current 
 - RecoveryEndpointResolver binds recovery to the exact persisted account/connection identity and rejects missing, disabled, mismatched, or drifted registrations.
 - No new runtime/router/registry layer is justified by this audit, and no credentials or vendor transport construction belongs in application/domain code.
 
-Validation evidence remains separate from CI evidence: the branch has the externally reported 665-test OpenCode validation, while the corresponding GitHub Actions run had failed without retrievable job logs and was re-queued for verification. No production-broker end-to-end result is being inferred from that run.
-## Next action
+Historical validation note: the earlier branch had an externally reported 665-test OpenCode checkpoint, while its corresponding GitHub Actions attempt failed without retrievable job logs. This is not current-main or current-PR evidence and does not imply Actions should be rerun. While billing is disabled, current repository validation is local-only; no production-broker end-to-end result is inferred from that historical attempt.
+## Disposition and current sequencing
 
-Do not restructure these modules further. Treat the execution/recovery boundary as frozen unless a new concrete invariant violation is demonstrated. The remaining work is stack integration and host/deployment work; UI, AI, and a broad broker matrix should follow only after this foundation is integrated cleanly.
+The original execution/recovery recommendation remains: do not restructure these modules absent a concrete invariant violation; keep the safety boundary frozen. The former statement that stack integration and host/deployment work remained next is historical and superseded by completion of the ADR-008 v0.1 scope and M4.1 (PR #218). Current sequencing is the market-pack pre-trade-check design in issue #197, before broader StrategyContext/callback work in #196. This audit does not authorize UI, AI, broad broker-matrix, or live-strategy expansion.
