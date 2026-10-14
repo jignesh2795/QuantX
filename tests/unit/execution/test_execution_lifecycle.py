@@ -428,6 +428,9 @@ def test_lifecycle_rejects_invalid_quantity_bounds(
 def test_reducer_quantity_invariants_over_decimal_grid() -> None:
     """Exercise reducer invariants over a deterministic range of Decimal quantities."""
     order_id = uuid4()
+    created = OrderStatus.CREATED
+    accepted = OrderStatus.ACCEPTED
+    partial = OrderStatus.PARTIALLY_FILLED
     scenarios = 0
     for quantity in (Decimal("1"), Decimal("2.5"), Decimal("10")):
         for initial_fraction in (Decimal("0"), Decimal("0.25"), Decimal("0.5"), Decimal("0.75")):
@@ -435,14 +438,14 @@ def test_reducer_quantity_invariants_over_decimal_grid() -> None:
             remaining = quantity - initial_filled
             for fill_fraction in (Decimal("0"), Decimal("0.25")):
                 added_fill = remaining * fill_fraction
-                initial_status = OrderStatus.CREATED if initial_filled == 0 else OrderStatus.PARTIALLY_FILLED
+                initial_status = created if initial_filled == 0 else partial
                 lifecycle = ExecutionLifecycle(
                     order_id,
                     quantity,
                     filled_quantity=initial_filled,
                     status=initial_status,
                 )
-                receipt_status = OrderStatus.ACCEPTED if added_fill == 0 else OrderStatus.PARTIALLY_FILLED
+                receipt_status = accepted if added_fill == 0 else partial
                 receipt = _receipt_with_status(
                     order_id,
                     quantity,
