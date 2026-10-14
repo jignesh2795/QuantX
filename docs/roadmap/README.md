@@ -40,9 +40,11 @@ C14.8 provenance binding and the C14.9 end-to-end deterministic proof are comple
 
 C14 explicitly defers scheduling, streaming, distributed ingestion, cloud storage, generic ETL, production historical-data service, UI, AI/ML, optimization, and broad broker expansion.
 
-The detailed C14 planning record remains the implementation history. C14.9 is now merged on `main` in PR #158; the next implementation phase shifts from dataset composition to local-first host/integration readiness.
+The detailed C14 planning record remains implementation history. C14.9 is merged on `main` in PR #158. V0.1 local-first host/integration readiness is acceptance-complete for the declared programmatic-library scope under ADR-008; it is not the next milestone.
 
-## Next milestone — V0.1 Local-First Host & Integration Readiness
+## V0.1 Local-First Host & Integration Readiness — acceptance-complete
+
+**Status:** Complete for the declared programmatic local-first library scope under ADR-008; see `docs/architecture/28-v0.1-acceptance-criteria.md`. The sequence below is retained as historical implementation planning, not a statement of pending work. The CLI remains explicitly deferred.
 
 ### Objective
 
@@ -70,7 +72,14 @@ Close the gap between QuantX's tested application components and a documented, e
 Execution/recovery internals are frozen unless the acceptance audit finds a concrete invariant violation. Preserve the existing ports, adapters, persistence, reconciliation, and provenance boundaries; do not add parallel abstractions.
 
 ## M4 — Strategy Platform
-Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals.
+
+**Status:** Active. The first vertical, M4.1 deterministic strategy-to-paper rehearsal, merged in PR #218. The validated feature head was `d99c12f3ae051f992722bee2bc8ea3253032fdc8`; merge commit `a0bf101b6f6bb87d11460cefb199932a768d6335`.
+
+M4.1 proves the existing Python strategy definition/IR/runtime path through deployment-owned context binding, risk/policy preparation, and the canonical paper executor. It is offline and PAPER-only; it does not complete M4 overall, add a Flow authoring path, or establish Python/Flow runtime parity.
+
+**M4 exit criterion remains:** Python strategies and a first Flow path compile to the same runtime semantics. The next ordered design task is issue #197 (market-pack pre-trade-check pipeline), which issue #196 identifies as a prerequisite before expanding the engine-truth StrategyContext/callback contract.
+
+Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals remain the broader M4/platform roadmap.
 
 ## M5 — Control Plane
 REST, WebSocket, strategy registry, Action Center, monitoring, audit and operations.
