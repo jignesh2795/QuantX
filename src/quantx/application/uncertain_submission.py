@@ -13,7 +13,6 @@ from quantx.domain.execution_request import (
     PendingExecutionRecoveryRequest,
 )
 from quantx.domain.orders import Fill
-from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.reconciliation.orders import OrderObservation
 
@@ -69,26 +68,30 @@ class UncertainSubmissionReceiptRecovery:
 
     @staticmethod
     def _map_status(
-        status: OrderLifecycleStatus,
+        status: OrderStatus,
     ) -> tuple[ExecutionOutcome | None, OrderStatus | None]:
+        # Only statuses that establish a definitive order state may produce a
+        # receipt. Any other canonical status (SUBMITTED, CANCEL_PENDING,
+        # UNKNOWN, and the remaining terminal observations handled elsewhere)
+        # stays unresolved and returns no receipt.
         mapping = {
-            OrderLifecycleStatus.ACKNOWLEDGED: (
+            OrderStatus.ACCEPTED: (
                 ExecutionOutcome.ACCEPTED,
                 OrderStatus.ACCEPTED,
             ),
-            OrderLifecycleStatus.PARTIALLY_FILLED: (
+            OrderStatus.PARTIALLY_FILLED: (
                 ExecutionOutcome.PARTIALLY_FILLED,
                 OrderStatus.PARTIALLY_FILLED,
             ),
-            OrderLifecycleStatus.FILLED: (
+            OrderStatus.FILLED: (
                 ExecutionOutcome.FILLED,
                 OrderStatus.FILLED,
             ),
-            OrderLifecycleStatus.CANCELLED: (
+            OrderStatus.CANCELLED: (
                 ExecutionOutcome.CANCELLED,
                 OrderStatus.CANCELLED,
             ),
-            OrderLifecycleStatus.REJECTED: (
+            OrderStatus.REJECTED: (
                 ExecutionOutcome.REJECTED,
                 OrderStatus.REJECTED,
             ),

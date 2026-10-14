@@ -259,9 +259,7 @@ def test_fingerprint_mismatch_rejected(tmp_path) -> None:
         request = _request()
         order_id = request.order.client_order_id
         unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
 
         with pytest.raises(ValueError, match="different request"):
             reconcile_pending_execution(
@@ -289,9 +287,7 @@ def test_already_complete_preserves_immutable_semantics(tmp_path) -> None:
         request = _request()
         order_id = request.order.client_order_id
         unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
         first = reconcile_pending_execution(
             request,
             fingerprint="fp-a",
@@ -335,9 +331,7 @@ def test_resolution_failure_leaves_no_partial_state(tmp_path, monkeypatch) -> No
         request = _request()
         order_id = request.order.client_order_id
         unit_of_work.idempotency.reserve_or_get(order_id, "fp-a")
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
 
         def boom(*args, **kwargs):
             raise RuntimeError("resolution unavailable")
@@ -429,9 +423,7 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
 
     database_b, unit_of_work_b = _database_and_uow(tmp_path)
     try:
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
         blocked = ExecutionTransactionCoordinator(
             idempotency=SqliteIdempotencyStore(database_b),
             preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
@@ -572,9 +564,7 @@ def test_pending_recovery_runner_resolves_after_restart(tmp_path) -> None:
 
     database_b, unit_of_work_b = _database_and_uow(tmp_path)
     try:
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
         runner = PendingExecutionRecoveryRunner(
             unit_of_work=unit_of_work_b,
             provider_resolver=lambda _: provider,
@@ -631,9 +621,7 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
             # Scoped broker evidence, matching the LIVE safety contract
             # enforced during recovery: unscoped observations are rejected
             # as mismatches before any resolution is attempted.
-            return BrokerOrderEvidence.found(
-                _observation(order_id, OrderStatus.FILLED, filled="2")
-            )
+            return BrokerOrderEvidence.found(_observation(order_id, OrderStatus.FILLED, filled="2"))
 
         def fetch_broker_position(self, **kwargs):
             return None
@@ -708,9 +696,7 @@ def test_pending_recovery_runner_isolates_malformed_context(tmp_path) -> None:
                     "{malformed-json",
                 ),
             )
-        provider = ScriptedProvider(
-            orders=[_observation(order_id, OrderStatus.FILLED, filled="2")]
-        )
+        provider = ScriptedProvider(orders=[_observation(order_id, OrderStatus.FILLED, filled="2")])
         runner = PendingExecutionRecoveryRunner(
             unit_of_work=unit_of_work,
             provider_resolver=lambda _: provider,

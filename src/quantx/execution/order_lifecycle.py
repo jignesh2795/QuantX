@@ -232,8 +232,7 @@ def _reduce_order_status(
             and current_status is not OrderStatus.FILLED
         ):
             flag_anomaly(
-                f"terminal status {current_status.value} conflicts with "
-                "full-quantity fill evidence"
+                f"terminal status {current_status.value} conflicts with full-quantity fill evidence"
             )
             requires_reconciliation = True
         elif (
@@ -303,17 +302,13 @@ def _reduce_order_status(
     if observed_status is OrderStatus.UNKNOWN:
         return result(OrderStatus.UNKNOWN, needs_reconciliation=True)
 
-    if (
-        observed_status is OrderStatus.FAILED
-        and current_status not in {OrderStatus.CREATED, OrderStatus.PENDING_SUBMIT}
-    ):
+    if observed_status is OrderStatus.FAILED and current_status not in {
+        OrderStatus.CREATED,
+        OrderStatus.PENDING_SUBMIT,
+    }:
         if strict_transition:
-            raise ValueError(
-                f"invalid order transition: {current_status} -> {observed_status}"
-            )
-        flag_anomaly(
-            "FAILED status conflicts with evidence that the order may have been live"
-        )
+            raise ValueError(f"invalid order transition: {current_status} -> {observed_status}")
+        flag_anomaly("FAILED status conflicts with evidence that the order may have been live")
         return result(current_status, needs_reconciliation=True)
 
     if (
@@ -461,10 +456,7 @@ class OrderLifecycle:
         observed_order_quantity = event.order_quantity or self.order_quantity
         added_fill = Decimal("0")
         if event.order_quantity is not None:
-            if (
-                self.order_quantity is not None
-                and event.order_quantity != self.order_quantity
-            ):
+            if self.order_quantity is not None and event.order_quantity != self.order_quantity:
                 raise ValueError("order quantity changed during lifecycle")
             assert event.filled_quantity is not None
             if event.filled_quantity < self.filled_quantity:

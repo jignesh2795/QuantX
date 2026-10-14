@@ -159,9 +159,7 @@ def test_canonical_lifecycle_all_allowed_transitions(
         )
     elif next_status is OrderStatus.PARTIALLY_FILLED:
         cumulative = (
-            Decimal("5")
-            if current_status is OrderStatus.PARTIALLY_FILLED
-            else Decimal("4")
+            Decimal("5") if current_status is OrderStatus.PARTIALLY_FILLED else Decimal("4")
         )
         next_event = event(
             order_id,
