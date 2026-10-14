@@ -6,12 +6,16 @@
 #214). The merged PR #214 head was
 `675d351915671168a0e0c4af38ba82f05c85022f`; a post-merge audit proved the
 merged tree and the tested tree byte-identical (`git diff 675d351 1fbddc6`
-empty, merge parents exactly `1aaf27b` + `675d351`). PR #214 brings the
-QX-03 canonical order lifecycle (ADR-009): Dhan lifecycle goldens for all
-seven vendor statuses, explicit paper DAY/IOC semantics, and — via the
-merged PR #216 contract — cumulative-observation receipt evidence
-(`ExecutionEvidenceKind`) with legacy-payload compatibility. Issue #192
-remains open pending acceptance.
+empty, merge parents exactly `1aaf27b` + `675d351`). The QX-03 canonical
+order lifecycle (ADR-009) reached `main` in three sequenced slices: PR #213
+delivered the first migration slice (canonical `OrderStatus` vocabulary
+with `SUBMITTED`, a consolidated evidence-preserving reducer, and trusted
+reconciliation entrypoints; merged as `2785fbd`); PR #214 added Dhan
+lifecycle goldens for all seven vendor statuses and explicit paper DAY/IOC
+semantics; and the merged PR #216 contract added cumulative-observation
+receipt evidence (`ExecutionEvidenceKind`) with legacy-payload
+compatibility. Issue #192 is closed as completed (2026-10-14), as is
+follow-up issue #215.
 
 The following is implementer-reported **local validation** at the tested
 head `675d351`, not GitHub Actions results and not independently executed
