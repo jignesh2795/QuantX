@@ -7,6 +7,8 @@ Status: Accepted for design; implementation is a separate, sequenced change (QX-
 QuantX currently has three overlapping vocabularies with different coverage and different reduction behavior:
 
 - `quantx.domain.enums.OrderStatus` is used by orders and execution receipts. It includes `CREATED`, `PENDING_SUBMIT`, `ACCEPTED`, `PARTIALLY_FILLED`, `FILLED`, `CANCEL_PENDING`, `CANCELLED`, `REJECTED`, `EXPIRED`, `FAILED`, and `UNKNOWN`.
+
+The current `OrderStatus` enum has 11 values; `SUBMITTED` is not present at this baseline. The 12-row status table in Decision §1 is the proposed target vocabulary after adding that twelfth state, not a list of values already implemented.
 - `quantx.execution.order_lifecycle.OrderLifecycleStatus` has a separate mutable transition table. It uses `SUBMITTED` and `ACKNOWLEDGED`, omits `PENDING_SUBMIT`, `EXPIRED`, and `FAILED`, and has different transition rules.
 - `quantx.execution.receipts.models.ExecutionOutcome` overlaps status names but is carried by an individual execution receipt. Its meaning must not be assumed to be the aggregate order's current status.
 
@@ -82,28 +84,51 @@ The transition policy distinguishes an ordinary lifecycle event from a validated
 | `UNKNOWN` | `CANCEL_PENDING` only on positively acknowledged, identity/correlation-validated cancel-in-progress evidence; otherwise no ordinary transition | This does not resolve the uncertainty: `requires_reconciliation` remains true, the order is not complete, and continuation is blocked. A cancel attempt, timeout, or uncertain cancel result leaves status `UNKNOWN`. A not-found response alone is not proof that resubmission is safe. |
 | `FILLED`, `CANCELLED`, `REJECTED`, `EXPIRED`, `FAILED` | No ordinary transition | Terminal state is preserved. Conflicts and late fills are added to evidence/anomalies and require reconciliation. |
 
-Authoritative reconciliation may resolve `UNKNOWN` only to a state positively established by consistent, identity-checked evidence. It must never reset an order to `CREATED`. Returning to `PENDING_SUBMIT` is permitted only when durable dispatch evidence proves the broker submit call was never invoked; that resolution is not permission for an automatic retry. A not-found response or timeout alone cannot prove non-submission.\n\nThe table describes normal transitions, not an exhaustive list of every possible broker event. A status observation that skips a live intermediate state must still satisfy evidence, identity, quantity, and terminal-consistency rules. Any transition not listed and not covered by that explicit observation rule is rejected or treated as a reconciliation anomaly; it is never silently accepted.
+Authoritative reconciliation may resolve `UNKNOWN` only to a state positively established by consistent, identity-checked evidence. It must never reset an order to `CREATED`. Returning to `PENDING_SUBMIT` is permitted only when durable dispatch evidence proves the broker submit call was never invoked; that resolution is not permission for an automatic retry. A not-found response or timeout alone cannot prove non-submission.
+
+The table describes normal transitions, not an exhaustive list of every possible broker event. A status observation that skips a live intermediate state must still satisfy evidence, identity, quantity, and terminal-consistency rules. Any transition not listed and not covered by that explicit observation rule is rejected or treated as a reconciliation anomaly; it is never silently accepted.
 
 ### 5. Broker normalization and required golden flows
 
-Dhan and other adapters map vendor statuses into the canonical vocabulary without widening the domain enum. The implementation must add table-driven adapter-to-lifecycle tests for Dhan's documented statuses:
+The mapping table below is the **proposed QX-03 target**, not a description of current production code. The current and target behavior must be kept distinct in reviews and tests.
 
-| Dhan status | Canonical intent |
-|---|---|
-| `TRANSIT` | `SUBMITTED` |
-| `PENDING` | `ACCEPTED` |
-| `PART_TRADED` | `PARTIALLY_FILLED`, with validated fill quantity |
-| `TRADED` | `FILLED`, only with full-quantity fill evidence |
-| `REJECTED` | `REJECTED` |
-| `CANCELLED` | `CANCELLED`, preserving any earlier partial fills |
-| `EXPIRED` | `EXPIRED` |
+#### Current implementation baseline at the PR base
 
-These are normalized mappings to verify against the current adapter's documented semantics and fixtures before implementation is merged. If vendor documentation/fixtures show a different meaning, correct this table and the adapter tests together; do not coerce an unknown raw status into a plausible canonical state.
+- `src/quantx/plugins/dhan/mapping.py`, `_DHAN_ORDER_STATUS` / `normalize_status()`: `TRANSIT` and `PENDING` currently both map to `OrderStatus.ACCEPTED`; `PART_TRADED` maps to `PARTIALLY_FILLED`; `TRADED`, `REJECTED`, `CANCELLED`, and `EXPIRED` map to their corresponding `OrderStatus` values.
+- `src/quantx/plugins/dhan/recovery.py`, `_DHAN_STATUS_TO_LIFECYCLE` / `_lifecycle_status()`: this is a second, separate mapping to the legacy `OrderLifecycleStatus`. It currently maps `TRANSIT` and `PENDING` to `ACKNOWLEDGED`; maps `PART_TRADED`, `TRADED`, `REJECTED`, and `CANCELLED` to their legacy statuses; and explicitly maps `EXPIRED` to `UNKNOWN` because the legacy enum has no `EXPIRED` state. This is current behavior, not the target contract.
+- Existing fixtures in `tests/unit/plugins/dhan/test_mapping.py` assert `TRANSIT → ACCEPTED`. Recovery coverage in `tests/unit/plugins/dhan/test_recovery.py` currently asserts the legacy `ACKNOWLEDGED` result for a pending detail.
+
+Dhan's [official explanation of TRANSIT](https://dhan.co/support/orders-and-positions/order-placement-and-modifications/what-is-transit-order-status/) describes an order submitted but not yet sent to the exchange or awaiting exchange confirmation. The target maps that in-flight state to `SUBMITTED`, reserving `ACCEPTED` for the later normalized accepted/open state. This is an intentional semantic change from today's adapter behavior and must land with the tests and recovery mapping migration, not as an unaccompanied enum change.
+
+#### Proposed canonical target mapping
+
+| Dhan status | Target canonical status | Evidence rule |
+|---|---|---|
+| `TRANSIT` | `SUBMITTED` | Identifies an order in transit / awaiting exchange confirmation; do not describe it as exchange-accepted. |
+| `PENDING` | `ACCEPTED` | Map to accepted/open only after confirming this interpretation against Dhan status semantics and matching response evidence. |
+| `PART_TRADED` | `PARTIALLY_FILLED` | Requires validated positive fill evidence below requested quantity. |
+| `TRADED` | `FILLED` | Requires fill evidence equal to requested quantity; status alone does not manufacture fills. |
+| `REJECTED` | `REJECTED` | Preserve the authoritative rejection and associated evidence. |
+| `CANCELLED` | `CANCELLED` | Preserve any earlier partial fills and reconciliation anomalies. |
+| `EXPIRED` | `EXPIRED` | Preserve the explicit expired state in both ordinary order updates and recovery observations. |
+
+Unknown vendor status strings remain `UNKNOWN`; do not coerce them into a plausible canonical status.
+
+#### Required recovery-path consolidation
+
+QX-03 must inventory and migrate **both** status paths, not just the ordinary adapter mapper:
+
+1. Replace or retire the parallel mapping in `src/quantx/plugins/dhan/recovery.py` (`_DHAN_STATUS_TO_LIFECYCLE` and the `EXPIRED` special case in `_lifecycle_status()`). Prefer a shared canonical normalization seam over maintaining two independent status dictionaries.
+2. Ensure recovery observations can represent `SUBMITTED` and `EXPIRED` in the canonical model. Do not map `EXPIRED` to `UNKNOWN` merely because the old `OrderLifecycleStatus` cannot express it.
+3. Add adapter **and recovery** golden tests for every status in the target table. Assert the same vendor observation produces semantically consistent canonical status regardless of whether it enters through normal order handling or recovery.
+4. Preserve recovery's identity/account/connection/correlation guards and read-only/no-submit property. A status normalization change must not resolve `UNKNOWN` without authoritative reconciliation or enable resubmission.
+
+Confirm exact vendor semantics and status fixtures during implementation. If current official Dhan documentation contradicts a target row, update the target and both test paths together before merge.
 
 ## Migration plan
 
 1. **Contract tests first.** Encode the transition table, terminal absorption, quantity/evidence invariants, uncertainty rules, cancellation races, and Dhan golden sequences before changing the reducer.
-2. **Inventory consumers.** Search all imports and call sites of `OrderStatus`, `OrderLifecycleStatus`, `ExecutionOutcome`, `OrderLifecycle`, `ExecutionLifecycle`, serialization, persistence, fixtures, and package exports. Separate direct status use from operation-outcome use.
+2. **Inventory consumers and every vendor mapping.** Search all imports and call sites of `OrderStatus`, `OrderLifecycleStatus`, `ExecutionOutcome`, `OrderLifecycle`, `ExecutionLifecycle`, serialization, persistence, fixtures, and package exports. Explicitly inventory both `src/quantx/plugins/dhan/mapping.py` (`_DHAN_ORDER_STATUS` / `normalize_status()`) and `src/quantx/plugins/dhan/recovery.py` (`_DHAN_STATUS_TO_LIFECYCLE` / `_lifecycle_status()`). Separate direct status use from operation-outcome use and remove divergent status policies only after consumer coverage is in place.
 3. **Normalize at the boundary.** Add the missing canonical `SUBMITTED` state and normalize event/receipt inputs into the canonical evidence form. Do not introduce a competing status enum or generic catch-all model module.
 4. **Consolidate the reducer.** Route order lifecycle observations and receipt rebuilds through the canonical reducer. Retain the existing receipt-facing API or a narrow compatibility facade only while consumers migrate; it must delegate to the canonical policy rather than keep a second transition table.
 5. **Compatibility deliberately.** Map legacy `ACKNOWLEDGED` to `ACCEPTED` only at a documented compatibility boundary. Treat `PENDING_SUBMIT` and `SUBMITTED` as different states. Keep `ExecutionOutcome` distinct; do not rename, remove, or reinterpret persisted/public values in this slice without an explicit migration plan.
@@ -115,6 +140,7 @@ These are normalized mappings to verify against the current adapter's documented
 - One canonical lifecycle status vocabulary and one canonical reduction policy are used by production consumers, with documented temporary shims only.
 - Table-driven tests cover valid/invalid transitions, direct observations with missing intermediate events, terminal absorption, late fills, quantity conflicts, duplicate evidence, cancellation races, the `UNKNOWN` → positively acknowledged `CANCEL_PENDING` path (while retaining `requires_reconciliation`), and authority-gated `UNKNOWN` resolution.
 - Dhan golden sequences cover `TRANSIT`, `PENDING`, `PART_TRADED`, `TRADED`, `REJECTED`, `CANCELLED`, and `EXPIRED` from adapter mapping through lifecycle state.
+- The same Dhan golden status fixtures cover both normal adapter mapping and recovery evidence mapping; `TRANSIT` is explicitly distinguished from current `ACCEPTED` behavior, and recovery `EXPIRED` is explicitly migrated away from the legacy `UNKNOWN` fallback.
 - Partial-fill plus IOC/remainder cancellation is a resolved `CANCELLED` order when evidence is consistent; remaining quantity is not automatically resubmitted.
 - Reconciliation is the only authority that resolves `UNKNOWN`; no adapter, timer, ordinary event, or ordinary submit/cancel response bypasses it.
 - No broker submission behavior, persistence schema, LIVE capability, or auto-retry semantics are expanded.
