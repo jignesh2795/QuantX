@@ -202,6 +202,22 @@ def test_partial_fill_then_cancel_retains_fill_without_continuation() -> None:
     assert cancelled.filled_quantity == Decimal("1")
     _assert_receipt_guards(cancelled, request)
 
+    # The immutable receipt lifecycle consumes execution evidence, whereas
+    # the event facade below consumes cumulative broker observations. A single
+    # authoritative cancellation receipt must preserve the broker-reported
+    # partial fill while resolving the unfilled remainder.
+    receipt_lifecycle = ExecutionLifecycle.rebuild(
+        request.order.client_order_id,
+        request.order.quantity,
+        (cancelled,),
+    )
+    assert receipt_lifecycle.status is OrderStatus.CANCELLED
+    assert receipt_lifecycle.filled_quantity == Decimal("1")
+    assert receipt_lifecycle.remaining_quantity == Decimal("1")
+    assert receipt_lifecycle.is_complete
+    assert not receipt_lifecycle.can_continue
+    assert not receipt_lifecycle.requires_reconciliation
+
     # OrderLifecycle is the documented event facade over the shared canonical
     # reducer. Unlike immutable receipt fills, these observations carry a
     # cumulative filled quantity, so replaying the observation does not add
