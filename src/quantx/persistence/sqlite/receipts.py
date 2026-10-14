@@ -12,6 +12,7 @@ from quantx.domain.orders import Fill
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
 from quantx.execution.idempotency.fingerprint import _canonical_decimal
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.receipts.models import ExecutionEvidenceKind
 
 from .database import SqliteDatabase
 
@@ -48,12 +49,23 @@ def receipt_to_payload(receipt: ExecutionReceipt) -> str:
         "client_order_id": _client_order_id_to_str(receipt.client_order_id),
         "connection_id": receipt.connection_id.value if receipt.connection_id is not None else None,
         "correlation_id": receipt.correlation_id,
+        "evidence_kind": receipt.evidence_kind.value,
         "executed_at": receipt.executed_at.isoformat(),
         "fee": _canonical_decimal(receipt.fee),
         "fills": [_fill_to_dict(fill) for fill in receipt.fills],
         "message": receipt.message,
         "model_profile": receipt.model_profile,
         "model_version": receipt.model_version,
+        "observed_average_price": (
+            _canonical_decimal(receipt.observed_average_price)
+            if receipt.observed_average_price is not None
+            else None
+        ),
+        "observed_filled_quantity": (
+            _canonical_decimal(receipt.observed_filled_quantity)
+            if receipt.observed_filled_quantity is not None
+            else None
+        ),
         "order_id": str(receipt.order_id) if receipt.order_id is not None else None,
         "order_quantity": (
             _canonical_decimal(receipt.order_quantity)
@@ -114,6 +126,17 @@ def receipt_from_payload(payload: str) -> ExecutionReceipt:
         connection_id=BrokerConnectionId(data["connection_id"])
         if data["connection_id"] is not None
         else None,
+        evidence_kind=ExecutionEvidenceKind(data["evidence_kind"]),
+        observed_filled_quantity=(
+            Decimal(data["observed_filled_quantity"])
+            if data["observed_filled_quantity"] is not None
+            else None
+        ),
+        observed_average_price=(
+            Decimal(data["observed_average_price"])
+            if data["observed_average_price"] is not None
+            else None
+        ),
     )
 
 

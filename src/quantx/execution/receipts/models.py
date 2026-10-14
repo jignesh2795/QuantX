@@ -24,6 +24,20 @@ class ExecutionOutcome(StrEnum):
     EXPIRED = "EXPIRED"
 
 
+class ExecutionEvidenceKind(StrEnum):
+    """Explicit discriminator for how a receipt's quantity evidence was produced.
+
+    EXECUTION_DELTAS: fills contain actual disjoint execution fills that may
+        be summed exactly once.
+    CUMULATIVE_OBSERVATION: a broker snapshot reporting the total filled
+        quantity observed so far.  Cumulative observations must never be
+        summed with one another; they use monotonic observation semantics.
+    """
+
+    EXECUTION_DELTAS = "EXECUTION_DELTAS"
+    CUMULATIVE_OBSERVATION = "CUMULATIVE_OBSERVATION"
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionReceipt:
     request_id: UUID
@@ -48,6 +62,9 @@ class ExecutionReceipt:
     order_quantity: Decimal | None = None
     account_id: AccountId | None = None
     connection_id: BrokerConnectionId | None = None
+    evidence_kind: ExecutionEvidenceKind = ExecutionEvidenceKind.EXECUTION_DELTAS
+    observed_filled_quantity: Decimal | None = None
+    observed_average_price: Decimal | None = None
 
     @classmethod
     def from_order(
@@ -73,6 +90,9 @@ class ExecutionReceipt:
         receipt_id: UUID | None = None,
         account_id: AccountId | None = None,
         connection_id: BrokerConnectionId | None = None,
+        evidence_kind: ExecutionEvidenceKind = ExecutionEvidenceKind.EXECUTION_DELTAS,
+        observed_filled_quantity: Decimal | None = None,
+        observed_average_price: Decimal | None = None,
     ) -> ExecutionReceipt:
         """Construct a receipt while binding fill evidence to the canonical order."""
         cls._validate_fills_against_order(order, fills, outcome)
@@ -99,6 +119,9 @@ class ExecutionReceipt:
             order_quantity=order.quantity,
             account_id=account_id,
             connection_id=connection_id,
+            evidence_kind=evidence_kind,
+            observed_filled_quantity=observed_filled_quantity,
+            observed_average_price=observed_average_price,
         )
 
     @staticmethod
@@ -157,7 +180,8 @@ class ExecutionReceipt:
         if self.outcome is ExecutionOutcome.FILLED and self.order_status is not OrderStatus.FILLED:
             raise ValueError("filled receipt must have FILLED order status")
         if (
-            self.outcome in {ExecutionOutcome.FILLED, ExecutionOutcome.PARTIALLY_FILLED}
+            self.evidence_kind is ExecutionEvidenceKind.EXECUTION_DELTAS
+            and self.outcome in {ExecutionOutcome.FILLED, ExecutionOutcome.PARTIALLY_FILLED}
             and not self.fills
         ):
             raise ValueError("filled receipt outcomes require at least one fill")
@@ -166,6 +190,15 @@ class ExecutionReceipt:
             and self.order_status is not OrderStatus.PARTIALLY_FILLED
         ):
             raise ValueError("partial receipt must have PARTIALLY_FILLED order status")
+        if self.observed_filled_quantity is not None and self.observed_filled_quantity < 0:
+            raise ValueError("observed_filled_quantity cannot be negative")
+        if self.observed_average_price is not None and self.observed_average_price < 0:
+            raise ValueError("observed_average_price cannot be negative")
+        if (
+            self.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION
+            and self.observed_filled_quantity is None
+        ):
+            raise ValueError("cumulative observation receipts require an observed_filled_quantity")
 
 
 # Backward-compatible names used by early execution consumers.

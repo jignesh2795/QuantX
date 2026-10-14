@@ -13,7 +13,7 @@ from quantx.domain.policy import PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 
 from ..order_lifecycle import _reduce_order_status, is_terminal_order_status
-from .models import ExecutionReceipt
+from .models import ExecutionEvidenceKind, ExecutionReceipt
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +24,12 @@ class ExecutionLifecycle:
     status: OrderStatus = OrderStatus.CREATED
     requires_reconciliation: bool = False
     anomalies: tuple[str, ...] = ()
+    observed_filled_quantity: Decimal | None = None
+    # Tracks whether any additive execution-delta evidence has been applied.
+    # Cumulative observations after deltas (or vice versa) are mixed provenance
+    # and cannot be reconciled without disjointness proof.  A lifecycle fed
+    # only cumulative observations must remain clean, even once positive.
+    delta_evidence_seen: bool = False
 
     def __post_init__(self) -> None:
         if self.order_quantity <= 0:
@@ -246,41 +252,137 @@ class ExecutionLifecycle:
         ):
             raise ValueError("receipt does not belong to lifecycle")
 
-        new_filled = self.filled_quantity + receipt.filled_quantity
-        if new_filled > self.order_quantity:
-            raise ValueError("cumulative fills exceed order quantity")
+        # Determine the quantity contribution based on evidence kind.
+        anomaly_list = list(self.anomalies)
+
+        def flag_anomaly(message: str) -> None:
+            if message not in anomaly_list:
+                anomaly_list.append(message)
+
+        if receipt.evidence_kind is ExecutionEvidenceKind.EXECUTION_DELTAS:
+            new_filled = self.filled_quantity + receipt.filled_quantity
+            new_observed = None
+            new_delta_seen = True
+            if self.observed_filled_quantity is not None:
+                flag_anomaly(
+                    "mixed cumulative observation and execution delta evidence without "
+                    "disjointness proof"
+                )
+                return ExecutionLifecycle(
+                    client_order_id=self.client_order_id,
+                    order_quantity=self.order_quantity,
+                    filled_quantity=self.filled_quantity,
+                    status=OrderStatus.UNKNOWN,
+                    requires_reconciliation=True,
+                    anomalies=tuple(anomaly_list),
+                    observed_filled_quantity=self.observed_filled_quantity,
+                    delta_evidence_seen=self.delta_evidence_seen,
+                )
+            if new_filled > self.order_quantity:
+                raise ValueError("cumulative fills exceed order quantity")
+        elif receipt.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION:
+            if self.delta_evidence_seen:
+                flag_anomaly(
+                    "mixed cumulative observation and execution delta evidence without "
+                    "disjointness proof"
+                )
+                return ExecutionLifecycle(
+                    client_order_id=self.client_order_id,
+                    order_quantity=self.order_quantity,
+                    filled_quantity=self.filled_quantity,
+                    status=OrderStatus.UNKNOWN,
+                    requires_reconciliation=True,
+                    anomalies=tuple(anomaly_list),
+                    observed_filled_quantity=self.observed_filled_quantity,
+                    delta_evidence_seen=self.delta_evidence_seen,
+                )
+            observed = receipt.observed_filled_quantity
+            assert observed is not None  # validated at receipt construction
+            prev_observed = self.observed_filled_quantity
+            if prev_observed is not None:
+                if observed < prev_observed:
+                    flag_anomaly(
+                        f"cumulative observation decreased from {prev_observed} to {observed}"
+                    )
+                    return ExecutionLifecycle(
+                        client_order_id=self.client_order_id,
+                        order_quantity=self.order_quantity,
+                        filled_quantity=self.filled_quantity,
+                        status=OrderStatus.UNKNOWN,
+                        requires_reconciliation=True,
+                        anomalies=tuple(anomaly_list),
+                        observed_filled_quantity=prev_observed,
+                        delta_evidence_seen=self.delta_evidence_seen,
+                    )
+                if observed == prev_observed:
+                    # Repeated identical cumulative quantity: no change.
+                    new_filled = self.filled_quantity
+                    new_observed = observed
+                else:
+                    new_filled = observed
+                    new_observed = observed
+            else:
+                new_filled = observed
+                new_observed = observed
+            new_delta_seen = self.delta_evidence_seen
+            if new_filled > self.order_quantity:
+                flag_anomaly(
+                    f"cumulative observation {new_filled} exceeds order quantity "
+                    f"{self.order_quantity}"
+                )
+                return ExecutionLifecycle(
+                    client_order_id=self.client_order_id,
+                    order_quantity=self.order_quantity,
+                    filled_quantity=self.filled_quantity,
+                    status=OrderStatus.UNKNOWN,
+                    requires_reconciliation=True,
+                    anomalies=tuple(anomaly_list),
+                    observed_filled_quantity=new_observed,
+                    delta_evidence_seen=self.delta_evidence_seen,
+                )
+        else:
+            raise ValueError(f"unsupported evidence kind: {receipt.evidence_kind}")
 
         # The shared reducer owns terminal absorption, UNKNOWN authority, and
         # quantity-driven status decisions for a normal order receipt.
+        #
+        # For cumulative observations the evidenced total is ``new_filled`` (the
+        # monotonic observed quantity), not ``self.filled_quantity``.  Feeding the
+        # observed total as ``current_filled`` with a zero delta lets the shared
+        # reducer judge status against the real quantity without inventing a
+        # synthetic fill or double-counting the observation.
+        is_cumulative = receipt.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION
+        reducer_current_filled = new_filled if is_cumulative else self.filled_quantity
+        reducer_added_fill = Decimal("0") if is_cumulative else receipt.filled_quantity
         if is_terminal_order_status(self.status):
             reduction = _reduce_order_status(
                 self.status,
                 receipt.order_status,
-                current_filled=self.filled_quantity,
-                added_fill=receipt.filled_quantity,
+                current_filled=reducer_current_filled,
+                added_fill=reducer_added_fill,
                 order_quantity=self.order_quantity,
                 requires_reconciliation=self.requires_reconciliation,
                 anomalies=self.anomalies,
                 reconciliation_authorized=reconciliation_authorized,
             )
+            merged_anomalies = list(reduction.anomalies)
+            for a in anomaly_list:
+                if a not in merged_anomalies:
+                    merged_anomalies.append(a)
             return ExecutionLifecycle(
                 client_order_id=self.client_order_id,
                 order_quantity=self.order_quantity,
                 filled_quantity=new_filled,
                 status=reduction.status,
                 requires_reconciliation=reduction.requires_reconciliation,
-                anomalies=reduction.anomalies,
+                anomalies=tuple(merged_anomalies),
+                observed_filled_quantity=new_observed,
+                delta_evidence_seen=new_delta_seen,
             )
 
         # A correlated child receipt contributes quantity to the parent only;
         # its status cannot resolve or overwrite the parent's state.
         if str(receipt.client_order_id) != str(self.client_order_id):
-            anomaly_list = list(self.anomalies)
-
-            def flag_anomaly(message: str) -> None:
-                if message not in anomaly_list:
-                    anomaly_list.append(message)
-
             if self.status is OrderStatus.UNKNOWN or receipt.order_status is OrderStatus.UNKNOWN:
                 if receipt.order_status is OrderStatus.UNKNOWN:
                     flag_anomaly("correlated child receipt has UNKNOWN status")
@@ -293,6 +395,8 @@ class ExecutionLifecycle:
                     status=OrderStatus.UNKNOWN,
                     requires_reconciliation=True,
                     anomalies=tuple(anomaly_list),
+                    observed_filled_quantity=new_observed,
+                    delta_evidence_seen=new_delta_seen,
                 )
             if new_filled == self.order_quantity:
                 return ExecutionLifecycle(
@@ -302,6 +406,8 @@ class ExecutionLifecycle:
                     status=OrderStatus.FILLED,
                     requires_reconciliation=self.requires_reconciliation,
                     anomalies=tuple(anomaly_list),
+                    observed_filled_quantity=new_observed,
+                    delta_evidence_seen=new_delta_seen,
                 )
             if new_filled > 0:
                 return ExecutionLifecycle(
@@ -311,6 +417,8 @@ class ExecutionLifecycle:
                     status=OrderStatus.PARTIALLY_FILLED,
                     requires_reconciliation=self.requires_reconciliation,
                     anomalies=tuple(anomaly_list),
+                    observed_filled_quantity=new_observed,
+                    delta_evidence_seen=new_delta_seen,
                 )
             return ExecutionLifecycle(
                 client_order_id=self.client_order_id,
@@ -319,23 +427,31 @@ class ExecutionLifecycle:
                 status=self.status,
                 requires_reconciliation=self.requires_reconciliation,
                 anomalies=tuple(anomaly_list),
+                observed_filled_quantity=new_observed,
+                delta_evidence_seen=new_delta_seen,
             )
 
         reduction = _reduce_order_status(
             self.status,
             receipt.order_status,
-            current_filled=self.filled_quantity,
-            added_fill=receipt.filled_quantity,
+            current_filled=reducer_current_filled,
+            added_fill=reducer_added_fill,
             order_quantity=self.order_quantity,
             requires_reconciliation=self.requires_reconciliation,
             anomalies=self.anomalies,
             reconciliation_authorized=reconciliation_authorized,
         )
+        merged_anomalies = list(reduction.anomalies)
+        for a in anomaly_list:
+            if a not in merged_anomalies:
+                merged_anomalies.append(a)
         return ExecutionLifecycle(
             client_order_id=self.client_order_id,
             order_quantity=self.order_quantity,
             filled_quantity=new_filled,
             status=reduction.status,
             requires_reconciliation=reduction.requires_reconciliation,
-            anomalies=reduction.anomalies,
+            anomalies=tuple(merged_anomalies),
+            observed_filled_quantity=new_observed,
+            delta_evidence_seen=new_delta_seen,
         )

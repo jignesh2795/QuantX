@@ -1,6 +1,7 @@
 """Canonical execution receipt contracts."""
 
 from .models import (
+    ExecutionEvidenceKind,
     ExecutionOutcome,
     ExecutionReceipt,
     ExecutionReceiptRecord,
@@ -9,6 +10,7 @@ from .models import (
 )
 
 __all__ = [
+    "ExecutionEvidenceKind",
     "ExecutionOutcome",
     "ExecutionReceipt",
     "ExecutionReceiptRecord",

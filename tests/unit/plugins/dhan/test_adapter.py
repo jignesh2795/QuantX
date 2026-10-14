@@ -33,6 +33,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.receipts.models import (
+    ExecutionEvidenceKind,
     ExecutionOutcome,
     ExecutionReceipt,
 )
@@ -313,7 +314,7 @@ def test_reconcile_rejects_filled_quantity_without_price() -> None:
         _adapter(transport).reconcile(_request())
 
 
-def test_reconcile_maps_trade_and_uses_broker_reported_fill() -> None:
+def test_reconcile_maps_trade_as_cumulative_observation() -> None:
     transport = InMemoryDhanTransport(
         response_status="TRADED",
         filled_quantity=Decimal("2"),
@@ -324,9 +325,12 @@ def test_reconcile_maps_trade_and_uses_broker_reported_fill() -> None:
 
     assert receipt.outcome is ExecutionOutcome.FILLED
     assert receipt.order_status is OrderStatus.FILLED
-    assert len(receipt.fills) == 1
-    assert receipt.fills[0].quantity == Decimal("2")
-    assert receipt.fills[0].price == Decimal("101.25")
+    # Cumulative observation: no synthetic Fill with a random execution id.
+    assert receipt.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION
+    assert receipt.fills == ()
+    assert receipt.observed_filled_quantity == Decimal("2")
+    # Average traded price retained as observation metadata, not a fill price.
+    assert receipt.observed_average_price == Decimal("101.25")
 
 
 def test_reconcile_preserves_partial_trade_status() -> None:
@@ -339,7 +343,10 @@ def test_reconcile_preserves_partial_trade_status() -> None:
 
     assert receipt.outcome is ExecutionOutcome.PARTIALLY_FILLED
     assert receipt.order_status is OrderStatus.PARTIALLY_FILLED
-    assert receipt.fills[0].quantity == Decimal("1")
+    assert receipt.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION
+    assert receipt.fills == ()
+    assert receipt.observed_filled_quantity == Decimal("1")
+    assert receipt.observed_average_price == Decimal("101")
 
 
 def test_cancel_uses_dhan_safe_correlation_identifier() -> None:
