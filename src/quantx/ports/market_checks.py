@@ -9,6 +9,7 @@ broker-submit capability.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -48,6 +49,36 @@ class MarketCheckFailureCode(StrEnum):
     MALFORMED_RESULT = "market-check.malformed-result"
 
 
+SKIPPED_STAGE_STATUS_CODE = "market-check.stage-skipped-by-policy"
+"""Status code marking runner-synthesized SKIPPED stage evidence.
+
+SKIPPED entries never carry a failure code and never block; the code
+exists so skipped optional stages stay explicitly visible instead of
+masquerading as evaluated checks.
+"""
+
+_BATCH_CODE_PATTERN = re.compile(r"\bB\d+\b")
+
+
+def contains_banned_text(text: str) -> bool:
+    """Detect batch codenames, tracebacks, or file fragments in user text."""
+    return _BATCH_CODE_PATTERN.search(text) is not None or "Traceback" in text or 'File "' in text
+
+
+def sanitize_public_reason(reason: object, *, check_id: str, blocked: bool) -> str:
+    """Return a user-safe reason, replacing untrusted text with a static message.
+
+    Clean pack-authored reasons pass through unchanged; anything that is
+    not a non-empty string or that contains banned content becomes a fixed
+    per-outcome message naming only the registered check identity.
+    """
+    if isinstance(reason, str) and reason.strip() and not contains_banned_text(reason):
+        return reason
+    if blocked:
+        return f"{check_id} blocked the request"
+    return f"{check_id} evaluation failed closed"
+
+
 @dataclass(frozen=True, slots=True)
 class MarketRuleCheckEvidence:
     """One named rule-check fact carried inside check evidence."""
@@ -81,6 +112,7 @@ class MarketCheckEvidence:
     session_segment: str | None = None
     compatibility_evaluated: bool = False
     rule_checks: tuple[MarketRuleCheckEvidence, ...] = ()
+    stage_status_code: str | None = None
 
     def __post_init__(self) -> None:
         if not self.check_id.strip():
@@ -91,6 +123,11 @@ class MarketCheckEvidence:
             self.evaluated_at.tzinfo is None or self.evaluated_at.utcoffset() is None
         ):
             raise ValueError("evaluated_at must be timezone-aware")
+        if self.outcome is MarketCheckOutcome.SKIPPED:
+            if self.stage_status_code != SKIPPED_STAGE_STATUS_CODE:
+                raise ValueError("skipped evidence must carry the skipped-stage status code")
+        elif self.stage_status_code is not None:
+            raise ValueError("only skipped evidence may carry a stage status code")
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +230,8 @@ class PlacedCheck:
         check_id = getattr(self.check, "check_id", None)
         if not isinstance(check_id, str) or not check_id.strip():
             raise ValueError("check id must not be empty")
+        if contains_banned_text(check_id):
+            raise ValueError("check id must not contain batch codes or diagnostic fragments")
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,6 +423,7 @@ def market_evidence_to_mapping(evidence: MarketCheckEvidence) -> dict[str, objec
         "session_exchange": evidence.session_exchange,
         "session_segment": evidence.session_segment,
         "stage": evidence.stage.value,
+        "stage_status_code": evidence.stage_status_code,
         "venue": evidence.venue,
     }
 
@@ -411,12 +451,15 @@ __all__ = [
     "PlacedCheck",
     "PreTradeCheck",
     "RegionMarketPolicy",
+    "SKIPPED_STAGE_STATUS_CODE",
     "UnclassifiedRegion",
     "UnknownMarketValue",
     "coerce_market_context",
+    "contains_banned_text",
     "default_market_policy",
     "market_evidence_to_mapping",
     "normalize_market_context",
+    "sanitize_public_reason",
     "select_market_policy",
     "sequence_to_mapping",
 ]

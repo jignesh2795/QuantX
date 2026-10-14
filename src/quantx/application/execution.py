@@ -22,6 +22,7 @@ from quantx.execution.trading_gate import TradingGate
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 from quantx.ports.market_checks import (
+    SKIPPED_STAGE_STATUS_CODE,
     MarketCheckEvidence,
     MarketCheckFailureCode,
     MarketCheckOutcome,
@@ -34,6 +35,7 @@ from quantx.ports.market_checks import (
     UnclassifiedRegion,
     UnknownMarketValue,
     default_market_policy,
+    sanitize_public_reason,
     select_market_policy,
 )
 
@@ -79,7 +81,11 @@ def _validated_evidence(
         return None
     if not isinstance(evidence, MarketCheckEvidence):
         return None
-    if evidence.check_id != check_id or evidence.stage != stage:
+    if evidence.check_id != check_id or not isinstance(evidence.stage, MarketCheckStage):
+        return None
+    if evidence.stage != stage:
+        return None
+    if not isinstance(evidence.outcome, MarketCheckOutcome):
         return None
     if (
         not isinstance(evidence.region, MarketRegion)
@@ -150,10 +156,16 @@ class ExecutionOrchestrator:
                     f"{check_id} evaluation failed closed",
                     detail=f"{type(exc).__name__}: {exc}",
                 )
-            if not isinstance(result, MarketCheckResult) or result.outcome not in (
-                MarketCheckOutcome.PASS,
-                MarketCheckOutcome.BLOCK,
-                MarketCheckOutcome.UNAVAILABLE,
+            if (
+                not isinstance(result, MarketCheckResult)
+                or type(result.outcome) is not MarketCheckOutcome
+                or result.outcome
+                not in (
+                    MarketCheckOutcome.PASS,
+                    MarketCheckOutcome.BLOCK,
+                    MarketCheckOutcome.UNAVAILABLE,
+                )
+                or result.check_id != check_id
             ):
                 result = MarketCheckResult(
                     check_id,
@@ -205,6 +217,17 @@ class ExecutionOrchestrator:
                 else:
                     entries.append(validated)
             if result.outcome is not MarketCheckOutcome.PASS:
+                sanitized = sanitize_public_reason(
+                    result.reason,
+                    check_id=check_id,
+                    blocked=result.outcome is MarketCheckOutcome.BLOCK,
+                )
+                if sanitized != result.reason:
+                    result = replace(
+                        result,
+                        reason=sanitized,
+                        detail=result.detail or f"withheld unsanitized reason for {check_id}",
+                    )
                 return result
         return None
 
@@ -321,6 +344,7 @@ class ExecutionOrchestrator:
                             region=selection.region,
                             family=selection.family,
                             venue=selection.venue,
+                            stage_status_code=SKIPPED_STAGE_STATUS_CODE,
                         )
                     )
             else:
@@ -475,6 +499,7 @@ class ExecutionOrchestrator:
                             region=selection.region,
                             family=selection.family,
                             venue=selection.venue,
+                            stage_status_code=SKIPPED_STAGE_STATUS_CODE,
                         )
                     )
             else:
