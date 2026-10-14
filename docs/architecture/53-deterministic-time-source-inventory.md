@@ -1,13 +1,19 @@
 # Deterministic Time-Source Inventory (Issue #179)
 
-Audited against `main` at `98bc640c5af68633d573b701542f982dab462ea3` plus the
-Issue #179 branch head; line numbers below track the branch head. Search
-method: every `datetime.now`, `utcnow`/`utc_now`, timestamp
-`default_factory`, `time.time`/`monotonic`, and `Clock`/`SystemClock`/
-`FixedClock`/`SimulatedClock` construction site under `src/quantx/`.
-Result: **38 direct `datetime.now` calls** (reconciling the issue's count),
-4 wall-clock default factories, and the `Clock` definitions plus injection
-sites. No `time.time`, `monotonic`, or `utcnow` uses exist in `src/`.
+**Historical inventory baseline:** `main` at `98bc640c5af68633d573b701542f982dab462ea3` plus the
+Issue #179 branch head; line numbers and the count below track that inventory
+checkpoint, not a newly rerun repository-wide count after later features.
+The original search covered every `datetime.now`, `utcnow`/`utc_now`,
+timestamp `default_factory`, `time.time`/`monotonic`, and
+`Clock`/`SystemClock`/`FixedClock`/`SimulatedClock` construction site
+under `src/quantx/`. At that checkpoint it found **38 direct
+`datetime.now` calls**, 4 wall-clock default factories, and the Clock
+definitions/injection sites. No `time.time`, `monotonic`, or `utcnow`
+uses existed in `src/` at that checkpoint.
+
+The post-M4.1 addendum below updates the affected strategy-paper call paths
+without claiming that the entire original inventory or its line numbers have
+been rerun.
 
 Classification: **replay/event time** (must come from market/replay
 evidence), **injected operation time** (must come from a `Clock`), or
@@ -88,12 +94,13 @@ use; never replay evidence).
 
 - `domain/orders.py:10,18` (`utc_now` definition) with field defaults
   `:32` (`Order.created_at`), `:69` (`Fill.filled_at`): interactive/LIVE
-  construction default. Replay paths restamp or guard (see remediated
-  sites); reachable from replay only through the covered backtest paths.
+  construction default. Covered backtest and M4.1 rehearsal paths restamp or
+  guard these values before creating replay/paper evidence (see below).
 - `domain/strategy.py:60` (`StrategySignal.generated_at` default):
-  interactive default; the backtest guard rejects any replay signal that
-  relies on it (regression: `test_backtest_rejects_signal_using_
-  wall_clock_default`).
+  interactive default; deterministic backtest and M4.1 rehearsal both reject
+  a signal whose timestamp differs from its market/replay event. The rehearsal
+  contract intentionally requires strategy implementations to stamp event
+  time explicitly.
 - `research/experiments.py:23` (`Experiment.created_at` default):
   researcher-driven creation; durable reads pass the stored timestamp
   explicitly (`persistence/sqlite/experiments.py:16`), so the default
@@ -111,12 +118,41 @@ use; never replay evidence).
   `trading_gate.py:43` (12) — row-write bookkeeping times; schema and
   stored values unchanged by this slice.
 
+## M4.1 post-inventory addendum (PR #218)
+
+At the independently validated feature head `d99c12f3ae051f992722bee2bc8ea3253032fdc8`
+(merged to `main` as `a0bf101b6f6bb87d11460cefb199932a768d6335`):
+
+- `application/strategy_rehearsal.py` treats `MarketDataEvent.timestamp` as
+  the rehearsal event/submission instant. It derives Unix epoch nanoseconds
+  using integer `timedelta` arithmetic; the input contract has no independent
+  `submitted_at_ns` override.
+- An executable strategy signal must have `generated_at == event.timestamp`;
+  omitted wall-clock-defaulted timestamps fail closed.
+- After risk/policy approval, the rehearsal pins `Order.created_at` to the
+  same event instant before storing the approved preparation or calling
+  `PaperOrderExecutor`. The shared order builder/default remains unchanged
+  for its other construction contexts.
+- Paper fill time is derived from event-based submission nanoseconds plus the
+  configured non-negative venue latency. Local regression evidence covers
+  zero-latency ordering and repeated-run timestamp consistency, including an
+  event with microsecond precision.
+
+This is a path-specific addendum, not a substitute for rerunning the complete
+wall-clock/Clock inventory when another time-sensitive subsystem changes.
+
 ## Deliberately unchanged (documented, not forced)
 
-- `strategy/execution.py:105` (`StrategyExecutionPreparer` builds orders
-  with the wall-clock default): no in-repository callers, so no replay
-  path can reach it; adding a clock parameter would be API churn without
-  proof. Left unchanged.
+- `strategy/execution.py` (`StrategyExecutionPreparer` builds the
+  initial `Order` through `build_order_from_intent`, whose shared
+  `created_at` default is wall-clock time): M4.1
+  `application/strategy_rehearsal.py` now calls this preparer, then replaces
+  `created_at` with the causative `MarketDataEvent.timestamp` before the
+  approved preparation is returned or the order reaches paper execution.
+  The shared builder and interactive/LIVE default remain unchanged. Any
+  additional replay consumer must explicitly pin order time or use a
+  timestamp-aware construction seam; do not generalize M4.1's containment
+  into a claim that the shared default is intrinsically safe.
 - Injected-engine clock ownership: the service never rewrites a
   caller-supplied engine clock; mismatch fails closed instead.
 - `research/result.py:102` (`result_id` UUID default): explicitly random

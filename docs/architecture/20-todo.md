@@ -28,11 +28,7 @@ This list is intentionally limited to architecture work, not production implemen
 
 ## TODO audit (issue #186)
 
-Audited against `main` at `1fbddc6` (Merge pull request #214). Each
-original item is classified **complete**, **partially complete**,
-**deferred/out of scope**, or **genuinely open**, with the supporting
-evidence. No item is marked complete from filenames or historical claims
-alone.
+**Historical audit snapshot:** `main` at `1fbddc6` (PR #214). This architecture disposition audit predates M4.1 (merged in PR #218); it remains a classification of the original architecture TODOs, not the current milestone queue. Each original item is classified **complete**, **partially complete**, **deferred/out of scope**, or **genuinely open**, with supporting evidence. No item is marked complete from filenames or historical claims alone. Current work sequencing is maintained in `docs/roadmap/README.md` and `docs/STATUS.md`.
 
 - Complete detailed domain model — **complete**. `src/quantx/domain/`
   implements accounts, instruments, orders, order intents, portfolio,

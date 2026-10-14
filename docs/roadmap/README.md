@@ -18,7 +18,7 @@ Sandbox, paper execution, canonical backtesting, optimization, walk-forward, rob
 
 The completed R1-C sequence is:
 
-`C1 historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar/gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution-price/fill fidelity ✅ → C7 time-indexed account-state sampling ✅ → C8 valuation provenance ✅ → C9 multi-instrument synchronization ✅ → C10 backtest provenance binding ✅ → C11 dataset identity/evidence ✅ → C12 canonical research-run configuration ✅ → C13 research persistence/orchestration/experiments ✅`
+`C1 historical fidelity ✅ → C2 data-quality contract ✅ → C3 calendar/gap semantics ✅ → C4 historical account state ✅ → C5 transaction-cost model ✅ → C6 execution-price/fill fidelity ✅ → C7 time-indexed account-state sampling ✅ → C8 valuation provenance ✅ → C9 multi-instrument synchronization ✅ → C10 backtest provenance binding ✅ → C11 dataset identity/evidence ✅ → C12 canonical research-run configuration ✅ → C13 research persistence/orchestration/experiments ✅ → C14 deterministic dataset ingestion/provenance composition ✅`
 
 ### R1-C13 — Research persistence and experiments
 
@@ -40,9 +40,11 @@ C14.8 provenance binding and the C14.9 end-to-end deterministic proof are comple
 
 C14 explicitly defers scheduling, streaming, distributed ingestion, cloud storage, generic ETL, production historical-data service, UI, AI/ML, optimization, and broad broker expansion.
 
-The detailed C14 planning record remains the implementation history. C14.9 is now merged on `main` in PR #158; the next implementation phase shifts from dataset composition to local-first host/integration readiness.
+The detailed C14 planning record remains implementation history. C14.9 is merged on `main` in PR #158. V0.1 local-first host/integration readiness is acceptance-complete for the declared programmatic-library scope under ADR-008; it is not the next milestone.
 
-## Next milestone — V0.1 Local-First Host & Integration Readiness
+## V0.1 Local-First Host & Integration Readiness — acceptance-complete
+
+**Status:** Complete for the declared programmatic local-first library scope under ADR-008; see `docs/architecture/28-v0.1-acceptance-criteria.md`. The sequence below is retained as historical implementation planning, not a statement of pending work. The CLI remains explicitly deferred.
 
 ### Objective
 
@@ -70,7 +72,14 @@ Close the gap between QuantX's tested application components and a documented, e
 Execution/recovery internals are frozen unless the acceptance audit finds a concrete invariant violation. Preserve the existing ports, adapters, persistence, reconciliation, and provenance boundaries; do not add parallel abstractions.
 
 ## M4 — Strategy Platform
-Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals.
+
+**Status:** Active. The first vertical, M4.1 deterministic strategy-to-paper rehearsal, merged in PR #218. The validated feature head was `d99c12f3ae051f992722bee2bc8ea3253032fdc8`; merge commit `a0bf101b6f6bb87d11460cefb199932a768d6335`.
+
+M4.1 proves the existing Python strategy definition/IR/runtime path through deployment-owned context binding, risk/policy preparation, and the canonical paper executor. It is offline and PAPER-only; it does not complete M4 overall, add a Flow authoring path, or establish Python/Flow runtime parity.
+
+**M4 exit criterion remains:** Python strategies and a first Flow path compile to the same runtime semantics. The next ordered design task is issue #197 (market-pack pre-trade-check pipeline), which issue #196 identifies as a prerequisite before expanding the engine-truth StrategyContext/callback contract.
+
+Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals remain the broader M4/platform roadmap.
 
 ## M5 — Control Plane
 REST, WebSocket, strategy registry, Action Center, monitoring, audit and operations.
@@ -98,8 +107,8 @@ R1-C8 is complete: immutable valuation evidence records identify the instrument,
 
 C8 is research/backtest only. It does not change LIVE execution, risk, broker, reconciliation, retry, UNKNOWN, recovery, or capital semantics.
 
-### R1-C9 — Multi-instrument account-state synchronization
+### R1-C9 — Multi-instrument account-state synchronization (complete)
 
-The next deterministic-research slice will define and implement an explicit synchronization policy for time-indexed account-state sampling when a replay frame updates only one of several open-position instruments. The policy must distinguish exact-current evidence from deterministic as-of evidence and must never hide mark age or silently use future data.
+C9 is implemented and merged. It adds a separate time-indexed account-state series to backtests without changing the existing execution-event snapshots. Sampling occurs at replay-frame timestamps before current-frame strategy/execution effects, uses explicit current-frame marks for complete valuation, and becomes incomplete rather than reusing a stale mark. The policy distinguishes exact-current evidence from explicitly selected as-of-observed evidence without hiding mark age or admitting future data. See the historical C9 milestone record in `docs/STATUS.md`.
 
-C9 is research/backtest only. It does not change LIVE execution, risk, broker, reconciliation, retry, UNKNOWN, recovery, or capital semantics.
+C9 is research/backtest-only. It does not change LIVE execution, risk, broker, reconciliation, retry, UNKNOWN, recovery, or capital semantics.

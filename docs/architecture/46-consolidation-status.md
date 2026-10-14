@@ -1,10 +1,12 @@
 # QuantX Architecture Consolidation Status
 
+> **Historical consolidation snapshot.** The validation references, historical test totals, and the former "active area" below describe an earlier consolidation phase, not the current milestone queue. Current state and ordering are maintained in `docs/STATUS.md` and `docs/roadmap/README.md`. M4.1 strategy-to-paper rehearsal is merged in PR #218; issue #197 is the next ordered design task before broader StrategyContext/callback work in #196.
+
 ## Purpose
 
 This document records the repository consolidation pass and keeps implementation aligned with the agreed modular architecture without adding parallel abstractions.
 
-## Current implementation status
+## Historical implementation checkpoint
 
 The repository has progressed beyond the original Batch-28 documentation baseline.
 
@@ -15,7 +17,7 @@ Validation report: 594 passed, 0 failed, 0 errors, 0 skipped
 The documentation-sync commits following that validation do not claim to change production behavior.
 ```
 
-The active area is execution-integrity hardening, developer-validation integrity, and stack integration.
+At the time of this consolidation snapshot, the active area was execution-integrity hardening, developer-validation integrity, and stack integration. That statement is historical; use the current roadmap/status documents for present sequencing.
 
 ## Frozen architectural direction
 
@@ -62,19 +64,19 @@ Continuation is now a distinct execution responsibility:
 
 The continuation boundary remains persistence-agnostic and does not introduce broker network behavior.
 
-## Current migration policy
+## Standing migration policy
 
 Existing standalone modules are not automatically wrong. A module remains valid when it owns one cohesive responsibility and its boundary is clearer than a forced subpackage migration.
 
 Compatibility wrappers are temporary where they exist and must not become permanent duplicate implementations.
 
-## Current LIVE-control hardening
+## LIVE-control hardening — recorded invariants
 
 The execution audit identified and addressed two final control-path gaps: LIVE execution now requires the recovery-backed `ApplicationRuntime` to have completed startup, and the trading gate now provides a submission permit that spans durable reservation and broker submission. The permit is synchronized across gate instances sharing the same state store; no database transaction is held across the broker call. Default reconciliation evidence now also requires broker-order account/connection scope, while narrower policies remain explicit opt-outs.
 
 These controls preserve the existing modular boundaries: startup remains application composition, gate state remains execution control, and reconciliation remains evidence-based. No new generic runtime/router abstraction is introduced.
 
-## Current consolidation gate
+## Standing consolidation gate
 
 The earlier broad inventory/migration checklist is no longer the active next batch. Before introducing a new major subsystem:
 1. confirm the proposed responsibility does not duplicate an existing boundary;

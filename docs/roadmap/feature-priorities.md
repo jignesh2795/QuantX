@@ -1,6 +1,8 @@
 # QuantX Feature Priorities
 
-## V0.1 priority
+## V0.1 scope — acceptance-complete under ADR-008
+
+The list below records the declared v0.1 scope; it is historical context, not the active implementation queue. The current milestone is M4 Strategy Platform; see `docs/roadmap/README.md`.
 
 - universal event-driven core
 - deterministic clock and replay
