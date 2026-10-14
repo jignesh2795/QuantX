@@ -9,9 +9,12 @@ from uuid import uuid4
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument
-from quantx.domain.orders import Fill
 from quantx.domain.value_objects import InstrumentId
-from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.receipts.models import (
+    ExecutionEvidenceKind,
+    ExecutionOutcome,
+    ExecutionReceipt,
+)
 from quantx.integrations.brokers import (
     BrokerConnectionRef,
     BrokerDescriptor,
@@ -183,19 +186,50 @@ class DhanBrokerAdapter:
                 "Dhan reconciliation returned a mismatched correlation id",
             )
         outcome_value, status = normalize_status(detail.order_status)
-        fills = self._fill_from_detail(request, detail)
         executed_at = (
             parse_dhan_timestamp(detail.exchange_time)
             or parse_dhan_timestamp(detail.update_time)
             or datetime.now(UTC)
         )
+        # Dhan reconcile reports filled_quantity as a cumulative observation
+        # of total filled so far, not as a delta. Produce a
+        # CUMULATIVE_OBSERVATION receipt when a positive quantity is reported.
+        if detail.filled_quantity > 0:
+            if detail.filled_quantity > request.order.quantity:
+                raise ValueError("Dhan filled quantity exceeds canonical order quantity")
+            # A positive observed fill still requires a price observation. The
+            # cumulative average traded price is retained as separately
+            # identified observation metadata, never as an independently
+            # evidenced execution price or a synthetic Fill.
+            if detail.average_traded_price is None:
+                raise ValueError("Dhan filled quantity requires an average traded price")
+            return ExecutionReceipt(
+                request_id=uuid4(),
+                client_order_id=request.order.client_order_id,
+                outcome=ExecutionOutcome(outcome_value),
+                order_status=status,
+                executed_at=executed_at,
+                fills=(),
+                message=detail.message,
+                source="dhan",
+                simulated=False,
+                broker_order_id=detail.order_id,
+                correlation_id=request.correlation_id,
+                order_id=request.order.client_order_id,
+                order_quantity=request.order.quantity,
+                account_id=request.execution_context.account_id,
+                connection_id=request.execution_context.broker_connection_id,
+                evidence_kind=ExecutionEvidenceKind.CUMULATIVE_OBSERVATION,
+                observed_filled_quantity=detail.filled_quantity,
+                observed_average_price=detail.average_traded_price,
+            )
         return ExecutionReceipt(
             request_id=uuid4(),
             client_order_id=request.order.client_order_id,
             outcome=ExecutionOutcome(outcome_value),
             order_status=status,
             executed_at=executed_at,
-            fills=fills,
+            fills=(),
             message=detail.message,
             source="dhan",
             simulated=False,
@@ -205,6 +239,8 @@ class DhanBrokerAdapter:
             order_quantity=request.order.quantity,
             account_id=request.execution_context.account_id,
             connection_id=request.execution_context.broker_connection_id,
+            evidence_kind=ExecutionEvidenceKind.CUMULATIVE_OBSERVATION,
+            observed_filled_quantity=detail.filled_quantity,
         )
 
     def order_detail(self, *, correlation_id: str) -> DhanOrderDetail:
@@ -334,35 +370,6 @@ class DhanBrokerAdapter:
             raise ValueError(
                 f"unsupported Dhan regular-order product type: {instrument_ref.product_type}"
             )
-
-    @staticmethod
-    def _fill_from_detail(
-        request: ApprovedExecutionRequest,
-        detail: DhanOrderDetail,
-    ) -> tuple[Fill, ...]:
-        if detail.filled_quantity < 0:
-            raise ValueError("Dhan reported a negative filled quantity")
-        if detail.filled_quantity > request.order.quantity:
-            raise ValueError("Dhan filled quantity exceeds canonical order quantity")
-        if detail.filled_quantity == 0:
-            return ()
-        if detail.average_traded_price is None:
-            raise ValueError("Dhan filled quantity requires an average traded price")
-        filled_at = parse_dhan_timestamp(detail.exchange_time) or parse_dhan_timestamp(
-            detail.update_time
-        )
-        if filled_at is None:
-            return ()
-        return (
-            Fill(
-                client_order_id=request.order.client_order_id,
-                instrument=request.order.instrument,
-                side=request.order.side,
-                quantity=detail.filled_quantity,
-                price=detail.average_traded_price,
-                filled_at=filled_at,
-            ),
-        )
 
     @staticmethod
     def _unknown_receipt(

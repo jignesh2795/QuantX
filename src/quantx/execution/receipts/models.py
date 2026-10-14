@@ -24,6 +24,20 @@ class ExecutionOutcome(StrEnum):
     EXPIRED = "EXPIRED"
 
 
+class ExecutionEvidenceKind(StrEnum):
+    """Explicit discriminator for how a receipt's quantity evidence was produced.
+
+    EXECUTION_DELTAS: fills contain actual disjoint execution fills that may
+        be summed exactly once.
+    CUMULATIVE_OBSERVATION: a broker snapshot reporting the total filled
+        quantity observed so far.  Cumulative observations must never be
+        summed with one another; they use monotonic observation semantics.
+    """
+
+    EXECUTION_DELTAS = "EXECUTION_DELTAS"
+    CUMULATIVE_OBSERVATION = "CUMULATIVE_OBSERVATION"
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionReceipt:
     request_id: UUID
@@ -48,6 +62,9 @@ class ExecutionReceipt:
     order_quantity: Decimal | None = None
     account_id: AccountId | None = None
     connection_id: BrokerConnectionId | None = None
+    evidence_kind: ExecutionEvidenceKind = ExecutionEvidenceKind.EXECUTION_DELTAS
+    observed_filled_quantity: Decimal | None = None
+    observed_average_price: Decimal | None = None
 
     @classmethod
     def from_order(
@@ -73,9 +90,12 @@ class ExecutionReceipt:
         receipt_id: UUID | None = None,
         account_id: AccountId | None = None,
         connection_id: BrokerConnectionId | None = None,
+        evidence_kind: ExecutionEvidenceKind = ExecutionEvidenceKind.EXECUTION_DELTAS,
+        observed_filled_quantity: Decimal | None = None,
+        observed_average_price: Decimal | None = None,
     ) -> ExecutionReceipt:
         """Construct a receipt while binding fill evidence to the canonical order."""
-        cls._validate_fills_against_order(order, fills, outcome)
+        cls._validate_fills_against_order(order, fills, outcome, evidence_kind)
         return cls(
             request_id=request_id,
             client_order_id=order.client_order_id,
@@ -99,6 +119,9 @@ class ExecutionReceipt:
             order_quantity=order.quantity,
             account_id=account_id,
             connection_id=connection_id,
+            evidence_kind=evidence_kind,
+            observed_filled_quantity=observed_filled_quantity,
+            observed_average_price=observed_average_price,
         )
 
     @staticmethod
@@ -106,25 +129,35 @@ class ExecutionReceipt:
         order: Order,
         fills: tuple[Fill, ...],
         outcome: ExecutionOutcome,
+        evidence_kind: ExecutionEvidenceKind = ExecutionEvidenceKind.EXECUTION_DELTAS,
     ) -> None:
-        execution_ids = [fill.execution_id for fill in fills]
-        if len(execution_ids) != len(set(execution_ids)):
-            raise ValueError("fills must have unique execution_id values")
-        if any(fill.instrument != order.instrument for fill in fills):
-            raise ValueError("all fills must match the order instrument")
-        if any(fill.side is not order.side for fill in fills):
-            raise ValueError("all fills must match the order side")
-        total_filled = sum((fill.quantity for fill in fills), Decimal("0"))
-        if total_filled > order.quantity:
-            raise ValueError("fill quantity cannot exceed order quantity")
-        if outcome is ExecutionOutcome.FILLED and total_filled != order.quantity:
-            raise ValueError("filled receipt fills must equal order quantity")
-        if outcome is ExecutionOutcome.PARTIALLY_FILLED and not (
-            Decimal("0") < total_filled < order.quantity
-        ):
-            raise ValueError(
-                "partially filled receipt fills must be between zero and order quantity"
-            )
+        if evidence_kind is ExecutionEvidenceKind.EXECUTION_DELTAS:
+            execution_ids = [fill.execution_id for fill in fills]
+            if len(execution_ids) != len(set(execution_ids)):
+                raise ValueError("fills must have unique execution_id values")
+            if any(fill.instrument != order.instrument for fill in fills):
+                raise ValueError("all fills must match the order instrument")
+            if any(fill.side is not order.side for fill in fills):
+                raise ValueError("all fills must match the order side")
+            total_filled = sum((fill.quantity for fill in fills), Decimal("0"))
+            if total_filled > order.quantity:
+                raise ValueError("fill quantity cannot exceed order quantity")
+            if outcome is ExecutionOutcome.FILLED and total_filled != order.quantity:
+                raise ValueError("filled receipt fills must equal order quantity")
+            if outcome is ExecutionOutcome.PARTIALLY_FILLED and not (
+                Decimal("0") < total_filled < order.quantity
+            ):
+                raise ValueError(
+                    "partially filled receipt fills must be between zero and order quantity"
+                )
+        else:
+            # CUMULATIVE_OBSERVATION: quantity evidence lives exclusively in
+            # observed_filled_quantity and is never additive.  Carrying fills
+            # as well would present two conflicting quantity accounts for one
+            # receipt, so the shape itself is rejected rather than the fill
+            # contents being validated.
+            if fills:
+                raise ValueError("cumulative observation receipts must not carry fills")
 
     @property
     def filled_quantity(self) -> Decimal:
@@ -157,7 +190,8 @@ class ExecutionReceipt:
         if self.outcome is ExecutionOutcome.FILLED and self.order_status is not OrderStatus.FILLED:
             raise ValueError("filled receipt must have FILLED order status")
         if (
-            self.outcome in {ExecutionOutcome.FILLED, ExecutionOutcome.PARTIALLY_FILLED}
+            self.evidence_kind is ExecutionEvidenceKind.EXECUTION_DELTAS
+            and self.outcome in {ExecutionOutcome.FILLED, ExecutionOutcome.PARTIALLY_FILLED}
             and not self.fills
         ):
             raise ValueError("filled receipt outcomes require at least one fill")
@@ -166,6 +200,22 @@ class ExecutionReceipt:
             and self.order_status is not OrderStatus.PARTIALLY_FILLED
         ):
             raise ValueError("partial receipt must have PARTIALLY_FILLED order status")
+        if self.observed_filled_quantity is not None and self.observed_filled_quantity < 0:
+            raise ValueError("observed_filled_quantity cannot be negative")
+        if self.observed_average_price is not None and self.observed_average_price < 0:
+            raise ValueError("observed_average_price cannot be negative")
+        if (
+            self.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION
+            and self.observed_filled_quantity is None
+        ):
+            raise ValueError("cumulative observation receipts require an observed_filled_quantity")
+        if self.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION:
+            if self.fills:
+                raise ValueError("cumulative observation receipts must not carry fills")
+        elif self.observed_filled_quantity is not None or self.observed_average_price is not None:
+            raise ValueError(
+                "execution delta receipts must not carry cumulative observation fields"
+            )
 
 
 # Backward-compatible names used by early execution consumers.
