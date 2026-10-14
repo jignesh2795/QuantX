@@ -129,11 +129,13 @@ class _ToyCheck:
         outcome: MarketCheckOutcome,
         calls: list,
         reason: str = "toy check verdict",
+        stage: MarketCheckStage = MarketCheckStage.PRE_DISPATCH,
     ) -> None:
         self._check_id = check_id
         self._outcome = outcome
         self._calls = calls
         self._reason = reason
+        self._stage = stage
 
     @property
     def check_id(self) -> str:
@@ -150,7 +152,7 @@ class _ToyCheck:
             self._reason,
             evidence=MarketCheckEvidence(
                 check_id=self._check_id,
-                stage=MarketCheckStage.PRE_DISPATCH,
+                stage=self._stage,
                 outcome=self._outcome,
                 region=MarketRegion.NORTH_AMERICA,
                 family=MarketFamily.EQUITY,
@@ -159,15 +161,44 @@ class _ToyCheck:
         )
 
 
+def _canonical_india_policy() -> RegionMarketPolicy:
+    """Canonical India classification preserved by every toy configuration."""
+    return RegionMarketPolicy(
+        region=MarketRegion.INDIA,
+        requires_pack=True,
+        required_stages=frozenset({MarketCheckStage.PRE_DISPATCH, MarketCheckStage.PRE_SUBMIT}),
+        replaces_session_guard=True,
+    )
+
+
+def _regions_with_canonical_india(special: RegionMarketPolicy | None = None) -> tuple:
+    """All regions core-only except canonical India plus one special policy."""
+    policies = []
+    for member in MarketRegion:
+        if member is MarketRegion.INDIA:
+            policies.append(_canonical_india_policy())
+        elif special is not None and member is special.region:
+            policies.append(special)
+        else:
+            policies.append(RegionMarketPolicy(region=member))
+    return tuple(policies)
+
+
 def _toy_policy(
     *,
     region: MarketRegion = MarketRegion.NORTH_AMERICA,
     pre_dispatch_outcome: MarketCheckOutcome = MarketCheckOutcome.PASS,
     pre_submit_outcome: MarketCheckOutcome = MarketCheckOutcome.PASS,
     optional_submit: bool = False,
+    replaces_session_guard: bool = False,
     calls: list | None = None,
 ) -> tuple[MarketPolicyConfig, list]:
-    """Build a config reclassifying one region as pack-required (test-only)."""
+    """Build a config reclassifying one region as pack-required (test-only).
+
+    The canonical India policy is always preserved; only the toy region is
+    reclassified, so India invariants stay covered while the toy region
+    exercises extensibility.
+    """
     calls = calls if calls is not None else []
     pa = _ToyCheck(f"{region.value}.pre-a", pre_dispatch_outcome, calls)
     checks = [PlacedCheck(region, MarketCheckStage.PRE_DISPATCH, pa)]
@@ -176,7 +207,12 @@ def _toy_policy(
             PlacedCheck(
                 region,
                 MarketCheckStage.PRE_SUBMIT,
-                _ToyCheck(f"{region.value}.pre-b", pre_submit_outcome, calls),
+                _ToyCheck(
+                    f"{region.value}.pre-b",
+                    pre_submit_outcome,
+                    calls,
+                    stage=MarketCheckStage.PRE_SUBMIT,
+                ),
             )
         )
     policy = RegionMarketPolicy(
@@ -188,9 +224,12 @@ def _toy_policy(
         optional_stages=frozenset({MarketCheckStage.PRE_SUBMIT})
         if optional_submit
         else frozenset(),
+        replaces_session_guard=replaces_session_guard,
     )
     regions = tuple(
-        RegionMarketPolicy(region=member) if member is not region else policy
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else (policy if member is region else RegionMarketPolicy(region=member))
         for member in MarketRegion
     )
     return MarketPolicyConfig(regions=regions, checks=tuple(checks)), calls
@@ -372,17 +411,12 @@ def test_missing_required_pack_stage_blocks_with_code() -> None:
 def test_duplicate_check_identity_rejected() -> None:
     calls: list = []
     check = _ToyCheck("dup", MarketCheckOutcome.PASS, calls)
-    regions = tuple(
-        RegionMarketPolicy(region=member)
-        if member is not MarketRegion.NORTH_AMERICA
-        else (
-            RegionMarketPolicy(
-                region=member,
-                requires_pack=True,
-                required_stages=frozenset({MarketCheckStage.PRE_DISPATCH}),
-            )
+    regions = _regions_with_canonical_india(
+        RegionMarketPolicy(
+            region=MarketRegion.NORTH_AMERICA,
+            requires_pack=True,
+            required_stages=frozenset({MarketCheckStage.PRE_DISPATCH}),
         )
-        for member in MarketRegion
     )
     with pytest.raises(ValueError, match="duplicate check identity"):
         MarketPolicyConfig(
@@ -415,14 +449,15 @@ def test_overlapping_required_optional_stages_rejected() -> None:
 
 
 def test_unclassified_region_rejected_at_build() -> None:
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+        if member is not MarketRegion.GLOBAL
+    )
     with pytest.raises(ValueError, match="unclassified regions"):
-        MarketPolicyConfig(
-            regions=tuple(
-                RegionMarketPolicy(region=member)
-                for member in MarketRegion
-                if member is not MarketRegion.GLOBAL
-            )
-        )
+        MarketPolicyConfig(regions=regions)
 
 
 def test_unknown_region_string_fails_closed() -> None:
@@ -559,11 +594,7 @@ def test_b3_exception_in_session_evaluator_sanitized() -> None:
 
     policy, _ = _toy_policy()
     regions = tuple(
-        RegionMarketPolicy(
-            region=member,
-            requires_pack=True,
-            required_stages=frozenset({MarketCheckStage.PRE_DISPATCH, MarketCheckStage.PRE_SUBMIT}),
-        )
+        _canonical_india_policy()
         if member is MarketRegion.INDIA
         else RegionMarketPolicy(region=member)
         for member in MarketRegion
@@ -595,11 +626,7 @@ def test_b3_exception_in_compat_evaluator_sanitized() -> None:
     from quantx.india.market_checks import IndiaSessionCheck as SessionCheck
 
     regions = tuple(
-        RegionMarketPolicy(
-            region=member,
-            requires_pack=True,
-            required_stages=frozenset({MarketCheckStage.PRE_DISPATCH, MarketCheckStage.PRE_SUBMIT}),
-        )
+        _canonical_india_policy()
         if member is MarketRegion.INDIA
         else RegionMarketPolicy(region=member)
         for member in MarketRegion
@@ -681,11 +708,16 @@ def test_skipped_optional_stage_recorded_not_passed() -> None:
 
 def test_core_only_region_ignores_registered_pack() -> None:
     calls: list = []
-    pa = _ToyCheck("na.pre-a", MarketCheckOutcome.PASS, calls)
-    regions = tuple(RegionMarketPolicy(region=member) for member in MarketRegion)
+    regions = _regions_with_canonical_india()
     config = MarketPolicyConfig(
         regions=regions,
-        checks=(PlacedCheck(MarketRegion.NORTH_AMERICA, MarketCheckStage.PRE_DISPATCH, pa),),
+        checks=(
+            PlacedCheck(
+                MarketRegion.NORTH_AMERICA,
+                MarketCheckStage.PRE_DISPATCH,
+                _ToyCheck("na.pre-a", MarketCheckOutcome.PASS, calls),
+            ),
+        ),
     )
     broker = _RecordingBroker(_us_instrument())
     orchestrator = _live_orchestrator(market_policy=config)
@@ -703,15 +735,12 @@ def test_malformed_check_result_fails_closed() -> None:
         def __call__(self, request):
             return "not a result"
 
-    regions = tuple(
+    regions = _regions_with_canonical_india(
         RegionMarketPolicy(
-            region=member,
+            region=MarketRegion.NORTH_AMERICA,
             requires_pack=True,
             required_stages=frozenset({MarketCheckStage.PRE_DISPATCH}),
         )
-        if member is MarketRegion.NORTH_AMERICA
-        else RegionMarketPolicy(region=member)
-        for member in MarketRegion
     )
     config = MarketPolicyConfig(
         regions=regions,
@@ -735,3 +764,357 @@ def test_check_without_identity_rejected_at_registration() -> None:
 
     with pytest.raises(ValueError, match="check id must not be empty"):
         PlacedCheck(MarketRegion.NORTH_AMERICA, MarketCheckStage.PRE_DISPATCH, _AnonymousCheck())
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 — India policy invariant
+# ---------------------------------------------------------------------------
+
+
+def test_india_core_only_rejected() -> None:
+    regions = tuple(
+        RegionMarketPolicy(region=member, requires_pack=member is not MarketRegion.INDIA)
+        for member in MarketRegion
+    )
+    with pytest.raises(ValueError, match="must not be classified as core-only"):
+        MarketPolicyConfig(regions=regions)
+
+
+@pytest.mark.parametrize(
+    "stages",
+    [
+        frozenset({MarketCheckStage.PRE_DISPATCH}),
+        frozenset({MarketCheckStage.PRE_SUBMIT}),
+        frozenset(),
+    ],
+)
+def test_india_incomplete_required_stages_rejected(stages) -> None:
+    regions = tuple(
+        RegionMarketPolicy(
+            region=member,
+            requires_pack=True,
+            required_stages=stages if member is MarketRegion.INDIA else frozenset(),
+            replaces_session_guard=member is MarketRegion.INDIA,
+        )
+        for member in MarketRegion
+    )
+    with pytest.raises(ValueError, match="both pre-dispatch and pre-submit"):
+        MarketPolicyConfig(regions=regions)
+
+
+def test_requires_pack_without_stages_rejected() -> None:
+    regions = _regions_with_canonical_india(
+        RegionMarketPolicy(region=MarketRegion.NORTH_AMERICA, requires_pack=True)
+    )
+    with pytest.raises(ValueError, match="no required stages"):
+        MarketPolicyConfig(regions=regions)
+
+
+def _india_approving_session():
+    from quantx.india.domain import IndianExchange, IndianSegment
+    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+
+    def allow(request):
+        return IndiaSessionResult(
+            IndiaSessionDecision.ALLOW,
+            "india session approved for test",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=datetime(2026, 1, 5, 10, 0, tzinfo=UTC),
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
+            calendar_evaluated=True,
+        )
+
+    return allow
+
+
+def test_india_partial_pack_blocks_before_submit() -> None:
+    from quantx.india.market_checks import india_market_policy
+
+    config = india_market_policy(session_evaluator=_india_approving_session())
+    broker = _RecordingBroker(_instrument())
+    orchestrator = _live_orchestrator(market_policy=config)
+    result = orchestrator.execute(_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "required pre-submit market checks are missing" in result.reason
+    assert broker.submit_calls == 0
+    assert result.check_evidence is not None
+    assert result.check_evidence.blocking_failure_code == (
+        MarketCheckFailureCode.MISSING_REQUIRED_STAGE
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fix 2 — evidence outcome matches the result
+# ---------------------------------------------------------------------------
+
+
+def test_session_rejection_carries_block_evidence() -> None:
+    from quantx.india.domain import IndianExchange, IndianSegment
+    from quantx.india.market_checks import india_market_policy
+    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+
+    def closed(request):
+        return IndiaSessionResult(
+            IndiaSessionDecision.BLOCK,
+            "india trading session is closed",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=datetime(2026, 1, 5, 10, 0, tzinfo=UTC),
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
+            calendar_evaluated=True,
+        )
+
+    config = india_market_policy(session_evaluator=closed)
+    orchestrator = _live_orchestrator(market_policy=config)
+    result = orchestrator.execute(_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert len(result.check_evidence.entries) == 1
+    entry = result.check_evidence.entries[0]
+    assert entry.outcome is MarketCheckOutcome.BLOCK
+    assert result.check_evidence.blocking_check_id == "india.session-calendar"
+    assert result.check_evidence.blocking_failure_code == "india.session-calendar.rejected"
+
+
+def test_compat_rejection_carries_block_evidence() -> None:
+    from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+    from quantx.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
+
+    def rejecting(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            rule_set_version="test",
+            provenance="test",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+    )
+    config = MarketPolicyConfig(
+        regions=regions,
+        checks=(
+            PlacedCheck(
+                MarketRegion.INDIA,
+                MarketCheckStage.PRE_DISPATCH,
+                IndiaSessionCheck(_india_approving_session()),
+            ),
+            PlacedCheck(
+                MarketRegion.INDIA, MarketCheckStage.PRE_SUBMIT, IndiaCompatCheck(rejecting)
+            ),
+        ),
+    )
+    broker = _RecordingBroker(_instrument())
+    orchestrator = _live_orchestrator(market_policy=config)
+    result = orchestrator.execute(_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "INDIA_LOT_SIZE_INVALID" in result.reason
+    assert result.check_evidence is not None
+    assert len(result.check_evidence.entries) == 2
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.BLOCK
+    assert result.check_evidence.blocking_check_id == "india.compatibility-rules"
+    assert result.check_evidence.blocking_failure_code == "india.compatibility.rejected"
+    assert broker.submit_calls == 0
+
+
+def test_malformed_rule_reason_fails_closed() -> None:
+    from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+    from quantx.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
+
+    def garbage(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "boom without a rule code",
+            rule_set_version="test",
+            provenance="test",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+    )
+    config = MarketPolicyConfig(
+        regions=regions,
+        checks=(
+            PlacedCheck(
+                MarketRegion.INDIA,
+                MarketCheckStage.PRE_DISPATCH,
+                IndiaSessionCheck(_india_approving_session()),
+            ),
+            PlacedCheck(MarketRegion.INDIA, MarketCheckStage.PRE_SUBMIT, IndiaCompatCheck(garbage)),
+        ),
+    )
+    broker = _RecordingBroker(_instrument())
+    orchestrator = _live_orchestrator(market_policy=config)
+    result = orchestrator.execute(_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "malformed" in result.reason
+    assert "boom" not in result.reason
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert broker.submit_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# Fix 3 — runner evidence validation
+# ---------------------------------------------------------------------------
+
+
+def _lying_evidence_check() -> _ToyCheck:
+    class _Liar(_ToyCheck):
+        def __call__(self, request):
+            result = super().__call__(request)
+            false_evidence = MarketCheckEvidence(
+                check_id=result.check_id,
+                stage=MarketCheckStage.PRE_DISPATCH,
+                outcome=MarketCheckOutcome.PASS,
+                region=MarketRegion.NORTH_AMERICA,
+                family=MarketFamily.EQUITY,
+                venue="NYSE",
+            )
+            return MarketCheckResult(
+                result.check_id,
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.rejected",
+                "lying check verdict",
+                evidence=false_evidence,
+            )
+
+    return _Liar("na.liar", MarketCheckOutcome.BLOCK, [])
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["outcome", "check_id", "stage", "region"],
+)
+def test_evidence_mismatch_fails_closed(tamper: str) -> None:
+    base = MarketCheckEvidence(
+        check_id="na.honest",
+        stage=MarketCheckStage.PRE_DISPATCH,
+        outcome=MarketCheckOutcome.BLOCK,
+        region=MarketRegion.NORTH_AMERICA,
+        family=MarketFamily.EQUITY,
+        venue="NYSE",
+    )
+    from dataclasses import replace as _replace
+
+    if tamper == "outcome":
+        tampered = _replace(base, outcome=MarketCheckOutcome.PASS)
+    elif tamper == "check_id":
+        tampered = _replace(base, check_id="na.impostor")
+    elif tamper == "stage":
+        tampered = _replace(base, stage=MarketCheckStage.PRE_SUBMIT)
+    else:
+        tampered = _replace(base, region=MarketRegion.EUROPE)
+
+    class _TamperingCheck:
+        check_id = "na.honest"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "na.honest",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.rejected",
+                "tampering check verdict",
+                evidence=tampered,
+            )
+
+    regions = _regions_with_canonical_india(
+        RegionMarketPolicy(
+            region=MarketRegion.NORTH_AMERICA,
+            requires_pack=True,
+            required_stages=frozenset({MarketCheckStage.PRE_DISPATCH}),
+        )
+    )
+    config = MarketPolicyConfig(
+        regions=regions,
+        checks=(
+            PlacedCheck(
+                MarketRegion.NORTH_AMERICA, MarketCheckStage.PRE_DISPATCH, _TamperingCheck()
+            ),
+        ),
+    )
+    orchestrator = _live_orchestrator(market_policy=config)
+    result = orchestrator.execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "malformed" in result.reason
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+
+
+def test_block_with_pass_evidence_fails_closed() -> None:
+    regions = _regions_with_canonical_india(
+        RegionMarketPolicy(
+            region=MarketRegion.NORTH_AMERICA,
+            requires_pack=True,
+            required_stages=frozenset({MarketCheckStage.PRE_DISPATCH}),
+        )
+    )
+    config = MarketPolicyConfig(
+        regions=regions,
+        checks=(
+            PlacedCheck(
+                MarketRegion.NORTH_AMERICA, MarketCheckStage.PRE_DISPATCH, _lying_evidence_check()
+            ),
+        ),
+    )
+    orchestrator = _live_orchestrator(market_policy=config)
+    result = orchestrator.execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Fix 4 — prefix survives later core blocks; Fix 5 — guard ownership
+# ---------------------------------------------------------------------------
+
+
+def test_passed_prefix_survives_session_guard_block() -> None:
+    from quantx.execution.session_guard import SessionExecutionGuard
+
+    policy, _ = _toy_policy()
+    orchestrator = _live_orchestrator(
+        market_policy=policy, session_guard=SessionExecutionGuard(session=_ClosedSession())
+    )
+    result = orchestrator.execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "closed" in result.reason
+    assert result.check_evidence is not None
+    assert [entry.check_id for entry in result.check_evidence.entries] == ["NORTH_AMERICA.pre-a"]
+    assert result.check_evidence.short_circuited is False
+
+
+def test_replacing_pack_cannot_disable_session_guard() -> None:
+    from quantx.execution.session_guard import SessionExecutionGuard
+
+    policy, _ = _toy_policy(replaces_session_guard=True)
+    orchestrator = _live_orchestrator(
+        market_policy=policy, session_guard=SessionExecutionGuard(session=_ClosedSession())
+    )
+    result = orchestrator.execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "closed" in result.reason
+    assert result.check_evidence is not None
+    assert [entry.check_id for entry in result.check_evidence.entries] == ["NORTH_AMERICA.pre-a"]

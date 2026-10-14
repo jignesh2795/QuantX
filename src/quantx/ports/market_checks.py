@@ -165,9 +165,9 @@ class RegionMarketPolicy:
     ``requires_pack`` marks regions whose LIVE requests must run market
     policy; ``required_stages`` must each carry at least one check, while
     ``optional_stages`` may be absent or empty (recorded as SKIPPED).
-    ``replaces_session_guard`` never follows from pack registration alone;
-    it is set explicitly here, and the orchestrator additionally requires
-    LIVE mode before skipping the core guard.
+    ``replaces_session_guard`` is inert unless the region is INDIA: only
+    the approved core-owned INDIA+LIVE predicate may skip the core guard,
+    so a flag on any other region never disables it.
     """
 
     region: MarketRegion
@@ -220,6 +220,20 @@ class MarketPolicyConfig:
                 "unclassified regions fail closed: "
                 + ",".join(sorted(member.value for member in missing))
             )
+        for policy in self.regions:
+            if policy.region is MarketRegion.INDIA:
+                # Canonical India invariant: India is never core-only and
+                # always requires both insertion points for LIVE requests.
+                if not policy.requires_pack:
+                    raise ValueError("India must not be classified as core-only")
+                if policy.required_stages != frozenset(
+                    {MarketCheckStage.PRE_DISPATCH, MarketCheckStage.PRE_SUBMIT}
+                ):
+                    raise ValueError("India LIVE requires both pre-dispatch and pre-submit stages")
+            elif policy.requires_pack and not policy.required_stages:
+                raise ValueError(
+                    f"region {policy.region.value} requires a pack but declares no required stages"
+                )
         seen_checks = [
             (placed.region, placed.stage, getattr(placed.check, "check_id", None))
             for placed in self.checks
@@ -251,8 +265,10 @@ class MarketSelection:
 
     ``applies_pack`` is true only when the region requires a pack and the
     mode is LIVE; every other combination stays core-only without consulting
-    any pack. ``skip_session_guard`` is true only when the region policy
-    declares replacement and the mode is LIVE.
+    any pack. ``skip_session_guard`` is true only for the approved
+    core-owned INDIA+LIVE predicate: the region policy must declare
+    replacement, the region must be INDIA, and the mode must be LIVE. A
+    replacement flag on any other region is inert by construction.
     """
 
     region: MarketRegion
@@ -275,7 +291,9 @@ def select_market_policy(
         family=family,
         venue=venue,
         applies_pack=applies_pack,
-        skip_session_guard=applies_pack and policy.replaces_session_guard,
+        skip_session_guard=(
+            applies_pack and policy.replaces_session_guard and region is MarketRegion.INDIA
+        ),
         policy=policy,
     )
 

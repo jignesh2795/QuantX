@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
@@ -82,6 +82,28 @@ def _family_segment(family: MarketFamily) -> IndianSegment | None:
     }.get(family)
 
 
+def _best_effort_evidence(
+    check_id: str, stage: MarketCheckStage, request: ApprovedExecutionRequest
+) -> MarketCheckEvidence | None:
+    """Record the request's claimed market context for a failed evaluation.
+
+    Values pass through verbatim (no fabrication); anything unbuildable
+    yields None so the runner synthesizes the entry from normalized values.
+    """
+    try:
+        market = request.execution_context.market
+        return MarketCheckEvidence(
+            check_id=check_id,
+            stage=stage,
+            outcome=MarketCheckOutcome.UNAVAILABLE,
+            region=market.region,
+            family=market.family,
+            venue=market.venue,
+        )
+    except (ValueError, AttributeError):
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class IndiaSessionCheck:
     """Pre-dispatch India session/calendar check (neutral contract)."""
@@ -99,6 +121,9 @@ class IndiaSessionCheck:
                 "india.session-calendar.evaluation-failed",
                 "india session/calendar evaluation failed closed",
                 detail=f"{type(exc).__name__}: {exc}",
+                evidence=_best_effort_evidence(
+                    self.check_id, MarketCheckStage.PRE_DISPATCH, request
+                ),
             )
         if not isinstance(result, IndiaSessionResult):
             return MarketCheckResult(
@@ -125,6 +150,14 @@ class IndiaSessionCheck:
                 MarketCheckOutcome.UNAVAILABLE,
                 "india.session-calendar.evidence-missing",
                 "india LIVE execution requires authoritative India session/calendar evidence",
+                evidence=MarketCheckEvidence(
+                    check_id=self.check_id,
+                    stage=MarketCheckStage.PRE_DISPATCH,
+                    outcome=MarketCheckOutcome.UNAVAILABLE,
+                    region=region,
+                    family=family,
+                    venue=venue,
+                ),
             )
         evidence = MarketCheckEvidence(
             check_id=self.check_id,
@@ -155,7 +188,7 @@ class IndiaSessionCheck:
                 MarketCheckOutcome.BLOCK,
                 "india.session-calendar.rejected",
                 session_reason,
-                evidence=evidence,
+                evidence=replace(evidence, outcome=MarketCheckOutcome.BLOCK),
             )
         return MarketCheckResult(
             self.check_id,
@@ -183,6 +216,7 @@ class IndiaCompatCheck:
                 "india.compatibility.evaluation-failed",
                 "india execution-rule evaluation failed closed",
                 detail=f"{type(exc).__name__}: {exc}",
+                evidence=_best_effort_evidence(self.check_id, MarketCheckStage.PRE_SUBMIT, request),
             )
         if not isinstance(result, IndiaRuleResult):
             return MarketCheckResult(
@@ -205,6 +239,14 @@ class IndiaCompatCheck:
                 "india.compatibility.evidence-missing",
                 "india LIVE execution requires authoritative India venue-rule "
                 "compatibility evidence",
+                evidence=MarketCheckEvidence(
+                    check_id=self.check_id,
+                    stage=MarketCheckStage.PRE_SUBMIT,
+                    outcome=MarketCheckOutcome.UNAVAILABLE,
+                    region=region,
+                    family=family,
+                    venue=venue,
+                ),
             )
         evidence = MarketCheckEvidence(
             check_id=self.check_id,
@@ -231,14 +273,14 @@ class IndiaCompatCheck:
                     "india.compatibility.malformed-evidence",
                     "india rule evidence is malformed",
                     detail=str(result.reason),
-                    evidence=evidence,
+                    evidence=replace(evidence, outcome=MarketCheckOutcome.UNAVAILABLE),
                 )
             return MarketCheckResult(
                 self.check_id,
                 MarketCheckOutcome.BLOCK,
                 "india.compatibility.rejected",
                 f"india execution rules rejected the request: {sanitized}",
-                evidence=evidence,
+                evidence=replace(evidence, outcome=MarketCheckOutcome.BLOCK),
             )
         return MarketCheckResult(
             self.check_id,

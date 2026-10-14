@@ -29,6 +29,7 @@ from quantx.ports.market_checks import (
     MarketCheckSequence,
     MarketCheckStage,
     MarketPolicyConfig,
+    MarketRuleCheckEvidence,
     PreTradeCheck,
     UnclassifiedRegion,
     UnknownMarketValue,
@@ -55,6 +56,44 @@ class ExecutionResult:
     @property
     def executed(self) -> bool:
         return self.status is ExecutionDispatchStatus.EXECUTED
+
+
+def _validated_evidence(
+    evidence: MarketCheckEvidence | None,
+    *,
+    check_id: str,
+    stage: MarketCheckStage,
+    region: MarketRegion,
+    family: MarketFamily,
+    venue: str,
+    outcome: MarketCheckOutcome,
+) -> MarketCheckEvidence | None:
+    """Accept check evidence only when it matches its registration and result.
+
+    Returns None for missing evidence or any inconsistency: wrong check
+    identity, wrong insertion stage, non-normalized region/family/venue,
+    outcome mismatch, wrong runtime types, or malformed rule facts. The
+    caller synthesizes a safe entry instead of trusting the rejected one.
+    """
+    if evidence is None:
+        return None
+    if not isinstance(evidence, MarketCheckEvidence):
+        return None
+    if evidence.check_id != check_id or evidence.stage != stage:
+        return None
+    if (
+        not isinstance(evidence.region, MarketRegion)
+        or evidence.region is not region
+        or not isinstance(evidence.family, MarketFamily)
+        or evidence.family is not family
+        or evidence.venue != venue
+    ):
+        return None
+    if evidence.outcome is not outcome:
+        return None
+    if not all(isinstance(item, MarketRuleCheckEvidence) for item in evidence.rule_checks):
+        return None
+    return evidence
 
 
 class ExecutionOrchestrator:
@@ -94,9 +133,9 @@ class ExecutionOrchestrator:
         """Run one stage's checks in registration order; BLOCKED on first failure.
 
         Returns the blocking result, or None when every check passed. Each
-        executed check appends its evidence (or a minimal synthesized entry
-        when the check provides none) so the recorded prefix stays complete
-        and deterministic. Check exceptions and malformed results fail
+        executed check appends validated evidence (or a synthesized safe
+        entry) so the recorded prefix stays complete and deterministic.
+        Check exceptions, malformed results, and inconsistent evidence fail
         closed; raw diagnostics never reach user reasons.
         """
         for check in checks:
@@ -123,18 +162,48 @@ class ExecutionOrchestrator:
                     f"{check_id} returned a malformed result",
                     detail=f"unexpected result {type(result).__name__}",
                 )
-            entries.append(
-                result.evidence
-                if result.evidence is not None
-                else MarketCheckEvidence(
-                    check_id=result.check_id,
+            provided = result.evidence
+            if provided is None:
+                entries.append(
+                    MarketCheckEvidence(
+                        check_id=check_id,
+                        stage=stage,
+                        outcome=result.outcome,
+                        region=region,
+                        family=family,
+                        venue=venue,
+                    )
+                )
+            else:
+                validated = _validated_evidence(
+                    provided,
+                    check_id=check_id,
                     stage=stage,
-                    outcome=result.outcome,
                     region=region,
                     family=family,
                     venue=venue,
+                    outcome=result.outcome,
                 )
-            )
+                if validated is None:
+                    result = MarketCheckResult(
+                        check_id,
+                        MarketCheckOutcome.UNAVAILABLE,
+                        MarketCheckFailureCode.MALFORMED_RESULT,
+                        f"{check_id} returned malformed evidence",
+                        detail="check evidence did not match its registration and outcome",
+                    )
+                    entries.append(
+                        MarketCheckEvidence(
+                            check_id=check_id,
+                            stage=stage,
+                            outcome=MarketCheckOutcome.UNAVAILABLE,
+                            region=region,
+                            family=family,
+                            venue=venue,
+                        )
+                    )
+                else:
+                    entries.append(validated)
             if result.outcome is not MarketCheckOutcome.PASS:
                 return result
         return None
@@ -270,26 +339,38 @@ class ExecutionOrchestrator:
         if self._session_guard is not None and not selection.skip_session_guard:
             session = self._session_guard.check(mode)
             if not session.allowed:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=session.reason,
+                return self._with_evidence_prefix(
+                    ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=session.reason,
+                    ),
+                    check_entries,
                 )
 
         if mode in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}:
             if self._paper_executor is None:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason="paper execution adapter is not configured",
+                return self._with_evidence_prefix(
+                    ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason="paper execution adapter is not configured",
+                    ),
+                    check_entries,
                 )
             if snapshot is None:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason="market snapshot is required for paper/replay execution",
+                return self._with_evidence_prefix(
+                    ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason="market snapshot is required for paper/replay execution",
+                    ),
+                    check_entries,
                 )
             if snapshot.instrument != request.order.instrument:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason="market snapshot instrument does not match execution request",
+                return self._with_evidence_prefix(
+                    ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason="market snapshot instrument does not match execution request",
+                    ),
+                    check_entries,
                 )
             return ExecutionResult(
                 ExecutionDispatchStatus.EXECUTED,
@@ -297,9 +378,12 @@ class ExecutionOrchestrator:
             )
 
         if mode is not ExecutionMode.LIVE:
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason=f"unsupported execution mode: {mode.value}",
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"unsupported execution mode: {mode.value}",
+                ),
+                check_entries,
             )
 
         if broker is None:
