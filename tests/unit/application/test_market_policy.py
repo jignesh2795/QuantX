@@ -2949,3 +2949,70 @@ def test_raising_market_check_result_subclass_fails_closed() -> None:
     payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
     assert "crafted result" not in payload
     assert "result field access must not escape" not in payload
+
+
+def test_mutated_result_check_id_with_raising_equality_fails_closed() -> None:
+    """A hostile check_id cannot execute equality inside the runner."""
+
+    class _RaisingEquality:
+        def __eq__(self, other):
+            raise RuntimeError("check id equality must not escape")
+
+    class _MutatedResult:
+        check_id = "na.malformed"
+
+        def __call__(self, request) -> MarketCheckResult:
+            result = MarketCheckResult(
+                "na.malformed",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.unapproved-code",
+                "crafted result",
+            )
+            object.__setattr__(result, "check_id", _RaisingEquality())
+            return result
+
+    result = _live_orchestrator(market_policy=_untrusted_policy(_MutatedResult())).execute(
+        _us_request()
+    )
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.MALFORMED_RESULT
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "crafted result" not in payload
+    assert "check id equality must not escape" not in payload
+
+
+def test_mutated_result_reason_subclass_fails_closed(monkeypatch) -> None:
+    """A hostile str subclass must be rejected before sanitizer method calls."""
+
+    import quantx.application.execution as execution_module
+
+    class _RaisingString(str):
+        def strip(self, *args, **kwargs):
+            raise RuntimeError("reason sanitizer must not escape")
+
+    class _MutatedResult:
+        check_id = "na.malformed"
+
+        def __call__(self, request) -> MarketCheckResult:
+            result = MarketCheckResult(
+                "na.malformed",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.unapproved-code",
+                "safe initial reason",
+            )
+            object.__setattr__(result, "reason", _RaisingString("crafted reason"))
+            return result
+
+    monkeypatch.setattr(execution_module, "is_trusted_check", lambda *args, **kwargs: True)
+    result = _live_orchestrator(market_policy=_untrusted_policy(_MutatedResult())).execute(
+        _us_request()
+    )
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.MALFORMED_RESULT
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "crafted reason" not in payload
+    assert "reason sanitizer must not escape" not in payload
