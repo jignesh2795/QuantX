@@ -9,10 +9,14 @@ broker-submit capability.
 
 from __future__ import annotations
 
+import importlib
 import re
+import types
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from functools import cache
 from typing import Protocol, runtime_checkable
 
 from quantx.domain.deployment import ExecutionMode
@@ -62,34 +66,41 @@ masquerading as evaluated checks.
 _BATCH_CODE_PATTERN = re.compile(r"\bB\d+\b")
 _CHECK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _FAILURE_CODE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_RULE_CODE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]*")
+_RULE_SET_VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,47}")
+_PROVENANCE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
-TRUSTED_PUBLIC_REASON_CHECK_IDS: frozenset[str] = frozenset(
-    {"india.session-calendar", "india.compatibility-rules"}
+
+def _immutable_registry(entries: Mapping[str, frozenset[str]]) -> Mapping[str, frozenset[str]]:
+    """Copy ``entries`` into a read-only mapping of read-only collections.
+
+    The copy matters as much as the proxy: the caller's dictionary must not
+    survive as a private alias that could still be mutated at runtime. Nested
+    values are already frozensets, so nothing inside the registry is writable
+    once this returns.
+    """
+    return types.MappingProxyType({key: frozenset(value) for key, value in entries.items()})
+
+
+_TRUSTED_FAILURE_CODES: Mapping[str, frozenset[str]] = _immutable_registry(
+    {
+        "india.session-calendar": frozenset(
+            {
+                "india.session-calendar.evaluation-failed",
+                "india.session-calendar.evidence-missing",
+                "india.session-calendar.rejected",
+            }
+        ),
+        "india.compatibility-rules": frozenset(
+            {
+                "india.compatibility.evaluation-failed",
+                "india.compatibility.evidence-missing",
+                "india.compatibility.rejected",
+                "india.compatibility.malformed-evidence",
+            }
+        ),
+    }
 )
-"""Core-owned registry of checks permitted to return trusted public reasons.
-
-Membership is decided by repository review of the producing code, never by
-a check's self-declaration. Checks absent from this registry always get
-static per-outcome fallback reasons regardless of any attribute they set.
-"""
-
-TRUSTED_FAILURE_CODES: dict[str, frozenset[str]] = {
-    "india.session-calendar": frozenset(
-        {
-            "india.session-calendar.evaluation-failed",
-            "india.session-calendar.evidence-missing",
-            "india.session-calendar.rejected",
-        }
-    ),
-    "india.compatibility-rules": frozenset(
-        {
-            "india.compatibility.evaluation-failed",
-            "india.compatibility.evidence-missing",
-            "india.compatibility.rejected",
-            "india.compatibility.malformed-evidence",
-        }
-    ),
-}
 """Core-owned registry of trusted public failure codes per check identity.
 
 Only codes listed here may surface in ``blocking_failure_code`` or
@@ -99,46 +110,143 @@ codes; framework-produced codes (``EVALUATION_FAILED``,
 ``MALFORMED_RESULT``, ...) are runner-owned and never rewritten.
 """
 
+TRUSTED_FAILURE_CODES: Mapping[str, frozenset[str]] = _TRUSTED_FAILURE_CODES
+"""Read-only public view of the trusted failure-code registry.
+
+The runner resolves codes through :func:`trusted_failure_codes`, which
+reads the private immutable registry rather than this name, so rebinding
+or mutating it cannot change what the runner authorizes.
+"""
+
+
+def trusted_failure_codes(check_id: object) -> frozenset[str] | None:
+    """Return the immutable trusted code set for a check identity, or None.
+
+    Untrusted identities have no trusted codes at all, so their declared
+    codes are rewritten to framework-owned values.
+    """
+    if not isinstance(check_id, str):
+        return None
+    return _TRUSTED_FAILURE_CODES.get(check_id)
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedCheckImplementation:
+    """Core-owned reference to one approved implementation surface.
+
+    ``module`` and ``attribute`` name where the approved class lives in
+    reviewed source. They are resolved by the core, never supplied by a
+    registering pack, and the resolved object must actually be defined in
+    ``module`` — so pointing an approved name at a caller-defined class
+    fails closed instead of granting trust.
+    """
+
+    module: str
+    attribute: str
+
+
+@cache
+def _approved_implementation(implementation: TrustedCheckImplementation) -> type | None:
+    """Resolve and validate one approved class object (cached, fail closed).
+
+    Returns None when the module cannot be imported, the attribute is
+    missing or not a class, or the class is not defined in the approved
+    module. Callers compare by identity, never by the class' ``__module__``
+    string, which any caller-defined class can set.
+    """
+    try:
+        module = importlib.import_module(implementation.module)
+        candidate = getattr(module, implementation.attribute, None)
+    except Exception:
+        return None
+    if not isinstance(candidate, type) or candidate.__module__ != implementation.module:
+        return None
+    return candidate
+
 
 @dataclass(frozen=True, slots=True)
 class TrustedCheckBinding:
     """Core-owned association between a trusted check identity and the
-    approved implementation surface that may carry it.
+    exact approved implementation that may carry it.
 
     Trust requires all three bindings to hold at execution time:
 
-    - ``module_prefixes``: the implementing class must be defined in an
-      approved module (its ``type(check).__module__`` must start with one
-      of these prefixes). A caller-defined class — even one registered
-      under a trusted identity — never matches.
+    - ``implementation``: the placed check's class object must be the very
+      same object the core resolves from the approved surface. A
+      caller-defined class — even one registered under a trusted identity,
+      subclassing the approved class, or spoofing ``__module__`` — never
+      matches, because object identity cannot be asserted from outside.
     - ``regions``: the placement region must be one of these.
     - ``stage``: the placement insertion point must be exactly this one.
     """
 
-    module_prefixes: tuple[str, ...]
+    implementation: TrustedCheckImplementation
     regions: frozenset[MarketRegion]
     stage: MarketCheckStage
 
 
-TRUSTED_CHECK_BINDINGS: dict[str, TrustedCheckBinding] = {
-    "india.session-calendar": TrustedCheckBinding(
-        module_prefixes=("quantx.india.",),
-        regions=frozenset({MarketRegion.INDIA}),
-        stage=MarketCheckStage.PRE_DISPATCH,
-    ),
-    "india.compatibility-rules": TrustedCheckBinding(
-        module_prefixes=("quantx.india.",),
-        regions=frozenset({MarketRegion.INDIA}),
-        stage=MarketCheckStage.PRE_SUBMIT,
-    ),
-}
+_TRUSTED_CHECK_BINDINGS: Mapping[str, TrustedCheckBinding] = types.MappingProxyType(
+    {
+        "india.session-calendar": TrustedCheckBinding(
+            implementation=TrustedCheckImplementation(
+                "quantx.india.market_checks", "IndiaSessionCheck"
+            ),
+            regions=frozenset({MarketRegion.INDIA}),
+            stage=MarketCheckStage.PRE_DISPATCH,
+        ),
+        "india.compatibility-rules": TrustedCheckBinding(
+            implementation=TrustedCheckImplementation(
+                "quantx.india.market_checks", "IndiaCompatCheck"
+            ),
+            regions=frozenset({MarketRegion.INDIA}),
+            stage=MarketCheckStage.PRE_SUBMIT,
+        ),
+    }
+)
 """Core-owned binding of trusted identities to approved implementations.
 
-A caller-controlled check ID alone grants nothing: an implementation is
-trusted only when its defining module, placement region, and insertion
-stage all match this registry. Impersonating checks are treated as
-generic (static fallback reasons, framework-owned rewritten codes).
+A caller-controlled check ID grants nothing: an implementation is trusted
+only when it *is* the approved class, and its placement region and
+insertion stage both match this registry. Membership is decided by
+repository review of the producing code, never by a check's
+self-declaration. Impersonating checks are treated as generic (static
+fallback reasons, framework-owned rewritten codes).
 """
+
+TRUSTED_CHECK_BINDINGS: Mapping[str, TrustedCheckBinding] = _TRUSTED_CHECK_BINDINGS
+"""Read-only public view of the trusted implementation bindings.
+
+The runner resolves trust through :func:`is_trusted_check`, which reads
+the private immutable registry rather than this name.
+"""
+
+
+def trusted_check_binding(check_id: object) -> TrustedCheckBinding | None:
+    """Return the immutable core-owned binding for a check identity, or None."""
+    if not isinstance(check_id, str):
+        return None
+    return _TRUSTED_CHECK_BINDINGS.get(check_id)
+
+
+def is_trusted_check(
+    check_id: object,
+    check: object,
+    *,
+    region: MarketRegion,
+    stage: MarketCheckStage,
+) -> bool:
+    """Decide trust for one placed check entirely inside the core.
+
+    Trust holds only when a core-owned binding exists for the identity,
+    the check's class object is the exact approved implementation (identity
+    comparison, so no caller metadata can impersonate it), and the
+    placement region and stage both match. Anything else is untrusted.
+    """
+    binding = trusted_check_binding(check_id)
+    if binding is None or region not in binding.regions or stage is not binding.stage:
+        return False
+    approved = _approved_implementation(binding.implementation)
+    return approved is not None and type(check) is approved
 
 
 def contains_banned_text(text: str) -> bool:
@@ -167,6 +275,124 @@ def is_valid_failure_code(code: object) -> bool:
         and _FAILURE_CODE_PATTERN.fullmatch(code) is not None
         and not contains_banned_text(code)
     )
+
+
+APPROVED_RULE_CHECK_NAMES: frozenset[str] = frozenset(
+    {
+        "derivative_metadata",
+        "evaluation_timestamp",
+        "india-rule",
+        "instrument_identity",
+        "order_type",
+        "order_type_snapshot",
+        "price_band",
+        "price_tick",
+        "product",
+        "product_snapshot",
+        "quantity",
+        "quantity_freeze",
+        "rule_scope",
+        "segment",
+        "tick",
+        "time_in_force",
+    }
+)
+"""Core-owned finite vocabulary of rule names allowed in public evidence.
+
+A name must be a rule this repository actually evaluates: an arbitrary
+snake_case word is still unreviewed text that a pack chose, so it never
+reaches serialized evidence. ``india-rule`` is the fixed collapse target
+for unapproved names; ``tick`` is retained as an approved alias for the
+price-tick rule.
+"""
+
+FALLBACK_RULE_CHECK_NAME = "india-rule"
+"""Fixed rule name used when a pack reports an unapproved rule name."""
+
+RULE_CHECK_PASSED_REASON = "india rule check passed"
+"""Framework-owned fixed reason for a rule fact that passed."""
+
+RULE_CHECK_WITHHELD_REASON = "india rule check failed (details withheld)"
+"""Framework-owned fixed reason for a rule fact whose text is not approved."""
+
+
+def is_valid_rule_check_name(name: object) -> bool:
+    """Accept only reviewed rule names from the core-owned vocabulary."""
+    return isinstance(name, str) and name in APPROVED_RULE_CHECK_NAMES
+
+
+def is_valid_rule_set_version(version: object) -> bool:
+    """Accept a bounded, token-shaped rule-set version identifier.
+
+    Versioned venue/rule data uses opaque version tokens (``rules-v1``,
+    ``NSE-EQ-2026-01``). Free text, paths, and quoted diagnostics are
+    rejected even when they carry no banned fragment.
+    """
+    return (
+        isinstance(version, str)
+        and _RULE_SET_VERSION_PATTERN.fullmatch(version) is not None
+        and not contains_banned_text(version)
+    )
+
+
+def is_valid_provenance(provenance: object) -> bool:
+    """Accept a bounded, token-shaped provenance identifier.
+
+    Provenance names the source of evaluated rule data. Only an opaque
+    identifier token is public; a readable sentence about where the data
+    came from is unreviewed text and never serializes.
+    """
+    return (
+        isinstance(provenance, str)
+        and _PROVENANCE_PATTERN.fullmatch(provenance) is not None
+        and not contains_banned_text(provenance)
+    )
+
+
+def _split_rule_segments(reason: str) -> tuple[tuple[str, str], ...] | None:
+    """Split ``CODE: text`` segments joined by ``"; "``, else None.
+
+    Aggregate rule rejections join their violations with ``"; "``, so the
+    structure is validated segment by segment rather than by trusting the
+    leading code alone. A message that cannot be split this way is not an
+    approved aggregate reason.
+    """
+    segments: list[tuple[str, str]] = []
+    for part in reason.split("; "):
+        code, separator, text = part.partition(": ")
+        if not separator or _RULE_CODE_PATTERN.fullmatch(code) is None:
+            return None
+        if contains_banned_text(part):
+            return None
+        segments.append((code, text))
+    return tuple(segments) if segments else None
+
+
+def is_valid_aggregate_rule_reason(reason: object) -> bool:
+    """Accept a ``CODE: text`` aggregate reason with bounded segment text.
+
+    Structure, code grammar, and banned-text rules are enforced here; the
+    per-code trusted-message contract is applied by the producing pack,
+    which owns the reviewed templates for its own vocabulary.
+    """
+    if not isinstance(reason, str) or not reason.strip():
+        return False
+    segments = _split_rule_segments(reason)
+    if segments is None:
+        return False
+    return all(text.strip() and len(text) <= 256 for _, text in segments)
+
+
+def is_valid_rule_check_reason(reason: object) -> bool:
+    """Accept one public rule-fact reason.
+
+    A reason is either a framework-owned fixed text (a passed fact, or a
+    failed fact whose detail was withheld) or a single-segment ``CODE: text``
+    value that satisfies the aggregate structure.
+    """
+    if reason in (RULE_CHECK_PASSED_REASON, RULE_CHECK_WITHHELD_REASON):
+        return True
+    return is_valid_aggregate_rule_reason(reason)
 
 
 def sanitize_public_reason(reason: object, *, check_id: str, blocked: bool, trusted: bool) -> str:
@@ -295,11 +521,11 @@ class MarketCheckSequence:
 class PreTradeCheck(Protocol):
     """One market-pack policy check evaluated against an approved request.
 
-    Trust is never self-declared: whether a check may return trusted
-    public reasons and codes is decided solely by the core-owned
-    ``TRUSTED_PUBLIC_REASON_CHECK_IDS`` and ``TRUSTED_FAILURE_CODES``
-    registries keyed on the registered check identity. All other checks
-    get static fallback reasons and framework-owned rewritten codes.
+    Trust is never self-declared: :func:`is_trusted_check` decides whether
+    a placed check may return trusted public reasons and codes by comparing
+    its class object against the core-owned ``TRUSTED_CHECK_BINDINGS``
+    registry plus its placement. All other checks get static fallback
+    reasons and framework-owned rewritten codes.
     """
 
     @property
@@ -553,6 +779,10 @@ def sequence_to_mapping(sequence: MarketCheckSequence) -> dict[str, object]:
 
 
 __all__ = [
+    "APPROVED_RULE_CHECK_NAMES",
+    "FALLBACK_RULE_CHECK_NAME",
+    "RULE_CHECK_PASSED_REASON",
+    "RULE_CHECK_WITHHELD_REASON",
     "MarketCheckEvidence",
     "MarketCheckFailureCode",
     "MarketCheckOutcome",
@@ -568,18 +798,26 @@ __all__ = [
     "SKIPPED_STAGE_STATUS_CODE",
     "TRUSTED_CHECK_BINDINGS",
     "TRUSTED_FAILURE_CODES",
-    "TRUSTED_PUBLIC_REASON_CHECK_IDS",
     "TrustedCheckBinding",
+    "TrustedCheckImplementation",
     "UnclassifiedRegion",
     "UnknownMarketValue",
     "coerce_market_context",
     "contains_banned_text",
     "default_market_policy",
+    "is_trusted_check",
+    "is_valid_aggregate_rule_reason",
     "is_valid_check_id",
     "is_valid_failure_code",
+    "is_valid_provenance",
+    "is_valid_rule_check_name",
+    "is_valid_rule_check_reason",
+    "is_valid_rule_set_version",
     "market_evidence_to_mapping",
     "normalize_market_context",
     "sanitize_public_reason",
     "select_market_policy",
     "sequence_to_mapping",
+    "trusted_check_binding",
+    "trusted_failure_codes",
 ]

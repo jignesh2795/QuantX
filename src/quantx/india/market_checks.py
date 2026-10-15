@@ -10,12 +10,16 @@ orchestration. They project India-owned results into neutral
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+import types
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
 from quantx.ports.market_checks import (
+    FALLBACK_RULE_CHECK_NAME,
+    RULE_CHECK_PASSED_REASON,
+    RULE_CHECK_WITHHELD_REASON,
     MarketCheckEvidence,
     MarketCheckOutcome,
     MarketCheckResult,
@@ -24,7 +28,10 @@ from quantx.ports.market_checks import (
     MarketRuleCheckEvidence,
     PlacedCheck,
     RegionMarketPolicy,
-    contains_banned_text,
+    is_valid_aggregate_rule_reason,
+    is_valid_provenance,
+    is_valid_rule_check_name,
+    is_valid_rule_set_version,
     normalize_market_context,
 )
 
@@ -32,47 +39,163 @@ from .domain import IndianSegment
 from .execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
 from .session_calendar import IndiaSessionDecision, IndiaSessionResult
 
-_PUBLIC_RULE_CODES: frozenset[str] = frozenset(
+_DECIMAL_FIELD = r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?"
+"""Exact Decimal rendering used by approved rule messages."""
+
+_VOCABULARY_FIELD = r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}"
+"""Bounded identifier-shaped field (instrument ids, enum values, session ids)."""
+
+_PRICE_FIELD_TEMPLATES: tuple[str, ...] = ("limit_price", "stop_price")
+"""Finite vocabulary of order price fields a rule message may name."""
+
+_REASON_TEMPLATES: Mapping[str, tuple[str, ...]] = types.MappingProxyType(
     {
-        "INDIA_INSTRUMENT_MISMATCH",
-        "INDIA_ORDER_TYPE_INVALID",
-        "INDIA_QUANTITY_INVALID",
-        "INDIA_LOT_SIZE_INVALID",
-        "INDIA_PRICE_TICK_INVALID",
-        "INDIA_DERIVATIVE_METADATA_INVALID",
-        "INDIA_SEGMENT_INVALID",
-        "INDIA_PRODUCT_INVALID",
-        "INDIA_TIF_INVALID",
-        "INDIA_QUANTITY_FREEZE_INVALID",
-        "INDIA_PRICE_BAND_INVALID",
-        "INDIA_RULE_SCOPE_MISMATCH",
-        "INDIA_RULE_DATA_UNAVAILABLE",
-        "INDIA_SESSION_SCOPE_MISMATCH",
-        "INDIA_SESSION_DATA_UNAVAILABLE",
-        "INDIA_SESSION_PERMISSION_BLOCKED",
+        "INDIA_INSTRUMENT_MISMATCH": (
+            "specification instrument {instrument_id} does not match "
+            "order instrument {instrument_id}",
+        ),
+        "INDIA_ORDER_TYPE_INVALID": (
+            "unsupported order type {vocabulary}",
+            "order type {vocabulary} is not permitted by the venue rule snapshot",
+        ),
+        "INDIA_QUANTITY_INVALID": ("quantity must be a positive number",),
+        "INDIA_LOT_SIZE_INVALID": (
+            "instrument lot size is invalid",
+            "quantity {quantity} is not a multiple of lot size {quantity}",
+        ),
+        "INDIA_PRICE_TICK_INVALID": (
+            "instrument tick size is invalid",
+            "{price_field} does not align to tick size {quantity}",
+        ),
+        "INDIA_DERIVATIVE_METADATA_INVALID": (
+            "derivative contract metadata is not coherent",
+            "non-derivative instrument carries derivative metadata",
+        ),
+        "INDIA_SEGMENT_INVALID": (
+            "no India-universal segment is defined for asset class {vocabulary}",
+            "asset class {vocabulary} must not use segment {vocabulary}",
+        ),
+        "INDIA_PRODUCT_INVALID": (
+            "product {vocabulary} is not compatible with asset class {vocabulary}",
+            "product {vocabulary} is not permitted by the venue rule snapshot",
+        ),
+        "INDIA_TIF_INVALID": (
+            "time-in-force {vocabulary} is not permitted by the venue rule snapshot",
+        ),
+        "INDIA_QUANTITY_FREEZE_INVALID": ("quantity {quantity} exceeds freeze {quantity}",),
+        "INDIA_PRICE_BAND_INVALID": ("price {quantity} is outside [{quantity}, {quantity}]",),
+        "INDIA_RULE_SCOPE_MISMATCH": (
+            "venue rule scope exchange {vocabulary} does not apply to {vocabulary}",
+            "venue rule scope segment {vocabulary} does not apply to {vocabulary}",
+            "venue rule scope instrument {instrument_id} does not apply to {instrument_id}",
+        ),
+        "INDIA_RULE_DATA_UNAVAILABLE": (
+            "evaluation timestamp must be aware",
+            "venue rule scope is unknown",
+            "venue allowed order types are unknown",
+            "venue allowed time-in-force set is unknown",
+            "applicable quantity freeze is unknown",
+            "applicable price band is unknown",
+        ),
+        "INDIA_SESSION_SCOPE_MISMATCH": (
+            "calendar exchange does not match request market",
+            "calendar segment does not match request market",
+        ),
+        "INDIA_SESSION_DATA_UNAVAILABLE": (
+            "evaluation timestamp must be aware",
+            "calendar coverage is unknown",
+        ),
+        "INDIA_SESSION_PERMISSION_BLOCKED": ("session {vocabulary} does not permit {vocabulary}",),
+    }
+)
+"""India-owned trusted public-message templates, keyed by rule code.
+
+Each code may render exactly these message shapes. Every variable is a
+validated structured field (exact decimal, bounded identifier, or a
+finite price-field vocabulary) and every shape is matched end to end, so
+an approved code never licenses an arbitrary trailing suffix. This is the
+India half of the core-owned reason contract: the core enforces the
+``CODE: text`` segment structure and this registry constrains the values.
+"""
+
+_TEMPLATE_FIELDS: Mapping[str, str] = types.MappingProxyType(
+    {
+        "quantity": _DECIMAL_FIELD,
+        "vocabulary": _VOCABULARY_FIELD,
+        "instrument_id": _VOCABULARY_FIELD,
     }
 )
 
-_BATCH_CODE_PATTERN = re.compile(r"\bB\d+\b")
+
+def _compile_template(template: str) -> str:
+    """Turn a trusted template into a fully anchored regular expression.
+
+    Placeholders are substituted with their validated field grammar and
+    every literal run is escaped, so a message only matches when it is
+    exactly the approved shape — nothing may follow the final field.
+    """
+    parts: list[str] = []
+    index = 0
+    for match in re.finditer(r"\{(\w+)\}", template):
+        parts.append(re.escape(template[index : match.start()]))
+        field = match.group(1)
+        index = match.end()
+        if field == "price_field":
+            parts.append(f"(?:{'|'.join(_PRICE_FIELD_TEMPLATES)})")
+            continue
+        grammar = _TEMPLATE_FIELDS.get(field)
+        if grammar is None:
+            raise ValueError(f"unknown rule-reason template field: {field}")
+        parts.append(f"({grammar})")
+    parts.append(re.escape(template[index:]))
+    return "".join(parts)
+
+
+_COMPILED_TEMPLATES: Mapping[str, tuple[re.Pattern[str], ...]] = types.MappingProxyType(
+    {
+        code: tuple(re.compile(_compile_template(template)) for template in templates)
+        for code, templates in _REASON_TEMPLATES.items()
+    }
+)
+
+
+def _approved_segment(segment: str) -> str | None:
+    """Return the segment when it exactly matches a trusted template."""
+    code, separator, text = segment.partition(": ")
+    if not separator:
+        return None
+    patterns = _COMPILED_TEMPLATES.get(code)
+    if patterns is None:
+        return None
+    if any(pattern.fullmatch(text) is not None for pattern in patterns):
+        return segment
+    return None
 
 
 def sanitize_rule_reason(reason: object) -> str | None:
     """Return pack text safe for public reasons, else None (fail closed).
 
-    Only reasons headed by an allow-listed ``INDIA_*`` rule code and free
-    of batch codenames or traceback text may reach users. Anything else —
-    including raw exception text — stays in non-user-facing diagnostics.
+    A reason is public only when it is a ``; ``-joined list of
+    ``CODE: text`` segments whose code is an approved ``INDIA_*`` rule code
+    and whose text matches that code's trusted template exactly. An
+    approved code heading arbitrary extra text is therefore withheld, and
+    raw exception text never reaches users. The approved text is returned
+    unchanged, so valid messages stay byte-identical.
     """
-    if not isinstance(reason, str) or not reason.strip():
+    if not isinstance(reason, str) or not is_valid_aggregate_rule_reason(reason):
         return None
-    if reason.split(":", 1)[0].strip() not in _PUBLIC_RULE_CODES:
+    approved = tuple(_approved_segment(segment) for segment in reason.split("; "))
+    if any(segment is None for segment in approved):
         return None
-    if contains_banned_text(reason):
-        return None
-    return reason
+    return "; ".join(segment for segment in approved if segment is not None)
 
 
-_APPROVED_SESSION_REJECTIONS: frozenset[str] = frozenset({"india trading session is closed"})
+_APPROVED_SESSION_REJECTIONS: frozenset[str] = frozenset(
+    {
+        "india trading calendar holiday",
+        "india trading session is closed",
+    }
+)
 """Finite vocabulary of plain (non-code) session rejection reasons that
 may appear in public output. Anything else falls back to the static
 template without interpolating evaluator text."""
@@ -81,56 +204,62 @@ template without interpolating evaluator text."""
 def sanitize_session_rejection(reason: object) -> str | None:
     """Return an approved public session rejection reason, else None.
 
-    A reason is public only when it is headed by an allow-listed
-    ``INDIA_*`` rule code or appears in the approved plain-text
-    vocabulary. Arbitrary evaluator text never reaches users.
+    A reason is public only when it is an approved plain-text vocabulary
+    item or every ``CODE: text`` segment matches its trusted template.
+    Arbitrary evaluator text never reaches users.
     """
-    if sanitize_rule_reason(reason) is not None:
-        return str(reason)  # already code-gated by sanitize_rule_reason
+    approved = sanitize_rule_reason(reason)
+    if approved is not None:
+        return approved
     if isinstance(reason, str) and reason.strip() in _APPROVED_SESSION_REJECTIONS:
         return reason.strip()
     return None
 
 
-def sanitize_evidence_text(text: object) -> str | None:
-    """Return evidence metadata text safe for the public surface, else None.
+def approved_rule_set_version(version: object) -> str | None:
+    """Return a rule-set version eligible for public evidence, else None.
 
-    Applies to provenance, rule-set versions, and rule-check reasons:
-    banned fragments (batch codenames, tracebacks, file paths) make the
-    value ineligible for public evidence.
+    Versioned venue/rule data is identified by an opaque version token;
+    readable text, paths, and diagnostic fragments are dropped.
     """
-    if not isinstance(text, str) or not text.strip():
+    if not is_valid_rule_set_version(version):
         return None
-    if contains_banned_text(text):
-        return None
-    return text
+    return version if isinstance(version, str) else None
 
 
-_RULE_NAME_PATTERN = re.compile(r"[a-z0-9_]+")
+def approved_provenance(provenance: object) -> str | None:
+    """Return a provenance identifier eligible for public evidence, else None.
+
+    Only a bounded token naming the evaluated rule data may be recorded; a
+    sentence about where the data came from is unreviewed text.
+    """
+    if not is_valid_provenance(provenance):
+        return None
+    return provenance if isinstance(provenance, str) else None
 
 
 def _public_rule_check_name(name: object) -> str:
     """Project a rule-check name onto the public evidence surface.
 
-    Only names matching the engine's snake_case rule-name grammar are
-    public; clean-looking but unapproved names collapse to the fixed
-    ``india-rule`` identity so arbitrary text never serializes.
+    Only names in the core-owned rule vocabulary are public; clean-looking
+    but unapproved names collapse to the fixed fallback identity so
+    arbitrary text never serializes.
     """
-    if isinstance(name, str) and _RULE_NAME_PATTERN.fullmatch(name) is not None:
-        return name
-    return "india-rule"
+    if is_valid_rule_check_name(name):
+        return str(name)
+    return FALLBACK_RULE_CHECK_NAME
 
 
 def _public_rule_check_reason(check: IndiaRuleCheck) -> str:
     """Project one engine rule-check fact onto the public evidence surface.
 
-    Failed checks keep their reason only when it carries an allow-listed
-    ``INDIA_*`` rule code; passed checks and anything unapproved collapse
-    to fixed text. Banned fragments never reach serialized evidence.
+    Failed checks keep their reason only when every segment matches the
+    code's trusted template; passed checks and anything unapproved collapse
+    to fixed text. Unapproved text never reaches serialized evidence.
     """
     if not check.passed:
-        return sanitize_rule_reason(check.reason) or "india rule check failed (details withheld)"
-    return "india rule check passed"
+        return sanitize_rule_reason(check.reason) or RULE_CHECK_WITHHELD_REASON
+    return RULE_CHECK_PASSED_REASON
 
 
 def _family_segment(family: MarketFamily) -> IndianSegment | None:
@@ -219,8 +348,8 @@ class IndiaSessionCheck:
                     venue=venue,
                 ),
             )
-        approved_version = sanitize_evidence_text(result.calendar_version)
-        approved_provenance = sanitize_evidence_text(result.provenance)
+        version_value = approved_rule_set_version(result.calendar_version)
+        provenance_value = approved_provenance(result.provenance)
         evidence = MarketCheckEvidence(
             check_id=self.check_id,
             stage=MarketCheckStage.PRE_DISPATCH,
@@ -228,8 +357,8 @@ class IndiaSessionCheck:
             region=region,
             family=family,
             venue=venue,
-            rule_set_version=approved_version,
-            provenance=approved_provenance,
+            rule_set_version=version_value,
+            provenance=provenance_value,
             evaluated_at=result.evaluated_at,
             session_evaluated=True,
             session_exchange=result.exchange.value,
@@ -308,8 +437,8 @@ class IndiaCompatCheck:
                     venue=venue,
                 ),
             )
-        approved_version = sanitize_evidence_text(result.rule_set_version)
-        approved_provenance = sanitize_evidence_text(result.provenance)
+        version_value = approved_rule_set_version(result.rule_set_version)
+        provenance_value = approved_provenance(result.provenance)
         rule_checks = tuple(
             MarketRuleCheckEvidence(
                 _public_rule_check_name(check.name),
@@ -325,8 +454,8 @@ class IndiaCompatCheck:
             region=region,
             family=family,
             venue=venue,
-            rule_set_version=approved_version,
-            provenance=approved_provenance,
+            rule_set_version=version_value,
+            provenance=provenance_value,
             evaluated_at=result.evaluated_at,
             compatibility_evaluated=True,
             rule_checks=rule_checks,
@@ -407,6 +536,9 @@ def india_market_policy(
 __all__ = [
     "IndiaCompatCheck",
     "IndiaSessionCheck",
+    "approved_provenance",
+    "approved_rule_set_version",
     "india_market_policy",
     "sanitize_rule_reason",
+    "sanitize_session_rejection",
 ]

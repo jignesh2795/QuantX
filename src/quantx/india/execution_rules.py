@@ -281,9 +281,12 @@ class IndiaExecutionRuleEngine:
             OrderType.STOP,
             OrderType.STOP_LIMIT,
         }:
+            # Name the order type by its enum value, never by a repr or an
+            # arbitrary object, so the public reason stays template-safe.
+            label = order.order_type.value if isinstance(order.order_type, OrderType) else "unknown"
             reject(
                 "order_type",
-                f"INDIA_ORDER_TYPE_INVALID: unsupported order type {order.order_type!r}",
+                f"INDIA_ORDER_TYPE_INVALID: unsupported order type {label}",
             )
         else:
             accept("order_type", "order type is supported")
@@ -342,10 +345,12 @@ class IndiaExecutionRuleEngine:
         for name, price in prices:
             number = _is_number(price)
             if number is None or number % tick_size != 0:
+                # The offending price is deliberately omitted: it may be a
+                # non-finite or non-numeric value, and public reasons carry
+                # only vocabulary-shaped fields.
                 reject(
                     "price_tick",
-                    f"INDIA_PRICE_TICK_INVALID: {name} {price!r} is not a multiple "
-                    f"of tick size {tick_size}",
+                    f"INDIA_PRICE_TICK_INVALID: {name} does not align to tick size {tick_size}",
                 )
                 return
         accept("price_tick", "prices align to tick size")
@@ -357,10 +362,13 @@ class IndiaExecutionRuleEngine:
         if spec.asset_class in {AssetClass.FUTURE, AssetClass.OPTION}:
             try:
                 spec.to_contract()
-            except ValueError as exc:
+            except ValueError:
+                # The validation detail is diagnostic, not public: it is an
+                # exception message and must never reach a public reason.
                 reject(
                     "derivative_metadata",
-                    f"INDIA_DERIVATIVE_METADATA_INVALID: {exc}",
+                    "INDIA_DERIVATIVE_METADATA_INVALID: derivative contract "
+                    "metadata is not coherent",
                 )
             else:
                 accept("derivative_metadata", "derivative metadata is coherent")

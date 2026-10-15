@@ -23,8 +23,6 @@ from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 from quantx.ports.market_checks import (
     SKIPPED_STAGE_STATUS_CODE,
-    TRUSTED_CHECK_BINDINGS,
-    TRUSTED_FAILURE_CODES,
     MarketCheckEvidence,
     MarketCheckFailureCode,
     MarketCheckOutcome,
@@ -38,9 +36,15 @@ from quantx.ports.market_checks import (
     UnknownMarketValue,
     contains_banned_text,
     default_market_policy,
+    is_trusted_check,
     is_valid_failure_code,
+    is_valid_provenance,
+    is_valid_rule_check_name,
+    is_valid_rule_check_reason,
+    is_valid_rule_set_version,
     sanitize_public_reason,
     select_market_policy,
+    trusted_failure_codes,
 )
 
 from .runtime import ApplicationRuntime
@@ -73,6 +77,7 @@ def _validated_evidence(
     family: MarketFamily,
     venue: str,
     outcome: MarketCheckOutcome,
+    trusted: bool,
 ) -> MarketCheckEvidence | None:
     """Accept check evidence only when it matches its registration and result.
 
@@ -80,6 +85,13 @@ def _validated_evidence(
     identity, wrong insertion stage, non-normalized region/family/venue,
     outcome mismatch, wrong runtime types, or malformed rule facts. The
     caller synthesizes a safe entry instead of trusting the rejected one.
+
+    ``trusted`` additionally gates the *values* that survive into the
+    record: only a trusted check's evidence is serialized as provided, so
+    only a trusted check's rule names, rule reasons, versions, and
+    provenance must already be approved. An untrusted check's values are
+    never serialized (the caller re-stamps a canonical entry), so they are
+    only screened for banned diagnostic text here.
     """
     if evidence is None:
         return None
@@ -103,15 +115,15 @@ def _validated_evidence(
         return None
     if not all(isinstance(item, MarketRuleCheckEvidence) for item in evidence.rule_checks):
         return None
-    # Public evidence text policy: rule-check facts and metadata carrying
-    # batch codenames, tracebacks, or file fragments are rejected so the
-    # caller synthesizes a safe canonical entry instead.
     if any(
         contains_banned_text(item.reason) or contains_banned_text(item.name)
         for item in evidence.rule_checks
     ):
         return None
-    for metadata in (evidence.rule_set_version, evidence.provenance):
+    for metadata, is_approved in (
+        (evidence.rule_set_version, is_valid_rule_set_version),
+        (evidence.provenance, is_valid_provenance),
+    ):
         # Runtime type enforcement: malformed (non-string) metadata must
         # fail closed as malformed evidence instead of raising TypeError
         # from a banned-text scan.
@@ -119,8 +131,17 @@ def _validated_evidence(
             continue
         if not isinstance(metadata, str):
             return None
-        if contains_banned_text(metadata):
+        if not trusted:
+            if contains_banned_text(metadata):
+                return None
+            continue
+        if not is_approved(metadata):
             return None
+    if trusted and any(
+        not is_valid_rule_check_name(item.name) or not is_valid_rule_check_reason(item.reason)
+        for item in evidence.rule_checks
+    ):
+        return None
     return evidence
 
 
@@ -171,18 +192,18 @@ class ExecutionOrchestrator:
             # from the live object, so a dynamic identifier cannot surface.
             check = placement.check
             check_id = placement.validated_check_id
-            # Trust requires the core-owned binding to hold: approved
-            # implementing module, placement region, and insertion stage.
+            # Trust is decided entirely inside the core: the placed class
+            # object must be the exact approved implementation, and the
+            # placement region and stage must match its core-owned binding.
             # A caller-controlled check ID alone grants nothing, so an
             # impersonating check is treated as generic.
-            binding = TRUSTED_CHECK_BINDINGS.get(check_id)
-            trusted = (
-                binding is not None
-                and type(check).__module__.startswith(binding.module_prefixes)
-                and placement.region in binding.regions
-                and placement.stage is binding.stage
+            trusted = is_trusted_check(
+                check_id,
+                check,
+                region=placement.region,
+                stage=placement.stage,
             )
-            trusted_codes = TRUSTED_FAILURE_CODES.get(check_id) if trusted else None
+            trusted_codes = trusted_failure_codes(check_id) if trusted else None
             try:
                 result = check(request)
             except Exception as exc:
@@ -277,6 +298,7 @@ class ExecutionOrchestrator:
                     family=family,
                     venue=venue,
                     outcome=result.outcome,
+                    trusted=trusted,
                 )
                 if validated is None:
                     result = MarketCheckResult(

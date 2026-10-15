@@ -8,6 +8,7 @@ execution/recovery internals, or India-owned result classes from core.
 from __future__ import annotations
 
 import ast
+import importlib
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -1932,3 +1933,544 @@ def test_generic_evidence_metadata_never_serialized() -> None:
     assert "desk threshold breached" not in payload
     assert '"check_id": "na.chatty"' in payload
     assert '"outcome": "BLOCK"' in payload
+
+
+# ---------------------------------------------------------------------------
+# Implementation-identity binding (module-string spoofing)
+# ---------------------------------------------------------------------------
+
+
+def _india_pre_dispatch_policy(*checks) -> MarketPolicyConfig:
+    """India policy whose PRE_DISPATCH stage runs the given checks in order."""
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+    )
+    return MarketPolicyConfig(
+        regions=regions,
+        checks=tuple(
+            PlacedCheck(MarketRegion.INDIA, MarketCheckStage.PRE_DISPATCH, check)
+            for check in checks
+        ),
+    )
+
+
+def test_spoofed_module_identity_gains_no_trust() -> None:
+    """A caller-defined class that spoofs an approved ``__module__`` stays
+    untrusted: the runner compares the class object itself, so an
+    approved-looking module string proves nothing. It gets the static public
+    reason and a framework-owned failure code, and neither the India reason
+    nor failure-code allow-list becomes available to it."""
+
+    class _SpoofedModule:
+        check_id = "india.session-calendar"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "india.session-calendar",
+                MarketCheckOutcome.BLOCK,
+                "india.session-calendar.rejected",
+                "india session/calendar blocked the request: XJ-77 evaluator text",
+            )
+
+    _SpoofedModule.__module__ = "quantx.india.market_checks"
+
+    from quantx.ports.market_checks import is_trusted_check
+
+    assert (
+        is_trusted_check(
+            "india.session-calendar",
+            _SpoofedModule(),
+            region=MarketRegion.INDIA,
+            stage=MarketCheckStage.PRE_DISPATCH,
+        )
+        is False
+    )
+
+    config = _india_pre_dispatch_policy(_SpoofedModule())
+    result = _live_orchestrator(market_policy=config).execute(_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "india.session-calendar blocked the request"
+    assert "XJ-77" not in result.reason
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+    assert result.check_evidence.blocking_failure_code != "india.session-calendar.rejected"
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "india.session-calendar.rejected" not in payload
+
+
+def test_hijacked_approved_attribute_gains_no_trust(monkeypatch) -> None:
+    """Repointing the approved module attribute at a caller-defined class
+    fails closed: the core cross-checks that the resolved class really is
+    defined in the approved module before comparing identity."""
+    import quantx.india.market_checks as india_checks
+    from quantx.ports.market_checks import is_trusted_check
+
+    class _Hijacked:
+        check_id = "india.session-calendar"
+
+        def __call__(self, request):
+            raise AssertionError("an untrusted check must never be trusted")
+
+    monkeypatch.setattr(india_checks, "IndiaSessionCheck", _Hijacked)
+    try:
+        assert (
+            is_trusted_check(
+                "india.session-calendar",
+                _Hijacked(),
+                region=MarketRegion.INDIA,
+                stage=MarketCheckStage.PRE_DISPATCH,
+            )
+            is False
+        )
+    finally:
+        # Drop any resolution cached while the approved name pointed at the
+        # hijacked class so the approved adapter stays trusted afterwards.
+        importlib.import_module("quantx.ports.market_checks")._approved_implementation.cache_clear()
+
+
+def test_subclass_of_approved_implementation_gains_no_trust() -> None:
+    """Trust is class-object identity, not inheritance: a subclass of the
+    approved adapter is still an unreviewed implementation."""
+    from quantx.india.market_checks import IndiaSessionCheck
+    from quantx.ports.market_checks import is_trusted_check
+
+    class _DerivedSessionCheck(IndiaSessionCheck):
+        pass
+
+    assert (
+        is_trusted_check(
+            "india.session-calendar",
+            _DerivedSessionCheck(_india_approving_session()),
+            region=MarketRegion.INDIA,
+            stage=MarketCheckStage.PRE_DISPATCH,
+        )
+        is False
+    )
+
+
+def test_approved_implementations_remain_trusted() -> None:
+    """The identity binding is satisfied by the real approved adapters, and
+    a placement that does not match the binding is still untrusted."""
+    from quantx.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
+    from quantx.ports.market_checks import is_trusted_check
+
+    assert (
+        is_trusted_check(
+            "india.session-calendar",
+            IndiaSessionCheck(_india_approving_session()),
+            region=MarketRegion.INDIA,
+            stage=MarketCheckStage.PRE_DISPATCH,
+        )
+        is True
+    )
+    assert (
+        is_trusted_check(
+            "india.compatibility-rules",
+            IndiaCompatCheck(lambda request: None),
+            region=MarketRegion.INDIA,
+            stage=MarketCheckStage.PRE_SUBMIT,
+        )
+        is True
+    )
+    assert (
+        is_trusted_check(
+            "india.session-calendar",
+            IndiaSessionCheck(_india_approving_session()),
+            region=MarketRegion.NORTH_AMERICA,
+            stage=MarketCheckStage.PRE_DISPATCH,
+        )
+        is False
+    )
+
+
+# ---------------------------------------------------------------------------
+# Immutable trust registries
+# ---------------------------------------------------------------------------
+
+
+class _RegistryMutator:
+    """Untrusted check that tries to widen the core trust registries."""
+
+    check_id = "na.registry-mutator"
+
+    def __init__(self) -> None:
+        self.refused: list[str] = []
+
+    def __call__(self, request) -> MarketCheckResult:
+        core = importlib.import_module("quantx.ports.market_checks")
+        binding = core.TRUSTED_CHECK_BINDINGS["india.session-calendar"]
+        attempts = (
+            (
+                "failure-codes-add-identity",
+                lambda: core.TRUSTED_FAILURE_CODES.__setitem__(
+                    "na.later", frozenset({"na.attacker-code"})
+                ),
+            ),
+            (
+                "failure-codes-add-code",
+                lambda: core.TRUSTED_FAILURE_CODES["india.session-calendar"].add(
+                    "na.attacker-code"
+                ),
+            ),
+            (
+                "bindings-add-identity",
+                lambda: core.TRUSTED_CHECK_BINDINGS.__setitem__("na.later", binding),
+            ),
+            ("bindings-pop", lambda: core.TRUSTED_CHECK_BINDINGS.pop("india.session-calendar")),
+            ("bindings-widen-region", lambda: binding.regions.add(MarketRegion.NORTH_AMERICA)),
+            (
+                "bindings-rebind-implementation",
+                lambda: binding.implementation.__setattr__("module", "attacker"),
+            ),
+        )
+        for label, attempt in attempts:
+            try:
+                attempt()
+            except (TypeError, AttributeError, KeyError):
+                self.refused.append(label)
+        return MarketCheckResult(self.check_id, MarketCheckOutcome.PASS, None, "registries widened")
+
+
+def test_registry_mutation_refused_and_registries_unchanged() -> None:
+    """A generic check cannot widen the trust registries: every mutation is
+    refused and the approved India registries keep exactly their codes."""
+    from quantx.ports.market_checks import TRUSTED_FAILURE_CODES, trusted_failure_codes
+
+    mutator = _RegistryMutator()
+    result = _live_orchestrator(market_policy=_untrusted_policy(mutator)).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "broker adapter" in result.reason
+    assert mutator.refused == [
+        "failure-codes-add-identity",
+        "failure-codes-add-code",
+        "bindings-add-identity",
+        "bindings-pop",
+        "bindings-widen-region",
+        "bindings-rebind-implementation",
+    ]
+    assert trusted_failure_codes("na.later") is None
+    assert "na.later" not in TRUSTED_FAILURE_CODES
+    assert "na.attacker-code" not in set().union(*TRUSTED_FAILURE_CODES.values())
+    assert trusted_failure_codes("india.session-calendar") == frozenset(
+        {
+            "india.session-calendar.evaluation-failed",
+            "india.session-calendar.evidence-missing",
+            "india.session-calendar.rejected",
+        }
+    )
+
+
+def test_registry_mutation_does_not_confer_trust_on_later_check() -> None:
+    """The later check runs after the mutator in the same stage and still
+    acquires no trusted reason or failure-code permission."""
+    mutator = _RegistryMutator()
+
+    class _Later:
+        check_id = "na.later"
+
+        def __call__(self, request) -> MarketCheckResult:
+            return MarketCheckResult(
+                "na.later",
+                MarketCheckOutcome.BLOCK,
+                "na.attacker-code",
+                "clean internal desk note XJ-31",
+            )
+
+    config = _india_pre_dispatch_policy(mutator, _Later())
+    result = _live_orchestrator(market_policy=config).execute(_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "na.later blocked the request"
+    assert "XJ-31" not in result.reason
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+    assert result.check_evidence.blocking_check_id == "na.later"
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "na.attacker-code" not in payload
+
+
+def _closed_session_evaluator():
+    from quantx.india.domain import IndianExchange, IndianSegment
+    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+
+    def closed(request) -> IndiaSessionResult:
+        return IndiaSessionResult(
+            IndiaSessionDecision.BLOCK,
+            "india trading session is closed",
+            calendar_version="test-calendar-v1",
+            provenance="test-calendar",
+            evaluated_at=datetime(2026, 1, 5, 10, 0, tzinfo=UTC),
+            exchange=IndianExchange.NSE,
+            segment=IndianSegment.EQUITY,
+            calendar_evaluated=True,
+        )
+
+    return closed
+
+
+def test_approved_india_behavior_survives_registry_mutator() -> None:
+    """Approved India reasons and codes stay reachable after an untrusted
+    check has attempted registry writes."""
+    from quantx.india.market_checks import india_market_policy
+
+    base = india_market_policy(session_evaluator=_closed_session_evaluator())
+    config = MarketPolicyConfig(
+        regions=base.regions,
+        checks=(
+            PlacedCheck(MarketRegion.INDIA, MarketCheckStage.PRE_DISPATCH, _RegistryMutator()),
+            *base.checks,
+        ),
+    )
+    result = _live_orchestrator(market_policy=config).execute(_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert (
+        result.reason
+        == "india session/calendar blocked the request: india trading session is closed"
+    )
+    assert result.check_evidence.blocking_failure_code == "india.session-calendar.rejected"
+
+
+def test_execution_ignores_rebound_registry_aliases(monkeypatch) -> None:
+    """The runner resolves trust through core accessors that read the
+    private immutable registry, so rebinding the public module aliases
+    cannot change what a check is authorized to return."""
+    from quantx.india.market_checks import IndiaSessionCheck
+    from quantx.ports.market_checks import trusted_failure_codes
+
+    core = importlib.import_module("quantx.ports.market_checks")
+    monkeypatch.setattr(core, "TRUSTED_FAILURE_CODES", {"india.session-calendar": frozenset()})
+    monkeypatch.setattr(core, "TRUSTED_CHECK_BINDINGS", {})
+
+    assert trusted_failure_codes("india.session-calendar") == frozenset(
+        {
+            "india.session-calendar.evaluation-failed",
+            "india.session-calendar.evidence-missing",
+            "india.session-calendar.rejected",
+        }
+    )
+
+    config = _india_pre_dispatch_policy(IndiaSessionCheck(_closed_session_evaluator()))
+    result = _live_orchestrator(market_policy=config).execute(_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence.blocking_failure_code == "india.session-calendar.rejected"
+
+
+# ---------------------------------------------------------------------------
+# Approved India codes must not license arbitrary trailing text
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25 "
+        "and desk note XJ-99 applied",
+        "INDIA_QUANTITY_INVALID: quantity must be a positive number "
+        "(override granted by the trading desk)",
+        "INDIA_RULE_DATA_UNAVAILABLE: venue rule scope is unknown pending internal review XJ-99",
+        "INDIA_SESSION_SCOPE_MISMATCH: calendar exchange does not match "
+        "request market - escalation XJ-99",
+        "INDIA_PRICE_BAND_INVALID: price 120 is outside [90, 110]; see the desk note",
+    ],
+)
+def test_approved_code_with_unapproved_suffix_is_withheld(reason: str) -> None:
+    """An approved rule code does not license arbitrary trailing text: the
+    message must match the code's trusted template exactly, so the suffix
+    reaches neither the public reason nor the serialized evidence."""
+    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+
+    def evaluator(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            reason,
+            checks=(IndiaRuleCheck("quantity", False, reason),),
+            rule_set_version="rules-v1",
+            provenance="test-venue",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    broker = _RecordingBroker(_instrument())
+    result = _live_orchestrator(market_policy=_compat_policy(evaluator)).execute(
+        _request(), broker=broker
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "india rule evidence is malformed"
+    for fragment in ("XJ-99", "trading desk", "escalation", "desk note"):
+        assert fragment not in result.reason
+    assert broker.submit_calls == 0
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    for fragment in ("XJ-99", "trading desk", "escalation", "desk note"):
+        assert fragment not in payload
+    assert '"reason": "india rule check failed (details withheld)"' in payload
+
+
+def test_approved_lot_size_message_stays_byte_identical() -> None:
+    """The established INDIA_LOT_SIZE_INVALID rejection format is preserved
+    byte for byte for a valid message."""
+    from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+
+    def evaluator(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            rule_set_version="rules-v1",
+            provenance="test-venue",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    broker = _RecordingBroker(_instrument())
+    result = _live_orchestrator(market_policy=_compat_policy(evaluator)).execute(
+        _request(), broker=broker
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert (
+        result.reason == "india execution rules rejected the request: "
+        "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25"
+    )
+    assert broker.submit_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# Unapproved-but-clean trusted evidence values
+# ---------------------------------------------------------------------------
+
+
+def _unapproved_values_evaluator(version: str, provenance: str):
+    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+
+    def evaluator(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            checks=(IndiaRuleCheck("quantity", False, "quantity is not lot aligned"),),
+            rule_set_version=version,
+            provenance=provenance,
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    return evaluator
+
+
+@pytest.mark.parametrize(
+    "version,provenance,version_dropped,provenance_dropped",
+    [
+        (
+            "rules v1 (draft)",
+            "internal desk note for the NSE equity rule book",
+            True,
+            True,
+        ),
+        ("rules-v1", "provenance written as a sentence with spaces", False, True),
+        ("RULES-V1-" + "FINAL-LONGSUFFIX" * 4, "test-venue", True, False),
+    ],
+)
+def test_clean_but_unapproved_metadata_is_dropped(
+    version: str, provenance: str, version_dropped: bool, provenance_dropped: bool
+) -> None:
+    """Provenance and rule-set versions must match their token schemas: a
+    clean-looking sentence is still unreviewed text and is dropped, while
+    the evidence structure and approved values survive."""
+    config = _compat_policy(_unapproved_values_evaluator(version, provenance))
+    result = _live_orchestrator(market_policy=config).execute(
+        _request(), broker=_RecordingBroker(_instrument())
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "INDIA_LOT_SIZE_INVALID" in result.reason
+    assert result.check_evidence is not None
+    entry = result.check_evidence.entries[-1]
+    assert entry.check_id == "india.compatibility-rules"
+    assert entry.outcome is MarketCheckOutcome.BLOCK
+    assert entry.rule_checks[0].name == "quantity"
+    assert (entry.rule_set_version is None) is version_dropped
+    assert (entry.provenance is None) is provenance_dropped
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert '"check_id": "india.compatibility-rules"' in payload
+    for fragment in ("desk note", "FINAL-LONGSUFFIX", "draft"):
+        assert fragment not in payload
+
+
+def test_unapproved_rule_name_collapses_and_approved_values_survive() -> None:
+    """A clean arbitrary snake_case rule name is not a recognized rule and
+    collapses to the fixed identity, while approved names, the approved
+    version token, and the fixed rule reasons keep the structure intact."""
+    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+
+    def evaluator(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            checks=(
+                IndiaRuleCheck("quantity", False, "quantity is not lot aligned"),
+                IndiaRuleCheck("desk_internal_risk_rule", False, "internal desk threshold"),
+            ),
+            rule_set_version="rules-v1",
+            provenance="test-venue",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    result = _live_orchestrator(market_policy=_compat_policy(evaluator)).execute(
+        _request(), broker=_RecordingBroker(_instrument())
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    entry = result.check_evidence.entries[-1]
+    assert [check.name for check in entry.rule_checks] == ["quantity", "india-rule"]
+    assert entry.rule_set_version == "rules-v1"
+    assert entry.provenance == "test-venue"
+    assert [check.reason for check in entry.rule_checks] == [
+        "india rule check failed (details withheld)",
+        "india rule check failed (details withheld)",
+    ]
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "desk_internal_risk_rule" not in payload
+    assert "internal desk threshold" not in payload
+    assert '"name": "quantity"' in payload
+
+
+def test_approved_rule_code_prefix_with_unapproved_reason_suffix_withheld() -> None:
+    """A rule fact whose reason heads an approved code but appends
+    unapproved text keeps the entry structure while withholding the text."""
+    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+
+    def evaluator(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            checks=(
+                IndiaRuleCheck(
+                    "quantity",
+                    False,
+                    "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25 "
+                    "per desk note XJ-99",
+                ),
+            ),
+            rule_set_version="rules-v1",
+            provenance="test-venue",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    result = _live_orchestrator(market_policy=_compat_policy(evaluator)).execute(
+        _request(), broker=_RecordingBroker(_instrument())
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    entry = result.check_evidence.entries[-1]
+    assert entry.rule_checks[0].name == "quantity"
+    assert entry.rule_checks[0].reason == "india rule check failed (details withheld)"
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "XJ-99" not in payload
