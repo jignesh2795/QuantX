@@ -2846,7 +2846,6 @@ def test_cold_cache_hijack_during_dispatch_stays_untrusted(monkeypatch) -> None:
         core._approved_implementation.cache_clear()
 
 
-
 # ---------------------------------------------------------------------------
 # Adversarial runtime objects at the evidence-validation boundary
 # ---------------------------------------------------------------------------
@@ -2911,7 +2910,6 @@ def test_malformed_timezone_fails_closed() -> None:
     )
     result = _run_na_evidence(evidence)
     _assert_malformed(result, "malformed timezone private diagnostic")
-
 
 
 def test_raising_market_check_result_subclass_fails_closed() -> None:
