@@ -30,6 +30,7 @@ from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.india.market_checks import india_market_policy
 from quantx.india.session_calendar import (
     IndiaSessionDecision,
     IndiaSessionPermission,
@@ -221,8 +222,10 @@ def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> Non
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
             application_runtime=_started_runtime(),
-            india_rule_evaluator=_approving_india_evaluator(),
-            india_session_evaluator=_approving_india_session_evaluator(),
+            market_policy=india_market_policy(
+                session_evaluator=_approving_india_session_evaluator(),
+                rule_evaluator=_approving_india_evaluator(),
+            ),
         ).execute(request, broker=adapter)
     finally:
         database.close()

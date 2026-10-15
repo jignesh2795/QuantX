@@ -50,6 +50,7 @@ from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.india.market_checks import india_market_policy
 from quantx.india.session_calendar import (
     IndiaSessionDecision,
     IndiaSessionPermission,
@@ -248,8 +249,10 @@ def _orchestrator(database, unit_of_work) -> ExecutionOrchestrator:
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
         application_runtime=_started_runtime(),
-        india_rule_evaluator=_approving_india_rule_evaluator(),
-        india_session_evaluator=_approving_india_session_evaluator(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_rule_evaluator(),
+        ),
     )
 
 
