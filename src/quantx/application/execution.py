@@ -296,8 +296,7 @@ class ExecutionOrchestrator:
             shape_ok = (
                 type(result) is MarketCheckResult
                 and type(result.outcome) is MarketCheckOutcome
-                and result.outcome
-                in (
+                and result.outcome in (
                     MarketCheckOutcome.PASS,
                     MarketCheckOutcome.BLOCK,
                     MarketCheckOutcome.UNAVAILABLE,
