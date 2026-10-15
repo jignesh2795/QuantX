@@ -3016,3 +3016,27 @@ def test_mutated_result_reason_subclass_fails_closed(monkeypatch) -> None:
     payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
     assert "crafted reason" not in payload
     assert "reason sanitizer must not escape" not in payload
+
+
+def test_exception_with_raising_stringification_fails_closed() -> None:
+    """A malicious exception renderer cannot defeat the check exception handler."""
+
+    class _BadException(RuntimeError):
+        def __str__(self):
+            raise RuntimeError("exception rendering must not escape")
+
+    class _Exploding:
+        check_id = "na.exception-rendering"
+
+        def __call__(self, request):
+            raise _BadException()
+
+    result = _live_orchestrator(market_policy=_untrusted_policy(_Exploding())).execute(
+        _us_request()
+    )
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.EVALUATION_FAILED
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "exception rendering must not escape" not in payload
