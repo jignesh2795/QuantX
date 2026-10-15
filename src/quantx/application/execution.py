@@ -278,7 +278,7 @@ class ExecutionOrchestrator:
                     detail=f"{type(exc).__name__}: {exc}",
                 )
             shape_ok = (
-                isinstance(result, MarketCheckResult)
+                type(result) is MarketCheckResult
                 and type(result.outcome) is MarketCheckOutcome
                 and result.outcome
                 in (
