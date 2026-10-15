@@ -73,11 +73,11 @@ Execution/recovery internals are frozen unless the acceptance audit finds a conc
 
 ## M4 — Strategy Platform
 
-**Status:** Active. The first vertical, M4.1 deterministic strategy-to-paper rehearsal, merged in PR #218. The validated feature head was `d99c12f3ae051f992722bee2bc8ea3253032fdc8`; merge commit `a0bf101b6f6bb87d11460cefb199932a768d6335`.
+**Status:** Active. M4.1 deterministic strategy-to-paper rehearsal merged in PR #218. QX-09, the market-pack pre-trade-check pipeline tracked by issue #197, is now complete in PR #221 (validated feature head `7793646e0e3d210e81364d39605ee3383e434723`; merge commit `1e4ebf4f4671e90dcdcafc1cda578182ab39d58b`). Local validation results are documented in PR #221; no GitHub Actions results are claimed, and repository Actions remain disabled by project policy.
 
 M4.1 proves the existing Python strategy definition/IR/runtime path through deployment-owned context binding, risk/policy preparation, and the canonical paper executor. It is offline and PAPER-only; it does not complete M4 overall, add a Flow authoring path, or establish Python/Flow runtime parity.
 
-**M4 exit criterion remains:** Python strategies and a first Flow path compile to the same runtime semantics. The next ordered design task is issue #197 (market-pack pre-trade-check pipeline), which issue #196 identifies as a prerequisite before expanding the engine-truth StrategyContext/callback contract.
+**M4 exit criterion remains:** Python strategies and a first Flow path compile to the same runtime semantics. Issue #197 is complete in PR #221. The next ordered task is issue #196 (QX-08 engine-truth StrategyContext and deterministic callbacks), after its design gate resolves G1 timer causality/no-look-ahead, G2 post-commit callback failure semantics, G3 normalized shared state projection across paper/backtest, and explicit T8 no-LIVE boundary coverage. QX-08 implementation remains gated until these contracts are documented.
 
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals remain the broader M4/platform roadmap.
 
