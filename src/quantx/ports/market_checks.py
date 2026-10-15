@@ -145,9 +145,8 @@ class TrustedCheckImplementation:
     attribute: str
 
 
-@cache
-def _approved_implementation(implementation: TrustedCheckImplementation) -> type | None:
-    """Resolve and validate one approved class object (cached, fail closed).
+def _resolve_implementation(implementation: TrustedCheckImplementation) -> type | None:
+    """Resolve one approved class object in a single attempt (fail closed).
 
     Returns None when the module cannot be imported, the attribute is
     missing or not a class, or the class is not defined in the approved
@@ -162,6 +161,54 @@ def _approved_implementation(implementation: TrustedCheckImplementation) -> type
     if not isinstance(candidate, type) or candidate.__module__ != implementation.module:
         return None
     return candidate
+
+
+_PINNED_IMPLEMENTATIONS: dict[TrustedCheckImplementation, type | None] = {}
+"""Durable approved-class identities, pinned before pack code can run.
+
+Populated by :func:`pin_trusted_implementations`, which the approved
+adapter module calls at its own import — and any attribute-rebinding
+attack must import that module first, so the pin always observes the
+reviewed classes. The pin is first-write-wins and is never cleared by the
+resolution cache, so a later rebinding (even with a spoofed ``__module__``)
+cannot become the resolved identity.
+"""
+
+
+def pin_trusted_implementations() -> None:
+    """Pin every approved implementation identity for the process lifetime.
+
+    Called once from the approved adapter module at import time. Later
+    calls — including adversarial re-pins after rebinding a module
+    attribute — are no-ops, so the first (reviewed) resolution stands.
+
+    Guarantee: after the approved module has been imported normally, no
+    module-attribute rebinding can confer trust, with or without a spoofed
+    ``__module__``. Explicitly excluded: import-system tampering (such as
+    pre-poisoning ``sys.modules`` with a counterfeit approved module) and
+    writes to private core names (``_TRUSTED_CHECK_BINDINGS``,
+    ``_PINNED_IMPLEMENTATIONS``, cache manipulation). Those are equivalent
+    to patching the core itself and are outside this guarantee.
+    """
+    for binding in _TRUSTED_CHECK_BINDINGS.values():
+        if binding.implementation not in _PINNED_IMPLEMENTATIONS:
+            _PINNED_IMPLEMENTATIONS[binding.implementation] = _resolve_implementation(
+                binding.implementation
+            )
+
+
+@cache
+def _approved_implementation(implementation: TrustedCheckImplementation) -> type | None:
+    """Return the approved class object, preferring the durable pin.
+
+    The pinned identity (if present) wins over the live module attribute,
+    so first runtime resolution after a rebinding still observes the
+    reviewed class. Unpinned references fall back to a single live
+    resolution, which fails closed.
+    """
+    if implementation in _PINNED_IMPLEMENTATIONS:
+        return _PINNED_IMPLEMENTATIONS[implementation]
+    return _resolve_implementation(implementation)
 
 
 @dataclass(frozen=True, slots=True)
@@ -846,6 +893,7 @@ __all__ = [
     "is_valid_rule_set_version",
     "market_evidence_to_mapping",
     "normalize_market_context",
+    "pin_trusted_implementations",
     "sanitize_public_reason",
     "select_market_policy",
     "sequence_to_mapping",

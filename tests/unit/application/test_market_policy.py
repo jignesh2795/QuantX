@@ -2544,3 +2544,303 @@ def test_binding_object_writes_do_not_widen_trust(monkeypatch) -> None:
     assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
     payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
     assert "india.compatibility.rejected" not in payload
+
+
+# ---------------------------------------------------------------------------
+# Malformed evidence fails closed (runtime shape contract)
+# ---------------------------------------------------------------------------
+
+
+def _na_block_evidence(**overrides) -> MarketCheckEvidence:
+    """Structurally consistent BLOCK evidence for the toy region and stage."""
+    values: dict = {
+        "check_id": "na.malformed",
+        "stage": MarketCheckStage.PRE_DISPATCH,
+        "outcome": MarketCheckOutcome.BLOCK,
+        "region": MarketRegion.NORTH_AMERICA,
+        "family": MarketFamily.EQUITY,
+        "venue": "NYSE",
+    }
+    values.update(overrides)
+    return MarketCheckEvidence(**values)
+
+
+def _evidence_check(evidence: MarketCheckEvidence):
+    class _Malformed:
+        check_id = "na.malformed"
+
+        def __call__(self, request) -> MarketCheckResult:
+            return MarketCheckResult(
+                "na.malformed",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.unapproved-code",
+                "clean",
+                evidence=evidence,
+            )
+
+    return _Malformed()
+
+
+def _run_na_evidence(evidence: MarketCheckEvidence):
+    config = _untrusted_policy(_evidence_check(evidence))
+    return _live_orchestrator(market_policy=config).execute(_us_request())
+
+
+def _assert_malformed(result, *absent: str) -> str:
+    """Malformed evidence must synthesize a safe entry: BLOCKED with an
+    UNAVAILABLE entry and the framework-owned MALFORMED_RESULT code, and
+    none of the given fragments may reach the serialized payload."""
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    entry = result.check_evidence.entries[-1]
+    assert entry.outcome is MarketCheckOutcome.UNAVAILABLE
+    assert entry.session_evaluated is False
+    assert entry.compatibility_evaluated is False
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    for fragment in absent:
+        assert fragment not in payload
+    return payload
+
+
+@pytest.mark.parametrize("rule_checks", [None, 123, ["quantity"]])
+def test_non_tuple_rule_checks_fail_closed(rule_checks) -> None:
+    """A non-tuple rule_checks container cannot be iterated as facts: the
+    runner synthesizes safe evidence instead of raising."""
+    result = _run_na_evidence(_na_block_evidence(rule_checks=rule_checks))
+    _assert_malformed(result)
+
+
+@pytest.mark.parametrize("entry", ["not-a-fact", 123, None])
+def test_malformed_rule_check_entries_fail_closed(entry) -> None:
+    """Entries that are not rule-check facts are rejected; the aggregate
+    reason never reaches the public record."""
+    result = _run_na_evidence(_na_block_evidence(rule_checks=(entry,)))
+    _assert_malformed(result, "not-a-fact")
+
+
+@pytest.mark.parametrize("field,value", [("name", 123), ("reason", 123)])
+def test_non_string_rule_fact_text_fails_closed(field, value) -> None:
+    """Non-string fact text must fail closed before the banned-text scan,
+    which would otherwise raise on a non-string input."""
+    fact = MarketRuleCheckEvidence("quantity", True, "tick size ok")
+    object.__setattr__(fact, field, value)
+    result = _run_na_evidence(_na_block_evidence(rule_checks=(fact,)))
+    _assert_malformed(result)
+
+
+@pytest.mark.parametrize("passed", [1, 0, "yes", None])
+def test_non_bool_passed_fails_closed_generic(passed) -> None:
+    """A truthy/falsey non-Boolean verdict is not a verdict: the entry is
+    rejected and no contradictory fact serializes."""
+    fact = MarketRuleCheckEvidence("quantity", passed, "tick size ok")
+    result = _run_na_evidence(_na_block_evidence(rule_checks=(fact,)))
+    payload = _assert_malformed(result)
+    assert '"rule_checks": []' in payload
+
+
+@pytest.mark.parametrize("passed", [1, 0, "yes", None])
+def test_india_evaluator_non_bool_passed_fails_closed(passed) -> None:
+    """A non-Boolean verdict from the India evaluator cannot serialize a
+    contradictory public fact, even when the reason itself is approved."""
+    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+
+    def evaluator(request):
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            checks=(
+                IndiaRuleCheck(
+                    "quantity",
+                    passed,
+                    "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+                ),
+            ),
+            rule_set_version="rules-v1",
+            provenance="test-venue",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    broker = _RecordingBroker(_instrument())
+    result = _live_orchestrator(market_policy=_compat_policy(evaluator)).execute(
+        _request(), broker=broker
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+    assert broker.submit_calls == 0
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert '"rule_checks": []' in payload
+
+
+def test_naive_evaluated_at_rejected() -> None:
+    """A timezone-naive timestamp cannot reach serialized evidence."""
+    evidence = _na_block_evidence()
+    object.__setattr__(evidence, "evaluated_at", datetime(2026, 1, 1, 9, 30))
+    result = _run_na_evidence(evidence)
+    _assert_malformed(result)
+
+
+@pytest.mark.parametrize("field", ["session_evaluated", "compatibility_evaluated"])
+def test_non_bool_session_flags_rejected(field) -> None:
+    """Session flags must be actual Booleans; a truthy string cannot mark
+    unevaluated evidence as evaluated."""
+    evidence = _na_block_evidence()
+    object.__setattr__(evidence, field, "yes")
+    result = _run_na_evidence(evidence)
+    _assert_malformed(result)
+
+
+@pytest.mark.parametrize("field", ["session_exchange", "session_segment"])
+def test_non_string_session_fields_rejected(field) -> None:
+    """Session exchange/segment metadata must be strings when present."""
+    evidence = _na_block_evidence()
+    object.__setattr__(evidence, field, 123)
+    result = _run_na_evidence(evidence)
+    _assert_malformed(result)
+    assert getattr(result.check_evidence.entries[-1], field) is None
+
+
+def test_smuggled_stage_status_code_rejected(monkeypatch) -> None:
+    """A check trusted by the runner cannot smuggle status text into a
+    non-skipped record: the runner-synthesized code is the only one that
+    may appear."""
+    import quantx.application.execution as execution_module
+
+    monkeypatch.setattr(execution_module, "is_trusted_check", lambda *args, **kwargs: True)
+    evidence = _na_block_evidence()
+    object.__setattr__(evidence, "stage_status_code", "pack.smuggled-code")
+    result = _run_na_evidence(evidence)
+    _assert_malformed(result, "pack.smuggled-code")
+
+
+def test_forced_trust_non_str_failure_code_cannot_crash(monkeypatch) -> None:
+    """A non-string failure code fails closed as undeclared instead of
+    raising inside the trusted-code membership test."""
+    import quantx.application.execution as execution_module
+
+    class _BadCode:
+        check_id = "india.compatibility-rules"
+
+        def __call__(self, request) -> MarketCheckResult:
+            result = MarketCheckResult(
+                "india.compatibility-rules",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.unapproved-code",
+                "clean",
+            )
+            object.__setattr__(result, "failure_code", [])
+            return result
+
+    monkeypatch.setattr(execution_module, "is_trusted_check", lambda *args, **kwargs: True)
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+    )
+    config = MarketPolicyConfig(
+        regions=regions,
+        checks=(
+            PlacedCheck(
+                MarketRegion.INDIA,
+                MarketCheckStage.PRE_DISPATCH,
+                _ToyCheck("na.pass", MarketCheckOutcome.PASS, []),
+            ),
+            PlacedCheck(MarketRegion.INDIA, MarketCheckStage.PRE_SUBMIT, _BadCode()),
+        ),
+    )
+    broker = _RecordingBroker(_instrument())
+    result = _live_orchestrator(market_policy=config).execute(_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "india.compatibility-rules returned an undeclared failure code"
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+    assert broker.submit_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# Cold-cache implementation-binding hijack during dispatch
+# ---------------------------------------------------------------------------
+
+
+def test_cold_cache_hijack_during_dispatch_stays_untrusted(monkeypatch) -> None:
+    """With a cold resolution cache, a PRE_DISPATCH check that rebinds the
+    public ``IndiaCompatCheck`` attribute and spoofs ``__module__`` still
+    cannot confer trust on the PRE_SUBMIT rogue: the import-time pin
+    observes the reviewed class before any pack check executes."""
+    from quantx.ports.market_checks import is_trusted_check
+
+    class _EvilCompatDispatch:
+        check_id = "india.compatibility-rules"
+
+        def __call__(self, request) -> MarketCheckResult:
+            return MarketCheckResult(
+                "india.compatibility-rules",
+                MarketCheckOutcome.BLOCK,
+                "india.compatibility.rejected",
+                "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            )
+
+    class _Hijacker:
+        check_id = "na.hijacker"
+
+        def __call__(self, request) -> MarketCheckResult:
+            india_checks = importlib.import_module("quantx.india.market_checks")
+            india_checks.IndiaCompatCheck = _EvilCompatDispatch
+            _EvilCompatDispatch.__module__ = "quantx.india.market_checks"
+            return MarketCheckResult(self.check_id, MarketCheckOutcome.PASS, None, "hijacked")
+
+    # Make the rogue resolvable as a module attribute, so that only the
+    # binding — not resolution — stands between it and trust.
+    monkeypatch.setattr(
+        sys.modules[__name__], "_EvilCompatDispatch", _EvilCompatDispatch, raising=False
+    )
+    core = importlib.import_module("quantx.ports.market_checks")
+    india_checks = importlib.import_module("quantx.india.market_checks")
+    real_compat_check = india_checks.IndiaCompatCheck
+    core._approved_implementation.cache_clear()
+
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+    )
+    config = MarketPolicyConfig(
+        regions=regions,
+        checks=(
+            PlacedCheck(MarketRegion.INDIA, MarketCheckStage.PRE_DISPATCH, _Hijacker()),
+            PlacedCheck(MarketRegion.INDIA, MarketCheckStage.PRE_SUBMIT, _EvilCompatDispatch()),
+        ),
+    )
+    try:
+        broker = _RecordingBroker(_instrument())
+        result = _live_orchestrator(market_policy=config).execute(_request(), broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert result.reason == "india.compatibility-rules blocked the request"
+        assert "INDIA_LOT_SIZE_INVALID" not in result.reason
+        assert result.check_evidence.blocking_check_id == "india.compatibility-rules"
+        assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+        assert broker.submit_calls == 0
+        payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+        assert "india.compatibility.rejected" not in payload
+        # Direct check after the hijack ran: the rogue is still untrusted.
+        assert (
+            is_trusted_check(
+                "india.compatibility-rules",
+                _EvilCompatDispatch(),
+                region=MarketRegion.INDIA,
+                stage=MarketCheckStage.PRE_SUBMIT,
+            )
+            is False
+        )
+    finally:
+        india_checks.IndiaCompatCheck = real_compat_check
+        core._approved_implementation.cache_clear()

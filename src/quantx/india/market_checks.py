@@ -33,6 +33,7 @@ from quantx.ports.market_checks import (
     is_valid_rule_check_name,
     is_valid_rule_set_version,
     normalize_market_context,
+    pin_trusted_implementations,
 )
 
 from .domain import IndianSegment
@@ -531,6 +532,17 @@ def india_market_policy(
         ),
         checks=tuple(checks),
     )
+
+
+pin_trusted_implementations()
+"""Pin the approved implementation identities at adapter import time.
+
+Any code that rebinds ``IndiaSessionCheck``/``IndiaCompatCheck`` must
+import this module first, so the pin always observes the reviewed classes
+before pack-supplied checks can execute or attack the binding. See
+``quantx.ports.market_checks.pin_trusted_implementations`` for the exact
+guarantee and its explicit exclusions.
+"""
 
 
 __all__ = [

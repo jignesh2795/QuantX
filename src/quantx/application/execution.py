@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -92,12 +93,23 @@ def _validated_evidence(
     provenance must already be approved. An untrusted check's values are
     never serialized (the caller re-stamps a canonical entry), so they are
     only screened for banned diagnostic text here.
+
+    Every field is validated before use: dataclasses do not enforce their
+    annotations at runtime, so a pack can supply ``rule_checks=None``, a
+    non-tuple container, non-fact entries, non-string text, non-boolean
+    flags, or a smuggled stage status code. Any of those returns None
+    instead of raising, so malformed evidence always lands on the
+    synthesized safe-evidence path (``MALFORMED_RESULT``/``UNAVAILABLE``)
+    and never escapes the orchestrator as an exception or a contradictory
+    public record.
     """
     if evidence is None:
         return None
     if not isinstance(evidence, MarketCheckEvidence):
         return None
-    if evidence.check_id != check_id or not isinstance(evidence.stage, MarketCheckStage):
+    if not isinstance(evidence.check_id, str) or evidence.check_id != check_id:
+        return None
+    if not isinstance(evidence.stage, MarketCheckStage):
         return None
     if evidence.stage != stage:
         return None
@@ -108,16 +120,53 @@ def _validated_evidence(
         or evidence.region is not region
         or not isinstance(evidence.family, MarketFamily)
         or evidence.family is not family
+        or not isinstance(evidence.venue, str)
         or evidence.venue != venue
     ):
         return None
     if evidence.outcome is not outcome:
         return None
-    if not all(isinstance(item, MarketRuleCheckEvidence) for item in evidence.rule_checks):
+    # The stage status code is runner-synthesized for skipped optional
+    # stages only; a check must never smuggle its own status text into a
+    # non-skipped record (or forge the skipped marker on one).
+    if evidence.outcome is MarketCheckOutcome.SKIPPED:
+        if evidence.stage_status_code != SKIPPED_STAGE_STATUS_CODE:
+            return None
+    elif evidence.stage_status_code is not None:
         return None
+    # Timestamps and session flags must be well-typed so serialization
+    # cannot emit contradictory facts (a naive timestamp, a truthy string
+    # flag, or a non-datetime value).
+    if evidence.evaluated_at is not None and (
+        not isinstance(evidence.evaluated_at, datetime)
+        or evidence.evaluated_at.tzinfo is None
+        or evidence.evaluated_at.utcoffset() is None
+    ):
+        return None
+    if not isinstance(evidence.session_evaluated, bool) or not isinstance(
+        evidence.compatibility_evaluated, bool
+    ):
+        return None
+    for session_field in (evidence.session_exchange, evidence.session_segment):
+        if session_field is not None and not isinstance(session_field, str):
+            return None
+    # The supported rule-fact container is a tuple; entries must be real
+    # facts with string text and an actual boolean verdict. ``passed`` is
+    # checked with isinstance (which already rejects 0/1 and strings, since
+    # only True/False are bool instances) before any text scan, so a
+    # non-string reason cannot reach the banned-text scan and raise.
+    rule_checks = evidence.rule_checks
+    if not isinstance(rule_checks, tuple):
+        return None
+    for item in rule_checks:
+        if not isinstance(item, MarketRuleCheckEvidence):
+            return None
+        if not isinstance(item.name, str) or not isinstance(item.reason, str):
+            return None
+        if not isinstance(item.passed, bool):
+            return None
     if any(
-        contains_banned_text(item.reason) or contains_banned_text(item.name)
-        for item in evidence.rule_checks
+        contains_banned_text(item.reason) or contains_banned_text(item.name) for item in rule_checks
     ):
         return None
     for metadata, is_approved in (
@@ -139,7 +188,7 @@ def _validated_evidence(
             return None
     if trusted and any(
         not is_valid_rule_check_name(item.name) or not is_valid_rule_check_reason(item.reason)
-        for item in evidence.rule_checks
+        for item in rule_checks
     ):
         return None
     return evidence
@@ -252,10 +301,13 @@ class ExecutionOrchestrator:
                 # Failure-code boundary: trusted checks may only return their
                 # registry-listed codes; every other check's code is rewritten
                 # to a framework-owned code so arbitrary pack vocabulary never
-                # reaches public structured evidence.
+                # reaches public structured evidence. The grammar check runs
+                # first so a non-string code fails closed here instead of
+                # raising TypeError inside the membership test.
                 if trusted_codes is not None:
-                    if result.failure_code not in trusted_codes or not is_valid_failure_code(
-                        result.failure_code
+                    if (
+                        not is_valid_failure_code(result.failure_code)
+                        or result.failure_code not in trusted_codes
                     ):
                         result = replace(
                             result,
