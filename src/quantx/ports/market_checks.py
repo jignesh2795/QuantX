@@ -100,6 +100,47 @@ codes; framework-produced codes (``EVALUATION_FAILED``,
 """
 
 
+@dataclass(frozen=True, slots=True)
+class TrustedCheckBinding:
+    """Core-owned association between a trusted check identity and the
+    approved implementation surface that may carry it.
+
+    Trust requires all three bindings to hold at execution time:
+
+    - ``module_prefixes``: the implementing class must be defined in an
+      approved module (its ``type(check).__module__`` must start with one
+      of these prefixes). A caller-defined class — even one registered
+      under a trusted identity — never matches.
+    - ``regions``: the placement region must be one of these.
+    - ``stage``: the placement insertion point must be exactly this one.
+    """
+
+    module_prefixes: tuple[str, ...]
+    regions: frozenset[MarketRegion]
+    stage: MarketCheckStage
+
+
+TRUSTED_CHECK_BINDINGS: dict[str, TrustedCheckBinding] = {
+    "india.session-calendar": TrustedCheckBinding(
+        module_prefixes=("quantx.india.",),
+        regions=frozenset({MarketRegion.INDIA}),
+        stage=MarketCheckStage.PRE_DISPATCH,
+    ),
+    "india.compatibility-rules": TrustedCheckBinding(
+        module_prefixes=("quantx.india.",),
+        regions=frozenset({MarketRegion.INDIA}),
+        stage=MarketCheckStage.PRE_SUBMIT,
+    ),
+}
+"""Core-owned binding of trusted identities to approved implementations.
+
+A caller-controlled check ID alone grants nothing: an implementation is
+trusted only when its defining module, placement region, and insertion
+stage all match this registry. Impersonating checks are treated as
+generic (static fallback reasons, framework-owned rewritten codes).
+"""
+
+
 def contains_banned_text(text: str) -> bool:
     """Detect batch codenames, tracebacks, or file fragments in user text."""
     return _BATCH_CODE_PATTERN.search(text) is not None or "Traceback" in text or 'File "' in text
@@ -525,8 +566,10 @@ __all__ = [
     "PreTradeCheck",
     "RegionMarketPolicy",
     "SKIPPED_STAGE_STATUS_CODE",
+    "TRUSTED_CHECK_BINDINGS",
     "TRUSTED_FAILURE_CODES",
     "TRUSTED_PUBLIC_REASON_CHECK_IDS",
+    "TrustedCheckBinding",
     "UnclassifiedRegion",
     "UnknownMarketValue",
     "coerce_market_context",

@@ -106,6 +106,21 @@ def sanitize_evidence_text(text: object) -> str | None:
     return text
 
 
+_RULE_NAME_PATTERN = re.compile(r"[a-z0-9_]+")
+
+
+def _public_rule_check_name(name: object) -> str:
+    """Project a rule-check name onto the public evidence surface.
+
+    Only names matching the engine's snake_case rule-name grammar are
+    public; clean-looking but unapproved names collapse to the fixed
+    ``india-rule`` identity so arbitrary text never serializes.
+    """
+    if isinstance(name, str) and _RULE_NAME_PATTERN.fullmatch(name) is not None:
+        return name
+    return "india-rule"
+
+
 def _public_rule_check_reason(check: IndiaRuleCheck) -> str:
     """Project one engine rule-check fact onto the public evidence surface.
 
@@ -297,7 +312,7 @@ class IndiaCompatCheck:
         approved_provenance = sanitize_evidence_text(result.provenance)
         rule_checks = tuple(
             MarketRuleCheckEvidence(
-                check.name if sanitize_evidence_text(check.name) is not None else "india-rule",
+                _public_rule_check_name(check.name),
                 check.passed,
                 _public_rule_check_reason(check),
             )

@@ -23,8 +23,8 @@ from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
 from quantx.ports.market_checks import (
     SKIPPED_STAGE_STATUS_CODE,
+    TRUSTED_CHECK_BINDINGS,
     TRUSTED_FAILURE_CODES,
-    TRUSTED_PUBLIC_REASON_CHECK_IDS,
     MarketCheckEvidence,
     MarketCheckFailureCode,
     MarketCheckOutcome,
@@ -112,7 +112,14 @@ def _validated_evidence(
     ):
         return None
     for metadata in (evidence.rule_set_version, evidence.provenance):
-        if metadata is not None and contains_banned_text(metadata):
+        # Runtime type enforcement: malformed (non-string) metadata must
+        # fail closed as malformed evidence instead of raising TypeError
+        # from a banned-text scan.
+        if metadata is None:
+            continue
+        if not isinstance(metadata, str):
+            return None
+        if contains_banned_text(metadata):
             return None
     return evidence
 
@@ -164,8 +171,18 @@ class ExecutionOrchestrator:
             # from the live object, so a dynamic identifier cannot surface.
             check = placement.check
             check_id = placement.validated_check_id
-            trusted = check_id in TRUSTED_PUBLIC_REASON_CHECK_IDS
-            trusted_codes = TRUSTED_FAILURE_CODES.get(check_id)
+            # Trust requires the core-owned binding to hold: approved
+            # implementing module, placement region, and insertion stage.
+            # A caller-controlled check ID alone grants nothing, so an
+            # impersonating check is treated as generic.
+            binding = TRUSTED_CHECK_BINDINGS.get(check_id)
+            trusted = (
+                binding is not None
+                and type(check).__module__.startswith(binding.module_prefixes)
+                and placement.region in binding.regions
+                and placement.stage is binding.stage
+            )
+            trusted_codes = TRUSTED_FAILURE_CODES.get(check_id) if trusted else None
             try:
                 result = check(request)
             except Exception as exc:
@@ -280,7 +297,26 @@ class ExecutionOrchestrator:
                         )
                     )
                 else:
-                    entries.append(validated)
+                    if trusted:
+                        # Trusted implementations keep their full validated
+                        # evidence; the India adapters sanitize its text.
+                        entries.append(validated)
+                    else:
+                        # Generic untrusted packs get a canonical normalized
+                        # entry: clean-looking but unapproved metadata and
+                        # rule facts are never serialized. The structural
+                        # fields are re-stamped from the registered snapshot
+                        # and the normalized request context.
+                        entries.append(
+                            MarketCheckEvidence(
+                                check_id=check_id,
+                                stage=stage,
+                                outcome=result.outcome,
+                                region=region,
+                                family=family,
+                                venue=venue,
+                            )
+                        )
             if result.outcome is not MarketCheckOutcome.PASS:
                 return result
         return None

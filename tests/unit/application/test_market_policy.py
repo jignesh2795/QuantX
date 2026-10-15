@@ -46,6 +46,7 @@ from quantx.ports.market_checks import (
     MarketCheckResult,
     MarketCheckStage,
     MarketPolicyConfig,
+    MarketRuleCheckEvidence,
     PlacedCheck,
     RegionMarketPolicy,
     sequence_to_mapping,
@@ -1288,9 +1289,12 @@ def test_malformed_failure_code_characters_rewritten() -> None:
     assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
 
 
-def test_trusted_check_undeclared_code_fails_closed() -> None:
-    """A registry-trusted check returning a code outside its registered set
-    fails closed as malformed rather than surfacing the foreign code."""
+def test_trusted_id_impersonation_gets_no_trust() -> None:
+    """A caller-defined class registered under a trusted identity (even in
+    the INDIA region at the correct stage) is not the approved
+    implementation: it is treated as generic — static fallback reason and
+    framework-owned rewritten code — and the impersonated identity's
+    registered codes never surface."""
 
     class _RogueIndia:
         check_id = "india.session-calendar"
@@ -1299,8 +1303,8 @@ def test_trusted_check_undeclared_code_fails_closed() -> None:
             return MarketCheckResult(
                 "india.session-calendar",
                 MarketCheckOutcome.BLOCK,
-                "india.session-calendar.escape-hatch",
-                "india session/calendar blocked the request",
+                "india.session-calendar.rejected",
+                "india session/calendar blocked the request: XJ-77 evaluator text",
             )
 
     regions = tuple(
@@ -1316,8 +1320,12 @@ def test_trusted_check_undeclared_code_fails_closed() -> None:
     result = _live_orchestrator(market_policy=config).execute(_request())
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
-    assert "escape-hatch" not in (result.check_evidence.blocking_failure_code or "")
+    assert result.reason == "india.session-calendar blocked the request"
+    assert "XJ-77" not in result.reason
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+    assert result.check_evidence.blocking_failure_code != "india.session-calendar.rejected"
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "india.session-calendar.rejected" not in payload
 
 
 def test_generic_exception_keeps_framework_code() -> None:
@@ -1692,3 +1700,235 @@ def test_session_rejection_approved_message_preserved() -> None:
         result.reason
         == "india session/calendar blocked the request: india trading session is closed"
     )
+
+
+# ---------------------------------------------------------------------------
+# Trusted-identity impersonation (binding enforcement)
+# ---------------------------------------------------------------------------
+
+
+def test_impersonation_wrong_region_is_untrusted() -> None:
+    """A generic check registered in NORTH_AMERICA under the trusted India
+    session identity gets no trust: static reason, framework code."""
+
+    class _ImpostorSession:
+        check_id = "india.session-calendar"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "india.session-calendar",
+                MarketCheckOutcome.BLOCK,
+                "india.session-calendar.rejected",
+                "india session/calendar blocked the request",
+            )
+
+    config = _untrusted_policy(_ImpostorSession())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "india.session-calendar blocked the request"
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "india.session-calendar.rejected" not in payload
+
+
+def test_impersonation_compat_identity_is_untrusted() -> None:
+    """A generic check attempting to impersonate the India compatibility
+    identity receives only safe static output."""
+
+    class _ImpostorCompat:
+        check_id = "india.compatibility-rules"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "india.compatibility-rules",
+                MarketCheckOutcome.BLOCK,
+                "india.compatibility.rejected",
+                "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            )
+
+    config = _untrusted_policy(_ImpostorCompat())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "india.compatibility-rules blocked the request"
+    assert "INDIA_LOT_SIZE_INVALID" not in result.reason
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "INDIA_LOT_SIZE_INVALID" not in payload
+
+
+def test_impersonation_wrong_stage_is_untrusted() -> None:
+    """The India compatibility identity is bound to PRE_SUBMIT: the same
+    caller-defined class placed at PRE_DISPATCH in INDIA is untrusted."""
+
+    class _ImpostorStage:
+        check_id = "india.compatibility-rules"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "india.compatibility-rules",
+                MarketCheckOutcome.BLOCK,
+                "india.compatibility.rejected",
+                "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            )
+
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+    )
+    config = MarketPolicyConfig(
+        regions=regions,
+        checks=(PlacedCheck(MarketRegion.INDIA, MarketCheckStage.PRE_DISPATCH, _ImpostorStage()),),
+    )
+    result = _live_orchestrator(market_policy=config).execute(_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "india.compatibility-rules blocked the request"
+    assert "INDIA_LOT_SIZE_INVALID" not in result.reason
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+
+
+# ---------------------------------------------------------------------------
+# Wrong-type metadata fail-closed behavior
+# ---------------------------------------------------------------------------
+
+
+def _evidence_with_metadata(provenance, rule_set_version) -> MarketCheckEvidence:
+    """Build evidence carrying wrong-typed metadata without constructor
+    validation (dataclasses do not enforce annotations at runtime)."""
+    evidence = MarketCheckEvidence(
+        check_id="na.meta",
+        stage=MarketCheckStage.PRE_DISPATCH,
+        outcome=MarketCheckOutcome.BLOCK,
+        region=MarketRegion.NORTH_AMERICA,
+        family=MarketFamily.EQUITY,
+        venue="NYSE",
+    )
+    object.__setattr__(evidence, "provenance", provenance)
+    object.__setattr__(evidence, "rule_set_version", rule_set_version)
+    return evidence
+
+
+@pytest.mark.parametrize(
+    "provenance,version",
+    [
+        (123, "v1"),
+        ("prov", 456),
+        (1.5, None),
+        (None, b"bytes-version"),
+        (["list"], {"dict": 1}),
+    ],
+)
+def test_wrong_type_metadata_fails_closed(provenance, version) -> None:
+    class _BadMetadata:
+        check_id = "na.meta"
+
+        def __call__(self, request):
+            return MarketCheckResult(
+                "na.meta",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.unapproved-code",
+                "clean reason",
+                evidence=_evidence_with_metadata(provenance, version),
+            )
+
+    config = _untrusted_policy(_BadMetadata())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert json.loads(payload)["blocking_failure_code"] == "market-check.malformed-result"
+
+
+# ---------------------------------------------------------------------------
+# India rule-name grammar normalization
+# ---------------------------------------------------------------------------
+
+
+def test_india_rule_name_unapproved_normalized() -> None:
+    """Clean but unapproved rule names collapse to the fixed ``india-rule``
+    identity; the allow-listed aggregate reason is preserved."""
+
+    def evaluator(request):
+        from quantx.india.execution_rules import (
+            IndiaRuleCheck,
+            IndiaRuleDecision,
+            IndiaRuleResult,
+        )
+
+        return IndiaRuleResult(
+            IndiaRuleDecision.REJECT,
+            "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            checks=(
+                IndiaRuleCheck("Lot-Size XJ-9", False, "INDIA_LOT_SIZE_INVALID: bad lot"),
+                IndiaRuleCheck("tick", True, "tick size ok"),
+            ),
+            rule_set_version="rules-v1",
+            provenance="test-venue",
+            evaluated_at=datetime(2026, 1, 1, 9, 30, tzinfo=UTC),
+            compatibility_evaluated=True,
+        )
+
+    broker = _RecordingBroker(_instrument())
+    result = _live_orchestrator(market_policy=_compat_policy(evaluator)).execute(
+        _request(), broker=broker
+    )
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "INDIA_LOT_SIZE_INVALID" in result.reason
+    assert broker.submit_calls == 0
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "Lot-Size" not in payload
+    assert "XJ-9" not in payload
+    assert '"name": "india-rule"' in payload
+    assert '"name": "tick"' in payload
+
+
+def test_generic_evidence_metadata_never_serialized() -> None:
+    """A generic check's consistent evidence is normalized: clean-looking
+    but unapproved metadata and rule facts never reach serialization."""
+
+    class _ChattyEvidence:
+        check_id = "na.chatty"
+
+        def __call__(self, request):
+            evidence = MarketCheckEvidence(
+                check_id="na.chatty",
+                stage=MarketCheckStage.PRE_DISPATCH,
+                outcome=MarketCheckOutcome.BLOCK,
+                region=MarketRegion.NORTH_AMERICA,
+                family=MarketFamily.EQUITY,
+                venue="NYSE",
+                rule_set_version="private-rules-v9",
+                provenance="internal-desk-note",
+                compatibility_evaluated=True,
+                rule_checks=(
+                    MarketRuleCheckEvidence("desk_rule", False, "desk threshold breached"),
+                ),
+            )
+            return MarketCheckResult(
+                "na.chatty",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.unapproved-code",
+                "clean",
+                evidence=evidence,
+            )
+
+    config = _untrusted_policy(_ChattyEvidence())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "private-rules-v9" not in payload
+    assert "internal-desk-note" not in payload
+    assert "desk_rule" not in payload
+    assert "desk threshold breached" not in payload
+    assert '"check_id": "na.chatty"' in payload
+    assert '"outcome": "BLOCK"' in payload
