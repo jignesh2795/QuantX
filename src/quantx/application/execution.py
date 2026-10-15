@@ -152,9 +152,10 @@ def _validated_evidence(
             safe_evaluated_at = evidence.evaluated_at.replace(tzinfo=timezone(offset))
         except Exception:
             return None
-    if type(evidence.session_evaluated) is not bool or type(
-        evidence.compatibility_evaluated
-    ) is not bool:
+    if (
+        type(evidence.session_evaluated) is not bool
+        or type(evidence.compatibility_evaluated) is not bool
+    ):
         return None
     for session_field in (evidence.session_exchange, evidence.session_segment):
         if session_field is not None and type(session_field) is not str:
