@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
 
@@ -105,9 +105,11 @@ def _validated_evidence(
     """
     if evidence is None:
         return None
-    if not isinstance(evidence, MarketCheckEvidence):
+    # This is an extension boundary: subclasses may execute arbitrary code in
+    # attribute access. Accept only the concrete neutral evidence record.
+    if type(evidence) is not MarketCheckEvidence:
         return None
-    if not isinstance(evidence.check_id, str) or evidence.check_id != check_id:
+    if type(evidence.check_id) is not str or evidence.check_id != check_id:
         return None
     if not isinstance(evidence.stage, MarketCheckStage):
         return None
@@ -120,7 +122,7 @@ def _validated_evidence(
         or evidence.region is not region
         or not isinstance(evidence.family, MarketFamily)
         or evidence.family is not family
-        or not isinstance(evidence.venue, str)
+        or type(evidence.venue) is not str
         or evidence.venue != venue
     ):
         return None
@@ -137,18 +139,26 @@ def _validated_evidence(
     # Timestamps and session flags must be well-typed so serialization
     # cannot emit contradictory facts (a naive timestamp, a truthy string
     # flag, or a non-datetime value).
-    if evidence.evaluated_at is not None and (
-        not isinstance(evidence.evaluated_at, datetime)
-        or evidence.evaluated_at.tzinfo is None
-        or evidence.evaluated_at.utcoffset() is None
-    ):
-        return None
-    if not isinstance(evidence.session_evaluated, bool) or not isinstance(
-        evidence.compatibility_evaluated, bool
-    ):
+    # Snapshot timestamps onto a standard fixed-offset timezone. Caller-
+    # supplied tzinfo objects can raise or change behavior when serialized.
+    safe_evaluated_at: datetime | None = None
+    if evidence.evaluated_at is not None:
+        if type(evidence.evaluated_at) is not datetime:
+            return None
+        try:
+            offset = evidence.evaluated_at.utcoffset()
+            if offset is None:
+                return None
+            safe_evaluated_at = evidence.evaluated_at.replace(tzinfo=timezone(offset))
+            safe_evaluated_at.isoformat()
+        except Exception:
+            return None
+    if type(evidence.session_evaluated) is not bool or type(
+        evidence.compatibility_evaluated
+    ) is not bool:
         return None
     for session_field in (evidence.session_exchange, evidence.session_segment):
-        if session_field is not None and not isinstance(session_field, str):
+        if session_field is not None and type(session_field) is not str:
             return None
     # The supported rule-fact container is a tuple; entries must be real
     # facts with string text and an actual boolean verdict. ``passed`` is
@@ -156,14 +166,14 @@ def _validated_evidence(
     # only True/False are bool instances) before any text scan, so a
     # non-string reason cannot reach the banned-text scan and raise.
     rule_checks = evidence.rule_checks
-    if not isinstance(rule_checks, tuple):
+    if type(rule_checks) is not tuple:
         return None
     for item in rule_checks:
-        if not isinstance(item, MarketRuleCheckEvidence):
+        if type(item) is not MarketRuleCheckEvidence:
             return None
-        if not isinstance(item.name, str) or not isinstance(item.reason, str):
+        if type(item.name) is not str or type(item.reason) is not str:
             return None
-        if not isinstance(item.passed, bool):
+        if type(item.passed) is not bool:
             return None
     if any(
         contains_banned_text(item.reason) or contains_banned_text(item.name) for item in rule_checks
@@ -178,7 +188,7 @@ def _validated_evidence(
         # from a banned-text scan.
         if metadata is None:
             continue
-        if not isinstance(metadata, str):
+        if type(metadata) is not str:
             return None
         if not trusted:
             if contains_banned_text(metadata):
@@ -191,6 +201,10 @@ def _validated_evidence(
         for item in rule_checks
     ):
         return None
+    # Detach timestamps from caller-controlled tzinfo before public JSON
+    # serialization can invoke it again.
+    if safe_evaluated_at is not None:
+        return replace(evidence, evaluated_at=safe_evaluated_at)
     return evidence
 
 
@@ -342,16 +356,21 @@ class ExecutionOrchestrator:
                     )
                 )
             else:
-                validated = _validated_evidence(
-                    provided,
-                    check_id=check_id,
-                    stage=stage,
-                    region=region,
-                    family=family,
-                    venue=venue,
-                    outcome=result.outcome,
-                    trusted=trusted,
-                )
+                try:
+                    validated = _validated_evidence(
+                        provided,
+                        check_id=check_id,
+                        stage=stage,
+                        region=region,
+                        family=family,
+                        venue=venue,
+                        outcome=result.outcome,
+                        trusted=trusted,
+                    )
+                except Exception:
+                    # Unexpected exceptions while inspecting caller-supplied
+                    # evidence must fail closed, not escape orchestration.
+                    validated = None
                 if validated is None:
                     result = MarketCheckResult(
                         check_id,
