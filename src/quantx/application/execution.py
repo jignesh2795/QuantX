@@ -276,6 +276,16 @@ class ExecutionOrchestrator:
                     f"{check_id} evaluation failed closed",
                     detail=f"{type(exc).__name__}: {exc}",
                 )
+            # Validate exact field types before equality, sanitization, or
+            # registry membership: a frozen dataclass can still have fields
+            # rewritten with object.__setattr__, and hostile values can make
+            # those later operations raise.
+            code = result.failure_code if type(result) is MarketCheckResult else None
+            code_has_shape = (
+                code is None
+                or type(code) is str
+                or type(code) is MarketCheckFailureCode
+            )
             shape_ok = (
                 type(result) is MarketCheckResult
                 and type(result.outcome) is MarketCheckOutcome
@@ -285,7 +295,20 @@ class ExecutionOrchestrator:
                     MarketCheckOutcome.BLOCK,
                     MarketCheckOutcome.UNAVAILABLE,
                 )
+                and type(result.check_id) is str
                 and result.check_id == check_id
+                and type(result.reason) is str
+                and bool(result.reason.strip())
+                and type(result.detail) is str
+                and code_has_shape
+                and (
+                    (result.outcome is MarketCheckOutcome.PASS and code is None)
+                    or (
+                        result.outcome is not MarketCheckOutcome.PASS
+                        and code is not None
+                        and bool(code.strip())
+                    )
+                )
             )
             if not shape_ok:
                 result = MarketCheckResult(
