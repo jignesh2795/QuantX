@@ -269,12 +269,18 @@ class ExecutionOrchestrator:
             try:
                 result = check(request)
             except Exception as exc:
+                # Keep diagnostics private and ensure even a hostile exception
+                # whose __str__ or metaclass raises cannot escape the boundary.
+                try:
+                    diagnostic = f"{type(exc).__name__}: {exc}"
+                except Exception:
+                    diagnostic = "check raised an exception; diagnostics unavailable"
                 result = MarketCheckResult(
                     check_id,
                     MarketCheckOutcome.UNAVAILABLE,
                     MarketCheckFailureCode.EVALUATION_FAILED,
                     f"{check_id} evaluation failed closed",
-                    detail=f"{type(exc).__name__}: {exc}",
+                    detail=diagnostic,
                 )
             # Validate exact field types before equality, sanitization, or
             # registry membership: a frozen dataclass can still have fields
@@ -316,7 +322,7 @@ class ExecutionOrchestrator:
                     MarketCheckOutcome.UNAVAILABLE,
                     MarketCheckFailureCode.MALFORMED_RESULT,
                     f"{check_id} returned a malformed result",
-                    detail=f"unexpected result {type(result).__name__}",
+                    detail="check returned an object outside the result contract",
                 )
             elif result.outcome is not MarketCheckOutcome.PASS:
                 # Sanitize only check-returned reasons here. Runner-synthesized
