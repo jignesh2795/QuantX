@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import importlib
 import json
+import sys
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -2474,3 +2475,72 @@ def test_approved_rule_code_prefix_with_unapproved_reason_suffix_withheld() -> N
     assert entry.rule_checks[0].reason == "india rule check failed (details withheld)"
     payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
     assert "XJ-99" not in payload
+
+
+def test_binding_object_writes_do_not_widen_trust(monkeypatch) -> None:
+    """Frozen dataclasses still accept ``object.__setattr__`` writes, so
+    the core never hands out its canonical binding objects: writes against
+    the public view — including pointing the implementation at a resolvable
+    caller-defined class — leave the registry unchanged and the rogue
+    untrusted end to end."""
+    from quantx.ports.market_checks import is_trusted_check, trusted_check_binding
+
+    class _EvilCompat:
+        check_id = "india.compatibility-rules"
+
+        def __call__(self, request) -> MarketCheckResult:
+            return MarketCheckResult(
+                "india.compatibility-rules",
+                MarketCheckOutcome.BLOCK,
+                "india.compatibility.rejected",
+                "INDIA_LOT_SIZE_INVALID: quantity 1 is not a multiple of lot size 25",
+            )
+
+    # Make the rogue resolvable as a module attribute, so that only the
+    # binding — not resolution — stands between it and trust.
+    monkeypatch.setattr(sys.modules[__name__], "_EvilCompat", _EvilCompat, raising=False)
+    core = importlib.import_module("quantx.ports.market_checks")
+    evil = core.TrustedCheckImplementation(_EvilCompat.__module__, "_EvilCompat")
+
+    binding = core.TRUSTED_CHECK_BINDINGS["india.compatibility-rules"]
+    object.__setattr__(binding, "stage", MarketCheckStage.PRE_DISPATCH)
+    object.__setattr__(binding, "implementation", evil)
+
+    assert trusted_check_binding("india.compatibility-rules").stage is (MarketCheckStage.PRE_SUBMIT)
+    assert (
+        is_trusted_check(
+            "india.compatibility-rules",
+            _EvilCompat(),
+            region=MarketRegion.INDIA,
+            stage=MarketCheckStage.PRE_SUBMIT,
+        )
+        is False
+    )
+
+    regions = tuple(
+        _canonical_india_policy()
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(region=member)
+        for member in MarketRegion
+    )
+    config = MarketPolicyConfig(
+        regions=regions,
+        checks=(
+            PlacedCheck(
+                MarketRegion.INDIA,
+                MarketCheckStage.PRE_DISPATCH,
+                _ToyCheck("na.pass", MarketCheckOutcome.PASS, []),
+            ),
+            PlacedCheck(MarketRegion.INDIA, MarketCheckStage.PRE_SUBMIT, _EvilCompat()),
+        ),
+    )
+    broker = _RecordingBroker(_instrument())
+    result = _live_orchestrator(market_policy=config).execute(_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "india.compatibility-rules blocked the request"
+    assert "INDIA_LOT_SIZE_INVALID" not in result.reason
+    assert result.check_evidence.blocking_check_id == "india.compatibility-rules"
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.PACK_BLOCKED
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "india.compatibility.rejected" not in payload

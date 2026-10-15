@@ -185,6 +185,24 @@ class TrustedCheckBinding:
     stage: MarketCheckStage
 
 
+def _snapshot_binding(binding: TrustedCheckBinding) -> TrustedCheckBinding:
+    """Return an equal but detached copy of a trusted binding.
+
+    Frozen dataclasses still accept ``object.__setattr__`` writes that
+    bypass the frozen guard, so canonical registry objects must never be
+    handed out. The copy shares only genuinely immutable leaves
+    (frozensets, strings, enum members); every writable shell is fresh.
+    """
+    return TrustedCheckBinding(
+        implementation=TrustedCheckImplementation(
+            module=binding.implementation.module,
+            attribute=binding.implementation.attribute,
+        ),
+        regions=frozenset(binding.regions),
+        stage=binding.stage,
+    )
+
+
 _TRUSTED_CHECK_BINDINGS: Mapping[str, TrustedCheckBinding] = types.MappingProxyType(
     {
         "india.session-calendar": TrustedCheckBinding(
@@ -213,19 +231,32 @@ self-declaration. Impersonating checks are treated as generic (static
 fallback reasons, framework-owned rewritten codes).
 """
 
-TRUSTED_CHECK_BINDINGS: Mapping[str, TrustedCheckBinding] = _TRUSTED_CHECK_BINDINGS
+TRUSTED_CHECK_BINDINGS: Mapping[str, TrustedCheckBinding] = types.MappingProxyType(
+    {key: _snapshot_binding(binding) for key, binding in _TRUSTED_CHECK_BINDINGS.items()}
+)
 """Read-only public view of the trusted implementation bindings.
 
-The runner resolves trust through :func:`is_trusted_check`, which reads
-the private immutable registry rather than this name.
+Every value is a detached copy of the canonical registry entry: frozen
+dataclasses still accept ``object.__setattr__`` writes, so the canonical
+objects the runner reads are never handed out. Writes against this view
+affect nothing. The runner resolves trust through
+:func:`is_trusted_check`, which reads the private registry rather than
+this name.
 """
 
 
 def trusted_check_binding(check_id: object) -> TrustedCheckBinding | None:
-    """Return the immutable core-owned binding for a check identity, or None."""
+    """Return a detached copy of the core-owned binding, or None.
+
+    The copy is equal to the canonical registry entry but shares no
+    writable state with it: only genuinely immutable leaves (frozensets,
+    strings, enum members) are shared, so caller-side writes cannot widen
+    trust.
+    """
     if not isinstance(check_id, str):
         return None
-    return _TRUSTED_CHECK_BINDINGS.get(check_id)
+    binding = _TRUSTED_CHECK_BINDINGS.get(check_id)
+    return _snapshot_binding(binding) if binding is not None else None
 
 
 def is_trusted_check(
@@ -242,7 +273,7 @@ def is_trusted_check(
     comparison, so no caller metadata can impersonate it), and the
     placement region and stage both match. Anything else is untrusted.
     """
-    binding = trusted_check_binding(check_id)
+    binding = _TRUSTED_CHECK_BINDINGS.get(check_id) if isinstance(check_id, str) else None
     if binding is None or region not in binding.regions or stage is not binding.stage:
         return False
     approved = _approved_implementation(binding.implementation)
