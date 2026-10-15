@@ -162,8 +162,8 @@ def _validated_evidence(
             return None
     # The supported rule-fact container is a tuple; entries must be real
     # facts with string text and an actual boolean verdict. ``passed`` is
-    # checked with isinstance (which already rejects 0/1 and strings, since
-    # only True/False are bool instances) before any text scan, so a
+    # checked by exact runtime type, so integers and strings are rejected
+    # before any text scan, and a
     # non-string reason cannot reach the banned-text scan and raise.
     rule_checks = evidence.rule_checks
     if type(rule_checks) is not tuple:
