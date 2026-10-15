@@ -289,14 +289,13 @@ class ExecutionOrchestrator:
             # those later operations raise.
             code = result.failure_code if type(result) is MarketCheckResult else None
             code_has_shape = (
-                code is None
-                or type(code) is str
-                or type(code) is MarketCheckFailureCode
+                code is None or type(code) is str or type(code) is MarketCheckFailureCode
             )
             shape_ok = (
                 type(result) is MarketCheckResult
                 and type(result.outcome) is MarketCheckOutcome
-                and result.outcome in (
+                and result.outcome
+                in (
                     MarketCheckOutcome.PASS,
                     MarketCheckOutcome.BLOCK,
                     MarketCheckOutcome.UNAVAILABLE,
