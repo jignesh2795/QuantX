@@ -2911,3 +2911,43 @@ def test_malformed_timezone_fails_closed() -> None:
     )
     result = _run_na_evidence(evidence)
     _assert_malformed(result, "malformed timezone private diagnostic")
+
+
+
+def test_raising_market_check_result_subclass_fails_closed() -> None:
+    """A result subclass cannot execute attacker-defined field access in the runner."""
+
+    class _RaisingResult(MarketCheckResult):
+        def __getattribute__(self, name):
+            if name == "outcome":
+                try:
+                    armed = object.__getattribute__(self, "_armed")
+                except AttributeError:
+                    armed = False
+                if armed:
+                    raise RuntimeError("result field access must not escape")
+            return super().__getattribute__(name)
+
+    class _ReturnsSubclass:
+        check_id = "na.malformed"
+
+        def __call__(self, request) -> MarketCheckResult:
+            result = _RaisingResult(
+                "na.malformed",
+                MarketCheckOutcome.BLOCK,
+                "toy.pack.unapproved-code",
+                "crafted result",
+            )
+            object.__setattr__(result, "_armed", True)
+            return result
+
+    config = _untrusted_policy(_ReturnsSubclass())
+    result = _live_orchestrator(market_policy=config).execute(_us_request())
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.check_evidence is not None
+    assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
+    assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.MALFORMED_RESULT
+    payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
+    assert "crafted result" not in payload
+    assert "result field access must not escape" not in payload
