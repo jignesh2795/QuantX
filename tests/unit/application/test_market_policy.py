@@ -2757,7 +2757,7 @@ def test_forced_trust_non_str_failure_code_cannot_crash(monkeypatch) -> None:
     result = _live_orchestrator(market_policy=config).execute(_request(), broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == "india.compatibility-rules returned an undeclared failure code"
+    assert result.reason == "india.compatibility-rules returned a malformed result"
     assert result.check_evidence is not None
     assert result.check_evidence.entries[-1].outcome is MarketCheckOutcome.UNAVAILABLE
     assert result.check_evidence.blocking_failure_code == (MarketCheckFailureCode.MALFORMED_RESULT)
@@ -2880,9 +2880,7 @@ def test_tuple_subclass_with_raising_iterator_fails_closed() -> None:
             raise RuntimeError("rule fact iterator must not escape")
 
     evidence = _na_block_evidence(
-        rule_checks=_RaisingTuple(
-            (MarketRuleCheckEvidence("quantity", True, "tick size ok"),)
-        )
+        rule_checks=_RaisingTuple((MarketRuleCheckEvidence("quantity", True, "tick size ok"),))
     )
     result = _run_na_evidence(evidence)
     _assert_malformed(result, "rule fact iterator must not escape")
