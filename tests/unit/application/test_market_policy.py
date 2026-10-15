@@ -2844,3 +2844,70 @@ def test_cold_cache_hijack_during_dispatch_stays_untrusted(monkeypatch) -> None:
     finally:
         india_checks.IndiaCompatCheck = real_compat_check
         core._approved_implementation.cache_clear()
+
+
+
+# ---------------------------------------------------------------------------
+# Adversarial runtime objects at the evidence-validation boundary
+# ---------------------------------------------------------------------------
+
+
+def test_raising_evidence_subclass_fails_closed() -> None:
+    """Evidence subclasses cannot execute arbitrary field access in the runner."""
+
+    class _RaisingEvidence(MarketCheckEvidence):
+        def __getattribute__(self, name):
+            if name == "rule_checks":
+                raise RuntimeError("evidence field access must not escape")
+            return super().__getattribute__(name)
+
+    evidence = _RaisingEvidence(
+        check_id="na.malformed",
+        stage=MarketCheckStage.PRE_DISPATCH,
+        outcome=MarketCheckOutcome.BLOCK,
+        region=MarketRegion.NORTH_AMERICA,
+        family=MarketFamily.EQUITY,
+        venue="NYSE",
+    )
+    result = _run_na_evidence(evidence)
+    _assert_malformed(result, "evidence field access must not escape")
+
+
+def test_tuple_subclass_with_raising_iterator_fails_closed() -> None:
+    """Only a plain tuple is accepted; subclass iteration cannot escape."""
+
+    class _RaisingTuple(tuple):
+        def __iter__(self):
+            raise RuntimeError("rule fact iterator must not escape")
+
+    evidence = _na_block_evidence(
+        rule_checks=_RaisingTuple(
+            (MarketRuleCheckEvidence("quantity", True, "tick size ok"),)
+        )
+    )
+    result = _run_na_evidence(evidence)
+    _assert_malformed(result, "rule fact iterator must not escape")
+
+
+def test_malformed_timezone_fails_closed() -> None:
+    """A caller-supplied timezone that raises cannot crash or affect serialization."""
+    from datetime import tzinfo
+
+    class _ExplodingTimezone(tzinfo):
+        def utcoffset(self, dt):
+            raise RuntimeError("malformed timezone private diagnostic")
+
+        def dst(self, dt):
+            return None
+
+        def tzname(self, dt):
+            return "malformed"
+
+    evidence = _na_block_evidence()
+    object.__setattr__(
+        evidence,
+        "evaluated_at",
+        datetime(2026, 1, 1, 9, 30, tzinfo=_ExplodingTimezone()),
+    )
+    result = _run_na_evidence(evidence)
+    _assert_malformed(result, "malformed timezone private diagnostic")
