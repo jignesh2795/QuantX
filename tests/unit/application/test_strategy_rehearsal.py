@@ -168,11 +168,12 @@ def _session(
     *,
     deployment: StrategyDeployment | None = None,
     registry: StrategyRegistry | None = None,
+    strategy_ir: StrategyIR | None = None,
 ) -> tuple[StrategyRehearsalSession, _CountingAccounting]:
     held = accounting or _CountingAccounting()
     session = StrategyRehearsalSession(
         registry=registry or _registry(),
-        strategy_ir=_ir(),
+        strategy_ir=strategy_ir or _ir(),
         deployment=deployment or _deployment(),
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         paper_executor=_executor(held),
@@ -673,7 +674,18 @@ def test_timer_history_is_prior_only_and_same_instrument() -> None:
         )
     )
     strategy = _HistoryTimerObserver()
-    session, _ = _session(registry=_registry_for_strategy(strategy))
+    strategy_ir = StrategyCompiler.compile(
+        StrategyDefinition(
+            StrategyId("buy-and-hold"),
+            "1",
+            "Buy and Hold",
+            parameters={"history_bars": "2", "quantity": "2"},
+        )
+    )
+    session, _ = _session(
+        registry=_registry_for_strategy(strategy),
+        strategy_ir=strategy_ir,
+    )
 
     result = session.run(inputs)
 
