@@ -662,8 +662,15 @@ def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
 
 
 def test_unexpected_future_effective_receipt_preserves_facts_and_halts_without_false_snapshot() -> None:
+    first_frame = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     ahead = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
-    engine = _CapturingEngine(clock=FixedClock(ahead))
+
+    class _JumpClockEngine(_CapturingEngine):
+        def execute(self, request, *, snapshot):
+            self._clock = FixedClock(ahead)
+            return super().execute(request, snapshot=snapshot)
+
+    engine = _JumpClockEngine(clock=FixedClock(first_frame))
     engine.event_time_support = EventTimeSupport.SUPPORTED
     strategy = _BacktestCommitThenFailObserver()
     ir = _runtime_ir("callback-backtest")
@@ -690,6 +697,45 @@ def test_unexpected_future_effective_receipt_preserves_facts_and_halts_without_f
     assert strategy.calls == []
     assert result.steps[1].disposition is BacktestDisposition.BLOCKED
     assert len(result.account_state_series) == 1
+
+
+def test_qx08_preflight_rejects_clock_ahead_before_first_strategy_callback() -> None:
+    ahead = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
+    engine = _CapturingEngine(clock=FixedClock(ahead))
+    engine.event_time_support = EventTimeSupport.SUPPORTED
+    ir = _runtime_ir("clock-preflight-backtest")
+    observed: list[datetime] = []
+
+    class _SpyStrategy:
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            assert context.event is not None
+            observed.append(context.event.timestamp)
+            return StrategyResult(
+                StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    context.event.instrument,
+                    SignalAction.HOLD,
+                    1.0,
+                    generated_at=context.event.timestamp,
+                )
+            )
+
+    with pytest.raises(ValueError, match="start at the first replay frame"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=StrategyEvaluationService(_SpyStrategy()),
+            strategy_ir=ir,
+            financial_state=_financial_state(),
+        )
+
+    assert observed == []
+    assert engine.captured == []
+    assert engine.events() == ()
+    assert engine._receipts == {}
 
 
 def test_unknown_executor_time_capability_fails_closed() -> None:
