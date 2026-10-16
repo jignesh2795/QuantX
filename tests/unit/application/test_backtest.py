@@ -644,6 +644,56 @@ def test_active_order_persists_into_next_strategy_context_until_terminal_status(
     assert observed_orders[1][0].remaining_quantity == Decimal("1")
 
 
+def test_backtest_reports_timers_undelivered_beyond_replay_horizon() -> None:
+    class _HorizonTimerObserver:
+        def __init__(self) -> None:
+            self.requested = False
+            self.timer_calls: list[str] = []
+
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            event = context.event
+            assert event is not None
+            timers: tuple[TimerRequest, ...] = ()
+            if not self.requested:
+                self.requested = True
+                timers = (
+                    TimerRequest(
+                        "after-horizon",
+                        event.instrument,
+                        event.timestamp + timedelta(minutes=5),
+                    ),
+                )
+            return StrategyResult(
+                signal=StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    event.instrument,
+                    SignalAction.HOLD,
+                    1.0,
+                    generated_at=event.timestamp,
+                ),
+                timers=timers,
+            )
+
+        def on_timer(self, context: StrategyContext, timer) -> None:
+            self.timer_calls.append(timer.timer_id)
+
+    strategy = _HorizonTimerObserver()
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_tcs_series(),
+        strategy=StrategyEvaluationService(strategy),
+        strategy_ir=_runtime_ir("timer-horizon-backtest"),
+        financial_state=_financial_state(),
+    )
+
+    assert len(result.undelivered_timers) == 1
+    assert result.undelivered_timers[0].timer.timer_id == "after-horizon"
+    assert "run ended before the timer became due" in result.undelivered_timers[0].reason
+    assert strategy.timer_calls == []
+
+
 @pytest.mark.parametrize("failure_layer", ("risk", "policy"))
 def test_precommit_risk_or_policy_fault_preserves_timer_and_continues(
     failure_layer: str,
