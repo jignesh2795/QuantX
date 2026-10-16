@@ -594,6 +594,91 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
 
 
+def test_precommit_preparation_failure_preserves_timer_and_later_steps() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    later = start + timedelta(minutes=1)
+    timer_due = start + timedelta(seconds=30)
+
+    class _TimerAndConflictingIntent:
+        entered = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, ...]] = []
+
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            event = context.event
+            assert event is not None
+            self.calls.append(("market", event.timestamp))
+            if self.entered:
+                return StrategyResult(
+                    StrategySignal(
+                        context.ir.strategy_id,
+                        context.ir.version,
+                        event.instrument,
+                        SignalAction.HOLD,
+                        1.0,
+                        generated_at=event.timestamp,
+                    )
+                )
+
+            self.entered = True
+            foreign = ExecutionContext(
+                account_id=AccountId("acct-2"),
+                portfolio_id=PortfolioId("portfolio-1"),
+                deployment_id=StrategyDeploymentId("deploy-1"),
+                market=_market(),
+                broker_connection_id=BrokerConnectionId("conn-1"),
+                execution_mode=ExecutionMode.PAPER,
+            )
+            intent = TradeIntent(
+                instrument=event.instrument,
+                side=OrderSide.BUY,
+                quantity=Decimal("2"),
+                strategy_id=context.ir.strategy_id.value,
+                strategy_version=context.ir.version,
+                execution_context=foreign,
+            )
+            return StrategyResult(
+                signal=StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    event.instrument,
+                    SignalAction.BUY,
+                    1.0,
+                    generated_at=event.timestamp,
+                ),
+                intent=intent,
+                timers=(TimerRequest("prep-failure-timer", event.instrument, timer_due),),
+            )
+
+        def on_timer(self, context: StrategyContext, timer) -> None:
+            self.calls.append(("timer", context.event, context.as_of, timer.timer_id))
+
+    strategy = _TimerAndConflictingIntent()
+    session, accounting = _session(registry=_registry_for_strategy(strategy))
+
+    result = session.run(_inputs(start, later))
+
+    first, second = result.steps
+    assert first.evaluation is not None
+    assert first.preparation is None
+    assert first.paper_outcome is None
+    assert "pre-commit preparation failed" in first.note
+    assert tuple(fault.callback_name for fault in first.faults) == ("strategy_preparation",)
+    assert tuple(fault.callback_name for fault in result.callback_faults) == (
+        "strategy_preparation",
+    )
+    assert strategy.calls == [
+        ("market", start),
+        ("timer", None, timer_due, "prep-failure-timer"),
+        ("market", later),
+    ]
+    assert second.evaluation is not None
+    assert second.evaluation.result.signal.action is SignalAction.HOLD
+    assert result.halt is None
+    assert accounting.applications == []
+
+
 def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     later = start + timedelta(minutes=1)
