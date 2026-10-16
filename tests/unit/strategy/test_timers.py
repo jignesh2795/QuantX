@@ -80,7 +80,7 @@ def test_timer_registry_rejects_cross_instrument_timer() -> None:
         TimerRegistry().register_result(_result(event_time, event.instrument, request), event)
 
 
-def test_timer_dispatch_orders_by_due_time_then_timer_id_and_consumes_once() -> None:
+def test_timer_dispatch_orders_by_due_at_then_timer_id() -> None:
     event_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     event = _event(event_time)
     later = TimerRequest("timer-z", event.instrument, event_time + timedelta(minutes=2))
