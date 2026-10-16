@@ -32,7 +32,13 @@ The bounded source/test reconciliation now has traceable evidence for every in-s
 
 **Design only; issue #193 remains open for implementation.** The implementation must preserve the reserve-before-submit, idempotency, receipt-validation, and no-automatic-retry/UNKNOWN guarantees; update the canonical fingerprint path; and trace serialization/recovery as well as the adapter submit path.
 
-## Current state — QX-04/QX-06 design decisions accepted; QX-08 acceptance complete; QX-09 complete
+## QX-05 derivative contract metadata decision — accepted (2026-10-16)
+
+[ADR-012: Canonical Derivative Contract Metadata and Resolution](architecture/adr/ADR-012-derivative-contract-metadata.md) settles the ownership/resolution contract for issue #194. `Instrument` remains the owner of tradable instrument facts; a separate, canonical `Contract` record keyed by stable `InstrumentId` owns derivative underlying, expiry, strike and `OptionType`. The explicit resolution result must combine one canonical instrument with its point-in-time contract and instrument-rule versions/provenance. Options require complete option metadata; futures require underlying and expiry; missing, overlapping or malformed records fail closed.
+
+The current code does not yet implement this decision: `Contract` embeds an `Instrument`, derivative fields are optional, `option_type` is a free string (and lowercase spelling is preserved), and `VersionedInstrumentRule` carries no derivative contract metadata. **Design only; issue #194 remains open for implementation** through catalog/resolution, risk and charges inputs, approved request, fingerprint, serialization/recovery and adapter validation.
+
+## Current state — QX-04/QX-05/QX-06 design decisions accepted; QX-08 acceptance complete; QX-09 complete
 
 PR #221 merged QX-09 from `feat/qx-09-market-pack-checks-v1` at validated head `7793646e0e3d210e81364d39605ee3383e434723` as merge commit `1e4ebf4f4671e90dcdcafc1cda578182ab39d58b`. The PR covers 15 focused files (+5,746/−229); local validation was reported at the exact feature head, and no GitHub Actions results are claimed. Repository Actions are disabled by project policy.
 
