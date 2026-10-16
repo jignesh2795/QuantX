@@ -808,8 +808,8 @@ class DeterministicBacktestService:
 
             strategy_evaluation: StrategyEvaluation | None = None
             strategy_result: StrategyResult
-            try:
-                if qx08_active:
+            if qx08_active:
+                try:
                     assert strategy_ir is not None
                     market_engine = build_simulated_engine_snapshot(
                         as_of=frame_time,
@@ -833,36 +833,36 @@ class DeterministicBacktestService:
                         history=history,
                     )
                     strategy_result = strategy_evaluation.result
-                else:
-                    strategy_result = strategy(frame)
+                    self._validate_strategy_result(strategy_result, frame)
+                    timers.register_result(strategy_result, strategy_evaluation.event)
+                except Exception as exc:
+                    fault = callback_fault(
+                        "on_market_data",
+                        f"{frame_time.isoformat()}:{frame.observation.instrument}",
+                        exc,
+                    )
+                    callback_faults.append(fault)
+                    steps.append(
+                        BacktestStep(
+                            frame.index,
+                            timestamp,
+                            None,
+                            None,
+                            None,
+                            None,
+                            BacktestDisposition.BLOCKED,
+                            f"pre-commit strategy step failed: {fault.message}",
+                            (fault,),
+                        )
+                    )
+                    continue
+            else:
+                strategy_result = strategy(frame)
                 self._validate_strategy_result(strategy_result, frame)
                 if strategy_result.timers:
-                    if strategy_evaluation is None:
-                        raise ValueError(
-                            "timer requests require StrategyEvaluationService context"
-                        )
-                    timers.register_result(strategy_result, strategy_evaluation.event)
-            except Exception as exc:
-                fault = callback_fault(
-                    "on_market_data",
-                    f"{frame_time.isoformat()}:{frame.observation.instrument}",
-                    exc,
-                )
-                callback_faults.append(fault)
-                steps.append(
-                    BacktestStep(
-                        frame.index,
-                        timestamp,
-                        None,
-                        None,
-                        None,
-                        None,
-                        BacktestDisposition.BLOCKED,
-                        f"pre-commit strategy step failed: {fault.message}",
-                        (fault,),
+                    raise ValueError(
+                        "timer requests require StrategyEvaluationService context"
                     )
-                )
-                continue
 
             intent = strategy_result.intent
 
