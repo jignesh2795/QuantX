@@ -745,29 +745,6 @@ class DeterministicBacktestService:
                         "execution event-time alignment failed before strategy evaluation: "
                         f"{type(exc).__name__}: {exc}"
                     )
-                    observed_time: datetime | None = None
-                    try:
-                        candidate_time = execution_engine.clock.now()
-                        if (
-                            candidate_time.tzinfo is not None
-                            and candidate_time.utcoffset() is not None
-                        ):
-                            observed_time = candidate_time
-                    except Exception:
-                        pass
-                    if observed_time is not None:
-                        temporal_faults.append(
-                            TemporalIntegrityFault(
-                                source="execution_clock",
-                                identity=identity,
-                                expected_at=frame_time,
-                                effective_at=observed_time,
-                                reason=reason,
-                            )
-                        )
-                        halt_kind = "TEMPORAL_INTEGRITY"
-                    else:
-                        halt_kind = "EVENT_TIME_SUPPORT_VIOLATION"
                     fault = callback_fault(
                         "event_time_alignment",
                         identity,
@@ -775,7 +752,7 @@ class DeterministicBacktestService:
                     )
                     callback_faults.append(fault)
                     halt = RunHaltRecord(
-                        kind=halt_kind,
+                        kind="EVENT_TIME_SUPPORT_VIOLATION",
                         as_of=frame_time,
                         identity=identity,
                         reason=reason,
