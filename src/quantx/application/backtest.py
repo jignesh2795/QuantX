@@ -712,14 +712,15 @@ class DeterministicBacktestService:
             frame_time = frame.observation.timestamp
             timestamp = frame_time.isoformat()
             if halt is not None:
-                account_state_series.append(
-                    account_state_tracker.snapshot_at(
-                        frame_time,
-                        require_current_marks=(
-                            account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
-                        ),
+                if halt.kind != "TEMPORAL_INTEGRITY":
+                    account_state_series.append(
+                        account_state_tracker.snapshot_at(
+                            frame_time,
+                            require_current_marks=(
+                                account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
+                            ),
+                        )
                     )
-                )
                 steps.append(
                     BacktestStep(
                         frame.index, timestamp, None, None, None, None,
