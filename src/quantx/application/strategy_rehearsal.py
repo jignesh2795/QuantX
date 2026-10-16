@@ -328,7 +328,11 @@ class StrategyRehearsalSession:
                 order = preparation.request.order
                 order_id = str(order.client_order_id)
                 filled_quantity = (
-                    Decimal("0") if outcome.fill is None else outcome.fill.quantity
+                    None
+                    if outcome.lifecycle_status is OrderStatus.UNKNOWN and outcome.fill is None
+                    else Decimal("0")
+                    if outcome.fill is None
+                    else outcome.fill.quantity
                 )
                 fact = active_order_fact(
                     client_order_id=order_id,
@@ -390,7 +394,12 @@ class StrategyRehearsalSession:
                     status=outcome.lifecycle_status,
                     order_quantity=order.quantity,
                     filled_quantity=filled_quantity,
-                    remaining_quantity=order.quantity - filled_quantity,
+                    remaining_quantity=(
+                        None
+                        if filled_quantity is None
+                        or outcome.lifecycle_status is OrderStatus.UNKNOWN
+                        else order.quantity - filled_quantity
+                    ),
                     created_at=order.created_at,
                     evidence_time=event.timestamp,
                     reason=outcome.reason,
