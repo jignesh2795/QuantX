@@ -112,7 +112,7 @@ def test_timer_registration_is_atomic_and_ids_cannot_be_reused_after_firing() ->
     assert registry.pending == ()
 
 
-def test_timer_after_run_horizon_is_recorded_with_reason() -> None:
+def test_timer_after_replay_horizon_is_reported_pending() -> None:
     event_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     event = _event(event_time)
     request = TimerRequest("timer-1", event.instrument, event_time + timedelta(minutes=5))
