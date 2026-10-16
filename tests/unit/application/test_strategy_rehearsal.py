@@ -59,6 +59,7 @@ from quantx.execution.paper.profile import (
     OrderBookSnapshot,
     SlippageModel,
 )
+from quantx.execution.paper.latency import LatencyModel
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
@@ -607,6 +608,18 @@ def test_postcommit_callback_fault_attempts_order_update_and_preserves_fill_then
     assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_fill",)
     assert result.steps[1].evaluation is None
     assert "run halted" in result.steps[1].note
+
+
+def test_rehearsal_preflight_rejects_nonzero_latency_before_consumption() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    session, _ = _session()
+    session._paper_executor.broker.latency = LatencyModel(order_to_market_ms=1)
+
+    with pytest.raises(ValueError, match="nonzero paper execution latency"):
+        session.run(_inputs(start))
+
+    session._paper_executor.broker.latency = LatencyModel()
+    assert session.run(_inputs(start)).steps[0].evaluation is not None
 
 
 def test_rehearsal_rejects_regressing_timestamps_before_consuming_session() -> None:
