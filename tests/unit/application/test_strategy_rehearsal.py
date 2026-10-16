@@ -894,6 +894,25 @@ def test_rehearsal_preflight_rejects_nonzero_latency_before_consumption() -> Non
     assert session.run(_inputs(start)).steps[0].evaluation is not None
 
 
+@pytest.mark.parametrize("history_bars", ["513", "-1"])
+def test_rehearsal_rejects_out_of_range_history_bars_with_field_name(
+    history_bars: str,
+) -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    strategy_ir = StrategyCompiler.compile(
+        StrategyDefinition(
+            StrategyId("buy-and-hold"),
+            "1",
+            "Buy and Hold",
+            parameters={"history_bars": history_bars, "quantity": "2"},
+        )
+    )
+    session, _ = _session(strategy_ir=strategy_ir)
+
+    with pytest.raises(ValueError, match="history_bars"):
+        session.run(_inputs(start))
+
+
 def test_rehearsal_rejects_regressing_input_timestamps_before_consuming_session() -> None:
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     later = start + timedelta(minutes=1)

@@ -8,6 +8,12 @@ from quantx.execution.market_data import MarketSnapshot
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.replay import HistoricalReplay
 from quantx.strategy.compiler import StrategyCompiler
+from quantx.strategy.engine_snapshot import (
+    EngineEvidenceAdapter,
+    EngineStateSnapshot,
+    EvidenceCollection,
+    build_engine_snapshot,
+)
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.reference import BuyAndHoldStrategy
 
@@ -46,10 +52,23 @@ def _series() -> HistoricalDataSeries:
     return HistoricalDataSeries((HistoricalObservation(snapshot, "test", "1", 0),))
 
 
+def _known_empty_engine(event: MarketDataEvent) -> EngineStateSnapshot:
+    adapter = EngineEvidenceAdapter(
+        positions=EvidenceCollection.known(()),
+        orders=EvidenceCollection.known(()),
+        account_state=None,
+        account_reason="test provides no account-state tracker",
+    )
+    return build_engine_snapshot(adapter, as_of=event.timestamp)
+
+
 def test_replay_adapter_preserves_strategy_semantics() -> None:
-    direct = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate(_event(), _ir())
+    event = _event()
+    direct = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate(
+        event, _ir(), engine=_known_empty_engine(event)
+    )
     replay = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(
-        HistoricalReplay(_series()).frames()[0], _ir()
+        HistoricalReplay(_series()).frames()[0], _ir(), engine=_known_empty_engine(event)
     )
 
     assert replay.event == direct.event
@@ -67,11 +86,12 @@ def test_replay_adapter_preserves_strategy_semantics() -> None:
 
 
 def test_replay_evaluation_is_deterministic_for_identical_input() -> None:
+    event = _event()
     first = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(
-        HistoricalReplay(_series()).frames()[0], _ir()
+        HistoricalReplay(_series()).frames()[0], _ir(), engine=_known_empty_engine(event)
     )
     second = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(
-        HistoricalReplay(_series()).frames()[0], _ir()
+        HistoricalReplay(_series()).frames()[0], _ir(), engine=_known_empty_engine(event)
     )
 
     assert first.event == second.event

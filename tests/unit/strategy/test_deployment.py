@@ -16,6 +16,12 @@ from quantx.domain.strategy import StrategyDefinition, StrategyId
 from quantx.domain.value_objects import InstrumentId
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.deployment import StrategyDeploymentRuntime
+from quantx.strategy.engine_snapshot import (
+    EngineEvidenceAdapter,
+    EngineStateSnapshot,
+    EvidenceCollection,
+    build_engine_snapshot,
+)
 from quantx.strategy.reference import BuyAndHoldStrategy
 from quantx.strategy.registry import StrategyRegistry
 
@@ -54,6 +60,16 @@ def _deployment(*, enabled: bool = True, strategy_id: str = "buy-and-hold", vers
     )
 
 
+def _known_empty_engine(event: MarketDataEvent) -> EngineStateSnapshot:
+    adapter = EngineEvidenceAdapter(
+        positions=EvidenceCollection.known(()),
+        orders=EvidenceCollection.known(()),
+        account_state=None,
+        account_reason="test provides no account-state tracker",
+    )
+    return build_engine_snapshot(adapter, as_of=event.timestamp)
+
+
 def _runtime() -> StrategyDeploymentRuntime:
     registry = StrategyRegistry()
     registry.register("buy-and-hold", "1", BuyAndHoldStrategy)
@@ -61,7 +77,8 @@ def _runtime() -> StrategyDeploymentRuntime:
 
 
 def test_deployment_runtime_resolves_strategy_and_evaluates() -> None:
-    decision = _runtime().evaluate(_deployment(), _ir(), _event())
+    event = _event()
+    decision = _runtime().evaluate(_deployment(), _ir(), event, engine=_known_empty_engine(event))
 
     assert decision.deployment == _deployment()
     assert decision.result.signal.strategy_id == StrategyId("buy-and-hold")

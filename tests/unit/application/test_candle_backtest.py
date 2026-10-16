@@ -43,6 +43,11 @@ from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.quality import DataQualityStatus
 from quantx.research.replay import HistoricalReplay
 from quantx.strategy.compiler import StrategyCompiler
+from quantx.strategy.engine_snapshot import (
+    EngineEvidenceAdapter,
+    EvidenceCollection,
+    build_engine_snapshot,
+)
 from quantx.strategy.evaluation import (
     StrategyEvaluationService,
     _event_from_replay_frame,
@@ -212,7 +217,17 @@ def _buy_once_strategy(context: ExecutionContext):
 # 1. Candle-backed replay reaches the supported evaluation boundary.
 def test_candle_frame_evaluation_preserves_exact_payload() -> None:
     frame = HistoricalReplay(_candle_series()).frames()[0]
-    evaluated = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(frame, _ir())
+    event = _event_from_replay_frame(frame)
+    adapter = EngineEvidenceAdapter(
+        positions=EvidenceCollection.known(()),
+        orders=EvidenceCollection.known(()),
+        account_state=None,
+        account_reason="test provides no account-state tracker",
+    )
+    engine = build_engine_snapshot(adapter, as_of=event.timestamp)
+    evaluated = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(
+        frame, _ir(), engine=engine
+    )
 
     assert evaluated.event.data_type is MarketDataType.CANDLE
     assert evaluated.event.payload is frame.observation.snapshot

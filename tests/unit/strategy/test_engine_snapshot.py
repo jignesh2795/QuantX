@@ -476,3 +476,30 @@ def test_context_rejects_nonprior_or_cross_instrument_history() -> None:
         StrategyContext(_event(instant), _ir(), history=(future,))
     with pytest.raises(ValueError, match="event instrument"):
         StrategyContext(_event(instant), _ir(), history=(other,))
+
+
+@pytest.mark.parametrize("limit", [True, False, 513, -1, "2", 2.0, None])
+def test_prior_candle_history_rejects_invalid_limits(limit: object) -> None:
+    as_of = datetime(2026, 1, 1, 9, 18, tzinfo=UTC)
+    candles = (_candle(as_of - timedelta(minutes=1)),)
+
+    with pytest.raises(ValueError, match="history_bars"):
+        prior_candle_history(
+            candles,
+            instrument=_instrument(),
+            as_of=as_of,
+            limit=limit,  # type: ignore[arg-type]
+        )
+
+
+def test_prior_candle_history_accepts_zero_and_cap_boundaries() -> None:
+    as_of = datetime(2026, 1, 1, 9, 18, tzinfo=UTC)
+    candles = (
+        _candle(as_of - timedelta(minutes=2)),
+        _candle(as_of - timedelta(minutes=1)),
+    )
+
+    assert prior_candle_history(candles, instrument=_instrument(), as_of=as_of, limit=0) == ()
+    assert (
+        prior_candle_history(candles, instrument=_instrument(), as_of=as_of, limit=512) == candles
+    )
