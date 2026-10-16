@@ -15,7 +15,7 @@ from enum import StrEnum
 
 from quantx.application.strategy_preflight import assess_backtest_event_time_support
 from quantx.domain.clock import SimulatedClock
-from quantx.domain.enums import OrderSide, OrderType
+from quantx.domain.enums import OrderSide, OrderStatus, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
