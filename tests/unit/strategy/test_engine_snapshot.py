@@ -21,6 +21,7 @@ from quantx.strategy.engine_snapshot import (
     EvidenceAvailability,
     EvidenceCollection,
     OpenOrderFact,
+    active_order_fact,
     PositionFact,
     TemporalIntegrityError,
     build_engine_snapshot,
@@ -84,7 +85,10 @@ def test_default_context_has_explicit_unavailable_state_not_known_empty() -> Non
     assert context.engine.positions.availability is EvidenceAvailability.UNAVAILABLE
     assert context.engine.positions.reason
     assert context.engine.orders.availability is EvidenceAvailability.UNAVAILABLE
+    assert context.engine.orders.reason
     assert context.engine.account_availability is EvidenceAvailability.UNAVAILABLE
+    assert context.engine.account_state is None
+    assert context.engine.account_reason
     assert context.params.get_int("quantity") == 2
     assert context.as_of == _event().timestamp
 
@@ -193,6 +197,27 @@ def test_context_snapshot_and_parameter_views_are_frozen() -> None:
     assert isinstance(context.engine.positions.items, tuple)
     assert isinstance(context.ir.parameters, tuple)
     assert context.params.parameters is context.ir.parameters
+
+
+def test_active_order_fact_retains_unknown_and_drops_canonical_terminal() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    common = {
+        "client_order_id": "order-1",
+        "instrument": _instrument(),
+        "order_quantity": Decimal("1"),
+        "filled_quantity": Decimal("0"),
+        "created_at": as_of,
+        "evidence_time": as_of,
+    }
+
+    unresolved = active_order_fact(status=OrderStatus.UNKNOWN, **common)
+    accepted = active_order_fact(status=OrderStatus.ACCEPTED, **common)
+    terminal = active_order_fact(status=OrderStatus.FILLED, **common)
+
+    assert unresolved is not None
+    assert unresolved.status is OrderStatus.UNKNOWN
+    assert accepted is not None
+    assert terminal is None
 
 
 def test_snapshot_rejects_future_effective_position_evidence() -> None:
