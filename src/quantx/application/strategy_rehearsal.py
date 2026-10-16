@@ -17,6 +17,7 @@ from decimal import Decimal
 from quantx.application.strategy_preflight import assess_rehearsal_event_time_support
 from quantx.domain.clock import SimulatedClock
 from quantx.domain.deployment import ExecutionMode, StrategyDeployment
+from quantx.domain.enums import OrderStatus
 from quantx.domain.finance import AccountFinancialState
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle, MarketDataEvent
@@ -34,6 +35,7 @@ from quantx.strategy.callbacks import (
     dispatch_post_commit_callbacks,
     dispatch_timer_callback,
 )
+from quantx.strategy.context import StrategyContext
 from quantx.strategy.deployment import StrategyExecutionDecision
 from quantx.strategy.engine_snapshot import (
     OpenOrderFact,
@@ -51,6 +53,7 @@ from quantx.strategy.ir import StrategyIR
 from quantx.strategy.registry import StrategyRegistry
 from quantx.strategy.timers import TimerRegistry, UndeliveredTimer
 from quantx.strategy.typed_params import TypedParams
+
 
 @dataclass(frozen=True, slots=True)
 class RehearsalInput:
@@ -193,7 +196,10 @@ class StrategyRehearsalSession:
         while index < len(inputs):
             cohort_time = inputs[index].event.timestamp
             cohort_end = index + 1
-            while cohort_end < len(inputs) and inputs[cohort_end].event.timestamp == cohort_time:
+            while (
+                cohort_end < len(inputs)
+                and inputs[cohort_end].event.timestamp == cohort_time
+            ):
                 cohort_end += 1
             cohort = inputs[index:cohort_end]
 
@@ -277,7 +283,9 @@ class StrategyRehearsalSession:
                 identity = f"{event.timestamp.isoformat()}:{event.instrument}"
                 try:
                     if self._deployment.market.venue != event.instrument.venue:
-                        raise ValueError("deployment market venue does not match market event")
+                        raise ValueError(
+                            "deployment market venue does not match market event"
+                        )
                     snapshot = build_simulated_engine_snapshot(
                         as_of=event.timestamp,
                         accounting=self._paper_executor.accounting,
@@ -305,7 +313,9 @@ class StrategyRehearsalSession:
                         history=history,
                     )
                     if evaluation.result.signal.generated_at != event.timestamp:
-                        raise ValueError("strategy signal timestamp does not match market event")
+                        raise ValueError(
+                            "strategy signal timestamp does not match market event"
+                        )
                     timers.register_result(evaluation.result, event)
                 except Exception as exc:
                     fault = callback_fault("on_market_data", identity, exc)
@@ -324,20 +334,29 @@ class StrategyRehearsalSession:
                 callback_faults.extend(step.faults)
                 outcome = step.paper_outcome
                 preparation = step.preparation
-                if outcome is None or preparation is None or preparation.request is None:
+                if (
+                    outcome is None
+                    or preparation is None
+                    or preparation.request is None
+                ):
                     continue
 
                 order = preparation.request.order
                 order_id = str(order.client_order_id)
                 update_reason = outcome.reason
-                if outcome.lifecycle_status is OrderStatus.UNKNOWN and not update_reason:
+                if (
+                    outcome.lifecycle_status is OrderStatus.UNKNOWN and not update_reason
+                ):
                     update_reason = (
                         "order status is UNKNOWN; fill and remaining quantities "
                         "are not authoritative"
                     )
                 filled_quantity = (
                     None
-                    if outcome.lifecycle_status is OrderStatus.UNKNOWN and outcome.fill is None
+                    if (
+                        outcome.lifecycle_status is OrderStatus.UNKNOWN
+                        and outcome.fill is None
+                    )
                     else Decimal("0")
                     if outcome.fill is None
                     else outcome.fill.quantity
@@ -362,7 +381,10 @@ class StrategyRehearsalSession:
                 else:
                     active_orders[order_id] = fact
 
-                if outcome.fill is not None and outcome.fill.filled_at > event.timestamp:
+                if (
+                    outcome.fill is not None
+                    and outcome.fill.filled_at > event.timestamp
+                ):
                     temporal_fault = TemporalIntegrityFault(
                         source="paper_fill",
                         identity=order_id,
@@ -382,7 +404,9 @@ class StrategyRehearsalSession:
                 post_snapshot = build_simulated_engine_snapshot(
                     as_of=event.timestamp,
                     accounting=self._paper_executor.accounting,
-                    active_orders=tuple(active_orders[key] for key in sorted(active_orders)),
+                    active_orders=tuple(
+                        active_orders[key] for key in sorted(active_orders)
+                    ),
                     account_state=None,
                     account_reason=(
                         "paper rehearsal does not expose authoritative current "

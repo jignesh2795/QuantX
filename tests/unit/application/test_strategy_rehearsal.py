@@ -591,7 +591,9 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     assert result.steps[1].note == result.steps[2].note
     assert result.steps[3].evaluation is not None
     assert result.halt is None
-    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
+    assert tuple(fault.callback_name for fault in result.callback_faults) == (
+        "on_timer",
+    )
 
 
 def test_due_timer_failure_does_not_skip_other_due_timers() -> None:
@@ -644,7 +646,9 @@ def test_due_timer_failure_does_not_skip_other_due_timers() -> None:
     assert result.steps[2].evaluation is None
     assert result.steps[3].evaluation is not None
     assert result.halt is None
-    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
+    assert tuple(fault.callback_name for fault in result.callback_faults) == (
+        "on_timer",
+    )
 
 
 def test_rehearsal_reports_timers_undelivered_beyond_input_horizon() -> None:
@@ -656,7 +660,10 @@ def test_rehearsal_reports_timers_undelivered_beyond_input_horizon() -> None:
 
     assert len(result.undelivered_timers) == 1
     assert result.undelivered_timers[0].timer.timer_id == "timer-1"
-    assert "run ended before the timer became due" in result.undelivered_timers[0].reason
+    assert (
+        "run ended before the timer became due"
+        in result.undelivered_timers[0].reason
+    )
     assert strategy.calls == [("market", start)]
 
 
@@ -714,7 +721,9 @@ def test_precommit_preparation_failure_preserves_timer_and_later_steps() -> None
                     generated_at=event.timestamp,
                 ),
                 intent=intent,
-                timers=(TimerRequest("prep-failure-timer", event.instrument, timer_due),),
+                timers=(
+                    TimerRequest("prep-failure-timer", event.instrument, timer_due),
+                ),
             )
 
         def on_timer(self, context: StrategyContext, timer) -> None:
@@ -730,7 +739,9 @@ def test_precommit_preparation_failure_preserves_timer_and_later_steps() -> None
     assert first.preparation is None
     assert first.paper_outcome is None
     assert "pre-commit preparation failed" in first.note
-    assert tuple(fault.callback_name for fault in first.faults) == ("strategy_preparation",)
+    assert tuple(fault.callback_name for fault in first.faults) == (
+        "strategy_preparation",
+    )
     assert tuple(fault.callback_name for fault in result.callback_faults) == (
         "strategy_preparation",
     )
@@ -766,7 +777,9 @@ def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     assert strategy.order_updates[0].remaining_quantity == Decimal("0")
     assert result.halt is not None
     assert result.halt.kind == "POST_COMMIT_CALLBACK_FAILURE"
-    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_fill",)
+    assert tuple(fault.callback_name for fault in result.callback_faults) == (
+        "on_fill",
+    )
     assert result.steps[1].evaluation is None
     assert "run halted" in result.steps[1].note
 

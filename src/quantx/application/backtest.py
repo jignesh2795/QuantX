@@ -665,7 +665,9 @@ class DeterministicBacktestService:
         qx08_active = isinstance(strategy, StrategyEvaluationService)
         if qx08_active:
             if strategy_ir is None:
-                raise ValueError("strategy_ir is required for StrategyEvaluationService")
+                raise ValueError(
+                    "strategy_ir is required for StrategyEvaluationService"
+                )
             assess_backtest_event_time_support(
                 execution_engine,
                 internally_composed=self._execution_engine is None,
@@ -815,7 +817,9 @@ class DeterministicBacktestService:
                                 callback_target, timer_context, timer
                             )
                         except Exception as exc:
-                            fault = callback_fault("on_timer_context", timer.timer_id, exc)
+                            fault = callback_fault(
+                                "on_timer_context", timer.timer_id, exc
+                            )
                         if fault is not None:
                             due_faults.append(fault)
                             callback_faults.append(fault)
@@ -835,7 +839,9 @@ class DeterministicBacktestService:
                         ),
                     )
                 )
-                step_faults = () if cohort_timer_faults_attached else cohort_timer_faults
+                step_faults = (
+                    () if cohort_timer_faults_attached else cohort_timer_faults
+                )
                 cohort_timer_faults_attached = True
                 steps.append(
                     BacktestStep(
@@ -1024,6 +1030,8 @@ class DeterministicBacktestService:
                     ),
                 )
             except Exception as exc:
+                if not qx08_active:
+                    raise
                 fault = callback_fault("risk_preparation", failure_identity, exc)
                 callback_faults.append(fault)
                 steps.append(
@@ -1063,6 +1071,8 @@ class DeterministicBacktestService:
             try:
                 policy = self._policy_engine.evaluate(intent, effective_policy)
             except Exception as exc:
+                if not qx08_active:
+                    raise
                 fault = callback_fault("policy_preparation", failure_identity, exc)
                 callback_faults.append(fault)
                 steps.append(
@@ -1142,6 +1152,8 @@ class DeterministicBacktestService:
                         "for QX-08 callbacks"
                     )
             except Exception as exc:
+                if not qx08_active:
+                    raise
                 fault = callback_fault("event_time_alignment", failure_identity, exc)
                 reason = (
                     "execution event-time alignment failed before paper execution: "
@@ -1177,7 +1189,9 @@ class DeterministicBacktestService:
                 # Preserve the legacy callable path's fail-fast clock contract.
                 self._require_coherent_execution_time(order, receipt)
             receipts.append(receipt)
-            post_account_state = account_state_tracker.record(receipt, snapshot=snapshot)
+            post_account_state = account_state_tracker.record(
+                receipt, snapshot=snapshot
+            )
 
             steps.append(
                 BacktestStep(
@@ -1318,7 +1332,10 @@ class DeterministicBacktestService:
                     filled_quantity=filled_quantity,
                     remaining_quantity=(
                         None
-                        if filled_quantity is None or receipt.order_status is OrderStatus.UNKNOWN
+                        if (
+                            filled_quantity is None
+                            or receipt.order_status is OrderStatus.UNKNOWN
+                        )
                         else order.quantity - filled_quantity
                     ),
                     created_at=order.created_at,

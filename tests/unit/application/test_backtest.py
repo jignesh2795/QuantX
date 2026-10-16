@@ -525,7 +525,11 @@ def _timestamped_tcs_series() -> HistoricalDataSeries:
             ask=Decimal("100"),
             last=Decimal("100"),
         )
-        for timestamp in (start, start + timedelta(minutes=1), start + timedelta(minutes=2))
+        for timestamp in (
+            start,
+            start + timedelta(minutes=1),
+            start + timedelta(minutes=2),
+        )
     )
     return HistoricalDataSeries(
         tuple(
@@ -577,7 +581,9 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     assert all(step.disposition is BacktestDisposition.BLOCKED for step in cohort_steps)
     assert sum(bool(step.faults) for step in cohort_steps) == 1
     assert result.halt is None
-    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
+    assert tuple(fault.callback_name for fault in result.callback_faults) == (
+        "on_timer",
+    )
 
 
 def test_active_order_persists_into_next_strategy_context_until_terminal_status() -> None:
@@ -690,7 +696,10 @@ def test_backtest_reports_timers_undelivered_beyond_replay_horizon() -> None:
 
     assert len(result.undelivered_timers) == 1
     assert result.undelivered_timers[0].timer.timer_id == "after-horizon"
-    assert "run ended before the timer became due" in result.undelivered_timers[0].reason
+    assert (
+        "run ended before the timer became due"
+        in result.undelivered_timers[0].reason
+    )
     assert strategy.timer_calls == []
 
 
@@ -852,7 +861,9 @@ def test_clock_drift_between_strategy_and_execution_is_recorded_without_execute(
 
     assert observed == [start]
     assert result.steps[0].disposition is BacktestDisposition.BLOCKED
-    assert "event-time alignment failed before paper execution" in result.steps[0].reason
+    assert (
+        "event-time alignment failed before paper execution" in result.steps[0].reason
+    )
     assert result.steps[0].faults[0].callback_name == "event_time_alignment"
     assert result.halt is not None
     assert result.halt.kind == "EVENT_TIME_SUPPORT_VIOLATION"
@@ -884,7 +895,9 @@ def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     assert strategy.order_updates[0].remaining_quantity == Decimal("0")
     assert result.halt is not None
     assert result.halt.kind == "POST_COMMIT_CALLBACK_FAILURE"
-    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_fill",)
+    assert tuple(fault.callback_name for fault in result.callback_faults) == (
+        "on_fill",
+    )
     assert result.steps[1].disposition is BacktestDisposition.BLOCKED
     assert "run halted" in result.steps[1].reason
 
@@ -1082,7 +1095,9 @@ def test_callback_driver_rejects_nonzero_execution_latency_before_first_step() -
 
 def test_unknown_executor_time_capability_fails_closed() -> None:
     instrument = _instrument()
-    engine = _CapturingEngine(clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+    engine = _CapturingEngine(
+        clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC))
+    )
     ir = _runtime_ir("preflight-backtest")
 
     with pytest.raises(ValueError, match="UNKNOWN"):

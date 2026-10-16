@@ -9,7 +9,7 @@ from uuid import uuid4
 from quantx.domain.enums import OrderSide, OrderStatus
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
 from quantx.domain.orders import Fill
-from quantx.domain.strategy import StrategyDefinition, StrategyId, StrategySignal, SignalAction
+from quantx.domain.strategy import StrategyDefinition, StrategyId
 from quantx.domain.value_objects import InstrumentId
 from quantx.strategy.callbacks import (
     OrderUpdateFact,
@@ -22,7 +22,9 @@ from quantx.strategy.timers import TimerInvocation
 
 
 def _ir():
-    return StrategyCompiler.compile(StrategyDefinition(StrategyId("callbacks"), "1", "Callbacks"))
+    return StrategyCompiler.compile(
+        StrategyDefinition(StrategyId("callbacks"), "1", "Callbacks")
+    )
 
 
 def _event(at: datetime) -> MarketDataEvent:
@@ -74,7 +76,9 @@ def test_post_commit_dispatch_attempts_all_fills_then_order_update() -> None:
             raise ValueError("order notification failed")
 
     fills = (_fill(at), _fill(at + timedelta(microseconds=1)))
-    faults = dispatch_post_commit_callbacks(_Observers(), context, fills, _order_update(at))
+    faults = dispatch_post_commit_callbacks(
+        _Observers(), context, fills, _order_update(at)
+    )
 
     assert tuple(call[0] for call in calls) == ("on_fill", "on_fill", "on_order_update")
     assert all(call[1] is context for call in calls)
