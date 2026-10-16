@@ -28,6 +28,7 @@ class OrderUpdateFact:
     created_at: datetime
     evidence_time: datetime
     reason: str | None = None
+    effective_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.client_order_id.strip():
@@ -40,11 +41,17 @@ class OrderUpdateFact:
             Decimal("0") <= self.remaining_quantity <= self.order_quantity
         ):
             raise ValueError("remaining_quantity must be between zero and order_quantity")
-        for name, value in (("created_at", self.created_at), ("evidence_time", self.evidence_time)):
-            if value.tzinfo is None or value.utcoffset() is None:
+        for name, value in (
+            ("created_at", self.created_at),
+            ("evidence_time", self.evidence_time),
+            ("effective_at", self.effective_at),
+        ):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
                 raise ValueError(f"{name} must be timezone-aware")
         object.__setattr__(self, "created_at", self.created_at.astimezone(UTC))
         object.__setattr__(self, "evidence_time", self.evidence_time.astimezone(UTC))
+        if self.effective_at is not None:
+            object.__setattr__(self, "effective_at", self.effective_at.astimezone(UTC))
 
 
 @dataclass(frozen=True, slots=True)
