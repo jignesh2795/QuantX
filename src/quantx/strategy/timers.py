@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from quantx.domain.market_data import MarketDataEvent
 from quantx.domain.strategy import StrategyResult, TimerRequest
+from quantx.domain.value_objects import InstrumentId
 
 
 def validate_timer_requests(
@@ -37,7 +38,7 @@ class TimerInvocation:
     """Immutable facts describing one timer as it is delivered to a strategy."""
 
     timer_id: str
-    instrument: object
+    instrument: InstrumentId
     due_at: datetime
     registered_at: datetime
     registration_sequence: int
