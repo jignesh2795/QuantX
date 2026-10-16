@@ -8,11 +8,13 @@ paper, shadow, or live adapters.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from quantx.domain.deployment import StrategyDeployment
-from quantx.domain.market_data import MarketDataEvent
+from quantx.domain.market_data import Candle, MarketDataEvent
 from quantx.domain.strategy import StrategyResult
 
+from .engine_snapshot import EngineStateSnapshot
 from .evaluation import StrategyEvaluationService
 from .ir import StrategyIR
 from .registry import StrategyRegistry
@@ -37,10 +39,20 @@ class StrategyDeploymentRuntime:
         deployment: StrategyDeployment,
         ir: StrategyIR,
         event: MarketDataEvent,
+        *,
+        engine: EngineStateSnapshot | None = None,
+        history: tuple[Candle, ...] = (),
+        as_of: datetime | None = None,
     ) -> StrategyExecutionDecision:
         self._validate_deployment(deployment, ir, event)
         strategy = self._registry.resolve(ir)
-        evaluation = StrategyEvaluationService(strategy).evaluate(event, ir)
+        evaluation = StrategyEvaluationService(strategy).evaluate(
+            event,
+            ir,
+            engine=engine,
+            history=history,
+            as_of=as_of,
+        )
         return StrategyExecutionDecision(
             deployment=deployment,
             result=evaluation.result,

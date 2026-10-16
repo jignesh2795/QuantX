@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from quantx.domain.enums import OrderSide
-from quantx.domain.market_data import MarketDataEvent
+from quantx.domain.market_data import Candle, MarketDataEvent
 from quantx.domain.strategy import SignalAction, StrategyResult
 
 from .context import StrategyContext
+from .engine_snapshot import EngineStateSnapshot
 from .ir import StrategyIR
 
 
@@ -22,26 +24,43 @@ class StrategyRuntime:
     def __init__(self, strategy: ExecutableStrategy) -> None:
         self._strategy = strategy
 
-    def evaluate(self, event: MarketDataEvent, ir: StrategyIR) -> StrategyResult:
-        context = StrategyContext(event=event, ir=ir)
+    def evaluate(
+        self,
+        event: MarketDataEvent,
+        ir: StrategyIR,
+        *,
+        engine: EngineStateSnapshot | None = None,
+        as_of: datetime | None = None,
+        history: tuple[Candle, ...] = (),
+    ) -> StrategyResult:
+        context = StrategyContext(
+            event=event,
+            ir=ir,
+            as_of=as_of,
+            engine=engine,
+            history=history,
+        )
         result = self._strategy.on_market_data(context)
         self._validate_result(result, context)
         return result
 
     @staticmethod
     def _validate_result(result: StrategyResult, context: StrategyContext) -> None:
+        event = context.event
+        if event is None:
+            raise ValueError("on_market_data evaluation requires a market event")
         signal = result.signal
         if signal.strategy_id != context.ir.strategy_id:
             raise ValueError("strategy signal id does not match strategy IR")
         if signal.strategy_version != context.ir.version:
             raise ValueError("strategy signal version does not match strategy IR")
-        if signal.instrument != context.event.instrument:
+        if signal.instrument != event.instrument:
             raise ValueError("strategy signal instrument does not match market event")
 
         intent = result.intent
         if intent is None:
             return
-        if intent.instrument != context.event.instrument:
+        if intent.instrument != event.instrument:
             raise ValueError("strategy intent instrument does not match market event")
         if intent.strategy_id != context.ir.strategy_id.value:
             raise ValueError("strategy intent id does not match strategy IR")
