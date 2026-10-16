@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 
+from quantx.application.strategy_preflight import EventTimeSupport
 from quantx.application.backtest import (
     AccountStateSamplingPolicy,
     BacktestDisposition,
@@ -594,6 +595,37 @@ def test_backtest_postcommit_fault_completes_notifications_and_preserves_fill() 
     assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_fill",)
     assert result.steps[1].disposition is BacktestDisposition.BLOCKED
     assert "run halted" in result.steps[1].reason
+
+
+def test_unexpected_future_effective_receipt_is_preserved_and_halts_without_callbacks() -> None:
+    ahead = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
+    engine = _CapturingEngine(clock=FixedClock(ahead))
+    engine.event_time_support = EventTimeSupport.SUPPORTED
+    strategy = _BacktestCommitThenFailObserver()
+    ir = _runtime_ir("callback-backtest")
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
+        execution_engine=engine,
+    ).run(
+        series=_series(),
+        strategy=StrategyEvaluationService(strategy),
+        strategy_ir=ir,
+        financial_state=_financial_state(),
+    )
+
+    assert len(result.receipts) == 1
+    assert result.receipts[0].executed_at == ahead
+    assert result.receipts[0].fills
+    assert result.steps[0].receipt is result.receipts[0]
+    assert result.ledger[0].quantity == Decimal("1")
+    assert result.account_states[0].completeness.value == "INCOMPLETE"
+    assert result.halt is not None
+    assert result.halt.kind == "TEMPORAL_INTEGRITY"
+    assert {fault.source for fault in result.temporal_faults} == {"receipt", "fill"}
+    assert strategy.calls == []
+    assert result.steps[1].disposition is BacktestDisposition.BLOCKED
+    assert len(result.account_state_series) == 1
 
 
 def test_backtest_event_time_preflight_rejects_unknown_injected_engine_before_side_effects() -> None:
