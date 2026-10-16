@@ -117,7 +117,7 @@ def _started_runtime() -> ApplicationRuntime:
 
 def _live_orchestrator(**overrides) -> ExecutionOrchestrator:
     return ExecutionOrchestrator(
-        trading_gate=DurableTradingGate(InMemoryTradingGateStateStore()),
+        trading_gate=DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True),
         application_runtime=_started_runtime(),
         **overrides,
     )
@@ -567,7 +567,7 @@ def test_india_non_live_modes_keep_session_guard_without_pack_checks(
     policy, _ = _toy_policy(calls=calls)
     request = _request(mode=mode)
     orchestrator = ExecutionOrchestrator(
-        trading_gate=DurableTradingGate(InMemoryTradingGateStateStore()),
+        trading_gate=DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True),
         application_runtime=_started_runtime(),
         session_guard=SessionExecutionGuard(session=_ClosedSession()),
         market_policy=policy,

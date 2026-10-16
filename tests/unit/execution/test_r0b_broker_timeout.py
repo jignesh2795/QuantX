@@ -275,7 +275,9 @@ def test_gate_block_completes_while_broker_submit_blocked(tmp_path) -> None:
     try:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -345,7 +347,9 @@ def test_slow_health_probe_does_not_serialize_block(tmp_path) -> None:
     try:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -430,7 +434,7 @@ def test_authorized_reservation_continues_after_block(tmp_path) -> None:
 
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        gate = DurableTradingGate(SqliteTradingGateStateStore(database))
+        gate = DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True)
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=gate,
@@ -484,7 +488,9 @@ def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
     try:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -558,7 +564,9 @@ def test_late_broker_success_reconciles_without_resubmission(tmp_path) -> None:
     try:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -679,7 +687,9 @@ def test_idempotency_preserved_after_timeout(tmp_path) -> None:
     try:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),

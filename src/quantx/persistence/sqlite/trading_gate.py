@@ -25,6 +25,10 @@ class SqliteTradingGateStateStore(TradingGateStateStore):
         if row is None:
             return None
         enabled, reason = row
+        # A corrupt row must never decode into a permissive state. Gate query
+        # paths treat a raised decode error as unavailable and fail closed.
+        if enabled not in (0, 1) or not isinstance(reason, str):
+            raise ValueError("corrupt trading-gate state row")
         return TradingGateState(enabled=bool(enabled), reason=reason)
 
     @contextmanager

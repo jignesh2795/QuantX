@@ -197,7 +197,7 @@ class _FakeUnitOfWork(UnitOfWork):
 
 
 def _durable_gate() -> DurableTradingGate:
-    return DurableTradingGate(InMemoryTradingGateStateStore())
+    return DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True)
 
 
 def _approving_india_evaluator():

@@ -247,7 +247,9 @@ def _orchestrator(database, unit_of_work) -> ExecutionOrchestrator:
     """
     return ExecutionOrchestrator(
         unit_of_work=unit_of_work,
-        trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+        trading_gate=DurableTradingGate(
+            SqliteTradingGateStateStore(database), default_enabled=True
+        ),
         application_runtime=_started_runtime(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
