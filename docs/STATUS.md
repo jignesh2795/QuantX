@@ -20,7 +20,13 @@ Exact-feature-HEAD validation was operator-reported at `9bd0d0e8fe983e3f415d97ae
 The bounded source/test reconciliation now has traceable evidence for every in-scope T1–T8 criterion and G1–G3 invariant. The parent Strategy Platform Flow path remains separate and out of QX-08 scope; no LIVE strategy execution, external scheduler, second accounting/lifecycle subsystem, or risk/execution-recovery redesign is introduced.
 
 
-## Current state — QX-08 M1–M4 and acceptance reconciliation complete; QX-09 complete
+## QX-06 multi-leg design decision — accepted (2026-10-16)
+
+[ADR-010: Composed Multi-Leg Order Workflow Semantics](architecture/adr/ADR-010-composed-multi-leg-order-semantics.md) resolves the architecture choice in issue #195: the first multi-leg vertical is an application-owned, sequential workflow of ordinary single-leg orders, not a native/atomic basket. The ADR defines stable workflow/leg identity, workflow-wide path-risk and margin admission, deterministic leg order, per-leg idempotency, partial-exposure/UNKNOWN handling, durable recovery requirements, and the explicit no-automatic-compensation/no-automatic-retry policy.
+
+**Design only; no multi-leg execution is implemented or enabled.** Implementation is gated on canonical per-leg product/position-effect and derivative-contract decisions in #193/#194, plus a bounded trace of existing aggregate-risk, reservation, persistence and recovery seams. If those contracts cannot prove safe aggregate admission and restart/reconciliation, the workflow must fail closed. Native baskets, parallel submission, assumed spread-margin offsets, automatic flatten/hedge, and cross-broker atomicity remain unsupported.
+
+## Current state — QX-06 ADR accepted; QX-08 acceptance complete; QX-09 complete
 
 PR #221 merged QX-09 from `feat/qx-09-market-pack-checks-v1` at validated head `7793646e0e3d210e81364d39605ee3383e434723` as merge commit `1e4ebf4f4671e90dcdcafc1cda578182ab39d58b`. The PR covers 15 focused files (+5,746/−229); local validation was reported at the exact feature head, and no GitHub Actions results are claimed. Repository Actions are disabled by project policy.
 
