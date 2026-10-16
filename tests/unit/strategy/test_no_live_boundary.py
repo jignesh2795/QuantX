@@ -145,7 +145,7 @@ def test_strategy_seams_have_no_broker_submit_or_scheduler_path() -> None:
     assert observed == []
 
 
-def test_boundary_scanner_detects_live_submit_wallclock_and_scheduler_sentinels() -> None:
+def test_boundary_scanner_flags_wallclock_and_forbidden_paths() -> None:
     unsafe_source = """
 import asyncio
 import datetime
