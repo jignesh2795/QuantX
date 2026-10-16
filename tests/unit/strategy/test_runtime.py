@@ -15,6 +15,11 @@ from quantx.domain.strategy import (
 )
 from quantx.domain.value_objects import InstrumentId
 from quantx.strategy.compiler import StrategyCompiler
+from quantx.strategy.engine_snapshot import (
+    EngineEvidenceAdapter,
+    EvidenceCollection,
+    build_engine_snapshot,
+)
 from quantx.strategy.reference import BuyAndHoldStrategy
 from quantx.strategy.runtime import StrategyRuntime
 
@@ -36,7 +41,14 @@ def _ir(strategy_id: str = "buy-and-hold"):
 
 def test_runtime_accepts_valid_strategy_output() -> None:
     event = _event()
-    result = StrategyRuntime(BuyAndHoldStrategy()).evaluate(event, _ir())
+    adapter = EngineEvidenceAdapter(
+        positions=EvidenceCollection.known(()),
+        orders=EvidenceCollection.known(()),
+        account_state=None,
+        account_reason="test provides no account-state tracker",
+    )
+    engine = build_engine_snapshot(adapter, as_of=event.timestamp)
+    result = StrategyRuntime(BuyAndHoldStrategy()).evaluate(event, _ir(), engine=engine)
 
     assert result.intent is not None
     assert result.intent.instrument == event.instrument
