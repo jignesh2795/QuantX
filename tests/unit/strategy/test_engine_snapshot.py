@@ -13,6 +13,7 @@ from quantx.execution.accounting import PositionLedgerEntry
 from quantx.execution.historical_account_state import (
     AccountStateCompleteness,
     HistoricalAccountStateSnapshot,
+    HistoricalValuationEvidence,
 )
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
@@ -179,6 +180,78 @@ def test_incomplete_position_order_and_account_evidence_keeps_reasons() -> None:
     assert snapshot.account_state is account
     assert snapshot.account_state.market_value is None
     assert snapshot.account_state.equity is None
+
+
+def _incomplete_account_with_valuation_evidence(
+    as_of: datetime,
+    evidence: HistoricalValuationEvidence,
+) -> HistoricalAccountStateSnapshot:
+    return HistoricalAccountStateSnapshot(
+        timestamp=as_of,
+        capital_source=CapitalSourceType.BACKTEST_CONFIGURED,
+        cash=Money(Decimal("1000"), "INR"),
+        market_value=None,
+        equity=None,
+        realized_pnl=Money.zero("INR"),
+        unrealized_pnl=None,
+        gross_exposure=None,
+        fees=Money.zero("INR"),
+        positions=(),
+        completeness=AccountStateCompleteness.INCOMPLETE,
+        unavailable_instruments=("NSE:TCS",),
+        issue="account valuation is incomplete",
+        valuation_evidence=(evidence,),
+    )
+
+
+def test_snapshot_rejects_future_account_mark_observation_time() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    account = _incomplete_account_with_valuation_evidence(
+        as_of,
+        HistoricalValuationEvidence(
+            instrument_id="NSE:TCS",
+            mark_price=Decimal("100"),
+            source="test",
+            observed_at=as_of + timedelta(seconds=1),
+            selected_at=as_of,
+            unavailable=False,
+        ),
+    )
+    with pytest.raises(TemporalIntegrityError, match="valuation mark"):
+        build_engine_snapshot(
+            EngineEvidenceAdapter(
+                positions=EvidenceCollection.known(()),
+                orders=EvidenceCollection.known(()),
+                account_state=account,
+                account_reason=account.issue,
+            ),
+            as_of=as_of,
+        )
+
+
+def test_snapshot_rejects_future_account_valuation_selection_time() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    account = _incomplete_account_with_valuation_evidence(
+        as_of,
+        HistoricalValuationEvidence(
+            instrument_id="NSE:TCS",
+            mark_price=Decimal("100"),
+            source="test",
+            observed_at=as_of,
+            selected_at=as_of + timedelta(seconds=1),
+            unavailable=False,
+        ),
+    )
+    with pytest.raises(TemporalIntegrityError, match="valuation selection"):
+        build_engine_snapshot(
+            EngineEvidenceAdapter(
+                positions=EvidenceCollection.known(()),
+                orders=EvidenceCollection.known(()),
+                account_state=account,
+                account_reason=account.issue,
+            ),
+            as_of=as_of,
+        )
 
 
 def test_context_snapshot_and_parameter_views_are_frozen() -> None:
