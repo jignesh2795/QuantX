@@ -7,6 +7,8 @@ from pathlib import Path
 
 _SEAM_FILES = (
     "src/quantx/strategy/context.py",
+    "src/quantx/strategy/timers.py",
+    "src/quantx/strategy/callbacks.py",
     "src/quantx/strategy/engine_snapshot.py",
     "src/quantx/strategy/typed_params.py",
     "src/quantx/strategy/runtime.py",
