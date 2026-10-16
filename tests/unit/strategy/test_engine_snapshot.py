@@ -248,6 +248,22 @@ def test_history_is_prior_only_same_instrument_and_most_recent_first_window() ->
     assert prior_candle_history(candles, instrument=_instrument(), as_of=as_of, limit=0) == ()
 
 
+def test_history_sorts_observations_before_applying_recent_window() -> None:
+    as_of = datetime(2026, 1, 1, 9, 20, tzinfo=UTC)
+    oldest = _candle(as_of - timedelta(minutes=4))
+    newest = _candle(as_of - timedelta(minutes=1))
+    middle = _candle(as_of - timedelta(minutes=2))
+
+    history = prior_candle_history(
+        (oldest, newest, middle),
+        instrument=_instrument(),
+        as_of=as_of,
+        limit=2,
+    )
+
+    assert history == (middle, newest)
+
+
 def test_context_rejects_nonprior_or_cross_instrument_history() -> None:
     instant = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     future = _candle(instant)
