@@ -787,7 +787,8 @@ class DeterministicBacktestService:
                     account_state_tracker.snapshot_at(
                         frame_time,
                         require_current_marks=(
-                            account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
+                            account_state_sampling_policy
+                            is AccountStateSamplingPolicy.EXACT_CURRENT
                         ),
                     )
                 )
@@ -1123,7 +1124,10 @@ class DeterministicBacktestService:
                         )
                 if future_evidence:
                     temporal_faults.extend(future_evidence)
-                    reason = "future-effective execution evidence; no coherent strategy snapshot delivered"
+                    reason = (
+                        "future-effective execution evidence; "
+                        "no coherent strategy snapshot delivered"
+                    )
                     account_states.append(
                         replace(
                             post_account_state,
