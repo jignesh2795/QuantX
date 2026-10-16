@@ -394,6 +394,11 @@ class StrategyRehearsalSession:
                     created_at=order.created_at,
                     evidence_time=event.timestamp,
                     reason=outcome.reason,
+                    effective_at=(
+                        event.timestamp
+                        if outcome.fill is None
+                        else outcome.fill.filled_at
+                    ),
                 )
                 faults = dispatch_post_commit_callbacks(
                     callback_target,
