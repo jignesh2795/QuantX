@@ -232,10 +232,11 @@ class StrategyRehearsalSession:
                         as_of=timer.due_at,
                         limit=history_limit,
                     )
+                    assert logical_clock is not None
                     context = StrategyContext(
                         event=None,
                         ir=self._strategy_ir,
-                        as_of=timer.due_at,
+                        as_of=logical_clock.now(),
                         engine=snapshot,
                         history=history,
                     )
@@ -296,11 +297,12 @@ class StrategyRehearsalSession:
                         as_of=event.timestamp,
                         limit=history_limit,
                     )
+                    assert logical_clock is not None
                     evaluation = self._evaluation.evaluate(
                         event,
                         self._strategy_ir,
                         engine=snapshot,
-                        as_of=event.timestamp,
+                        as_of=logical_clock.now(),
                         history=history,
                     )
                     if evaluation.result.signal.generated_at != event.timestamp:
