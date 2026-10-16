@@ -23,7 +23,7 @@ class OrderUpdateFact:
     instrument: InstrumentId
     status: OrderStatus
     order_quantity: Decimal
-    filled_quantity: Decimal
+    filled_quantity: Decimal | None
     remaining_quantity: Decimal | None
     created_at: datetime
     evidence_time: datetime
@@ -35,12 +35,16 @@ class OrderUpdateFact:
             raise ValueError("client_order_id must not be empty")
         if self.order_quantity <= 0:
             raise ValueError("order_quantity must be positive")
-        if self.filled_quantity < 0 or self.filled_quantity > self.order_quantity:
-            raise ValueError("filled_quantity must be between zero and order_quantity")
-        if self.remaining_quantity is not None and not (
-            Decimal("0") <= self.remaining_quantity <= self.order_quantity
-        ):
-            raise ValueError("remaining_quantity must be between zero and order_quantity")
+        if self.filled_quantity is None:
+            if self.remaining_quantity is not None:
+                raise ValueError("remaining_quantity requires known filled_quantity")
+        else:
+            if self.filled_quantity < 0 or self.filled_quantity > self.order_quantity:
+                raise ValueError("filled_quantity must be between zero and order_quantity")
+            if self.remaining_quantity is not None and self.remaining_quantity != (
+                self.order_quantity - self.filled_quantity
+            ):
+                raise ValueError("remaining_quantity must agree with known filled_quantity")
         for name, value in (
             ("created_at", self.created_at),
             ("evidence_time", self.evidence_time),
