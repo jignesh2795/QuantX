@@ -34,6 +34,7 @@ from quantx.domain.strategy import (
     StrategyId,
     StrategyResult,
     StrategySignal,
+    TimerRequest,
 )
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.charges import (
@@ -420,6 +421,200 @@ def test_backtest_blocks_intent_when_canonical_market_does_not_match() -> None:
     )
 
     assert all(step.disposition is BacktestDisposition.BLOCKED for step in result.steps)
+
+
+class _BacktestTimerObserver:
+    def __init__(self, *, fail_timer: bool = False) -> None:
+        self.requested = False
+        self.fail_timer = fail_timer
+        self.calls: list[tuple[object, ...]] = []
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        event = context.event
+        assert event is not None
+        self.calls.append(("market", event.timestamp, event.instrument))
+        timers: tuple[TimerRequest, ...] = ()
+        if not self.requested:
+            self.requested = True
+            timers = (
+                TimerRequest(
+                    "timer-1",
+                    event.instrument,
+                    event.timestamp + timedelta(seconds=30),
+                ),
+            )
+        return StrategyResult(
+            signal=StrategySignal(
+                context.ir.strategy_id,
+                context.ir.version,
+                event.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=event.timestamp,
+            ),
+            timers=timers,
+        )
+
+    def on_timer(self, context: StrategyContext, timer) -> None:
+        self.calls.append(("timer", context.event, context.as_of, timer.timer_id))
+        if self.fail_timer:
+            raise RuntimeError("timer observer failed")
+
+
+class _BacktestCommitThenFailObserver:
+    def __init__(self) -> None:
+        self.entered = False
+        self.calls: list[str] = []
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        event = context.event
+        assert event is not None
+        if self.entered:
+            action = SignalAction.HOLD
+            intent = None
+        else:
+            self.entered = True
+            action = SignalAction.BUY
+            intent = TradeIntent(
+                instrument=event.instrument,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                execution_context=_context(),
+                strategy_id=context.ir.strategy_id.value,
+                strategy_version=context.ir.version,
+            )
+        return StrategyResult(
+            signal=StrategySignal(
+                context.ir.strategy_id,
+                context.ir.version,
+                event.instrument,
+                action,
+                1.0,
+                generated_at=event.timestamp,
+            ),
+            intent=intent,
+        )
+
+    def on_fill(self, context: StrategyContext, fill) -> None:
+        self.calls.append("on_fill")
+        raise RuntimeError("fill observer failed")
+
+    def on_order_update(self, context: StrategyContext, update) -> None:
+        self.calls.append("on_order_update")
+
+
+def _runtime_ir(strategy_id: str) -> StrategyIR:
+    return StrategyCompiler.compile(
+        StrategyDefinition(StrategyId(strategy_id), "1", strategy_id)
+    )
+
+
+def _timestamped_tcs_series() -> HistoricalDataSeries:
+    instrument = _instrument().instrument_id
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    quotes = tuple(
+        Quote(
+            instrument,
+            timestamp,
+            bid=Decimal("99"),
+            ask=Decimal("100"),
+            last=Decimal("100"),
+        )
+        for timestamp in (start, start + timedelta(minutes=1), start + timedelta(minutes=2))
+    )
+    return HistoricalDataSeries(
+        tuple(
+            HistoricalObservation(quote, "test", "1", index, dataset_id="nse-eq")
+            for index, quote in enumerate(quotes)
+        )
+    )
+
+
+def _same_time_infy_series() -> HistoricalDataSeries:
+    instrument = _second_instrument().instrument_id
+    timestamp = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
+    quote = Quote(
+        instrument,
+        timestamp,
+        bid=Decimal("199"),
+        ask=Decimal("200"),
+        last=Decimal("200"),
+    )
+    return HistoricalDataSeries(
+        (HistoricalObservation(quote, "test", "1", 0, dataset_id="nse-eq"),)
+    )
+
+
+def test_timer_dispatch_precedes_equal_timestamp_backtest_cohort() -> None:
+    strategy = _BacktestTimerObserver(fail_timer=True)
+    ir = _runtime_ir("timer-backtest")
+    instruments = InMemoryInstrumentRegistry((_instrument(), _second_instrument()))
+    result = DeterministicBacktestService(instrument_registry=instruments).run(
+        series=(_timestamped_tcs_series(), _same_time_infy_series()),
+        strategy=StrategyEvaluationService(strategy),
+        strategy_ir=ir,
+        financial_state=_financial_state(),
+    )
+
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    later = start + timedelta(minutes=2)
+    assert strategy.calls == [
+        ("market", start, InstrumentId("NSE", "TCS")),
+        ("timer", None, start + timedelta(seconds=30), "timer-1"),
+        ("market", later, InstrumentId("NSE", "TCS")),
+    ]
+    cohort_steps = [
+        step for step in result.steps if step.timestamp == (start + timedelta(minutes=1)).isoformat()
+    ]
+    assert len(cohort_steps) == 2
+    assert all(step.disposition is BacktestDisposition.BLOCKED for step in cohort_steps)
+    assert sum(bool(step.faults) for step in cohort_steps) == 1
+    assert result.halt is None
+    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
+
+
+def test_backtest_postcommit_fault_completes_notifications_and_preserves_fill() -> None:
+    strategy = _BacktestCommitThenFailObserver()
+    ir = _runtime_ir("callback-backtest")
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_series(),
+        strategy=StrategyEvaluationService(strategy),
+        strategy_ir=ir,
+        financial_state=_financial_state(),
+    )
+
+    assert len(result.receipts) == 1
+    assert result.receipts[0].fills
+    assert result.ledger[0].quantity == Decimal("1")
+    assert strategy.calls == ["on_fill", "on_order_update"]
+    assert result.halt is not None
+    assert result.halt.kind == "POST_COMMIT_CALLBACK_FAILURE"
+    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_fill",)
+    assert result.steps[1].disposition is BacktestDisposition.BLOCKED
+    assert "run halted" in result.steps[1].reason
+
+
+def test_backtest_event_time_preflight_rejects_unknown_injected_engine_before_side_effects() -> None:
+    instrument = _instrument()
+    engine = _CapturingEngine(clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+    ir = _runtime_ir("preflight-backtest")
+
+    with pytest.raises(ValueError, match="UNKNOWN"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=StrategyEvaluationService(_ParityStrategy()),
+            strategy_ir=ir,
+            financial_state=_financial_state(),
+        )
+
+    assert engine.captured == []
+    assert engine.events() == ()
+    assert engine._receipts == {}
 
 
 class _ParityStrategy:
