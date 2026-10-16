@@ -9,7 +9,7 @@ from quantx.domain.finance import CapitalSourceType
 from quantx.domain.market_data import Candle, MarketDataEvent, MarketDataType, Quote
 from quantx.domain.strategy import StrategyDefinition, StrategyId
 from quantx.domain.value_objects import InstrumentId, Money
-from quantx.execution.accounting import PositionLedgerEntry
+from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.historical_account_state import (
     AccountStateCompleteness,
     HistoricalAccountStateSnapshot,
@@ -26,6 +26,7 @@ from quantx.strategy.engine_snapshot import (
     TemporalIntegrityError,
     active_order_fact,
     build_engine_snapshot,
+    build_simulated_engine_snapshot,
     prior_candle_history,
     unavailable_engine_snapshot,
 )
@@ -143,6 +144,43 @@ def test_unknown_order_status_is_not_removed_as_canonical_terminal() -> None:
         as_of=as_of,
     )
     assert snapshot.orders.items == (fact,)
+
+
+def test_simulated_snapshot_marks_unknown_order_inventory_incomplete() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    unresolved = OpenOrderFact(
+        client_order_id="unknown-order",
+        instrument=_instrument(),
+        status=OrderStatus.UNKNOWN,
+        order_quantity=Decimal("2"),
+        filled_quantity=None,
+        remaining_quantity=None,
+        created_at=as_of,
+        evidence_time=as_of,
+        reason="execution status is unresolved",
+        effective_at=as_of,
+    )
+
+    snapshot = build_simulated_engine_snapshot(
+        as_of=as_of,
+        accounting=FillAccounting(),
+        active_orders=(unresolved,),
+        account_state=None,
+        account_reason="account valuation is unavailable in this driver",
+    )
+    known_empty = build_simulated_engine_snapshot(
+        as_of=as_of,
+        accounting=FillAccounting(),
+        active_orders=(),
+        account_state=None,
+        account_reason="account valuation is unavailable in this driver",
+    )
+
+    assert snapshot.orders.availability is EvidenceAvailability.INCOMPLETE
+    assert snapshot.orders.items == (unresolved,)
+    assert snapshot.orders.reason is not None
+    assert known_empty.orders.availability is EvidenceAvailability.AVAILABLE
+    assert known_empty.orders.items == ()
 
 
 def test_incomplete_position_order_and_account_evidence_keeps_reasons() -> None:
