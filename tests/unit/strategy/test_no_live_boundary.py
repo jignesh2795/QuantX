@@ -89,7 +89,7 @@ def _audit_source(source: str, relative_path: str) -> list[str]:
                 if function.attr in _FORBIDDEN_CALLS:
                     observed.append(f"{relative_path}:call {function.attr}")
                 elif dotted in _WALL_CLOCK_QUALIFIED_CALLS:
-                    observed.append(f"{relative_path}:call {function.attr}")
+                    observed.append(f"{relative_path}:call {dotted}")
         if isinstance(node, ast.Attribute) and node.attr == "LIVE":
             observed.append(f"{relative_path}:LIVE attribute")
         if isinstance(node, ast.Name) and node.id == "LIVE":
@@ -135,7 +135,7 @@ def unsafe(broker):
 
     assert "sentinel.py:import asyncio" in observed
     assert "sentinel.py:import time" in observed
-    assert "sentinel.py:call now" in observed
+    assert "sentinel.py:call datetime.datetime.now" in observed
     assert "sentinel.py:call time.time" in observed
     assert _audit_source("engine_clock.now()", "deterministic_clock.py") == []
     assert "sentinel.py:call sleep" in observed
