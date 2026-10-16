@@ -1,7 +1,8 @@
 # ADR-010: Composed Multi-Leg Order Workflow Semantics
 
-**Status:** Accepted (2026-10-16)  
-**Issue:** [#195 — QX-06 native basket versus composed multi-leg semantics](https://github.com/jignesh2795/QuantX/issues/195)  
+**Status:** Accepted (2026-10-16)
+
+**Issue:** [#195 — QX-06 native basket versus composed multi-leg semantics](https://github.com/jignesh2795/QuantX/issues/195)
 **Decision scope:** Architecture contract only. This ADR does not claim that multi-leg execution is implemented.
 
 ## Context
