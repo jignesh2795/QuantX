@@ -13,7 +13,6 @@ from quantx.domain.strategy import (
 from quantx.domain.value_objects import InstrumentId
 from quantx.strategy.timers import TimerQueue
 
-
 _EVENT_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 _INSTRUMENT = InstrumentId("NSE", "TCS")
 _OTHER_INSTRUMENT = InstrumentId("NSE", "INFY")
