@@ -71,6 +71,22 @@ class StrategySignal:
 
 
 @dataclass(frozen=True, slots=True)
+class TimerRequest:
+    """Immutable request for a one-shot, instrument-scoped strategy timer."""
+
+    timer_id: str
+    instrument: InstrumentId
+    due_at: datetime
+
+    def __post_init__(self) -> None:
+        if not self.timer_id.strip():
+            raise ValueError("timer id must not be empty")
+        if self.due_at.tzinfo is None or self.due_at.utcoffset() is None:
+            raise ValueError("timer due_at must be timezone-aware")
+
+
+@dataclass(frozen=True, slots=True)
 class StrategyResult:
     signal: StrategySignal
     intent: TradeIntent | None = None
+    timers: tuple[TimerRequest, ...] = ()
