@@ -81,6 +81,8 @@ class TimerRequest:
     def __post_init__(self) -> None:
         if not self.timer_id.strip():
             raise ValueError("timer_id must not be empty")
+        if not isinstance(self.instrument, InstrumentId):
+            raise TypeError("timer instrument must be an InstrumentId")
         if self.due_at.tzinfo is None or self.due_at.utcoffset() is None:
             raise ValueError("timer due_at must be timezone-aware")
         object.__setattr__(self, "due_at", self.due_at.astimezone(UTC))
