@@ -1083,7 +1083,7 @@ def _parity_series() -> HistoricalDataSeries:
 
 def _parity_rehearsal_inputs() -> tuple[RehearsalInput, ...]:
     inputs: list[RehearsalInput] = []
-    for observation in _parity_series().observations:
+    for observation in _parity_series().as_tuple():
         quote = observation.snapshot
         assert isinstance(quote, Quote)
         event = MarketDataEvent(
