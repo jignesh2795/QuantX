@@ -53,13 +53,13 @@ from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.paper.broker import PaperBroker
 from quantx.execution.paper.executor import PaperOrderExecutor
 from quantx.execution.paper.fills import MarketSnapshot
+from quantx.execution.paper.latency import LatencyModel
 from quantx.execution.paper.profile import (
     ExecutionProfile,
     OrderBookLevel,
     OrderBookSnapshot,
     SlippageModel,
 )
-from quantx.execution.paper.latency import LatencyModel
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
