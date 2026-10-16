@@ -169,6 +169,9 @@ class StrategyRehearsalSession:
                 raise ValueError("rehearsal input timestamps must be nondecreasing")
             previous = event_time
 
+        history_limit = TypedParams.from_ir(self._strategy_ir).get_int(
+            "history_bars", default=0, minimum=0, maximum=512
+        )
         # Preflight before consuming the single-use session or executing any step.
         assess_rehearsal_event_time_support(self._paper_executor).require_supported()
         self._consumed = True
@@ -183,9 +186,6 @@ class StrategyRehearsalSession:
             item.event.payload
             for item in inputs
             if isinstance(item.event.payload, Candle)
-        )
-        history_limit = TypedParams.from_ir(self._strategy_ir).get_int(
-            "history_bars", default=0, minimum=0, maximum=512
         )
         logical_clock = SimulatedClock(inputs[0].event.timestamp) if inputs else None
         callback_target = self._evaluation.callback_target
@@ -330,6 +330,21 @@ class StrategyRehearsalSession:
                 filled_quantity = (
                     Decimal("0") if outcome.fill is None else outcome.fill.quantity
                 )
+                fact = active_order_fact(
+                    client_order_id=order_id,
+                    instrument=order.instrument,
+                    status=outcome.lifecycle_status,
+                    order_quantity=order.quantity,
+                    filled_quantity=filled_quantity,
+                    created_at=order.created_at,
+                    evidence_time=event.timestamp,
+                    reason=outcome.reason,
+                )
+                if fact is None:
+                    active_orders.pop(order_id, None)
+                else:
+                    active_orders[order_id] = fact
+
                 if outcome.fill is not None and outcome.fill.filled_at > event.timestamp:
                     temporal_fault = TemporalIntegrityFault(
                         source="paper_fill",
@@ -346,21 +361,6 @@ class StrategyRehearsalSession:
                         reason=temporal_fault.reason,
                     )
                     continue
-
-                fact = active_order_fact(
-                    client_order_id=order_id,
-                    instrument=order.instrument,
-                    status=outcome.lifecycle_status,
-                    order_quantity=order.quantity,
-                    filled_quantity=filled_quantity,
-                    created_at=order.created_at,
-                    evidence_time=event.timestamp,
-                    reason=outcome.reason,
-                )
-                if fact is None:
-                    active_orders.pop(order_id, None)
-                else:
-                    active_orders[order_id] = fact
 
                 post_snapshot = build_simulated_engine_snapshot(
                     as_of=event.timestamp,
