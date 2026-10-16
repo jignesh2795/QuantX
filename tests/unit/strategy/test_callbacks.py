@@ -112,6 +112,34 @@ def test_timer_callback_receives_eventless_context_at_due_time() -> None:
     assert seen[0][0].as_of == due_at
 
 
+def test_unknown_order_update_keeps_fill_and_remaining_unknown() -> None:
+    at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    update = OrderUpdateFact(
+        client_order_id="unknown-order",
+        instrument=InstrumentId("NSE", "TCS"),
+        status=OrderStatus.UNKNOWN,
+        order_quantity=Decimal("2"),
+        filled_quantity=None,
+        remaining_quantity=None,
+        created_at=at,
+        evidence_time=at,
+        effective_at=at,
+    )
+    context = StrategyContext(_event(at), _ir(), as_of=at)
+    observed: list[OrderUpdateFact] = []
+
+    class _Observer:
+        def on_order_update(self, callback_context, order_update):
+            observed.append(order_update)
+
+    faults = dispatch_post_commit_callbacks(_Observer(), context, (), update)
+
+    assert faults == ()
+    assert observed == [update]
+    assert observed[0].filled_quantity is None
+    assert observed[0].remaining_quantity is None
+
+
 def test_callback_lookup_fault_does_not_skip_later_order_update() -> None:
     at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     context = StrategyContext(_event(at), _ir(), as_of=at)
