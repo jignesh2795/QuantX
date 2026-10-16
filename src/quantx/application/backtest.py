@@ -1171,6 +1171,8 @@ class DeterministicBacktestService:
                         identity=faults[0].identity,
                         reason="one or more post-commit strategy callbacks failed",
                     )
+            else:
+                account_states.append(post_account_state)
 
         frames_tuple = tuple(frames)
         steps_tuple = tuple(steps)
