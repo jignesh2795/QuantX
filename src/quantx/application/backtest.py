@@ -9,10 +9,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from itertools import groupby
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from quantx.application.strategy_preflight import assess_backtest_event_time_support
+from quantx.domain.clock import SimulatedClock
 from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
@@ -54,8 +57,27 @@ from quantx.research.provenance import (
 from quantx.research.quality import DataQualityStatus
 from quantx.research.replay import HistoricalReplay, MultiSeries, ReplayFrame
 from quantx.research.result import ResultQuality
-from quantx.strategy.evaluation import StrategyEvaluationService
+from quantx.strategy.callbacks import (
+    CallbackFault,
+    OrderUpdateFact,
+    RunHaltRecord,
+    TemporalIntegrityFault,
+    callback_fault,
+    dispatch_post_commit_callbacks,
+    dispatch_timer_callback,
+)
+from quantx.strategy.context import StrategyContext
+from quantx.strategy.engine_snapshot import (
+    OpenOrderFact,
+    TemporalIntegrityError,
+    active_order_fact,
+    build_simulated_engine_snapshot,
+    prior_candle_history,
+)
+from quantx.strategy.evaluation import StrategyEvaluation, StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
+from quantx.strategy.timers import TimerRegistry, TimerInvocation, UndeliveredTimer
+from quantx.strategy.typed_params import TypedParams
 
 
 class BacktestDisposition(StrEnum):
@@ -76,12 +98,13 @@ class AccountStateSamplingPolicy(StrEnum):
 class BacktestStep:
     frame_index: int
     timestamp: str
-    strategy_result: StrategyResult
+    strategy_result: StrategyResult | None
     risk_result: RiskResult | None
     policy_result: PolicyResult | None
     receipt: ExecutionReceipt | None
     disposition: BacktestDisposition
     reason: str
+    faults: tuple[CallbackFault, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +141,10 @@ class BacktestResult:
         AccountStateSamplingPolicy.EXACT_CURRENT
     )
     provenance: ResearchProvenance | None = None
+    callback_faults: tuple[CallbackFault, ...] = ()
+    halt: RunHaltRecord | None = None
+    temporal_faults: tuple[TemporalIntegrityFault, ...] = ()
+    undelivered_timers: tuple[UndeliveredTimer, ...] = ()
 
     @property
     def executed_count(self) -> int:
@@ -201,8 +228,11 @@ def _fidelity_limitations(
     candle_order_types = {
         step.strategy_result.intent.order_type
         for frame, step in zip(frames, steps, strict=True)
-        if isinstance(frame.observation.snapshot, Candle)
-        and step.strategy_result.intent is not None
+        if (
+            isinstance(frame.observation.snapshot, Candle)
+            and step.strategy_result is not None
+            and step.strategy_result.intent is not None
+        )
     }
     if OrderType.MARKET in candle_order_types:
         limitations.append(_CANDLE_LIMITATIONS[0])
