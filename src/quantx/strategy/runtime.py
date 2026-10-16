@@ -12,6 +12,7 @@ from quantx.domain.strategy import SignalAction, StrategyResult
 from .context import StrategyContext
 from .engine_snapshot import EngineStateSnapshot
 from .ir import StrategyIR
+from .timers import validate_timer_requests
 
 
 class ExecutableStrategy(Protocol):
@@ -56,6 +57,7 @@ class StrategyRuntime:
             raise ValueError("strategy signal version does not match strategy IR")
         if signal.instrument != event.instrument:
             raise ValueError("strategy signal instrument does not match market event")
+        validate_timer_requests(result, event)
 
         intent = result.intent
         if intent is None:
