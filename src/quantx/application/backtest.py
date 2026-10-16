@@ -1173,7 +1173,9 @@ class DeterministicBacktestService:
                 request,
                 snapshot=snapshot,
             )
-            self._require_coherent_execution_time(order, receipt)
+            if not qx08_active:
+                # Preserve the legacy callable path's fail-fast clock contract.
+                self._require_coherent_execution_time(order, receipt)
             receipts.append(receipt)
             post_account_state = account_state_tracker.record(receipt, snapshot=snapshot)
 
@@ -1216,9 +1218,9 @@ class DeterministicBacktestService:
                 else:
                     active_orders[order_id] = order_fact
 
-                future_evidence: list[TemporalIntegrityFault] = []
+                temporal_violations: list[TemporalIntegrityFault] = []
                 if receipt.executed_at > frame_time:
-                    future_evidence.append(
+                    temporal_violations.append(
                         TemporalIntegrityFault(
                             source="receipt",
                             identity=str(receipt.receipt_id),
@@ -1227,9 +1229,19 @@ class DeterministicBacktestService:
                             reason="receipt effective time is later than the replay frame",
                         )
                     )
+                elif receipt.executed_at < order.created_at:
+                    temporal_violations.append(
+                        TemporalIntegrityFault(
+                            source="receipt",
+                            identity=str(receipt.receipt_id),
+                            expected_at=frame_time,
+                            effective_at=receipt.executed_at,
+                            reason="receipt effective time precedes order creation",
+                        )
+                    )
                 for fill in receipt.fills:
                     if fill.filled_at > frame_time:
-                        future_evidence.append(
+                        temporal_violations.append(
                             TemporalIntegrityFault(
                                 source="fill",
                                 identity=str(fill.execution_id),
@@ -1238,10 +1250,20 @@ class DeterministicBacktestService:
                                 reason="fill effective time is later than the replay frame",
                             )
                         )
-                if future_evidence:
-                    temporal_faults.extend(future_evidence)
+                    elif fill.filled_at < order.created_at:
+                        temporal_violations.append(
+                            TemporalIntegrityFault(
+                                source="fill",
+                                identity=str(fill.execution_id),
+                                expected_at=frame_time,
+                                effective_at=fill.filled_at,
+                                reason="fill effective time precedes order creation",
+                            )
+                        )
+                if temporal_violations:
+                    temporal_faults.extend(temporal_violations)
                     reason = (
-                        "future-effective execution evidence; "
+                        "execution evidence outside the replay frame's event-time cut; "
                         "no coherent strategy snapshot delivered"
                     )
                     account_states.append(
@@ -1260,7 +1282,7 @@ class DeterministicBacktestService:
                     halt = RunHaltRecord(
                         kind="TEMPORAL_INTEGRITY",
                         as_of=frame_time,
-                        identity=future_evidence[0].identity,
+                        identity=temporal_violations[0].identity,
                         reason=reason,
                     )
                     continue
