@@ -565,7 +565,9 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
         ("market", later, InstrumentId("NSE", "TCS")),
     ]
     cohort_steps = [
-        step for step in result.steps if step.timestamp == (start + timedelta(minutes=1)).isoformat()
+        step
+        for step in result.steps
+        if step.timestamp == (start + timedelta(minutes=1)).isoformat()
     ]
     assert len(cohort_steps) == 2
     assert all(step.disposition is BacktestDisposition.BLOCKED for step in cohort_steps)
@@ -661,7 +663,7 @@ def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     assert "run halted" in result.steps[1].reason
 
 
-def test_unexpected_future_effective_receipt_preserves_facts_and_halts_without_false_snapshot() -> None:
+def test_unexpected_future_effective_receipt_preserves_facts_and_halts() -> None:
     first_frame = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     ahead = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
 
