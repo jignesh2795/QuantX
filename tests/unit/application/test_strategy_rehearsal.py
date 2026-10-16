@@ -524,6 +524,8 @@ class _CommitThenFailObserver:
     def __init__(self) -> None:
         self.entered = False
         self.calls: list[str] = []
+        self.positions_seen: list[tuple[PositionLedgerEntry, ...]] = []
+        self.order_updates: list[object] = []
 
     def on_market_data(self, context: StrategyContext) -> StrategyResult:
         event = context.event
@@ -555,10 +557,12 @@ class _CommitThenFailObserver:
 
     def on_fill(self, context: StrategyContext, fill: Fill) -> None:
         self.calls.append("on_fill")
+        self.positions_seen.append(context.engine.positions.items)
         raise RuntimeError("fill observer failed")
 
     def on_order_update(self, context: StrategyContext, update) -> None:
         self.calls.append("on_order_update")
+        self.order_updates.append(update)
 
 
 def _registry_for_strategy(strategy) -> StrategyRegistry:
@@ -604,6 +608,11 @@ def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     assert first.paper_outcome.lifecycle_status is OrderStatus.FILLED
     assert accounting.applications == [first.paper_outcome.fill]
     assert strategy.calls == ["on_fill", "on_order_update"]
+    assert len(strategy.positions_seen) == 1
+    assert strategy.positions_seen[0][0].quantity == Decimal("2")
+    assert len(strategy.order_updates) == 1
+    assert strategy.order_updates[0].status is OrderStatus.FILLED
+    assert strategy.order_updates[0].remaining_quantity == Decimal("0")
     assert result.halt is not None
     assert result.halt.kind == "POST_COMMIT_CALLBACK_FAILURE"
     assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_fill",)
@@ -671,6 +680,7 @@ def test_timer_history_is_prior_only_and_same_instrument() -> None:
             _candle_event(start, tcs),
             _candle_event(other_instrument_time, infy),
             _candle_event(due_at, tcs),
+            _candle_event(due_at + timedelta(minutes=1), tcs),
         )
     )
     strategy = _HistoryTimerObserver()
