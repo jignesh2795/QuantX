@@ -180,7 +180,10 @@ class StrategyRehearsalSession:
     def _engine_snapshot(self, as_of: datetime) -> EngineStateSnapshot:
         adapter = EngineEvidenceAdapter(
             positions=EvidenceCollection.known(
-                position_facts(self._paper_executor.accounting.snapshot())
+                position_facts(
+                    self._paper_executor.accounting.snapshot(),
+                    effective_at=as_of,
+                )
             ),
             orders=EvidenceCollection.known(
                 tuple(self._active_orders[key] for key in sorted(self._active_orders))

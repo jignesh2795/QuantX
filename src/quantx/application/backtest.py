@@ -693,7 +693,10 @@ class DeterministicBacktestService:
                 engine_snapshot = build_engine_snapshot(
                     EngineEvidenceAdapter(
                         positions=EvidenceCollection.known(
-                            position_facts(accounting.snapshot())
+                            position_facts(
+                                accounting.snapshot(),
+                                effective_at=frame.observation.timestamp,
+                            )
                         ),
                         orders=EvidenceCollection.known(
                             tuple(active_order_facts[key] for key in sorted(active_order_facts))

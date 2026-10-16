@@ -74,15 +74,26 @@ class PositionFact:
     average_price: Decimal
     realized_pnl: Decimal
     fees: Decimal
+    effective_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.effective_at.tzinfo is None or self.effective_at.utcoffset() is None:
+            raise ValueError("position effective_at must be timezone-aware")
 
     @classmethod
-    def from_ledger_entry(cls, entry: PositionLedgerEntry) -> PositionFact:
+    def from_ledger_entry(
+        cls,
+        entry: PositionLedgerEntry,
+        *,
+        effective_at: datetime,
+    ) -> PositionFact:
         return cls(
             instrument=entry.instrument,
             quantity=entry.quantity,
             average_price=entry.average_price,
             realized_pnl=entry.realized_pnl,
             fees=entry.fees,
+            effective_at=effective_at,
         )
 
 
@@ -146,6 +157,11 @@ class EngineStateSnapshot:
             raise ValueError("snapshot as_of must be timezone-aware")
         normalized_as_of = self.as_of.astimezone(UTC)
         object.__setattr__(self, "as_of", normalized_as_of)
+        for position in self.positions.items:
+            if position.effective_at.astimezone(UTC) > normalized_as_of:
+                raise TemporalIntegrityError(
+                    f"position evidence for {position.instrument} is later than snapshot as_of"
+                )
         for order in self.orders.items:
             if (
                 order.evidence_time is not None
@@ -225,9 +241,16 @@ def unavailable_engine_snapshot(as_of: datetime, reason: str) -> EngineStateSnap
     )
 
 
-def position_facts(entries: tuple[PositionLedgerEntry, ...]) -> tuple[PositionFact, ...]:
-    """Copy canonical ledger read views without duplicating any accounting logic."""
-    return tuple(PositionFact.from_ledger_entry(entry) for entry in entries)
+def position_facts(
+    entries: tuple[PositionLedgerEntry, ...],
+    *,
+    effective_at: datetime,
+) -> tuple[PositionFact, ...]:
+    """Stamp canonical ledger read views with the inventory snapshot's effective cut."""
+    return tuple(
+        PositionFact.from_ledger_entry(entry, effective_at=effective_at)
+        for entry in entries
+    )
 
 
 def prior_candle_history(

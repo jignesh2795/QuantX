@@ -101,10 +101,11 @@ def test_snapshot_projects_position_facts_without_changing_decimal_values() -> N
         realized_pnl=Decimal("1.10"),
         fees=Decimal("0.05"),
     )
-    fact = PositionFact.from_ledger_entry(entry)
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    fact = PositionFact.from_ledger_entry(entry, effective_at=as_of)
     snapshot = build_engine_snapshot(
         _adapter(positions=EvidenceCollection.known((fact,))),
-        as_of=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+        as_of=as_of,
     )
     assert snapshot.positions.items == (fact,)
     assert snapshot.positions.items[0].quantity == Decimal("2")
@@ -129,6 +130,26 @@ def test_unknown_order_status_is_not_removed_as_canonical_terminal() -> None:
         as_of=as_of,
     )
     assert snapshot.orders.items == (fact,)
+
+
+def test_snapshot_rejects_future_effective_position_evidence() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    entry = PositionLedgerEntry(
+        instrument=_instrument(),
+        quantity=Decimal("1"),
+        average_price=Decimal("100"),
+        realized_pnl=Decimal("0"),
+        fees=Decimal("0"),
+    )
+    fact = PositionFact.from_ledger_entry(
+        entry,
+        effective_at=as_of + timedelta(seconds=1),
+    )
+    with pytest.raises(TemporalIntegrityError, match="position evidence"):
+        build_engine_snapshot(
+            _adapter(positions=EvidenceCollection.known((fact,))),
+            as_of=as_of,
+        )
 
 
 def test_snapshot_rejects_future_effective_order_evidence() -> None:
