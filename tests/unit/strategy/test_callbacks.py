@@ -22,9 +22,7 @@ from quantx.strategy.timers import TimerInvocation
 
 
 def _ir():
-    return StrategyCompiler.compile(
-        StrategyDefinition(StrategyId("callbacks"), "1", "Callbacks")
-    )
+    return StrategyCompiler.compile(StrategyDefinition(StrategyId("callbacks"), "1", "Callbacks"))
 
 
 def _event(at: datetime) -> MarketDataEvent:
@@ -76,9 +74,7 @@ def test_post_commit_dispatch_attempts_all_fills_then_order_update() -> None:
             raise ValueError("order notification failed")
 
     fills = (_fill(at), _fill(at + timedelta(microseconds=1)))
-    faults = dispatch_post_commit_callbacks(
-        _Observers(), context, fills, _order_update(at)
-    )
+    faults = dispatch_post_commit_callbacks(_Observers(), context, fills, _order_update(at))
 
     assert tuple(call[0] for call in calls) == (
         "on_fill",
@@ -233,9 +229,7 @@ def test_observer_must_be_observe_only_and_return_none() -> None:
         def on_fill(self, callback_context, fill):
             return object()
 
-    fault = dispatch_post_commit_callbacks(
-        _BadObserver(), context, (_fill(at),), _order_update(at)
-    )
+    fault = dispatch_post_commit_callbacks(_BadObserver(), context, (_fill(at),), _order_update(at))
 
     assert len(fault) == 1
     assert fault[0].callback_name == "on_fill"

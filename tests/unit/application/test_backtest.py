@@ -349,9 +349,7 @@ def test_backtest_blocks_risk_rejected_intent_without_execution() -> None:
     )
 
     assert result.executed_count == 0
-    assert all(
-        step.disposition is BacktestDisposition.RISK_REJECTED for step in result.steps
-    )
+    assert all(step.disposition is BacktestDisposition.RISK_REJECTED for step in result.steps)
     assert result.receipts == ()
 
 
@@ -389,10 +387,7 @@ def test_backtest_requires_approval_when_policy_requires_manual_approval() -> No
     )
 
     assert result.executed_count == 0
-    assert all(
-        step.disposition is BacktestDisposition.APPROVAL_REQUIRED
-        for step in result.steps
-    )
+    assert all(step.disposition is BacktestDisposition.APPROVAL_REQUIRED for step in result.steps)
 
 
 def test_backtest_blocks_intent_when_canonical_market_does_not_match() -> None:
@@ -522,9 +517,7 @@ class _BacktestCommitThenFailObserver:
 
 
 def _runtime_ir(strategy_id: str) -> StrategyIR:
-    return StrategyCompiler.compile(
-        StrategyDefinition(StrategyId(strategy_id), "1", strategy_id)
-    )
+    return StrategyCompiler.compile(StrategyDefinition(StrategyId(strategy_id), "1", strategy_id))
 
 
 def _timestamped_tcs_series() -> HistoricalDataSeries:
@@ -594,9 +587,7 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     assert all(step.disposition is BacktestDisposition.BLOCKED for step in cohort_steps)
     assert sum(bool(step.faults) for step in cohort_steps) == 1
     assert result.halt is None
-    assert tuple(fault.callback_name for fault in result.callback_faults) == (
-        "on_timer",
-    )
+    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
 
 
 def test_active_order_persists_into_next_strategy_context_until_terminal_status() -> None:
@@ -709,10 +700,7 @@ def test_backtest_reports_timers_undelivered_beyond_replay_horizon() -> None:
 
     assert len(result.undelivered_timers) == 1
     assert result.undelivered_timers[0].timer.timer_id == "after-horizon"
-    assert (
-        "run ended before the timer became due"
-        in result.undelivered_timers[0].reason
-    )
+    assert "run ended before the timer became due" in result.undelivered_timers[0].reason
     assert strategy.timer_calls == []
 
 
@@ -778,9 +766,7 @@ def test_precommit_risk_or_policy_fault_preserves_timer_and_continues(
     strategy = _FaultTimerStrategy()
     engine = _FailingPrecommitEngine()
     engine_options = (
-        {"risk_engine": engine}
-        if failure_layer == "risk"
-        else {"policy_engine": engine}
+        {"risk_engine": engine} if failure_layer == "risk" else {"policy_engine": engine}
     )
     result = DeterministicBacktestService(
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
@@ -796,9 +782,7 @@ def test_precommit_risk_or_policy_fault_preserves_timer_and_continues(
     assert first.disposition is BacktestDisposition.BLOCKED
     assert first.receipt is None
     assert "pre-commit" in first.reason
-    assert tuple(fault.callback_name for fault in first.faults) == (
-        f"{failure_layer}_preparation",
-    )
+    assert tuple(fault.callback_name for fault in first.faults) == (f"{failure_layer}_preparation",)
     assert tuple(fault.callback_name for fault in result.callback_faults) == (
         f"{failure_layer}_preparation",
     )
@@ -873,9 +857,7 @@ def test_clock_drift_between_strategy_and_execution_is_recorded_without_execute(
 
     assert observed == [start]
     assert result.steps[0].disposition is BacktestDisposition.BLOCKED
-    assert (
-        "event-time alignment failed before paper execution" in result.steps[0].reason
-    )
+    assert "event-time alignment failed before paper execution" in result.steps[0].reason
     assert result.steps[0].faults[0].callback_name == "event_time_alignment"
     assert result.halt is not None
     assert result.halt.kind == "EVENT_TIME_SUPPORT_VIOLATION"
@@ -907,9 +889,7 @@ def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     assert strategy.order_updates[0].remaining_quantity == Decimal("0")
     assert result.halt is not None
     assert result.halt.kind == "POST_COMMIT_CALLBACK_FAILURE"
-    assert tuple(fault.callback_name for fault in result.callback_faults) == (
-        "on_fill",
-    )
+    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_fill",)
     assert result.steps[1].disposition is BacktestDisposition.BLOCKED
     assert "run halted" in result.steps[1].reason
 
@@ -1107,9 +1087,7 @@ def test_callback_driver_rejects_nonzero_execution_latency_before_first_step() -
 
 def test_unknown_executor_time_capability_fails_closed() -> None:
     instrument = _instrument()
-    engine = _CapturingEngine(
-        clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC))
-    )
+    engine = _CapturingEngine(clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
     ir = _runtime_ir("preflight-backtest")
 
     with pytest.raises(ValueError, match="UNKNOWN"):
@@ -1177,9 +1155,7 @@ def test_backtest_accepts_runtime_neutral_strategy_evaluation_service() -> None:
 def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
     instrument = _instrument()
     ir = StrategyCompiler.compile(
-        StrategyDefinition(
-            StrategyId("replay-paper-parity"), "1", "Replay Paper Parity"
-        )
+        StrategyDefinition(StrategyId("replay-paper-parity"), "1", "Replay Paper Parity")
     )
     strategy = _ParityStrategy()
     evaluation = StrategyEvaluationService(strategy)
@@ -1305,9 +1281,7 @@ def test_backtest_exposes_time_indexed_account_state_series() -> None:
 
     assert len(result.account_states) == 1
     assert len(result.account_state_series) == 2
-    assert (
-        result.account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
-    )
+    assert result.account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
 
     first = result.account_state_series[0]
     second = result.account_state_series[1]
@@ -1367,9 +1341,7 @@ def test_backtest_multinstrument_sampling_policy_is_explicit() -> None:
         financial_state=_financial_state(),
         account_state_sampling_policy=AccountStateSamplingPolicy.EXACT_CURRENT,
     )
-    assert (
-        exact.account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
-    )
+    assert exact.account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
     # The frame-0 sample precedes that frame's execution: no position yet.
     assert exact.account_state_series[0].cash == Money(Decimal("1000"), "INR")
     assert exact.account_state_series[0].valuation_evidence == ()
@@ -1382,9 +1354,7 @@ def test_backtest_multinstrument_sampling_policy_is_explicit() -> None:
         financial_state=_financial_state(),
         account_state_sampling_policy=AccountStateSamplingPolicy.AS_OF_OBSERVED,
     )
-    assert (
-        as_of.account_state_sampling_policy is AccountStateSamplingPolicy.AS_OF_OBSERVED
-    )
+    assert as_of.account_state_sampling_policy is AccountStateSamplingPolicy.AS_OF_OBSERVED
     assert as_of.account_state_series[0].cash == Money(Decimal("1000"), "INR")
     second = as_of.account_state_series[1]
     assert second.completeness.value == "COMPLETE"
@@ -1474,9 +1444,7 @@ def test_backtest_as_of_observed_with_unusable_mark_stays_incomplete() -> None:
     assert result.account_state_series[0].cash == Money(Decimal("1000"), "INR")
     # The open TCS position has no usable mark at or before later samples:
     # AS_OF_OBSERVED must not invent one.
-    later_samples = [
-        sample for sample in result.account_state_series if sample.timestamp >= t1
-    ]
+    later_samples = [sample for sample in result.account_state_series if sample.timestamp >= t1]
     assert len(later_samples) == 2
     assert all(sample.completeness.value == "INCOMPLETE" for sample in later_samples)
     assert later_samples[0].valuation_evidence[0].unavailable is True
@@ -1994,12 +1962,8 @@ def _effective_default_configuration() -> ResearchRunConfiguration:
             partial_fill_ratio=Decimal("1"),
             fee_bps=Decimal("0"),
             execution_models=(
-                SimulationModelIdentity(
-                    model_id="BASIC_BAR", model_version="basic-bar-v4"
-                ),
-                SimulationModelIdentity(
-                    model_id="QUOTE", model_version="paper-core-v0.3"
-                ),
+                SimulationModelIdentity(model_id="BASIC_BAR", model_version="basic-bar-v4"),
+                SimulationModelIdentity(model_id="QUOTE", model_version="paper-core-v0.3"),
             ),
         ),
         allow_incomplete=False,
@@ -2192,18 +2156,12 @@ def test_backtest_rejects_injected_engine_without_canonical_identity() -> None:
     # rejected implementation silently accepted for injected engines.
     declared = replace(
         _effective_default_configuration(),
-        execution=replace(
-            _effective_default_configuration().execution, execution_models=()
-        ),
+        execution=replace(_effective_default_configuration().execution, execution_models=()),
     )
-    engine = PaperExecutionEngine(
-        clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC))
-    )
+    engine = PaperExecutionEngine(clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
 
     with pytest.raises(ValueError, match="execution-model identity"):
-        _c12_service(
-            InMemoryInstrumentRegistry((instrument,)), execution_engine=engine
-        ).run(
+        _c12_service(InMemoryInstrumentRegistry((instrument,)), execution_engine=engine).run(
             series=_series(),
             strategy=StrategyEvaluationService(counting),
             strategy_ir=_c12_strategy_ir(),
@@ -2281,9 +2239,7 @@ def test_backtest_rejects_bare_callable_with_structured_provenance() -> None:
         )
 
     # Declared configuration carries no strategy identity at all.
-    declared = replace(
-        _effective_default_configuration(), strategy=StrategyConfiguration()
-    )
+    declared = replace(_effective_default_configuration(), strategy=StrategyConfiguration())
     with pytest.raises(ValueError, match="authoritative strategy identity"):
         _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
             series=_series(),
@@ -2381,18 +2337,14 @@ def test_backtest_repeated_runs_produce_identical_order_timestamps(monkeypatch) 
     context = _context()
     first_captured = _replay_time_recording_engine(monkeypatch)
 
-    DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((instrument,))
-    ).run(
+    DeterministicBacktestService(instrument_registry=InMemoryInstrumentRegistry((instrument,))).run(
         series=_series(),
         strategy=_buy_once_strategy(instrument, context),
         financial_state=_financial_state(),
     )
 
     second_captured = _replay_time_recording_engine(monkeypatch)
-    DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((instrument,))
-    ).run(
+    DeterministicBacktestService(instrument_registry=InMemoryInstrumentRegistry((instrument,))).run(
         series=_series(),
         strategy=_buy_once_strategy(instrument, context),
         financial_state=_financial_state(),
@@ -2513,10 +2465,7 @@ def _evidence_timestamps(
         *(fill.filled_at.isoformat() for fill in receipt.fills),
         receipt.executed_at.isoformat(),
         *(step.timestamp for step in result.steps),
-        *(
-            step.strategy_result.signal.generated_at.isoformat()
-            for step in result.steps
-        ),
+        *(step.strategy_result.signal.generated_at.isoformat() for step in result.steps),
         *(snapshot.timestamp.isoformat() for snapshot in result.account_states),
         *(snapshot.timestamp.isoformat() for snapshot in result.account_state_series),
     ]
@@ -2575,13 +2524,9 @@ class _RecordingIdempotencyStore(InMemoryIdempotencyStore):
         self.reserve_calls: list[tuple[UUID, str]] = []
         self.complete_calls: list[tuple[UUID, str, UUID]] = []
 
-    def reserve_or_get(
-        self, client_order_id, request_fingerprint, pending_context=None
-    ):
+    def reserve_or_get(self, client_order_id, request_fingerprint, pending_context=None):
         self.reserve_calls.append((client_order_id, request_fingerprint))
-        return super().reserve_or_get(
-            client_order_id, request_fingerprint, pending_context
-        )
+        return super().reserve_or_get(client_order_id, request_fingerprint, pending_context)
 
     def complete(self, client_order_id, request_fingerprint, receipt_id):
         self.complete_calls.append((client_order_id, request_fingerprint, receipt_id))

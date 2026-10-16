@@ -123,8 +123,7 @@ def _canonical_dotted_name(node: ast.expr, aliases: dict[str, str]) -> str | Non
 def _is_forbidden_import(module: str) -> bool:
     """Match forbidden modules exactly or at a dotted submodule boundary."""
     return any(
-        module == prefix or module.startswith(f"{prefix}.")
-        for prefix in _FORBIDDEN_IMPORT_PREFIXES
+        module == prefix or module.startswith(f"{prefix}.") for prefix in _FORBIDDEN_IMPORT_PREFIXES
     )
 
 
@@ -144,10 +143,14 @@ def _audit_source(source: str, relative_path: str) -> list[str]:
                 dotted = _canonical_dotted_name(function, aliases)
                 if function.attr in _FORBIDDEN_CALLS:
                     observed.append(f"{relative_path}:call {function.attr}")
-                elif dotted in _WALL_CLOCK_QUALIFIED_CALLS and (
-                    relative_path,
-                    source_lines[node.lineno - 1].strip(),
-                ) not in _GRANDFATHERED_WALL_CLOCK_DEFAULTS:
+                elif (
+                    dotted in _WALL_CLOCK_QUALIFIED_CALLS
+                    and (
+                        relative_path,
+                        source_lines[node.lineno - 1].strip(),
+                    )
+                    not in _GRANDFATHERED_WALL_CLOCK_DEFAULTS
+                ):
                     observed.append(f"{relative_path}:call {dotted}")
         if isinstance(node, ast.Attribute) and node.attr == "LIVE":
             observed.append(f"{relative_path}:LIVE attribute")
@@ -200,9 +203,7 @@ def unsafe(broker):
     assert "sentinel.py:call datetime.datetime.now" in observed
     assert "sentinel.py:call time.time" in observed
 
-    aliased_module = _audit_source(
-        "import datetime as dt\ndt.datetime.now()", "aliased_module.py"
-    )
+    aliased_module = _audit_source("import datetime as dt\ndt.datetime.now()", "aliased_module.py")
     assert "aliased_module.py:call datetime.datetime.now" in aliased_module
     aliased_class = _audit_source(
         "from datetime import datetime as dt\ndt.now()", "aliased_class.py"
@@ -226,12 +227,9 @@ def unsafe(broker):
         "class StrategySignal:\n"
         "    generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))\n"
     )
-    assert _audit_source(
-        legacy_signal_default, "src/quantx/domain/strategy.py"
-    ) == []
+    assert _audit_source(legacy_signal_default, "src/quantx/domain/strategy.py") == []
     non_grandfathered_clock = (
-        "from datetime import UTC, datetime\n"
-        "generated_at = datetime.now(UTC)\n"
+        "from datetime import UTC, datetime\ngenerated_at = datetime.now(UTC)\n"
     )
     assert "other.py:call datetime.datetime.now" in _audit_source(
         non_grandfathered_clock, "other.py"

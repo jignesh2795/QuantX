@@ -112,10 +112,7 @@ def _event_submitted_at_ns(event: MarketDataEvent) -> int:
     a float epoch division would lose nanosecond precision.
     """
     delta = event.timestamp - _UNIX_EPOCH
-    return (
-        (delta.days * 86400 + delta.seconds) * 1_000_000_000
-        + delta.microseconds * 1000
-    )
+    return (delta.days * 86400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
 
 
 class StrategyRehearsalSession:
@@ -165,9 +162,7 @@ class StrategyRehearsalSession:
     def run(self, inputs: tuple[RehearsalInput, ...]) -> StrategyRehearsalResult:
         """Run one monotonic, event-time-coherent paper rehearsal."""
         if self._consumed:
-            raise ValueError(
-                "rehearsal session is single-use; resolve a fresh session per run"
-            )
+            raise ValueError("rehearsal session is single-use; resolve a fresh session per run")
 
         previous: datetime | None = None
         for rehearsal_input in inputs:
@@ -190,9 +185,7 @@ class StrategyRehearsalSession:
         temporal_faults: list[TemporalIntegrityFault] = []
         halt: RunHaltRecord | None = None
         candles = tuple(
-            item.event.payload
-            for item in inputs
-            if isinstance(item.event.payload, Candle)
+            item.event.payload for item in inputs if isinstance(item.event.payload, Candle)
         )
         logical_clock = SimulatedClock(inputs[0].event.timestamp) if inputs else None
         callback_target = self._evaluation.callback_target
@@ -201,10 +194,7 @@ class StrategyRehearsalSession:
         while index < len(inputs):
             cohort_time = inputs[index].event.timestamp
             cohort_end = index + 1
-            while (
-                cohort_end < len(inputs)
-                and inputs[cohort_end].event.timestamp == cohort_time
-            ):
+            while cohort_end < len(inputs) and inputs[cohort_end].event.timestamp == cohort_time:
                 cohort_end += 1
             cohort = inputs[index:cohort_end]
 
@@ -212,7 +202,10 @@ class StrategyRehearsalSession:
                 for rehearsal_input in cohort:
                     steps.append(
                         StrategyRehearsalStep(
-                            rehearsal_input.event, None, None, None,
+                            rehearsal_input.event,
+                            None,
+                            None,
+                            None,
                             f"run halted: {halt.reason}",
                         )
                     )
@@ -227,9 +220,7 @@ class StrategyRehearsalSession:
                     snapshot = build_simulated_engine_snapshot(
                         as_of=timer.due_at,
                         accounting=self._paper_executor.accounting,
-                        active_orders=tuple(
-                            active_orders[key] for key in sorted(active_orders)
-                        ),
+                        active_orders=tuple(active_orders[key] for key in sorted(active_orders)),
                         account_state=None,
                         account_reason=(
                             "paper rehearsal does not expose authoritative current "
@@ -268,10 +259,7 @@ class StrategyRehearsalSession:
                             None,
                             None,
                             None,
-                            (
-                                "timestamp cohort blocked because a due timer callback "
-                                "failed"
-                            ),
+                            ("timestamp cohort blocked because a due timer callback failed"),
                             tuple(due_faults) if offset == 0 else (),
                         )
                     )
@@ -282,7 +270,10 @@ class StrategyRehearsalSession:
                 if halt is not None:
                     steps.append(
                         StrategyRehearsalStep(
-                            rehearsal_input.event, None, None, None,
+                            rehearsal_input.event,
+                            None,
+                            None,
+                            None,
                             f"run halted: {halt.reason}",
                         )
                     )
@@ -291,15 +282,11 @@ class StrategyRehearsalSession:
                 identity = f"{event.timestamp.isoformat()}:{event.instrument}"
                 try:
                     if self._deployment.market.venue != event.instrument.venue:
-                        raise ValueError(
-                            "deployment market venue does not match market event"
-                        )
+                        raise ValueError("deployment market venue does not match market event")
                     snapshot = build_simulated_engine_snapshot(
                         as_of=event.timestamp,
                         accounting=self._paper_executor.accounting,
-                        active_orders=tuple(
-                            active_orders[key] for key in sorted(active_orders)
-                        ),
+                        active_orders=tuple(active_orders[key] for key in sorted(active_orders)),
                         account_state=None,
                         account_reason=(
                             "paper rehearsal does not expose authoritative current "
@@ -321,16 +308,17 @@ class StrategyRehearsalSession:
                         history=history,
                     )
                     if evaluation.result.signal.generated_at != event.timestamp:
-                        raise ValueError(
-                            "strategy signal timestamp does not match market event"
-                        )
+                        raise ValueError("strategy signal timestamp does not match market event")
                     timers.register_result(evaluation.result, event)
                 except Exception as exc:
                     fault = callback_fault("on_market_data", identity, exc)
                     callback_faults.append(fault)
                     steps.append(
                         StrategyRehearsalStep(
-                            event, None, None, None,
+                            event,
+                            None,
+                            None,
+                            None,
                             f"pre-commit strategy step failed: {fault.message}",
                             (fault,),
                         )
@@ -342,30 +330,20 @@ class StrategyRehearsalSession:
                 callback_faults.extend(step.faults)
                 outcome = step.paper_outcome
                 preparation = step.preparation
-                if (
-                    outcome is None
-                    or preparation is None
-                    or preparation.request is None
-                ):
+                if outcome is None or preparation is None or preparation.request is None:
                     continue
 
                 order = preparation.request.order
                 order_id = str(order.client_order_id)
                 update_reason = outcome.reason
-                if (
-                    outcome.lifecycle_status is OrderStatus.UNKNOWN
-                    and not update_reason
-                ):
+                if outcome.lifecycle_status is OrderStatus.UNKNOWN and not update_reason:
                     update_reason = (
                         "order status is UNKNOWN; fill and remaining quantities "
                         "are not authoritative"
                     )
                 filled_quantity = (
                     None
-                    if (
-                        outcome.lifecycle_status is OrderStatus.UNKNOWN
-                        and outcome.fill is None
-                    )
+                    if (outcome.lifecycle_status is OrderStatus.UNKNOWN and outcome.fill is None)
                     else Decimal("0")
                     if outcome.fill is None
                     else outcome.fill.quantity
@@ -380,9 +358,7 @@ class StrategyRehearsalSession:
                     evidence_time=event.timestamp,
                     reason=update_reason,
                     effective_at=(
-                        event.timestamp
-                        if outcome.fill is None
-                        else outcome.fill.filled_at
+                        event.timestamp if outcome.fill is None else outcome.fill.filled_at
                     ),
                 )
                 if fact is None:
@@ -390,10 +366,7 @@ class StrategyRehearsalSession:
                 else:
                     active_orders[order_id] = fact
 
-                if (
-                    outcome.fill is not None
-                    and outcome.fill.filled_at > event.timestamp
-                ):
+                if outcome.fill is not None and outcome.fill.filled_at > event.timestamp:
                     temporal_fault = TemporalIntegrityFault(
                         source="paper_fill",
                         identity=order_id,
@@ -413,9 +386,7 @@ class StrategyRehearsalSession:
                 post_snapshot = build_simulated_engine_snapshot(
                     as_of=event.timestamp,
                     accounting=self._paper_executor.accounting,
-                    active_orders=tuple(
-                        active_orders[key] for key in sorted(active_orders)
-                    ),
+                    active_orders=tuple(active_orders[key] for key in sorted(active_orders)),
                     account_state=None,
                     account_reason=(
                         "paper rehearsal does not expose authoritative current "
@@ -445,9 +416,7 @@ class StrategyRehearsalSession:
                     evidence_time=event.timestamp,
                     reason=update_reason,
                     effective_at=(
-                        event.timestamp
-                        if outcome.fill is None
-                        else outcome.fill.filled_at
+                        event.timestamp if outcome.fill is None else outcome.fill.filled_at
                     ),
                 )
                 faults = dispatch_post_commit_callbacks(
