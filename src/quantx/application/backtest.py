@@ -663,7 +663,7 @@ class DeterministicBacktestService:
                 provenance.run_configuration,
             )
         qx08_active = isinstance(strategy, StrategyEvaluationService)
-        if qx08_active:
+        if isinstance(strategy, StrategyEvaluationService):
             if strategy_ir is None:
                 raise ValueError(
                     "strategy_ir is required for StrategyEvaluationService"
@@ -779,7 +779,8 @@ class DeterministicBacktestService:
                 blocked_cohort_time = None
                 cohort_timer_faults = ()
                 cohort_timer_faults_attached = False
-                if qx08_active:
+                if isinstance(strategy, StrategyEvaluationService):
+                    assert strategy_ir is not None
                     due_faults: list[CallbackFault] = []
                     for timer in timers.take_due(frame_time):
                         if simulation_clock is not None:
@@ -813,16 +814,16 @@ class DeterministicBacktestService:
                                 engine=timer_engine,
                                 history=timer_history,
                             )
-                            fault = dispatch_timer_callback(
+                            timer_fault = dispatch_timer_callback(
                                 callback_target, timer_context, timer
                             )
                         except Exception as exc:
-                            fault = callback_fault(
+                            timer_fault = callback_fault(
                                 "on_timer_context", timer.timer_id, exc
                             )
-                        if fault is not None:
-                            due_faults.append(fault)
-                            callback_faults.append(fault)
+                        if timer_fault is not None:
+                            due_faults.append(timer_fault)
+                            callback_faults.append(timer_fault)
                     if simulation_clock is not None:
                         simulation_clock.set_time(frame_time)
                     if due_faults:
@@ -870,7 +871,7 @@ class DeterministicBacktestService:
 
             strategy_evaluation: StrategyEvaluation | None = None
             strategy_result: StrategyResult
-            if qx08_active:
+            if isinstance(strategy, StrategyEvaluationService):
                 try:
                     assert strategy_ir is not None
                     market_engine = build_simulated_engine_snapshot(
