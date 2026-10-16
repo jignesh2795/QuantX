@@ -1,13 +1,19 @@
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
 from quantx.domain.enums import OrderStatus
+from quantx.domain.finance import CapitalSourceType
 from quantx.domain.market_data import Candle, MarketDataEvent, MarketDataType, Quote
 from quantx.domain.strategy import StrategyDefinition, StrategyId
-from quantx.domain.value_objects import InstrumentId
+from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.accounting import PositionLedgerEntry
+from quantx.execution.historical_account_state import (
+    AccountStateCompleteness,
+    HistoricalAccountStateSnapshot,
+)
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.engine_snapshot import (
@@ -132,6 +138,61 @@ def test_unknown_order_status_is_not_removed_as_canonical_terminal() -> None:
         as_of=as_of,
     )
     assert snapshot.orders.items == (fact,)
+
+
+def test_incomplete_position_order_and_account_evidence_keeps_reasons() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    account = HistoricalAccountStateSnapshot(
+        timestamp=as_of,
+        capital_source=CapitalSourceType.BACKTEST_CONFIGURED,
+        cash=Money(Decimal("1000"), "INR"),
+        market_value=None,
+        equity=None,
+        realized_pnl=Money.zero("INR"),
+        unrealized_pnl=None,
+        gross_exposure=None,
+        fees=Money.zero("INR"),
+        positions=(),
+        completeness=AccountStateCompleteness.INCOMPLETE,
+        unavailable_instruments=("NSE:TCS",),
+        issue="explicit mark is stale for exact-current sampling",
+    )
+    adapter = EngineEvidenceAdapter(
+        positions=EvidenceCollection.incomplete((), "position inventory is incomplete"),
+        orders=EvidenceCollection.incomplete((), "order inventory is incomplete"),
+        account_state=account,
+        account_reason=account.issue,
+    )
+
+    snapshot = build_engine_snapshot(adapter, as_of=as_of)
+
+    assert snapshot.positions.availability is EvidenceAvailability.INCOMPLETE
+    assert snapshot.positions.reason == "position inventory is incomplete"
+    assert snapshot.orders.availability is EvidenceAvailability.INCOMPLETE
+    assert snapshot.orders.reason == "order inventory is incomplete"
+    assert snapshot.account_availability is EvidenceAvailability.INCOMPLETE
+    assert snapshot.account_reason == "explicit mark is stale for exact-current sampling"
+    assert snapshot.account_state is account
+    assert snapshot.account_state.market_value is None
+    assert snapshot.account_state.equity is None
+
+
+def test_context_snapshot_and_parameter_views_are_frozen() -> None:
+    context = StrategyContext(_event(), _ir())
+
+    with pytest.raises(FrozenInstanceError):
+        context.as_of = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        context.engine.as_of = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        context.engine.positions.items = ()  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        context.params.parameters = ()  # type: ignore[misc]
+
+    assert isinstance(context.history, tuple)
+    assert isinstance(context.engine.positions.items, tuple)
+    assert isinstance(context.ir.parameters, tuple)
+    assert context.params.parameters is context.ir.parameters
 
 
 def test_snapshot_rejects_future_effective_position_evidence() -> None:
