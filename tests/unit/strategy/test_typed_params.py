@@ -2,6 +2,8 @@ from decimal import Decimal
 
 import pytest
 
+from quantx.domain.strategy import StrategyDefinition, StrategyId
+from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.typed_params import TypedParams
 
 
@@ -24,6 +26,23 @@ def test_history_bars_range_errors_name_the_field() -> None:
         TypedParams((("history_bars", "513"),)).get_int("history_bars", minimum=0, maximum=512)
     with pytest.raises(ValueError, match="history_bars"):
         TypedParams((("history_bars", "-1"),)).get_int("history_bars", minimum=0, maximum=512)
+
+
+def test_from_ir_reuses_canonical_parameter_tuple_and_exact_spelling() -> None:
+    ir = StrategyCompiler.compile(
+        StrategyDefinition(
+            StrategyId("buy-and-hold"),
+            "1",
+            "Buy and Hold",
+            parameters={"price": "-12.3400"},
+        )
+    )
+
+    params = TypedParams.from_ir(ir)
+
+    assert params.parameters is ir.parameters
+    assert params.get_decimal("price") == Decimal("-12.3400")
+    assert ir.parameters == (("price", "-12.3400"),)
 
 
 def test_decimal_getter_accepts_canonical_fixed_point_without_normalizing_ir() -> None:
