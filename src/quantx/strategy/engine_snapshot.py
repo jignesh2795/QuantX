@@ -370,6 +370,9 @@ def active_order_fact(
         if filled_quantity is None or status is OrderStatus.UNKNOWN
         else order_quantity - filled_quantity
     )
+    normalized_reason = reason
+    if status is OrderStatus.UNKNOWN and not normalized_reason:
+        normalized_reason = "order status is UNKNOWN; remaining quantity is not authoritative"
     return OpenOrderFact(
         client_order_id=client_order_id,
         instrument=instrument,
@@ -379,6 +382,6 @@ def active_order_fact(
         remaining_quantity=remaining_quantity,
         created_at=created_at,
         evidence_time=evidence_time,
-        reason=reason,
+        reason=normalized_reason,
         effective_at=effective_at,
     )
