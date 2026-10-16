@@ -740,6 +740,39 @@ def test_qx08_preflight_rejects_clock_ahead_before_first_strategy_callback() -> 
     assert engine._receipts == {}
 
 
+def test_callback_driver_rejects_nonzero_execution_latency_before_first_step() -> None:
+    ir = _runtime_ir("latency-preflight-backtest")
+    called: list[datetime] = []
+
+    class _SpyStrategy:
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            assert context.event is not None
+            called.append(context.event.timestamp)
+            return StrategyResult(
+                StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    context.event.instrument,
+                    SignalAction.HOLD,
+                    1.0,
+                    generated_at=context.event.timestamp,
+                )
+            )
+
+    with pytest.raises(ValueError, match="nonzero paper execution latency"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+        ).run(
+            series=_series(),
+            strategy=StrategyEvaluationService(_SpyStrategy()),
+            strategy_ir=ir,
+            financial_state=_financial_state(),
+            execution_profile=PaperSimulationProfile(latency_ms=1),
+        )
+
+    assert called == []
+
+
 def test_unknown_executor_time_capability_fails_closed() -> None:
     instrument = _instrument()
     engine = _CapturingEngine(clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
