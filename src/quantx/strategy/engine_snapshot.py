@@ -113,7 +113,7 @@ class OpenOrderFact:
     instrument: InstrumentId
     status: OrderStatus
     order_quantity: Decimal
-    filled_quantity: Decimal
+    filled_quantity: Decimal | None
     remaining_quantity: Decimal | None
     created_at: datetime
     evidence_time: datetime | None
@@ -125,12 +125,16 @@ class OpenOrderFact:
             raise ValueError("client_order_id must not be empty")
         if self.order_quantity <= 0:
             raise ValueError("order_quantity must be positive")
-        if self.filled_quantity < 0 or self.filled_quantity > self.order_quantity:
-            raise ValueError("filled_quantity must be between zero and order_quantity")
-        if self.remaining_quantity is not None and not (
-            Decimal("0") <= self.remaining_quantity <= self.order_quantity
-        ):
-            raise ValueError("remaining_quantity must be between zero and order_quantity")
+        if self.filled_quantity is None:
+            if self.remaining_quantity is not None:
+                raise ValueError("remaining_quantity requires known filled_quantity")
+        else:
+            if self.filled_quantity < 0 or self.filled_quantity > self.order_quantity:
+                raise ValueError("filled_quantity must be between zero and order_quantity")
+            if self.remaining_quantity is not None and self.remaining_quantity != (
+                self.order_quantity - self.filled_quantity
+            ):
+                raise ValueError("remaining_quantity must agree with known filled_quantity")
         for name, value in (
             ("created_at", self.created_at),
             ("evidence_time", self.evidence_time),
@@ -352,7 +356,7 @@ def active_order_fact(
     instrument: InstrumentId,
     status: OrderStatus,
     order_quantity: Decimal,
-    filled_quantity: Decimal,
+    filled_quantity: Decimal | None,
     created_at: datetime,
     evidence_time: datetime,
     reason: str | None = None,
@@ -361,13 +365,18 @@ def active_order_fact(
     """Build a retained inventory fact, omitting only canonical terminal statuses."""
     if is_terminal_order_status(status):
         return None
+    remaining_quantity = (
+        None
+        if filled_quantity is None or status is OrderStatus.UNKNOWN
+        else order_quantity - filled_quantity
+    )
     return OpenOrderFact(
         client_order_id=client_order_id,
         instrument=instrument,
         status=status,
         order_quantity=order_quantity,
         filled_quantity=filled_quantity,
-        remaining_quantity=order_quantity - filled_quantity,
+        remaining_quantity=remaining_quantity,
         created_at=created_at,
         evidence_time=evidence_time,
         reason=reason,
