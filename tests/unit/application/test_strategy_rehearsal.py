@@ -8,7 +8,7 @@ any broker-submit path.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -46,6 +46,7 @@ from quantx.domain.strategy import (
     StrategyId,
     StrategyResult,
     StrategySignal,
+    TimerRequest,
 )
 from quantx.domain.value_objects import Money
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
@@ -472,6 +473,151 @@ def test_session_is_single_use() -> None:
     assert fresh.run(_inputs(*moments)).steps[0].evaluation.result.signal.action is (
         SignalAction.BUY
     )
+
+
+# ---------------------------------------------------------------------------
+# QX-08 M2 callback/timer semantics
+# ---------------------------------------------------------------------------
+
+
+class _TimerObserver:
+    def __init__(self, *, fail_timer: bool = False) -> None:
+        self.requested = False
+        self.fail_timer = fail_timer
+        self.calls: list[tuple[object, ...]] = []
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        event = context.event
+        assert event is not None
+        self.calls.append(("market", event.timestamp))
+        timers: tuple[TimerRequest, ...] = ()
+        if not self.requested:
+            self.requested = True
+            timers = (
+                TimerRequest(
+                    "timer-1",
+                    event.instrument,
+                    event.timestamp + timedelta(seconds=30),
+                ),
+            )
+        return StrategyResult(
+            signal=StrategySignal(
+                context.ir.strategy_id,
+                context.ir.version,
+                event.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=event.timestamp,
+            ),
+            timers=timers,
+        )
+
+    def on_timer(self, context: StrategyContext, timer) -> None:
+        self.calls.append(("timer", context.event, context.as_of, timer.timer_id))
+        if self.fail_timer:
+            raise RuntimeError("timer observer failed")
+
+
+class _CommitThenFailObserver:
+    def __init__(self) -> None:
+        self.entered = False
+        self.calls: list[str] = []
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        event = context.event
+        assert event is not None
+        if self.entered:
+            action = SignalAction.HOLD
+            intent = None
+        else:
+            self.entered = True
+            action = SignalAction.BUY
+            intent = TradeIntent(
+                instrument=event.instrument,
+                side=OrderSide.BUY,
+                quantity=Decimal("2"),
+                strategy_id=context.ir.strategy_id.value,
+                strategy_version=context.ir.version,
+            )
+        return StrategyResult(
+            signal=StrategySignal(
+                context.ir.strategy_id,
+                context.ir.version,
+                event.instrument,
+                action,
+                1.0,
+                generated_at=event.timestamp,
+            ),
+            intent=intent,
+        )
+
+    def on_fill(self, context: StrategyContext, fill: Fill) -> None:
+        self.calls.append("on_fill")
+        raise RuntimeError("fill observer failed")
+
+    def on_order_update(self, context: StrategyContext, update) -> None:
+        self.calls.append("on_order_update")
+
+
+def _registry_for_strategy(strategy) -> StrategyRegistry:
+    registry = StrategyRegistry()
+    registry.register("buy-and-hold", "1", lambda: strategy)
+    return registry
+
+
+def test_timer_dispatch_precedes_equal_timestamp_cohort_and_failure_blocks_only_cohort() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    cohort = start + timedelta(minutes=1)
+    later = start + timedelta(minutes=2)
+    strategy = _TimerObserver(fail_timer=True)
+    session, _ = _session(registry=_registry_for_strategy(strategy))
+
+    result = session.run(_inputs(start, cohort, cohort, later))
+
+    assert strategy.calls == [
+        ("market", start),
+        ("timer", None, start + timedelta(seconds=30), "timer-1"),
+        ("market", later),
+    ]
+    assert result.steps[0].evaluation is not None
+    assert result.steps[1].evaluation is None
+    assert result.steps[2].evaluation is None
+    assert result.steps[1].note == result.steps[2].note
+    assert result.steps[3].evaluation is not None
+    assert result.halt is None
+    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
+
+
+def test_postcommit_callback_fault_attempts_order_update_and_preserves_fill_then_halts() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    later = start + timedelta(minutes=1)
+    strategy = _CommitThenFailObserver()
+    session, accounting = _session(registry=_registry_for_strategy(strategy))
+
+    result = session.run(_inputs(start, later))
+
+    first = result.steps[0]
+    assert first.paper_outcome is not None
+    assert first.paper_outcome.fill is not None
+    assert first.paper_outcome.lifecycle_status is OrderStatus.FILLED
+    assert accounting.applications == [first.paper_outcome.fill]
+    assert strategy.calls == ["on_fill", "on_order_update"]
+    assert result.halt is not None
+    assert result.halt.kind == "POST_COMMIT_CALLBACK_FAILURE"
+    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_fill",)
+    assert result.steps[1].evaluation is None
+    assert "run halted" in result.steps[1].note
+
+
+def test_rehearsal_rejects_regressing_timestamps_before_consuming_session() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    later = start + timedelta(minutes=1)
+    session, _ = _session()
+
+    with pytest.raises(ValueError, match="nondecreasing"):
+        session.run(_inputs(later, start))
+
+    assert session.run(_inputs(start)).steps[0].evaluation is not None
 
 
 # ---------------------------------------------------------------------------
