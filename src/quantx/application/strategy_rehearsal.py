@@ -14,10 +14,11 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from quantx.application.strategy_preflight import assess_rehearsal_event_time_support
+from quantx.domain.clock import SimulatedClock
 from quantx.domain.deployment import ExecutionMode, StrategyDeployment
 from quantx.domain.finance import AccountFinancialState
 from quantx.domain.instrument_registry import InstrumentRegistry
-from quantx.domain.clock import SimulatedClock
 from quantx.domain.market_data import Candle, MarketDataEvent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext
 from quantx.domain.risk import PreTradeRiskEngine
@@ -33,14 +34,13 @@ from quantx.strategy.callbacks import (
     dispatch_post_commit_callbacks,
     dispatch_timer_callback,
 )
+from quantx.strategy.deployment import StrategyExecutionDecision
 from quantx.strategy.engine_snapshot import (
     OpenOrderFact,
     active_order_fact,
     build_simulated_engine_snapshot,
     prior_candle_history,
 )
-from quantx.application.strategy_preflight import assess_rehearsal_event_time_support
-from quantx.strategy.deployment import StrategyExecutionDecision
 from quantx.strategy.evaluation import StrategyEvaluation, StrategyEvaluationService
 from quantx.strategy.execution import (
     StrategyExecutionPreparation,
@@ -51,7 +51,6 @@ from quantx.strategy.ir import StrategyIR
 from quantx.strategy.registry import StrategyRegistry
 from quantx.strategy.timers import TimerRegistry, UndeliveredTimer
 from quantx.strategy.typed_params import TypedParams
-
 
 @dataclass(frozen=True, slots=True)
 class RehearsalInput:
