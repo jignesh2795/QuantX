@@ -1167,6 +1167,7 @@ class DeterministicBacktestService:
                     created_at=order.created_at,
                     evidence_time=frame_time,
                     reason=receipt.message or receipt.outcome.value,
+                    effective_at=receipt.executed_at,
                 )
                 faults = dispatch_post_commit_callbacks(
                     callback_target,
