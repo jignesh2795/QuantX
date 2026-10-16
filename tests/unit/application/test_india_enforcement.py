@@ -199,7 +199,9 @@ def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
     rule_evaluator = overrides.pop("india_rule_evaluator", None)
     return ExecutionOrchestrator(
         unit_of_work=unit_of_work,
-        trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+        trading_gate=DurableTradingGate(
+            SqliteTradingGateStateStore(database), default_enabled=True
+        ),
         application_runtime=_started_runtime(),
         market_policy=india_market_policy(
             session_evaluator=session_evaluator,

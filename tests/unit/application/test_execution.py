@@ -233,7 +233,7 @@ class _FakeUnitOfWork(UnitOfWork):
 
 
 def _durable_gate() -> DurableTradingGate:
-    return DurableTradingGate(InMemoryTradingGateStateStore())
+    return DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True)
 
 
 def _approving_india_evaluator():
@@ -863,7 +863,9 @@ def _sqlite_setup(tmp_path):
     orchestrator = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
-        trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+        trading_gate=DurableTradingGate(
+            SqliteTradingGateStateStore(database), default_enabled=True
+        ),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -957,7 +959,9 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
         orchestrator_a = ExecutionOrchestrator(
             application_runtime=_started_runtime(),
             unit_of_work=SqliteUnitOfWork(database_a),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_a)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database_a), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -973,7 +977,9 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
         orchestrator_b = ExecutionOrchestrator(
             application_runtime=_started_runtime(),
             unit_of_work=SqliteUnitOfWork(database_b),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database_b)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database_b), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -1144,3 +1150,157 @@ def test_partial_continuation_passes_control_plane_to_adapter() -> None:
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is not None
     assert adapter.called
+
+
+class _AdmissionGatedGate(DurableTradingGate):
+    """Durable gate whose submit admission waits on an event first.
+
+    The wait happens outside every gate/store lock, so ``block()`` from
+    another thread is never delayed by the paused admission.
+    """
+
+    def __init__(self, store, *, admission_release: Event) -> None:
+        super().__init__(store, default_enabled=True)
+        self._admission_release = admission_release
+
+    def admit_submission(self) -> bool:
+        assert self._admission_release.wait(timeout=10)
+        return super().admit_submission()
+
+
+def _wait_for_reservation(unit_of_work, request) -> None:
+    """Poll until the reservation is durable; fail loudly instead of hanging."""
+    import time
+
+    start = time.monotonic()
+    while True:
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        if decision.reservation_pending:
+            return
+        assert time.monotonic() - start < 10, "reservation never became durable"
+
+
+def test_live_block_before_submit_admission_denies_without_submit() -> None:
+    """Once block() returns, a reserved-but-unadmitted submission is denied."""
+    admission_release = Event()
+    gate = _AdmissionGatedGate(InMemoryTradingGateStateStore(), admission_release=admission_release)
+    unit_of_work = _FakeUnitOfWork()
+    broker = FakeBroker()
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=gate,
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+    )
+    request = _live_request()
+    outcome: dict = {}
+
+    def run_execute() -> None:
+        try:
+            outcome["result"] = orchestrator.execute(request, broker=broker)
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    worker = Thread(target=run_execute)
+    worker.start()
+    try:
+        _wait_for_reservation(unit_of_work, request)
+        gate.block("operator emergency stop")
+        admission_release.set()
+        worker.join(timeout=10)
+    finally:
+        admission_release.set()
+        worker.join(timeout=10)
+    assert not worker.is_alive()
+    assert "error" not in outcome
+
+    result = outcome["result"]
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "trading is blocked: operator emergency stop" in result.reason
+    assert broker.submit_calls == 0
+    assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+    decision = unit_of_work.idempotency.check(
+        request.order.client_order_id, request_fingerprint(request)
+    )
+    assert decision.reservation_pending
+    assert decision.existing_receipt_id is None
+
+    retry_while_blocked = orchestrator.execute(request, broker=broker)
+    assert retry_while_blocked.status is ExecutionDispatchStatus.BLOCKED
+    assert broker.submit_calls == 0
+
+    gate.enable()
+    retry_after_enable = orchestrator.execute(request, broker=broker)
+    assert retry_after_enable.status is ExecutionDispatchStatus.UNKNOWN
+    assert broker.submit_calls == 0
+
+
+class _HangingBroker(FakeBroker):
+    """Broker that stays inside the submit call until released."""
+
+    def __init__(self, *, submit_entered: Event, submit_release: Event) -> None:
+        super().__init__()
+        self._submit_entered = submit_entered
+        self._submit_release = submit_release
+
+    def submit(self, request):
+        self._submit_entered.set()
+        assert self._submit_release.wait(timeout=10)
+        return super().submit(request)
+
+
+def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
+    """A block() landing during an admitted broker call changes nothing.
+
+    ``block()`` must return while the broker call is still hung (it never
+    waits for broker I/O), and the admitted submission keeps its genuine
+    broker outcome instead of being misrepresented as cancelled or blocked.
+    """
+    submit_entered = Event()
+    submit_release = Event()
+    gate = _durable_gate()
+    unit_of_work = _FakeUnitOfWork()
+    broker = _HangingBroker(submit_entered=submit_entered, submit_release=submit_release)
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=gate,
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+    )
+    request = _live_request()
+    outcome: dict = {}
+
+    def run_execute() -> None:
+        try:
+            outcome["result"] = orchestrator.execute(request, broker=broker)
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    worker = Thread(target=run_execute)
+    worker.start()
+    try:
+        assert submit_entered.wait(timeout=10)
+        gate.block("operator emergency stop")
+        assert worker.is_alive()
+        submit_release.set()
+        worker.join(timeout=10)
+    finally:
+        submit_release.set()
+        worker.join(timeout=10)
+    assert not worker.is_alive()
+    assert "error" not in outcome
+
+    result = outcome["result"]
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+    assert broker.submit_calls == 1
+    assert "blocked" not in result.reason.lower()
+    assert "cancel" not in result.reason.lower()

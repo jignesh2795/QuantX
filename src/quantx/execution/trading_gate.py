@@ -7,6 +7,7 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from threading import RLock
 from typing import Protocol
+from weakref import WeakKeyDictionary
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,43 @@ class InMemoryTradingGateStateStore:
             yield
 
 
+_domain_faults_lock = RLock()
+_domain_faults: WeakKeyDictionary[object, TradingGateState] = WeakKeyDictionary()
+
+
+def _fault_domain(state_store: TradingGateStateStore) -> object:
+    """Resolve the shared persistence domain scoping a process-local fault.
+
+    Gates sharing one store object share a domain. A store may additionally
+    expose its underlying shared persistence object (for example the SQLite
+    database shared by separate store wrappers) through a
+    ``shared_fault_domain`` attribute. Stores without one are scoped by object
+    identity, so independent stores and databases never share faults. There is
+    deliberately no global latch: unrelated persistence domains stay
+    independent.
+    """
+    domain: object = getattr(state_store, "shared_fault_domain", None)
+    return domain if domain is not None else state_store
+
+
+def _latched_domain_fault(state_store: TradingGateStateStore) -> TradingGateState | None:
+    """Return the shared fail-closed fault for the store's domain, if any."""
+    with _domain_faults_lock:
+        return _domain_faults.get(_fault_domain(state_store))
+
+
+def _latch_domain_fault(state_store: TradingGateStateStore, fault: TradingGateState) -> None:
+    """Latch a shared fail-closed fault for the store's domain."""
+    with _domain_faults_lock:
+        _domain_faults[_fault_domain(state_store)] = fault
+
+
+def _clear_domain_fault(state_store: TradingGateStateStore) -> None:
+    """Clear the shared fail-closed fault for the store's domain, if any."""
+    with _domain_faults_lock:
+        _domain_faults.pop(_fault_domain(state_store), None)
+
+
 class TradingGate:
     """Process-local kill switch for new order execution.
 
@@ -70,12 +108,29 @@ class TradingGate:
 
     @contextmanager
     def submission_permit(self) -> Iterator[bool]:
-        """Atomically authorize a submission and hold the gate through the call."""
+        """Authorize a submission and hold the gate through reservation creation.
+
+        The permit covers the gate check plus idempotency reservation only.
+        It is released before any broker I/O, so ``block()`` never waits for
+        a slow broker call. Callers must re-check submit admission at the
+        :meth:`admit_submission` boundary immediately before broker contact.
+        """
         with self._lock:
             if not self._state.enabled:
                 yield False
                 return
             yield True
+
+    def admit_submission(self) -> bool:
+        """Linearization point for submit admission: one atomic enabled check.
+
+        A submission that has not crossed this boundary when ``block()``
+        returns must not proceed. A submission that already crossed it is
+        in-flight and is never reversed by a later ``block()``. This check
+        holds no lock across broker I/O.
+        """
+        with self._lock:
+            return self._state.enabled
 
     def block(self, reason: str) -> TradingGateState:
         reason = reason.strip()
@@ -92,7 +147,29 @@ class TradingGate:
 
 
 class DurableTradingGate(TradingGate):
-    """Trading gate whose block/enable state survives process restart."""
+    """Trading gate whose block/enable state survives process restart.
+
+    A missing durable state defaults to disarmed (``default_enabled=False``);
+    the default is persisted, and an initialization persistence failure never
+    leaves an armed gate behind. A failed persist of ``block()`` or
+    ``enable()`` latches a process-local fail-closed fault, shared by every
+    gate instance bound to the same persistence domain (one store object, or
+    one shared database behind separate store wrappers): while latched,
+    ``allow()``, ``state()``, and submit admission report blocked on every
+    such gate without reloading possibly stale enabled state from the store.
+    A later successfully persisted ``block()`` or ``enable()`` on any gate in
+    the domain replaces the latch. Independent stores and databases never
+    share faults. Query paths (``allow()``, ``state()``, permits, admission)
+    fail closed when durable state is missing, unavailable, or unreadable,
+    including when a store operation raises; command paths (``block()``,
+    ``enable()``) still surface persistence errors loudly.
+
+    Durability limitation: the fault latch is process-local. A failed write
+    cannot by itself persist evidence that the write failed, so a process
+    crash loses the latch. Only successfully persisted state (for example a
+    disarmed default) survives restart; failed-write recovery always requires
+    a subsequent successful persist, typically an explicit operator enable.
+    """
 
     is_durable = True
 
@@ -100,46 +177,101 @@ class DurableTradingGate(TradingGate):
         self,
         state_store: TradingGateStateStore,
         *,
-        default_enabled: bool = True,
+        default_enabled: bool = False,
     ) -> None:
         self._state_store = state_store
-        persisted = state_store.load()
-        initial = persisted or TradingGateState(enabled=default_enabled)
+        try:
+            persisted = state_store.load()
+        except Exception:
+            persisted = None
+        initial = persisted if persisted is not None else TradingGateState(enabled=default_enabled)
         super().__init__(enabled=initial.enabled)
         with self._lock:
             self._state = initial
         if persisted is None:
-            state_store.save(initial)
+            try:
+                state_store.save(initial)
+            except Exception:
+                fault = TradingGateState(
+                    enabled=False,
+                    reason="durable trading-gate initialization failed",
+                )
+                with self._lock:
+                    self._state = fault
+                _latch_domain_fault(state_store, fault)
+                raise
 
     def state(self) -> TradingGateState:
-        persisted = self._state_store.load()
-        if persisted is None:
-            with self._lock:
+        # The lock is held across the store read so a failed persist that
+        # latches a fault is never missed by a concurrent read: every state
+        # observation linearizes against command writes. Reads are brief
+        # local store operations; no broker I/O ever holds this lock.
+        with self._lock:
+            fault = _latched_domain_fault(self._state_store)
+            if fault is not None:
+                return fault
+            try:
+                persisted = self._state_store.load()
+            except Exception:
+                persisted = None
+            if persisted is None:
                 return TradingGateState(
                     enabled=False,
                     reason="durable trading-gate state is unavailable",
                 )
-        with self._lock:
             self._state = persisted
             return persisted
 
     def allow(self) -> bool:
         return self.state().enabled
 
+    def _refresh_decision_under_store_lock(self) -> bool:
+        """Refresh durable state and decide admission.
+
+        Requires ``self._lock`` and the store ``synchronize()`` context to be
+        held by the caller. Observes the domain-shared fault latch first and
+        never consults the store while a fault is latched, so a failed persist
+        can never be undone by reloading stale enabled state.
+        """
+        if _latched_domain_fault(self._state_store) is not None:
+            return False
+        try:
+            persisted = self._state_store.load()
+        except Exception:
+            return False
+        if persisted is None:
+            return False
+        self._state = persisted
+        return persisted.enabled
+
     @contextmanager
     def submission_permit(self) -> Iterator[bool]:
-        """Refresh durable state, then hold the gate through broker submission."""
+        """Refresh durable state, then hold the gate through reservation only.
+
+        The permit covers the gate check plus idempotency reservation. It is
+        released before any broker I/O, so ``block()`` never waits for a slow
+        broker call. Callers must re-check submit admission at the
+        :meth:`admit_submission` boundary immediately before broker contact.
+        """
         with self._lock:
             with self._state_store.synchronize():
-                persisted = self._state_store.load()
-                if persisted is None:
-                    yield False
-                    return
-                self._state = persisted
-                if not persisted.enabled:
+                if not self._refresh_decision_under_store_lock():
                     yield False
                     return
                 yield True
+
+    def admit_submission(self) -> bool:
+        """Linearization point for submit admission: one atomic durable check.
+
+        Observes the fault latch first, then the durable store under the
+        store lock. A submission that has not crossed this boundary when
+        ``block()`` returns is denied here. A submission that already crossed
+        it is in-flight and is never reversed by a later ``block()``. No lock
+        is held across broker I/O.
+        """
+        with self._lock:
+            with self._state_store.synchronize():
+                return self._refresh_decision_under_store_lock()
 
     def block(self, reason: str) -> TradingGateState:
         reason = reason.strip()
@@ -147,13 +279,37 @@ class DurableTradingGate(TradingGate):
             raise ValueError("kill-switch reason must not be empty")
         state = TradingGateState(enabled=False, reason=reason)
         with self._lock:
-            self._state_store.save(state)
+            try:
+                self._state_store.save(state)
+            except Exception:
+                # Latch blocked immediately for the whole persistence domain:
+                # the operator asked for a block and the durable write failed,
+                # so no gate bound to this store or database may reload stale
+                # enabled state and restore permission. The error still
+                # propagates so the failure is visible.
+                self._state = state
+                _latch_domain_fault(self._state_store, state)
+                raise
             self._state = state
+            _clear_domain_fault(self._state_store)
             return state
 
     def enable(self) -> TradingGateState:
         state = TradingGateState(enabled=True)
         with self._lock:
-            self._state_store.save(state)
+            try:
+                self._state_store.save(state)
+            except Exception:
+                # A failed enable leaves the domain blocked: permission
+                # requires a successfully persisted enable, which also clears
+                # a recoverable latched fault.
+                fault = TradingGateState(
+                    enabled=False,
+                    reason="durable trading-gate enable failed to persist",
+                )
+                self._state = fault
+                _latch_domain_fault(self._state_store, fault)
+                raise
             self._state = state
+            _clear_domain_fault(self._state_store)
             return state

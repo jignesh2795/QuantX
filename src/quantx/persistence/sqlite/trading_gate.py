@@ -17,6 +17,16 @@ class SqliteTradingGateStateStore(TradingGateStateStore):
     def __init__(self, database: SqliteDatabase) -> None:
         self._database = database
 
+    @property
+    def shared_fault_domain(self) -> SqliteDatabase:
+        """Scope process-local gate faults to the shared database.
+
+        Separate store wrappers over one database share one fault domain, so
+        a failed persist observed through any wrapper blocks every gate bound
+        to that database. Independent databases never share faults.
+        """
+        return self._database
+
     def load(self) -> TradingGateState | None:
         with self._database.transaction() as connection:
             row = connection.execute(
@@ -25,6 +35,10 @@ class SqliteTradingGateStateStore(TradingGateStateStore):
         if row is None:
             return None
         enabled, reason = row
+        # A corrupt row must never decode into a permissive state. Gate query
+        # paths treat a raised decode error as unavailable and fail closed.
+        if enabled not in (0, 1) or not isinstance(reason, str):
+            raise ValueError("corrupt trading-gate state row")
         return TradingGateState(enabled=bool(enabled), reason=reason)
 
     @contextmanager

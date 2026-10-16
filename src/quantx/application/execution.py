@@ -846,7 +846,10 @@ class ExecutionOrchestrator:
 
         Scope A commits the PENDING reservation; the broker submission runs
         outside any transaction and outside the trading-gate lock; Scope B
-        atomically saves the receipt and completes the reservation.
+        atomically saves the receipt and completes the reservation. Between
+        Scope A and the broker call, submit admission is re-checked at the
+        gate linearization point, so a block() that returned before admission
+        denies the submission before any broker contact.
 
         R0-B scope: only the safety-critical submit/cancel/reconcile broker
         operations carry bounded timeouts. ``broker.health()`` (checked in
@@ -946,6 +949,25 @@ class ExecutionOrchestrator:
                             "idempotency reservation was not acquired; reconciliation is required"
                         ),
                     )
+
+        # Submit admission boundary (linearization point): re-check the kill
+        # switch after the reservation is durable and immediately before the
+        # external broker call is admitted. Once block() has returned, any
+        # submission that has not crossed this check is denied here and the
+        # broker is never contacted. An already-admitted in-flight broker call
+        # is never reversed by a later block().
+        #
+        # The check holds no gate/store lock across broker I/O, so block()
+        # never waits for a slow or hung broker call. A denied admission
+        # leaves the PENDING reservation intact for reconciliation and
+        # operator resolution; the attempt is reported BLOCKED (never
+        # submitted, never uncertain) and is never automatically retried.
+        if not self._trading_gate.admit_submission():
+            state = self._trading_gate.state()
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=f"trading is blocked: {state.reason}",
+            )
 
         # Broker call happens OUTSIDE the trading-gate lock.
         # Timeout is enforced by the broker adapter; any timeout/exception

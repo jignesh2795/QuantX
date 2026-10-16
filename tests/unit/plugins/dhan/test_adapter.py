@@ -424,7 +424,9 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
     try:
         result = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             application_runtime=_started_runtime(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),

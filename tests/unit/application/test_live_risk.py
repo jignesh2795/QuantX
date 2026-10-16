@@ -680,7 +680,9 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
         unit_of_work = SqliteUnitOfWork(database)
         orchestrator = ExecutionOrchestrator(
             unit_of_work=unit_of_work,
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -722,7 +724,9 @@ def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
     try:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -744,7 +748,9 @@ def test_upstream_approve_cannot_bypass_authoritative_risk(tmp_path) -> None:
     try:
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -778,7 +784,9 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
 
         orchestrator = ExecutionOrchestrator(
             unit_of_work=SqliteUnitOfWork(database),
-            trading_gate=DurableTradingGate(SqliteTradingGateStateStore(database)),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
