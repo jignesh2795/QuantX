@@ -16,13 +16,21 @@ from enum import StrEnum
 from quantx.application.strategy_preflight import assess_backtest_event_time_support
 from quantx.domain.clock import SimulatedClock
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType
-from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+from quantx.domain.execution_request import (
+    ApprovedExecutionRequest,
+    build_order_from_intent,
+)
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Order
-from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
+from quantx.domain.policy import (
+    ExecutionPolicyEngine,
+    PolicyContext,
+    PolicyDecision,
+    PolicyResult,
+)
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
@@ -494,7 +502,9 @@ class DeterministicBacktestService:
         self._accounting_override = accounting
 
     @staticmethod
-    def _validate_strategy_result(strategy_result: StrategyResult, frame: ReplayFrame) -> None:
+    def _validate_strategy_result(
+        strategy_result: StrategyResult, frame: ReplayFrame
+    ) -> None:
         signal = strategy_result.signal
         if signal.instrument != frame.observation.instrument:
             raise ValueError("strategy signal instrument does not match replay frame")
@@ -517,7 +527,9 @@ class DeterministicBacktestService:
             raise ValueError("SELL signal must carry a SELL intent")
 
     @staticmethod
-    def _require_coherent_execution_time(order: Order, receipt: ExecutionReceipt) -> None:
+    def _require_coherent_execution_time(
+        order: Order, receipt: ExecutionReceipt
+    ) -> None:
         """Detect residual clock divergence after execution.
 
         Backstop for the pre-execution check above: it covers a clock that
@@ -574,7 +586,9 @@ class DeterministicBacktestService:
         return engine_now
 
     @staticmethod
-    def _candle_stop_disposition(intent: TradeIntent, snapshot: HistoricalSnapshot) -> str | None:
+    def _candle_stop_disposition(
+        intent: TradeIntent, snapshot: HistoricalSnapshot
+    ) -> str | None:
         """Block candle stop orders whose outcome OHLCV cannot establish.
 
         A stop whose trigger the observed bar cannot confirm would need an

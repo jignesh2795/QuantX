@@ -21,7 +21,9 @@ from quantx.strategy.runtime import StrategyRuntime
 from quantx.strategy.timers import TimerRegistry
 
 
-def _event(timestamp: datetime, instrument: InstrumentId | None = None) -> MarketDataEvent:
+def _event(
+    timestamp: datetime, instrument: InstrumentId | None = None
+) -> MarketDataEvent:
     selected = instrument or InstrumentId("NSE", "TCS")
     quote = Quote(selected, timestamp, bid=None, ask=None, last=None)
     return MarketDataEvent(MarketDataType.QUOTE, timestamp, selected, quote)

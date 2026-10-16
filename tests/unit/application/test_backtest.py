@@ -21,10 +21,18 @@ from quantx.domain.deployment import (
     StrategyDeploymentId,
 )
 from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
-from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+from quantx.domain.execution_request import (
+    ApprovedExecutionRequest,
+    build_order_from_intent,
+)
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
-from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import (
+    Instrument,
+    MarketContext,
+    MarketFamily,
+    MarketRegion,
+)
 from quantx.domain.market_data import Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyContext, PolicyDecision, PolicyResult
@@ -382,7 +390,8 @@ def test_backtest_requires_approval_when_policy_requires_manual_approval() -> No
 
     assert result.executed_count == 0
     assert all(
-        step.disposition is BacktestDisposition.APPROVAL_REQUIRED for step in result.steps
+        step.disposition is BacktestDisposition.APPROVAL_REQUIRED
+        for step in result.steps
     )
 
 
@@ -2504,7 +2513,10 @@ def _evidence_timestamps(
         *(fill.filled_at.isoformat() for fill in receipt.fills),
         receipt.executed_at.isoformat(),
         *(step.timestamp for step in result.steps),
-        *(step.strategy_result.signal.generated_at.isoformat() for step in result.steps),
+        *(
+            step.strategy_result.signal.generated_at.isoformat()
+            for step in result.steps
+        ),
         *(snapshot.timestamp.isoformat() for snapshot in result.account_states),
         *(snapshot.timestamp.isoformat() for snapshot in result.account_state_series),
     ]
@@ -2563,7 +2575,9 @@ class _RecordingIdempotencyStore(InMemoryIdempotencyStore):
         self.reserve_calls: list[tuple[UUID, str]] = []
         self.complete_calls: list[tuple[UUID, str, UUID]] = []
 
-    def reserve_or_get(self, client_order_id, request_fingerprint, pending_context=None):
+    def reserve_or_get(
+        self, client_order_id, request_fingerprint, pending_context=None
+    ):
         self.reserve_calls.append((client_order_id, request_fingerprint))
         return super().reserve_or_get(
             client_order_id, request_fingerprint, pending_context

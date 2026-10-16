@@ -27,7 +27,13 @@ from quantx.domain.deployment import (
     StrategyDeployment,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType, TimeInForce
+from quantx.domain.enums import (
+    AssetClass,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    TimeInForce,
+)
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import (
@@ -259,7 +265,12 @@ def test_bind_rejects_conflicting_context() -> None:
 
 @pytest.mark.parametrize(
     "mode",
-    [ExecutionMode.LIVE, ExecutionMode.BACKTEST, ExecutionMode.REPLAY, ExecutionMode.SHADOW],
+    [
+        ExecutionMode.LIVE,
+        ExecutionMode.BACKTEST,
+        ExecutionMode.REPLAY,
+        ExecutionMode.SHADOW,
+    ],
 )
 def test_session_rejects_non_paper_deployment(mode: ExecutionMode) -> None:
     accounting = _CountingAccounting()

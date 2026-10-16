@@ -112,7 +112,10 @@ def _event_submitted_at_ns(event: MarketDataEvent) -> int:
     a float epoch division would lose nanosecond precision.
     """
     delta = event.timestamp - _UNIX_EPOCH
-    return (delta.days * 86400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
+    return (
+        (delta.days * 86400 + delta.seconds) * 1_000_000_000
+        + delta.microseconds * 1000
+    )
 
 
 class StrategyRehearsalSession:
