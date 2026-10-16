@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
-from quantx.application.pending_recovery import PendingRecoveryRun
+from quantx.application.pending_recovery import PendingRecoveryResult, PendingRecoveryRun
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
@@ -720,6 +720,39 @@ def test_live_with_unstarted_application_runtime_is_blocked() -> None:
             return PendingRecoveryRun()
 
     runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
+
+    result = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        application_runtime=runtime,
+    ).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "started ApplicationRuntime" in result.reason
+    assert broker.submit_calls == 0
+
+
+def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
+    """A runtime that attempted startup with unresolved recovery stays unready,
+    so LIVE orchestration blocks with no broker submission."""
+    request = _live_request()
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    class FailedRecovery:
+        def run(self, *, checked_at=None) -> PendingRecoveryRun:
+            return PendingRecoveryRun(
+                (PendingRecoveryResult("order-1", False, error="broker unavailable"),)
+            )
+
+    runtime = ApplicationRuntime(pending_recovery=FailedRecovery())
+    report = runtime.start(checked_at=datetime(2026, 1, 1, tzinfo=UTC))
+    assert report.ready is False
+    assert not runtime.started
 
     result = ExecutionOrchestrator(
         unit_of_work=unit_of_work,

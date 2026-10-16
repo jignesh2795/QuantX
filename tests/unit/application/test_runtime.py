@@ -20,13 +20,13 @@ class FakeRecovery:
         return self.report
 
 
-def test_runtime_runs_pending_recovery_once() -> None:
+def test_runtime_starts_when_recovery_fully_resolves() -> None:
     checked_at = datetime(2026, 1, 1, 12, tzinfo=UTC)
     recovery = FakeRecovery(
         PendingRecoveryRun(
             (
                 PendingRecoveryResult("order-1", True),
-                PendingRecoveryResult("order-2", False, error="broker unavailable"),
+                PendingRecoveryResult("order-2", True),
             )
         )
     )
@@ -35,15 +35,112 @@ def test_runtime_runs_pending_recovery_once() -> None:
     result = runtime.start(checked_at=checked_at)
 
     assert runtime.started
+    assert result.ready is True
     assert recovery.calls == 1
     assert recovery.checked_at == checked_at
-    assert result.recovered == 1
+    assert result.recovered == 2
     assert result.pending == 0
-    assert result.failed == 1
+    assert result.failed == 0
+    assert runtime.last_startup_result == result
 
     with pytest.raises(RuntimeError, match="already started"):
         runtime.start(checked_at=checked_at)
     assert recovery.calls == 1
+
+
+def test_runtime_stays_unready_when_recovery_fails() -> None:
+    recovery = FakeRecovery(
+        PendingRecoveryRun((PendingRecoveryResult("order-1", False, error="broker unavailable"),))
+    )
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.pending == 0
+    assert result.failed == 1
+    assert runtime.last_startup_result == result
+
+
+def test_runtime_stays_unready_when_recovery_pending() -> None:
+    recovery = FakeRecovery(PendingRecoveryRun((PendingRecoveryResult("order-1", False),)))
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.pending == 1
+    assert result.failed == 0
+    assert runtime.last_startup_result == result
+
+
+def test_runtime_mixed_recovery_preserves_evidence_and_stays_unready() -> None:
+    report = PendingRecoveryRun(
+        (
+            PendingRecoveryResult("order-1", True),
+            PendingRecoveryResult("order-2", False),
+            PendingRecoveryResult("order-3", False, error="broker unavailable"),
+        )
+    )
+    runtime = ApplicationRuntime(pending_recovery=FakeRecovery(report))
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.recovered == 1
+    assert result.pending == 1
+    assert result.failed == 1
+    retained = runtime.last_startup_result
+    assert retained is not None
+    assert retained.pending_recovery.results == report.results
+
+
+def test_runtime_retry_after_unready_startup_is_allowed() -> None:
+    """An unready runtime may be started again; success stays one-shot."""
+    reports = [
+        PendingRecoveryRun((PendingRecoveryResult("order-1", False, error="broker unavailable"),)),
+        PendingRecoveryRun((PendingRecoveryResult("order-1", True),)),
+    ]
+    calls = 0
+
+    class ScriptedRecovery:
+        def run(self, *, checked_at=None) -> PendingRecoveryRun:
+            nonlocal calls
+            report = reports[calls]
+            calls += 1
+            return report
+
+    runtime = ApplicationRuntime(pending_recovery=ScriptedRecovery())
+
+    first = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+    assert not runtime.started
+    assert first.ready is False
+
+    second = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+    assert runtime.started
+    assert second.ready is True
+    assert runtime.last_startup_result == second
+
+    with pytest.raises(RuntimeError, match="already started"):
+        runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+    assert calls == 2
+
+
+def test_runtime_rejects_malformed_recovery_report() -> None:
+    class MalformedRecovery:
+        def run(self, *, checked_at=None):
+            return {"resolved": ["order-1"]}
+
+    runtime = ApplicationRuntime(pending_recovery=MalformedRecovery())
+
+    with pytest.raises(TypeError, match="PendingRecoveryRun"):
+        runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert runtime.last_startup_result is None
 
 
 def test_runtime_rejects_naive_startup_timestamp() -> None:
