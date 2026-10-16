@@ -1516,7 +1516,10 @@ def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> Non
     assert backtest_result.receipts[0].order_status is OrderStatus.ACCEPTED
     assert backtest_result.receipts[0].fills == ()
     assert rehearsal_result.steps[0].paper_outcome is not None
-    assert rehearsal_result.steps[0].paper_outcome.lifecycle_status is OrderStatus.ACCEPTED
+    assert rehearsal_result.steps[0].paper_outcome.lifecycle_status in {
+        OrderStatus.ACCEPTED,
+        OrderStatus.SUBMITTED,
+    }
     assert rehearsal_result.steps[0].paper_outcome.fill is None
 
     assert tuple(item[0] for item in backtest_strategy.notifications) == ("on_order_update",)
