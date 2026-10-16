@@ -108,7 +108,7 @@ def _audit_source(source: str, relative_path: str) -> list[str]:
     """Return static boundary violations; deliberately not a proof against reflection."""
     tree = ast.parse(source, filename=relative_path)
     aliases = _import_aliases(tree)
-    observed: list[str] = [];
+    observed: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             function = node.func
