@@ -1075,9 +1075,13 @@ class DeterministicBacktestService:
 
             if qx08_active:
                 order_id = str(order.client_order_id)
-                filled_quantity = sum(
-                    (fill.quantity for fill in receipt.fills),
-                    Decimal("0"),
+                filled_quantity = (
+                    None
+                    if receipt.order_status is OrderStatus.UNKNOWN and not receipt.fills
+                    else sum(
+                        (fill.quantity for fill in receipt.fills),
+                        Decimal("0"),
+                    )
                 )
                 order_fact = active_order_fact(
                     client_order_id=order_id,
@@ -1164,7 +1168,11 @@ class DeterministicBacktestService:
                     status=receipt.order_status,
                     order_quantity=order.quantity,
                     filled_quantity=filled_quantity,
-                    remaining_quantity=order.quantity - filled_quantity,
+                    remaining_quantity=(
+                        None
+                        if filled_quantity is None or receipt.order_status is OrderStatus.UNKNOWN
+                        else order.quantity - filled_quantity
+                    ),
                     created_at=order.created_at,
                     evidence_time=frame_time,
                     reason=receipt.message or receipt.outcome.value,
