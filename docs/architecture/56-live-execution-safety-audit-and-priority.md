@@ -1,8 +1,11 @@
 # LIVE Execution Safety Audit and Remediation Priority
 
-**Status:** Active audit / remediation plan (2026-10-16)  
-**Current source reviewed:** `main` at `2ce04cf40952124e8b2ef0414cbc4ded9d660292`  
-**Earlier comparison base:** `bd5045ab6fa81c7ca6fb4503116a7ef12695adf5`  
+**Status:** Active audit / remediation plan (2026-10-16)
+
+**Current source reviewed:** `main` at `2ce04cf40952124e8b2ef0414cbc4ded9d660292`
+
+**Earlier comparison base:** `bd5045ab6fa81c7ca6fb4503116a7ef12695adf5`
+
 **Tracker:** [#207 — QuantX adversarial code review](https://github.com/jignesh2795/QuantX/issues/207)
 
 ## Executive decision
