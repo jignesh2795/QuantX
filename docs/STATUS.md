@@ -1,6 +1,26 @@
 # QuantX Status
 
-## Current state — QX-08 M1–M4 merged; acceptance reconciliation next; QX-09 complete
+## QX-08 v3.2.0 acceptance reconciliation — complete (2026-10-16)
+
+PR [#234](https://github.com/jignesh2795/QuantX/pull/234) merged the final acceptance-evidence slice as merge commit `fe832fc21b5e714b3e1827a94e381cf84bb43746`, preserving the validated feature commit `9bd0d0e8fe983e3f415d97aed205a5175447635b` in history. The patch changes only `tests/unit/application/test_backtest.py` and `tests/unit/application/test_strategy_rehearsal.py`; no production code changed.
+
+Exact-feature-HEAD validation was operator-reported at `9bd0d0e8fe983e3f415d97aed205a5175447635b`: focused suite **191 passed**; full suite **2,028 collected, 2,027 passed, 0 failed, 1 known optional-Dhan-extra skip**; Ruff check and format check passed for both changed files; strict mypy for `backtest.py` passed; `git diff --check` was clean. These are local results, not GitHub Actions or paid-CI results. No broker/LIVE operation was performed.
+
+### QX-08 v3.2.0 acceptance-matrix traceability (T1–T8; G1–G3)
+
+- **T1 / G3 — committed positions and order inventory:** `test_qx08_buy_and_hold_driver_state_and_callback_parity` (paper/backtest post-fill context parity), `test_active_order_persists_into_next_strategy_context_until_terminal_status`, `test_active_order_fact_retains_unknown_and_drops_canonical_terminal`, and the post-commit callback tests assert position facts after accounting and retained order status.
+- **T2 — state-derived BuyAndHold:** `tests/unit/strategy/test_reference.py` covers known-empty entry, existing position, accepted/UNKNOWN orders, incomplete inventory, terminal-order retry, per-instrument independence, stateless repeat evaluation, and typed quantity bounds.
+- **T3 / T7 — driver parity and repeatability:** `test_backtest_paper_order_sequence_parity`, `test_qx08_buy_and_hold_driver_state_and_callback_parity`, `test_qx08_accepted_without_fill_callback_and_order_inventory_parity`, `test_qx08_buy_and_hold_semantics_repeat_across_fresh_runs`, and deterministic timestamp/order/evidence regression tests cover matching decisions, outcome paths, and repeat runs.
+- **T4 / G1 — timer phases and information cuts:** `tests/unit/strategy/test_timers.py` covers equal/past rejection, due-time then timer-ID ordering, uniqueness and end-of-horizon pending timers. The rehearsal/backtest driver suites cover timer dispatch before equal-timestamp cohorts, cohort failure blocking and later continuation, caller-order preservation, prior-only same-instrument history, latency/capability preflight, and current/future mark exclusion through `test_backtest_timer_snapshot_excludes_same_timestamp_mark_and_history`.
+- **T4 / G2 — callback commit/error semantics:** `tests/unit/strategy/test_callbacks.py::test_post_commit_dispatch_attempts_all_fills_then_order_update` plus both driver-level `test_postcommit_callback_errors_complete_batch_then_latch_halt` tests assert complete deterministic notification attempts and halt behavior. PR #234 adds `test_qx08_accepted_without_fill_is_preserved_after_order_callback_error` for preserved accepted/submitted no-fill facts and post-commit halt in both drivers, and `test_rehearsal_preserves_future_effective_fill_and_halts_before_callbacks` for the exceptional temporal-integrity path.
+- **T5 / G3 — incomplete and point-in-time evidence:** `tests/unit/strategy/test_engine_snapshot.py` covers unavailable/incomplete reasons, UNKNOWN order quantities, future evidence rejection, frozen views and bounded prior-only history; `test_backtest_as_of_observed_with_unusable_mark_stays_incomplete` covers stale marks; PR #234 adds `test_strategy_context_uses_tracker_snapshot_not_financial_state_input` so construction-time financial input is not presented as current account evidence.
+- **T6 / T8 — paper-only and no-LIVE/no-broker boundary:** `test_session_rejects_non_paper_deployment`, `test_qx08_backtest_rejects_live_execution_context_for_bound_intents`, and `tests/unit/strategy/test_no_live_boundary.py::test_strategy_seams_have_no_broker_submit_or_scheduler_path` cover the runtime guard and AST boundary.
+- **Typed parameters/history cross-cut:** `tests/unit/strategy/test_typed_params.py`, `test_prior_candle_history_rejects_invalid_limits`, and rehearsal history-bound tests cover canonical lexical forms, field-named errors, default-zero history and the 512-bar cap.
+
+The bounded source/test reconciliation now has traceable evidence for every in-scope T1–T8 criterion and G1–G3 invariant. The parent Strategy Platform Flow path remains separate and out of QX-08 scope; no LIVE strategy execution, external scheduler, second accounting/lifecycle subsystem, or risk/execution-recovery redesign is introduced.
+
+
+## Current state — QX-08 M1–M4 and acceptance reconciliation complete; QX-09 complete
 
 PR #221 merged QX-09 from `feat/qx-09-market-pack-checks-v1` at validated head `7793646e0e3d210e81364d39605ee3383e434723` as merge commit `1e4ebf4f4671e90dcdcafc1cda578182ab39d58b`. The PR covers 15 focused files (+5,746/−229); local validation was reported at the exact feature head, and no GitHub Actions results are claimed. Repository Actions are disabled by project policy.
 
