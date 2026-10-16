@@ -20,7 +20,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide
+from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
@@ -572,6 +572,70 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     assert sum(bool(step.faults) for step in cohort_steps) == 1
     assert result.halt is None
     assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
+
+
+def test_active_order_persists_into_next_strategy_context_until_terminal_status() -> None:
+    ir = _runtime_ir("active-order-backtest")
+    observed_orders: list[tuple[object, ...]] = []
+
+    class _LimitThenObserve:
+        def __init__(self) -> None:
+            self.submitted = False
+
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            event = context.event
+            assert event is not None
+            observed_orders.append(tuple(context.engine.orders.items))
+            if self.submitted:
+                return StrategyResult(
+                    StrategySignal(
+                        context.ir.strategy_id,
+                        context.ir.version,
+                        event.instrument,
+                        SignalAction.HOLD,
+                        1.0,
+                        generated_at=event.timestamp,
+                    )
+                )
+            self.submitted = True
+            intent = TradeIntent(
+                instrument=event.instrument,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                order_type=OrderType.LIMIT,
+                limit_price=Decimal("90"),
+                execution_context=_context(),
+                strategy_id=context.ir.strategy_id.value,
+                strategy_version=context.ir.version,
+            )
+            return StrategyResult(
+                StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    event.instrument,
+                    SignalAction.BUY,
+                    1.0,
+                    generated_at=event.timestamp,
+                ),
+                intent,
+            )
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_series(),
+        strategy=StrategyEvaluationService(_LimitThenObserve()),
+        strategy_ir=ir,
+        financial_state=_financial_state(),
+    )
+
+    assert len(result.receipts) == 1
+    assert result.receipts[0].order_status is OrderStatus.ACCEPTED
+    assert result.receipts[0].fills == ()
+    assert observed_orders[0] == ()
+    assert len(observed_orders[1]) == 1
+    assert observed_orders[1][0].status is OrderStatus.ACCEPTED
+    assert observed_orders[1][0].remaining_quantity == Decimal("1")
 
 
 def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
