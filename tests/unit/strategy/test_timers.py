@@ -62,7 +62,7 @@ def test_timer_request_requires_nonempty_id_and_aware_due_time() -> None:
 
 
 @pytest.mark.parametrize("offset_seconds", [0, -1])
-def test_timer_registry_rejects_equal_or_past_due_time(offset_seconds: int) -> None:
+def test_timer_request_rejects_equal_or_past_due_at(offset_seconds: int) -> None:
     event_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     event = _event(event_time)
     request = TimerRequest(
