@@ -33,7 +33,7 @@ from quantx.domain.instruments import (
     MarketFamily,
     MarketRegion,
 )
-from quantx.domain.market_data import Quote
+from quantx.domain.market_data import Candle, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyContext, PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
@@ -52,6 +52,7 @@ from quantx.execution.charges import (
     ChargeComponent,
     PercentageBpsChargeModel,
 )
+from quantx.execution.historical_account_state import HistoricalAccountStateSnapshot
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.paper_session import PaperSession
@@ -2782,3 +2783,165 @@ def test_backtest_rejects_clock_without_determinism_declaration() -> None:
 
     assert engine.events() == ()
     assert engine._receipts == {}
+
+
+class _BacktestTimerStateCutObserver:
+    def __init__(self) -> None:
+        self.entered = False
+        self.timer_contexts: list[StrategyContext] = []
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        event = context.event
+        assert event is not None
+        timers: tuple[TimerRequest, ...] = ()
+        intent = None
+        action = SignalAction.HOLD
+        if not self.entered:
+            self.entered = True
+            action = SignalAction.BUY
+            intent = TradeIntent(
+                instrument=event.instrument,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                execution_context=_context(),
+                strategy_id=context.ir.strategy_id.value,
+                strategy_version=context.ir.version,
+            )
+            timers = (
+                TimerRequest(
+                    "timer-state-cut",
+                    event.instrument,
+                    event.timestamp + timedelta(minutes=1),
+                ),
+            )
+        return StrategyResult(
+            StrategySignal(
+                context.ir.strategy_id,
+                context.ir.version,
+                event.instrument,
+                action,
+                1.0,
+                generated_at=event.timestamp,
+            ),
+            intent,
+            timers=timers,
+        )
+
+    def on_timer(self, context: StrategyContext, timer) -> None:
+        self.timer_contexts.append(context)
+
+
+def test_backtest_timer_snapshot_excludes_same_timestamp_mark_and_history() -> None:
+    instrument = _instrument().instrument_id
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    due_at = start + timedelta(minutes=1)
+    future_at = due_at + timedelta(minutes=1)
+
+    def candle(at: datetime, price: str) -> Candle:
+        close = Decimal(price)
+        return Candle(
+            instrument=instrument,
+            timeframe="1m",
+            timestamp=at,
+            open=close,
+            high=close,
+            low=close,
+            close=close,
+            volume=Decimal("10"),
+        )
+
+    series = HistoricalDataSeries(
+        tuple(
+            HistoricalObservation(
+                candle(at, price),
+                "test",
+                "1",
+                sequence,
+                dataset_id="nse-eq",
+            )
+            for sequence, (at, price) in enumerate(
+                ((start, "100"), (due_at, "200"), (future_at, "300"))
+            )
+        )
+    )
+    strategy = _BacktestTimerStateCutObserver()
+    strategy_ir = StrategyCompiler.compile(
+        StrategyDefinition(
+            StrategyId("timer-state-cut"),
+            "1",
+            "Timer State Cut",
+            parameters={"history_bars": "2"},
+        )
+    )
+
+    DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=series,
+        strategy=StrategyEvaluationService(strategy),
+        strategy_ir=strategy_ir,
+        financial_state=_financial_state(),
+    )
+
+    assert len(strategy.timer_contexts) == 1
+    context = strategy.timer_contexts[0]
+    assert context.event is None
+    assert context.as_of == due_at
+    assert tuple(item.timestamp for item in context.history) == (start,)
+    assert tuple(item.close for item in context.history) == (Decimal("100"),)
+
+    account = context.engine.account_state
+    assert account is not None
+    assert account.timestamp == due_at
+    assert account.completeness.value == "INCOMPLETE"
+    assert account.market_value is None
+    assert len(account.valuation_evidence) == 1
+    evidence = account.valuation_evidence[0]
+    assert evidence.observed_at == start
+    assert evidence.selected_at == due_at
+    assert evidence.mark_price == Decimal("100")
+    assert evidence.unavailable is True
+    assert evidence.reason == "explicit mark is stale for exact-current sampling"
+
+
+def test_strategy_context_uses_tracker_snapshot_not_financial_state_input() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    financial_state = _financial_state()
+    contexts: list[StrategyContext] = []
+
+    class _AccountSnapshotObserver:
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            event = context.event
+            assert event is not None
+            contexts.append(context)
+            return StrategyResult(
+                StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    event.instrument,
+                    SignalAction.HOLD,
+                    1.0,
+                    generated_at=event.timestamp,
+                )
+            )
+
+    DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_series(),
+        strategy=StrategyEvaluationService(_AccountSnapshotObserver()),
+        strategy_ir=_runtime_ir("tracker-account-snapshot"),
+        financial_state=financial_state,
+    )
+
+    context = contexts[0]
+    snapshot = context.engine.account_state
+    assert isinstance(snapshot, HistoricalAccountStateSnapshot)
+    assert snapshot is not financial_state
+    assert snapshot.timestamp == start
+    assert context.engine.as_of == start
+    assert snapshot.cash == financial_state.cash_balance
+    assert snapshot.positions == ()
+    assert snapshot.valuation_evidence == ()
+    assert not hasattr(snapshot, "available_cash")
+    assert not hasattr(snapshot, "blocked_cash")
