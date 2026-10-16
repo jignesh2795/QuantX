@@ -4,7 +4,6 @@ from decimal import Decimal
 import pytest
 
 from quantx.domain.enums import OrderStatus
-from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.market_data import Candle, MarketDataEvent, MarketDataType, Quote
 from quantx.domain.strategy import StrategyDefinition, StrategyId
 from quantx.domain.value_objects import InstrumentId
@@ -13,7 +12,6 @@ from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.engine_snapshot import (
     EngineEvidenceAdapter,
-    EngineStateSnapshot,
     EvidenceAvailability,
     EvidenceCollection,
     OpenOrderFact,

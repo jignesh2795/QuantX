@@ -11,8 +11,10 @@ without any broker-submit path: execution flows exclusively through
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from datetime import UTC, datetime
 
+from quantx.application.strategy_preflight import assess_rehearsal_event_time_support
 from quantx.domain.deployment import ExecutionMode, StrategyDeployment
 from quantx.domain.finance import AccountFinancialState
 from quantx.domain.instrument_registry import InstrumentRegistry
@@ -22,7 +24,6 @@ from quantx.domain.risk import PreTradeRiskEngine
 from quantx.execution.paper.executor import PaperExecutionOutcome, PaperOrderExecutor
 from quantx.execution.paper.fills import MarketSnapshot
 from quantx.execution.paper.profile import OrderBookSnapshot
-from quantx.application.strategy_preflight import assess_rehearsal_event_time_support
 from quantx.strategy.engine_snapshot import (
     EngineEvidenceAdapter,
     EngineStateSnapshot,
@@ -247,7 +248,10 @@ class StrategyRehearsalSession:
         # default would be nondeterministic, so this path pins it here
         # without changing the shared default. The recorded preparation
         # carries the same deterministic order that reaches the paper venue.
-        deterministic = replace(approved, order=replace(approved.order, created_at=event.timestamp))
+        deterministic = replace(
+            approved,
+            order=replace(approved.order, created_at=event.timestamp),
+        )
         preparation = replace(preparation, request=deterministic)
         paper_outcome = self._paper_executor.execute(
             deterministic.order,

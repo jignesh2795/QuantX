@@ -1,9 +1,9 @@
 """Fail-closed event-time capability checks for the QX-08 context path."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import cast
 
 from quantx.domain.clock import SimulatedClock
 from quantx.execution.paper.broker import PaperBroker
@@ -37,13 +37,13 @@ def assess_rehearsal_event_time_support(executor: object) -> EventTimeAssessment
             EventTimeSupport.UNKNOWN,
             "custom paper executor has not declared event-time-coherent support",
         )
-    broker = cast(PaperOrderExecutor, executor).broker
+    broker = executor.broker
     if type(broker) is not PaperBroker:
         return EventTimeAssessment(
             EventTimeSupport.UNKNOWN,
             "custom paper broker has not declared event-time-coherent support",
         )
-    latency = cast(PaperBroker, broker).latency
+    latency = broker.latency
     if type(latency) is not LatencyModel:
         return EventTimeAssessment(
             EventTimeSupport.UNKNOWN,
@@ -72,7 +72,7 @@ def assess_backtest_event_time_support(
                 EventTimeSupport.UNKNOWN,
                 "internally composed executor is not the canonical paper engine",
             )
-        if type(cast(PaperExecutionEngine, engine).clock) is not SimulatedClock:
+        if type(engine.clock) is not SimulatedClock:
             return EventTimeAssessment(
                 EventTimeSupport.UNKNOWN,
                 "canonical paper engine is not driven by a SimulatedClock",
@@ -99,4 +99,7 @@ def assess_backtest_event_time_support(
             EventTimeSupport.UNSUPPORTED,
             "nonzero configured latency is unsupported for the QX-08 context path",
         )
-    return EventTimeAssessment(EventTimeSupport.SUPPORTED, "injected engine explicitly declared support")
+    return EventTimeAssessment(
+        EventTimeSupport.SUPPORTED,
+        "injected engine explicitly declared support",
+    )

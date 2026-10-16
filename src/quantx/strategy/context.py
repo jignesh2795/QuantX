@@ -1,7 +1,8 @@
 """Runtime-neutral, immutable inputs supplied to executable strategies."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from quantx.domain.market_data import Candle, MarketDataEvent

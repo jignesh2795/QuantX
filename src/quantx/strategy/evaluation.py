@@ -1,4 +1,5 @@
 """Runtime-neutral strategy evaluation across live and replay inputs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -4,6 +4,7 @@ This module binds a validated strategy identity to a deployment without
 implementing broker execution. The same boundary can feed backtest, replay,
 paper, shadow, or live adapters.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

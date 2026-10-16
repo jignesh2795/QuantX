@@ -1,4 +1,5 @@
 """Strict read-only typed projection over canonical StrategyIR parameter strings."""
+
 from __future__ import annotations
 
 import re

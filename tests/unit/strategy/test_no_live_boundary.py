@@ -12,6 +12,8 @@ _SEAM_FILES = (
     "src/quantx/strategy/evaluation.py",
     "src/quantx/strategy/deployment.py",
     "src/quantx/application/strategy_preflight.py",
+    "src/quantx/application/backtest.py",
+    "src/quantx/application/strategy_rehearsal.py",
 )
 _FORBIDDEN_CALLS = {
     "submit_order",

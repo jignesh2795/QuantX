@@ -687,7 +687,9 @@ class DeterministicBacktestService:
                 ),
             )
             account_state_series.append(current_account_state)
-            if context_enabled:
+            if isinstance(strategy, StrategyEvaluationService):
+                if strategy_ir is None:
+                    raise ValueError("strategy_ir is required for StrategyEvaluationService")
                 engine_snapshot = build_engine_snapshot(
                     EngineEvidenceAdapter(
                         positions=EvidenceCollection.known(

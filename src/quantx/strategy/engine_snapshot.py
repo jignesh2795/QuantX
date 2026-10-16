@@ -3,6 +3,7 @@
 This module owns read views only. It does not perform accounting, lifecycle
 reduction, valuation, or execution.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -146,7 +147,10 @@ class EngineStateSnapshot:
         normalized_as_of = self.as_of.astimezone(UTC)
         object.__setattr__(self, "as_of", normalized_as_of)
         for order in self.orders.items:
-            if order.evidence_time is not None and order.evidence_time.astimezone(UTC) > normalized_as_of:
+            if (
+                order.evidence_time is not None
+                and order.evidence_time.astimezone(UTC) > normalized_as_of
+            ):
                 raise TemporalIntegrityError(
                     f"order evidence for {order.client_order_id} is later than snapshot as_of"
                 )
@@ -156,7 +160,9 @@ class EngineStateSnapshot:
             if not (self.account_reason and self.account_reason.strip()):
                 raise ValueError("unavailable account state requires a reason")
         else:
-            if self.account_state.timestamp.astimezone(UTC) > normalized_as_of:
+            if (
+                self.account_state.timestamp.astimezone(UTC) > normalized_as_of
+            ):
                 raise TemporalIntegrityError("account-state evidence is later than snapshot as_of")
             if (
                 self.account_state.completeness is AccountStateCompleteness.COMPLETE
@@ -241,7 +247,10 @@ def prior_candle_history(
     eligible = tuple(
         candle
         for candle in candles
-        if candle.instrument == instrument and candle.timestamp.astimezone(UTC) < as_of.astimezone(UTC)
+        if (
+            candle.instrument == instrument
+            and candle.timestamp.astimezone(UTC) < as_of.astimezone(UTC)
+        )
     )
     return eligible[-limit:]
 
