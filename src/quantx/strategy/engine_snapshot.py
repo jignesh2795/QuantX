@@ -224,6 +224,26 @@ def build_engine_snapshot(
     )
 
 
+def build_simulated_engine_snapshot(
+    *,
+    as_of: datetime,
+    accounting: FillAccounting,
+    active_orders: tuple[OpenOrderFact, ...],
+    account_state: HistoricalAccountStateSnapshot | None,
+    account_reason: str | None = None,
+) -> EngineStateSnapshot:
+    """Normalize known paper/backtest state through the single shared projection."""
+    adapter = EngineEvidenceAdapter(
+        positions=EvidenceCollection.known(
+            position_facts(accounting.snapshot(), effective_at=as_of)
+        ),
+        orders=EvidenceCollection.known(active_orders),
+        account_state=account_state,
+        account_reason=account_reason,
+    )
+    return build_engine_snapshot(adapter, as_of=as_of)
+
+
 def unavailable_engine_snapshot(as_of: datetime, reason: str) -> EngineStateSnapshot:
     """Return explicit UNKNOWN dimensions for evaluation without driver evidence."""
     if not reason.strip():
