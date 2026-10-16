@@ -29,7 +29,9 @@ def _instrument(symbol: str = "TCS") -> InstrumentId:
 
 def _ir():
     return StrategyCompiler.compile(
-        StrategyDefinition(StrategyId("buy-and-hold"), "1", "Buy and Hold", parameters={"quantity": "2"})
+        StrategyDefinition(
+            StrategyId("buy-and-hold"), "1", "Buy and Hold", parameters={"quantity": "2"}
+        )
     )
 
 
@@ -180,9 +182,7 @@ def test_history_is_prior_only_same_instrument_and_most_recent_first_window() ->
         _candle(as_of),
         _candle(as_of - timedelta(minutes=1), _instrument("INFY")),
     )
-    history = prior_candle_history(
-        candles, instrument=_instrument(), as_of=as_of, limit=2
-    )
+    history = prior_candle_history(candles, instrument=_instrument(), as_of=as_of, limit=2)
     assert history == candles[1:3]
     assert prior_candle_history(candles, instrument=_instrument(), as_of=as_of, limit=0) == ()
 

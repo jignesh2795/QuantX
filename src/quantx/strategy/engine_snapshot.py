@@ -55,9 +55,7 @@ class EvidenceCollection[T]:
         return cls(items=items, availability=EvidenceAvailability.AVAILABLE)
 
     @classmethod
-    def incomplete(
-        cls, items: tuple[T, ...], reason: str
-    ) -> EvidenceCollection[T]:
+    def incomplete(cls, items: tuple[T, ...], reason: str) -> EvidenceCollection[T]:
         return cls(items=items, availability=EvidenceAvailability.INCOMPLETE, reason=reason)
 
     @classmethod
@@ -176,9 +174,7 @@ class EngineStateSnapshot:
             if not (self.account_reason and self.account_reason.strip()):
                 raise ValueError("unavailable account state requires a reason")
         else:
-            if (
-                self.account_state.timestamp.astimezone(UTC) > normalized_as_of
-            ):
+            if self.account_state.timestamp.astimezone(UTC) > normalized_as_of:
                 raise TemporalIntegrityError("account-state evidence is later than snapshot as_of")
             if (
                 self.account_state.completeness is AccountStateCompleteness.COMPLETE
@@ -190,9 +186,8 @@ class EngineStateSnapshot:
                 and self.account_availability is EvidenceAvailability.AVAILABLE
             ):
                 raise ValueError("incomplete account state cannot be marked available")
-            if (
-                self.account_availability is not EvidenceAvailability.AVAILABLE
-                and not (self.account_reason and self.account_reason.strip())
+            if self.account_availability is not EvidenceAvailability.AVAILABLE and not (
+                self.account_reason and self.account_reason.strip()
             ):
                 raise ValueError("incomplete account state requires a reason")
 
@@ -216,7 +211,9 @@ def build_engine_snapshot(
         account_reason = None
     else:
         account_availability = EvidenceAvailability.INCOMPLETE
-        account_reason = adapter.account_reason or account.issue or "account valuation is incomplete"
+        account_reason = (
+            adapter.account_reason or account.issue or "account valuation is incomplete"
+        )
     return EngineStateSnapshot(
         as_of=as_of,
         positions=adapter.positions,
@@ -248,8 +245,7 @@ def position_facts(
 ) -> tuple[PositionFact, ...]:
     """Stamp canonical ledger read views with the inventory snapshot's effective cut."""
     return tuple(
-        PositionFact.from_ledger_entry(entry, effective_at=effective_at)
-        for entry in entries
+        PositionFact.from_ledger_entry(entry, effective_at=effective_at) for entry in entries
     )
 
 

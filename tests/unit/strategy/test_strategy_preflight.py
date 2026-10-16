@@ -29,21 +29,28 @@ def test_rehearsal_preflight_accepts_builtin_zero_latency_path() -> None:
 
 
 def test_rehearsal_preflight_rejects_nonzero_latency_and_unknown_executor() -> None:
-    assert assess_rehearsal_event_time_support(
-        _executor(latency_ms=1)
-    ).support is EventTimeSupport.UNSUPPORTED
+    assert (
+        assess_rehearsal_event_time_support(_executor(latency_ms=1)).support
+        is EventTimeSupport.UNSUPPORTED
+    )
     assert assess_rehearsal_event_time_support(object()).support is EventTimeSupport.UNKNOWN
 
 
 def test_backtest_preflight_accepts_owned_simulated_clock_only_at_zero_latency() -> None:
     clock = SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC))
     engine = PaperExecutionEngine(clock=clock, profile=PaperSimulationProfile())
-    assert assess_backtest_event_time_support(
-        engine, internally_composed=True, configured_latency_ms=0
-    ).support is EventTimeSupport.SUPPORTED
-    assert assess_backtest_event_time_support(
-        engine, internally_composed=True, configured_latency_ms=1
-    ).support is EventTimeSupport.UNSUPPORTED
+    assert (
+        assess_backtest_event_time_support(
+            engine, internally_composed=True, configured_latency_ms=0
+        ).support
+        is EventTimeSupport.SUPPORTED
+    )
+    assert (
+        assess_backtest_event_time_support(
+            engine, internally_composed=True, configured_latency_ms=1
+        ).support
+        is EventTimeSupport.UNSUPPORTED
+    )
 
 
 def test_injected_backtest_engine_requires_explicit_typed_capability() -> None:
@@ -53,12 +60,18 @@ def test_injected_backtest_engine_requires_explicit_typed_capability() -> None:
     class UndeclaredEngine:
         pass
 
-    assert assess_backtest_event_time_support(
-        DeclaredEngine(), internally_composed=False, configured_latency_ms=0
-    ).support is EventTimeSupport.SUPPORTED
-    assert assess_backtest_event_time_support(
-        UndeclaredEngine(), internally_composed=False, configured_latency_ms=0
-    ).support is EventTimeSupport.UNKNOWN
+    assert (
+        assess_backtest_event_time_support(
+            DeclaredEngine(), internally_composed=False, configured_latency_ms=0
+        ).support
+        is EventTimeSupport.SUPPORTED
+    )
+    assert (
+        assess_backtest_event_time_support(
+            UndeclaredEngine(), internally_composed=False, configured_latency_ms=0
+        ).support
+        is EventTimeSupport.UNKNOWN
+    )
     with pytest.raises(ValueError, match="UNKNOWN"):
         assess_backtest_event_time_support(
             UndeclaredEngine(), internally_composed=False, configured_latency_ms=0

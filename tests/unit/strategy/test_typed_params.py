@@ -21,13 +21,9 @@ def test_integer_getter_rejects_noncanonical_lexemes(value: str) -> None:
 
 def test_history_bars_range_errors_name_the_field() -> None:
     with pytest.raises(ValueError, match="history_bars"):
-        TypedParams((("history_bars", "513"),)).get_int(
-            "history_bars", minimum=0, maximum=512
-        )
+        TypedParams((("history_bars", "513"),)).get_int("history_bars", minimum=0, maximum=512)
     with pytest.raises(ValueError, match="history_bars"):
-        TypedParams((("history_bars", "-1"),)).get_int(
-            "history_bars", minimum=0, maximum=512
-        )
+        TypedParams((("history_bars", "-1"),)).get_int("history_bars", minimum=0, maximum=512)
 
 
 def test_decimal_getter_accepts_canonical_fixed_point_without_normalizing_ir() -> None:

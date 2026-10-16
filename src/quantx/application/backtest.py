@@ -907,9 +907,7 @@ class DeterministicBacktestService:
             receipts.append(receipt)
             account_states.append(account_state_tracker.record(receipt, snapshot=snapshot))
             order_key = str(order.client_order_id)
-            filled_quantity = sum(
-                (fill.quantity for fill in receipt.fills), Decimal("0")
-            )
+            filled_quantity = sum((fill.quantity for fill in receipt.fills), Decimal("0"))
             fact = active_order_fact(
                 client_order_id=order_key,
                 instrument=order.instrument,

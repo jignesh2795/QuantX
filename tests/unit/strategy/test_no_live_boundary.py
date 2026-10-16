@@ -1,4 +1,5 @@
 """Structural T8 check for the explicit strategy-context seam set."""
+
 from __future__ import annotations
 
 import ast

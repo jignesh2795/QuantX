@@ -163,9 +163,7 @@ class StrategyRehearsalSession:
         assess_rehearsal_event_time_support(self._paper_executor).require_supported()
         self._consumed = True
         candles = tuple(
-            item.event.payload
-            for item in inputs
-            if isinstance(item.event.payload, Candle)
+            item.event.payload for item in inputs if isinstance(item.event.payload, Candle)
         )
         steps = tuple(
             self._step(rehearsal_input, candles=candles, history_bars=history_bars)
