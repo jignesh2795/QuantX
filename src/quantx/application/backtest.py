@@ -13,7 +13,6 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from quantx.application.strategy_preflight import assess_backtest_event_time_support
 from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
@@ -55,18 +54,8 @@ from quantx.research.provenance import (
 from quantx.research.quality import DataQualityStatus
 from quantx.research.replay import HistoricalReplay, MultiSeries, ReplayFrame
 from quantx.research.result import ResultQuality
-from quantx.strategy.engine_snapshot import (
-    EngineEvidenceAdapter,
-    EvidenceCollection,
-    OpenOrderFact,
-    active_order_fact,
-    build_engine_snapshot,
-    position_facts,
-    prior_candle_history,
-)
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
-from quantx.strategy.typed_params import TypedParams
 
 
 class BacktestDisposition(StrEnum):
@@ -586,7 +575,6 @@ class DeterministicBacktestService:
     ) -> BacktestResult:
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
-        context_enabled = isinstance(strategy, StrategyEvaluationService)
         if provenance is not None:
             _require_coherent_provenance(frames, provenance)
         execution_engine = self._execution_engine
@@ -646,26 +634,7 @@ class DeterministicBacktestService:
                 ),
                 provenance.run_configuration,
             )
-        history_bars = 0
-        if context_enabled:
-            if strategy_ir is None:
-                raise ValueError("strategy_ir is required for StrategyEvaluationService")
-            history_bars = TypedParams.from_ir(strategy_ir).get_int(
-                "history_bars", default=0, minimum=0, maximum=512
-            )
-            assess_backtest_event_time_support(
-                execution_engine,
-                internally_composed=self._execution_engine is None,
-                configured_latency_ms=effective_profile.latency_ms,
-            ).require_supported()
-
         accounting = self._accounting_override or FillAccounting()
-        active_order_facts: dict[str, OpenOrderFact] = {}
-        all_candles = tuple(
-            frame.observation.snapshot
-            for frame in frames
-            if isinstance(frame.observation.snapshot, Candle)
-        )
         steps: list[BacktestStep] = []
         receipts: list[ExecutionReceipt] = []
         account_state_tracker = HistoricalAccountStateTracker(
@@ -677,47 +646,19 @@ class DeterministicBacktestService:
         account_state_series: list[HistoricalAccountStateSnapshot] = []
 
         for frame in frames:
-            if context_enabled and simulation_clock is not None:
-                simulation_clock.set_time(frame.observation.timestamp)
             account_state_tracker.observe_mark(frame.observation.snapshot)
-            current_account_state = account_state_tracker.snapshot_at(
-                frame.observation.timestamp,
-                require_current_marks=(
-                    account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
-                ),
+            account_state_series.append(
+                account_state_tracker.snapshot_at(
+                    frame.observation.timestamp,
+                    require_current_marks=(
+                        account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
+                    ),
+                )
             )
-            account_state_series.append(current_account_state)
             if isinstance(strategy, StrategyEvaluationService):
                 if strategy_ir is None:
                     raise ValueError("strategy_ir is required for StrategyEvaluationService")
-                engine_snapshot = build_engine_snapshot(
-                    EngineEvidenceAdapter(
-                        positions=EvidenceCollection.known(
-                            position_facts(
-                                accounting.snapshot(),
-                                effective_at=frame.observation.timestamp,
-                            )
-                        ),
-                        orders=EvidenceCollection.known(
-                            tuple(active_order_facts[key] for key in sorted(active_order_facts))
-                        ),
-                        account_state=current_account_state,
-                        account_reason=current_account_state.issue,
-                    ),
-                    as_of=frame.observation.timestamp,
-                )
-                history = prior_candle_history(
-                    all_candles,
-                    instrument=frame.observation.instrument,
-                    as_of=frame.observation.timestamp,
-                    limit=history_bars,
-                )
-                strategy_result = strategy.evaluate_replay_frame(
-                    frame,
-                    strategy_ir,
-                    engine=engine_snapshot,
-                    history=history,
-                ).result
+                strategy_result = strategy.evaluate_replay_frame(frame, strategy_ir).result
             else:
                 strategy_result = strategy(frame)
             self._validate_strategy_result(strategy_result, frame)
@@ -906,22 +847,6 @@ class DeterministicBacktestService:
             self._require_coherent_execution_time(order, receipt)
             receipts.append(receipt)
             account_states.append(account_state_tracker.record(receipt, snapshot=snapshot))
-            order_key = str(order.client_order_id)
-            filled_quantity = sum((fill.quantity for fill in receipt.fills), Decimal("0"))
-            fact = active_order_fact(
-                client_order_id=order_key,
-                instrument=order.instrument,
-                status=receipt.order_status,
-                order_quantity=order.quantity,
-                filled_quantity=filled_quantity,
-                created_at=order.created_at,
-                evidence_time=receipt.executed_at,
-                reason=receipt.message or None,
-            )
-            if fact is None:
-                active_order_facts.pop(order_key, None)
-            else:
-                active_order_facts[order_key] = fact
 
             steps.append(
                 BacktestStep(
