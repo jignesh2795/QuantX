@@ -112,6 +112,25 @@ def test_timer_callback_receives_eventless_context_at_due_time() -> None:
     assert seen[0][0].as_of == due_at
 
 
+def test_order_update_preserves_evidence_time_separately_from_effective_time() -> None:
+    available_at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    effective_at = available_at + timedelta(milliseconds=5)
+    update = OrderUpdateFact(
+        client_order_id="order-1",
+        instrument=InstrumentId("NSE", "TCS"),
+        status=OrderStatus.FILLED,
+        order_quantity=Decimal("1"),
+        filled_quantity=Decimal("1"),
+        remaining_quantity=Decimal("0"),
+        created_at=available_at,
+        evidence_time=available_at,
+        effective_at=effective_at,
+    )
+
+    assert update.evidence_time == available_at
+    assert update.effective_at == effective_at
+
+
 def test_observer_must_be_observe_only_and_return_none() -> None:
     at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     context = StrategyContext(_event(at), _ir(), as_of=at)
