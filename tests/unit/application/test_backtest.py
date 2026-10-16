@@ -783,9 +783,9 @@ def test_injected_qx08_clock_drift_blocks_before_next_strategy_callback() -> Non
 
     assert observed == [start]
     assert result.halt is not None
-    assert result.halt.kind == "TEMPORAL_INTEGRITY"
-    assert result.temporal_faults[0].source == "execution_clock"
-    assert result.temporal_faults[0].expected_at == start + timedelta(minutes=1)
+    assert result.halt.kind == "EVENT_TIME_SUPPORT_VIOLATION"
+    assert result.temporal_faults == ()
+    assert result.callback_faults[0].callback_name == "event_time_alignment"
     assert result.steps[1].disposition is BacktestDisposition.BLOCKED
     assert result.steps[2].disposition is BacktestDisposition.BLOCKED
     assert engine.captured == []
