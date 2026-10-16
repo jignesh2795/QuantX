@@ -259,6 +259,26 @@ def test_snapshot_rejects_future_effective_order_evidence() -> None:
         )
 
 
+def test_snapshot_rejects_future_effective_order_time_when_availability_is_current() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    future_fact = OpenOrderFact(
+        client_order_id="future-effective-order",
+        instrument=_instrument(),
+        status=OrderStatus.ACCEPTED,
+        order_quantity=Decimal("1"),
+        filled_quantity=Decimal("0"),
+        remaining_quantity=Decimal("1"),
+        created_at=as_of,
+        evidence_time=as_of,
+        effective_at=as_of + timedelta(seconds=1),
+    )
+    with pytest.raises(TemporalIntegrityError, match="order effective evidence"):
+        build_engine_snapshot(
+            _adapter(orders=EvidenceCollection.known((future_fact,))),
+            as_of=as_of,
+        )
+
+
 def test_history_is_prior_only_same_instrument_and_most_recent_first_window() -> None:
     as_of = datetime(2026, 1, 1, 9, 18, tzinfo=UTC)
     candles = (
