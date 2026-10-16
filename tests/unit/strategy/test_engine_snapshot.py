@@ -289,6 +289,14 @@ def test_history_sorts_observations_before_applying_recent_window() -> None:
     assert history == (middle, newest)
 
 
+def test_context_rejects_event_after_as_of() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    future_event = _event(as_of + timedelta(minutes=1))
+
+    with pytest.raises(ValueError, match="event timestamp must not be later than context as_of"):
+        StrategyContext(future_event, _ir(), as_of=as_of)
+
+
 def test_context_rejects_nonprior_or_cross_instrument_history() -> None:
     instant = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     future = _candle(instant)
