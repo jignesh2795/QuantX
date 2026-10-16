@@ -339,6 +339,11 @@ class StrategyRehearsalSession:
                     created_at=order.created_at,
                     evidence_time=event.timestamp,
                     reason=outcome.reason,
+                    effective_at=(
+                        event.timestamp
+                        if outcome.fill is None
+                        else outcome.fill.filled_at
+                    ),
                 )
                 if fact is None:
                     active_orders.pop(order_id, None)
