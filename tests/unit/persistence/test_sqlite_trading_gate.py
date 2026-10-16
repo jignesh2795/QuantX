@@ -1,5 +1,7 @@
 """SQLite durable trading-gate state tests."""
 
+import pytest
+
 from quantx.execution.trading_gate import DurableTradingGate, TradingGateState
 from quantx.persistence.sqlite import SqliteDatabase, SqliteTradingGateStateStore
 
@@ -163,3 +165,109 @@ def test_sqlite_gate_corrupt_row_fails_closed(tmp_path) -> None:
         assert gate.admit_submission() is False
     finally:
         database.close()
+
+
+class _FailDisableSqliteStore(SqliteTradingGateStateStore):
+    """SQLite store wrapper whose disabled-state writes fail."""
+
+    def save(self, state: TradingGateState) -> None:
+        if not state.enabled:
+            raise OSError("cannot persist disabled gate state")
+        super().save(state)
+
+
+class _FailEnableSqliteStore(SqliteTradingGateStateStore):
+    """SQLite store wrapper whose enabled-state writes fail."""
+
+    def save(self, state: TradingGateState) -> None:
+        if state.enabled:
+            raise OSError("cannot persist enabled gate state")
+        super().save(state)
+
+
+def _assert_gate_denied(gate: DurableTradingGate, reason: str) -> None:
+    assert gate.allow() is False
+    assert gate.state() == TradingGateState(False, reason)
+    with gate.submission_permit() as permitted:
+        assert permitted is False
+    assert gate.admit_submission() is False
+
+
+def test_sqlite_wrappers_sharing_database_deny_both_gates_on_failed_block(tmp_path) -> None:
+    """Separate store wrappers over one database share one fault domain: a
+    failed block through one wrapper denies every gate on that database,
+    and a successful persist through the other wrapper recovers both."""
+    path = tmp_path / "quantx.db"
+    database = SqliteDatabase(path)
+    try:
+        first = DurableTradingGate(_FailDisableSqliteStore(database), default_enabled=True)
+        second = DurableTradingGate(SqliteTradingGateStateStore(database))
+        assert first.allow() is True
+        assert second.allow() is True
+
+        with pytest.raises(OSError, match="cannot persist disabled gate state"):
+            first.block("operator emergency stop")
+
+        _assert_gate_denied(first, "operator emergency stop")
+        _assert_gate_denied(second, "operator emergency stop")
+
+        second.block("confirmed stop")
+        _assert_gate_denied(first, "confirmed stop")
+        _assert_gate_denied(second, "confirmed stop")
+        assert SqliteTradingGateStateStore(database).load() == TradingGateState(
+            False, "confirmed stop"
+        )
+    finally:
+        database.close()
+
+
+def test_sqlite_wrappers_sharing_database_failed_enable_recovers_on_success(tmp_path) -> None:
+    """A failed enable through one wrapper denies both gates until the other
+    wrapper persists an enable successfully; recovery happens only then."""
+    path = tmp_path / "quantx.db"
+    database = SqliteDatabase(path)
+    try:
+        first = DurableTradingGate(_FailEnableSqliteStore(database))
+        second = DurableTradingGate(SqliteTradingGateStateStore(database))
+        second.enable()
+        assert first.allow() is True
+        assert second.allow() is True
+
+        with pytest.raises(OSError, match="cannot persist enabled gate state"):
+            first.enable()
+
+        _assert_gate_denied(first, "durable trading-gate enable failed to persist")
+        _assert_gate_denied(second, "durable trading-gate enable failed to persist")
+
+        assert second.enable() == TradingGateState(enabled=True, reason="")
+        assert first.allow() is True
+        assert second.allow() is True
+    finally:
+        database.close()
+
+
+def test_sqlite_independent_databases_do_not_share_faults(tmp_path) -> None:
+    """A fault latched on one database must never affect another database."""
+    first_path = tmp_path / "first.db"
+    second_path = tmp_path / "second.db"
+    first_database = SqliteDatabase(first_path)
+    second_database = SqliteDatabase(second_path)
+    try:
+        first = DurableTradingGate(_FailDisableSqliteStore(first_database), default_enabled=True)
+        second = DurableTradingGate(
+            SqliteTradingGateStateStore(second_database), default_enabled=True
+        )
+        assert first.allow() is True
+        assert second.allow() is True
+
+        with pytest.raises(OSError, match="cannot persist disabled gate state"):
+            first.block("operator emergency stop")
+
+        _assert_gate_denied(first, "operator emergency stop")
+        assert second.allow() is True
+        with second.submission_permit() as permitted:
+            assert permitted is True
+        assert second.admit_submission() is True
+    finally:
+        first_database.close()
+        second_database.close()

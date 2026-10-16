@@ -17,6 +17,16 @@ class SqliteTradingGateStateStore(TradingGateStateStore):
     def __init__(self, database: SqliteDatabase) -> None:
         self._database = database
 
+    @property
+    def shared_fault_domain(self) -> SqliteDatabase:
+        """Scope process-local gate faults to the shared database.
+
+        Separate store wrappers over one database share one fault domain, so
+        a failed persist observed through any wrapper blocks every gate bound
+        to that database. Independent databases never share faults.
+        """
+        return self._database
+
     def load(self) -> TradingGateState | None:
         with self._database.transaction() as connection:
             row = connection.execute(

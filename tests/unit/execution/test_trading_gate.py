@@ -369,3 +369,71 @@ def test_durable_gate_concurrent_read_linearizes_against_failed_block() -> None:
     assert outcome.get("allow") is True
     assert gate.allow() is False
     assert gate.state() == TradingGateState(False, "operator emergency stop")
+
+
+def _assert_gate_denied(gate: DurableTradingGate, reason: str) -> None:
+    assert gate.allow() is False
+    assert gate.state() == TradingGateState(False, reason)
+    with gate.submission_permit() as permitted:
+        assert permitted is False
+    assert gate.admit_submission() is False
+
+
+def test_shared_store_failed_block_denies_second_gate() -> None:
+    """A failed block latches the shared domain: every gate on the store is
+    denied even while the store keeps reporting stale enabled state."""
+    store = _FailWhenDisablingStateStore()
+    first = DurableTradingGate(store, default_enabled=True)
+    second = DurableTradingGate(store)
+    assert first.allow() is True
+    assert second.allow() is True
+
+    with pytest.raises(OSError, match="cannot persist disabled gate state"):
+        first.block("operator emergency stop")
+
+    _assert_gate_denied(first, "operator emergency stop")
+    _assert_gate_denied(second, "operator emergency stop")
+    assert store.load() == TradingGateState(enabled=True, reason="")
+
+    late = DurableTradingGate(store)
+    _assert_gate_denied(late, "operator emergency stop")
+
+
+def test_shared_store_failed_enable_denies_both_gates_until_recovery() -> None:
+    """A failed enable latches the shared domain; only a successfully
+    persisted enable, on either gate, recovers permission."""
+    store = _ToggleableStateStore()
+    first = DurableTradingGate(store, default_enabled=True)
+    second = DurableTradingGate(store)
+    assert first.allow() is True
+    assert second.allow() is True
+
+    store.fail_saves = True
+    with pytest.raises(OSError, match="cannot persist gate state"):
+        first.enable()
+    _assert_gate_denied(first, "durable trading-gate enable failed to persist")
+    _assert_gate_denied(second, "durable trading-gate enable failed to persist")
+
+    store.fail_saves = False
+    assert second.enable() == TradingGateState(enabled=True, reason="")
+    assert first.allow() is True
+    assert second.allow() is True
+
+
+def test_independent_stores_do_not_share_faults() -> None:
+    """A fault latched on one store must never affect an unrelated store."""
+    failing = _ToggleableStateStore()
+    first = DurableTradingGate(failing, default_enabled=True)
+    second = DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True)
+    assert first.allow() is True
+    assert second.allow() is True
+
+    failing.fail_saves = True
+    with pytest.raises(OSError, match="cannot persist gate state"):
+        first.block("operator emergency stop")
+
+    _assert_gate_denied(first, "operator emergency stop")
+    assert second.allow() is True
+    with second.submission_permit() as permitted:
+        assert permitted is True
+    assert second.admit_submission() is True
