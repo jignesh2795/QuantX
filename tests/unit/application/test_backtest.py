@@ -791,48 +791,6 @@ def test_injected_qx08_clock_drift_blocks_before_next_strategy_callback() -> Non
     assert engine.captured == []
 
 
-def test_injected_qx08_clock_drift_blocks_before_next_strategy_callback() -> None:
-    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
-    engine = _CapturingEngine(clock=FixedClock(start))
-    engine.event_time_support = EventTimeSupport.SUPPORTED
-    strategy_ir = _runtime_ir("clock-drift-backtest")
-    observed: list[datetime] = []
-
-    class _HoldStrategy:
-        def on_market_data(self, context: StrategyContext) -> StrategyResult:
-            assert context.event is not None
-            observed.append(context.event.timestamp)
-            return StrategyResult(
-                StrategySignal(
-                    context.ir.strategy_id,
-                    context.ir.version,
-                    context.event.instrument,
-                    SignalAction.HOLD,
-                    1.0,
-                    generated_at=context.event.timestamp,
-                )
-            )
-
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
-        execution_engine=engine,
-    ).run(
-        series=_timestamped_tcs_series(),
-        strategy=StrategyEvaluationService(_HoldStrategy()),
-        strategy_ir=strategy_ir,
-        financial_state=_financial_state(),
-    )
-
-    assert observed == [start]
-    assert result.halt is not None
-    assert result.halt.kind == "TEMPORAL_INTEGRITY"
-    assert result.temporal_faults[0].source == "execution_clock"
-    assert result.temporal_faults[0].expected_at == start + timedelta(minutes=1)
-    assert result.steps[1].disposition is BacktestDisposition.BLOCKED
-    assert result.steps[2].disposition is BacktestDisposition.BLOCKED
-    assert engine.captured == []
-
-
 def test_callback_driver_rejects_nonzero_execution_latency_before_first_step() -> None:
     ir = _runtime_ir("latency-preflight-backtest")
     called: list[datetime] = []
