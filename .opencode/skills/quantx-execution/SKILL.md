@@ -31,6 +31,19 @@ Uncertain submission → Pending idempotency → broker reconciliation
 
 Key invariant: broker evidence is fetched **outside** the transaction; only final local resolution (receipt save + idempotency resolution) shares one `UnitOfWork` transaction (`application/pending_reconciliation.py`).
 
+## Trading-gate submit admission
+
+`DurableTradingGate` (`execution/trading_gate.py`, SQLite store in `persistence/sqlite/trading_gate.py`):
+
+- `submission_permit()` covers the gate check plus the durable idempotency reservation only. It is released before any broker I/O, so `block()` never waits for a slow broker call.
+- `admit_submission()` is the linearization point: it re-checks authorization after the reservation is durable and immediately before `broker.submit()`. A `block()` that returns before admission denies the submission with zero broker contact.
+- A `block()` landing after admission does **not** cancel the already-admitted broker operation; the call runs to its genuine broker outcome (never misreported as cancelled or blocked-after-the-fact).
+- A denied admission returns `BLOCKED` with the reservation left `PENDING` — never submitted, never uncertain, never auto-retried — for the established reconciliation / operator-resolution path.
+- A missing durable state defaults to **disarmed** (`default_enabled=False`) and the default is persisted. A failed `block()`/`enable()` persist latches a process-local fail-closed fault preserving the reason; queries and admission then report blocked without reloading stale enabled state.
+- The latch is shared by every gate bound to the same persistence domain (one store object, or one database behind separate store wrappers via `shared_fault_domain`). Independent stores and databases never share faults; there is no global latch. A successfully persisted `block()`/`enable()` on any gate in the domain clears it.
+- Process-crash limitation: the latch cannot survive a crash — only successfully persisted state does. Failed-write recovery always needs a later successful persist.
+- No gate/store lock is ever held across broker I/O. Lock order is uniformly gate → store.
+
 ## Key modules
 
 | Concern | Path |
@@ -39,7 +52,7 @@ Key invariant: broker evidence is fetched **outside** the transaction; only fina
 | Idempotency | `execution/idempotency/{fingerprint,store}.py`, `persistence/sqlite/idempotency.py` |
 | Receipts / lifecycle | `execution/receipts/{models,lifecycle}.py` (`ExecutionReceipt`, `ExecutionLifecycle`) |
 | Order lifecycle state model | `execution/order_lifecycle.py` — includes uncertain `UNKNOWN`; deliberately distinct from `receipts/lifecycle.py`, do not merge |
-| Trading gate | `execution/trading_gate.py` + `persistence/sqlite/trading_gate.py` — fail-closed authorization spanning reservation → broker call |
+| Trading gate | `execution/trading_gate.py` + `persistence/sqlite/trading_gate.py` — disarmed default, permit-then-admit authorization, domain-shared fail-closed fault latch (see above) |
 | Transaction coordinator | `execution/transactions/coordinator.py` |
 | Continuation (partial fills) | `execution/continuation.py` — `ExecutionContinuationService`, persistence-agnostic |
 | Dispatch (non-LIVE modes) | `execution/dispatch.py` |
