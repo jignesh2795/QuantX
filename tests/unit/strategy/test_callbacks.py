@@ -88,7 +88,7 @@ def test_post_commit_dispatch_attempts_all_fills_then_order_update() -> None:
     assert all(not hasattr(fault, "traceback") for fault in faults)
 
 
-def test_timer_callback_receives_eventless_context_at_due_time() -> None:
+def test_timer_context_exposes_due_timer_and_as_of() -> None:
     due_at = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
     timer = TimerInvocation(
         "timer-1",
