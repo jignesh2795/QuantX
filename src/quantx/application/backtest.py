@@ -862,7 +862,8 @@ class DeterministicBacktestService:
             pre_account_state = account_state_tracker.snapshot_at(
                 frame_time,
                 require_current_marks=(
-                    account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
+                    account_state_sampling_policy
+                    is AccountStateSamplingPolicy.EXACT_CURRENT
                 ),
             )
             account_state_series.append(pre_account_state)

@@ -345,7 +345,8 @@ class StrategyRehearsalSession:
                 order_id = str(order.client_order_id)
                 update_reason = outcome.reason
                 if (
-                    outcome.lifecycle_status is OrderStatus.UNKNOWN and not update_reason
+                    outcome.lifecycle_status is OrderStatus.UNKNOWN
+                    and not update_reason
                 ):
                     update_reason = (
                         "order status is UNKNOWN; fill and remaining quantities "
