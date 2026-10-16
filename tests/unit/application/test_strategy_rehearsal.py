@@ -971,16 +971,24 @@ def test_wall_clock_signal_timestamp_blocks_step_and_later_event_continues() -> 
             self.calls += 1
             event = context.event
             assert event is not None
-            return StrategyResult(
-                signal=StrategySignal(
+            if self.calls == 1:
+                signal = StrategySignal(
                     strategy_id=context.ir.strategy_id,
                     strategy_version=context.ir.version,
                     instrument=event.instrument,
                     action=SignalAction.HOLD,
                     confidence=1.0,
-                    generated_at=None if self.calls == 1 else event.timestamp,
                 )
-            )
+            else:
+                signal = StrategySignal(
+                    strategy_id=context.ir.strategy_id,
+                    strategy_version=context.ir.version,
+                    instrument=event.instrument,
+                    action=SignalAction.HOLD,
+                    confidence=1.0,
+                    generated_at=event.timestamp,
+                )
+            return StrategyResult(signal=signal)
 
     registry = StrategyRegistry()
     registry.register("buy-and-hold", "1", _WallClockSignalStrategy)
