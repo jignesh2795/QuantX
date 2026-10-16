@@ -1,6 +1,8 @@
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import pytest
+
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.execution.trading_gate import (
     DurableTradingGate,
@@ -101,8 +103,8 @@ def test_durable_gate_shared_store_serializes_submission_permit() -> None:
     from threading import Event, Thread
 
     store = InMemoryTradingGateStateStore()
-    first = DurableTradingGate(store)
-    second = DurableTradingGate(store)
+    first = DurableTradingGate(store, default_enabled=True)
+    second = DurableTradingGate(store, default_enabled=True)
     entered = Event()
     release = Event()
     blocked = Event()
@@ -152,3 +154,34 @@ def test_durable_gate_permit_fails_closed_when_state_unavailable() -> None:
 
     with gate.submission_permit() as permitted:
         assert permitted is False
+
+class _FailWhenDisablingStateStore(InMemoryTradingGateStateStore):
+    """Persist enabled state but simulate a durable block-write failure."""
+
+    def save(self, state: TradingGateState) -> None:
+        if not state.enabled:
+            raise OSError("cannot persist disabled gate state")
+        super().save(state)
+
+
+def test_durable_gate_defaults_to_disarmed_without_persisted_state() -> None:
+    store = InMemoryTradingGateStateStore()
+
+    gate = DurableTradingGate(store)
+
+    assert gate.allow() is False
+    assert gate.state() == TradingGateState(enabled=False, reason="")
+    assert store.load() == TradingGateState(enabled=False, reason="")
+
+
+def test_durable_gate_stays_blocked_when_persisting_block_raises() -> None:
+    store = _FailWhenDisablingStateStore()
+    gate = DurableTradingGate(store, default_enabled=True)
+
+    with pytest.raises(OSError, match="cannot persist disabled gate state"):
+        gate.block("operator emergency stop")
+
+    assert gate.allow() is False
+    with gate.submission_permit() as permitted:
+        assert permitted is False
+
