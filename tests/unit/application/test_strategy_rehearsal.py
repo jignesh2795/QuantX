@@ -1229,8 +1229,7 @@ def _context_inventory_signature(
 ) -> tuple[tuple[object, ...], ...]:
     return (
         tuple(
-            (position.instrument, position.quantity)
-            for position in context.engine.positions.items
+            (position.instrument, position.quantity) for position in context.engine.positions.items
         ),
         tuple(
             (
@@ -1344,9 +1343,7 @@ def _buy_and_hold_result_signature(
         for fault in result.callback_faults
     )
     halt = (
-        None
-        if result.halt is None
-        else (result.halt.kind, result.halt.as_of, result.halt.reason)
+        None if result.halt is None else (result.halt.kind, result.halt.as_of, result.halt.reason)
     )
     return decisions, receipts, contexts, tuple(strategy.notifications), faults, halt
 
@@ -1359,15 +1356,15 @@ def test_qx08_buy_and_hold_driver_state_and_callback_parity() -> None:
         rehearsal_strategy,
     ) = _buy_and_hold_driver_run()
 
-    backtest_decisions = tuple(
-        step.strategy_result.signal.action for step in backtest.steps
-    )
-    rehearsal_decisions = tuple(
-        step.evaluation.result.signal.action for step in rehearsal.steps
-    )
-    assert backtest_decisions == rehearsal_decisions == (
-        SignalAction.BUY,
-        SignalAction.HOLD,
+    backtest_decisions = tuple(step.strategy_result.signal.action for step in backtest.steps)
+    rehearsal_decisions = tuple(step.evaluation.result.signal.action for step in rehearsal.steps)
+    assert (
+        backtest_decisions
+        == rehearsal_decisions
+        == (
+            SignalAction.BUY,
+            SignalAction.HOLD,
+        )
     )
     assert len(backtest.receipts) == 1
     assert backtest.receipts[0].order_status is OrderStatus.FILLED
@@ -1402,10 +1399,7 @@ def test_qx08_buy_and_hold_driver_state_and_callback_parity() -> None:
     # The account dimension is intentionally not conflated: rehearsal has no
     # authoritative valuation tracker, while backtest does. The unavailability
     # and its reason are a contract, not a value to normalize to zero.
-    assert (
-        rehearsal_strategy.contexts[0].engine.account_availability.value
-        == "UNAVAILABLE"
-    )
+    assert rehearsal_strategy.contexts[0].engine.account_availability.value == "UNAVAILABLE"
     assert rehearsal_strategy.contexts[0].engine.account_reason
     assert backtest_strategy.contexts[0].engine.account_reason is None
 
@@ -1470,9 +1464,7 @@ class _AcceptedWithoutFillObserver:
         )
 
     def on_fill(self, context: StrategyContext, fill: Fill) -> None:
-        self.notifications.append(
-            ("on_fill", fill.quantity, fill.price, fill.filled_at)
-        )
+        self.notifications.append(("on_fill", fill.quantity, fill.price, fill.filled_at))
 
     def on_order_update(self, context: StrategyContext, update) -> None:
         self.notifications.append(
@@ -1524,17 +1516,11 @@ def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> Non
     assert backtest_result.receipts[0].order_status is OrderStatus.ACCEPTED
     assert backtest_result.receipts[0].fills == ()
     assert rehearsal_result.steps[0].paper_outcome is not None
-    assert (
-        rehearsal_result.steps[0].paper_outcome.lifecycle_status is OrderStatus.ACCEPTED
-    )
+    assert rehearsal_result.steps[0].paper_outcome.lifecycle_status is OrderStatus.ACCEPTED
     assert rehearsal_result.steps[0].paper_outcome.fill is None
 
-    assert tuple(item[0] for item in backtest_strategy.notifications) == (
-        "on_order_update",
-    )
-    assert tuple(item[0] for item in rehearsal_strategy.notifications) == (
-        "on_order_update",
-    )
+    assert tuple(item[0] for item in backtest_strategy.notifications) == ("on_order_update",)
+    assert tuple(item[0] for item in rehearsal_strategy.notifications) == ("on_order_update",)
     # The backtest paper engine reports ACCEPTED while the rehearsal executor
     # retains SUBMITTED; the normative contract permits either committed
     # nonterminal status, but both must notify and preserve the active order.
@@ -1549,20 +1535,14 @@ def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> Non
     assert len(backtest_orders) == len(rehearsal_orders) == 1
     assert backtest_orders[0].status is OrderStatus.ACCEPTED
     assert rehearsal_orders[0].status is OrderStatus.SUBMITTED
-    assert (
-        backtest_orders[0].filled_quantity
-        == rehearsal_orders[0].filled_quantity
-        == Decimal("0")
-    )
+    assert backtest_orders[0].filled_quantity == rehearsal_orders[0].filled_quantity == Decimal("0")
     assert (
         backtest_orders[0].remaining_quantity
         == rehearsal_orders[0].remaining_quantity
         == Decimal("1")
     )
     assert backtest_strategy.contexts[1].engine.orders.availability.value == "AVAILABLE"
-    assert (
-        rehearsal_strategy.contexts[1].engine.orders.availability.value == "AVAILABLE"
-    )
+    assert rehearsal_strategy.contexts[1].engine.orders.availability.value == "AVAILABLE"
 
 
 # ---------------------------------------------------------------------------

@@ -682,18 +682,14 @@ class DeterministicBacktestService:
             )
         qx08_active = isinstance(strategy, StrategyEvaluationService)
         if execution_context is not None and not qx08_active:
-            raise ValueError(
-                "execution_context binding requires StrategyEvaluationService"
-            )
+            raise ValueError("execution_context binding requires StrategyEvaluationService")
         if (
             qx08_active
             and execution_context is not None
             and execution_context.execution_mode
             not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}
         ):
-            raise ValueError(
-                "QX-08 backtest execution context must use a supported simulated mode"
-            )
+            raise ValueError("QX-08 backtest execution context must use a supported simulated mode")
         callback_target: object = strategy
         if isinstance(strategy, StrategyEvaluationService):
             if strategy_ir is None:
