@@ -259,6 +259,25 @@ def test_snapshot_rejects_future_effective_order_evidence() -> None:
         )
 
 
+def test_unknown_order_fact_does_not_fabricate_filled_or_remaining_quantity() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    fact = active_order_fact(
+        client_order_id="unknown-order",
+        instrument=_instrument(),
+        status=OrderStatus.UNKNOWN,
+        order_quantity=Decimal("2"),
+        filled_quantity=None,
+        created_at=as_of,
+        evidence_time=as_of,
+        effective_at=as_of,
+    )
+
+    assert fact is not None
+    assert fact.status is OrderStatus.UNKNOWN
+    assert fact.filled_quantity is None
+    assert fact.remaining_quantity is None
+
+
 def test_snapshot_rejects_future_effective_order_time_when_availability_is_current() -> None:
     as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     future_fact = OpenOrderFact(
