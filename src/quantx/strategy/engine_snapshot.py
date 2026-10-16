@@ -181,6 +181,14 @@ class EngineStateSnapshot:
                 raise TemporalIntegrityError(
                     f"position evidence for {position.instrument} is later than snapshot as_of"
                 )
+            if (
+                position.evidence_time is not None
+                and position.evidence_time.astimezone(UTC) > normalized_as_of
+            ):
+                raise TemporalIntegrityError(
+                    f"position evidence availability for {position.instrument} "
+                    "is later than snapshot as_of"
+                )
         for order in self.orders.items:
             if (
                 order.evidence_time is not None
