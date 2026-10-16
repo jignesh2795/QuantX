@@ -161,3 +161,105 @@ def test_runtime_does_not_mark_started_when_recovery_raises() -> None:
         runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
 
     assert not runtime.started
+
+
+def test_runtime_rejects_non_bool_definitive_int() -> None:
+    """definitive=1 (int) must not bypass readiness; treated as non-definitive."""
+    recovery = FakeRecovery(PendingRecoveryRun((PendingRecoveryResult("order-1", 1),)))
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.pending == 1
+    assert result.failed == 0
+
+
+def test_runtime_rejects_non_bool_definitive_str() -> None:
+    """definitive="yes" (str) must not bypass readiness; treated as non-definitive."""
+    recovery = FakeRecovery(PendingRecoveryRun((PendingRecoveryResult("order-1", "yes"),)))
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.pending == 1
+    assert result.failed == 0
+
+
+def test_runtime_rejects_contradictory_definitive_error() -> None:
+    """definitive=True with error is contradictory; treated as non-ready."""
+    recovery = FakeRecovery(
+        PendingRecoveryRun((PendingRecoveryResult("order-1", True, error="broker unavailable"),))
+    )
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.pending == 0
+    assert result.failed == 1
+
+
+def test_runtime_valid_empty_report_ready() -> None:
+    """Empty recovery report (no results) must leave runtime ready."""
+    recovery = FakeRecovery(PendingRecoveryRun())
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert runtime.started
+    assert result.ready is True
+    assert result.recovered == 0
+    assert result.pending == 0
+    assert result.failed == 0
+
+
+def test_runtime_report_retention_after_unready() -> None:
+    """The complete latest report must remain inspectable after an unsuccessful start."""
+    recovery = FakeRecovery(
+        PendingRecoveryRun((PendingRecoveryResult("order-1", False, error="broker unavailable"),))
+    )
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    retained = runtime.last_startup_result
+    assert retained is not None
+    assert retained.pending_recovery.results == recovery.report.results
+
+
+def test_runtime_retry_after_unready_with_malformed() -> None:
+    """An unready runtime with malformed definitive may be explicitly started again."""
+    reports = [
+        PendingRecoveryRun((PendingRecoveryResult("order-1", 1),)),  # definitive=1 → unready
+        PendingRecoveryRun((PendingRecoveryResult("order-1", True),)),  # definitive=True → ready
+    ]
+    calls = 0
+
+    class ScriptedRecovery:
+        def run(self, *, checked_at=None) -> PendingRecoveryRun:
+            nonlocal calls
+            report = reports[calls]
+            calls += 1
+            return report
+
+    runtime = ApplicationRuntime(pending_recovery=ScriptedRecovery())
+
+    first = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+    assert not runtime.started
+    assert first.ready is False
+
+    second = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+    assert runtime.started
+    assert second.ready is True
+    assert runtime.last_startup_result == second
+
+    with pytest.raises(RuntimeError, match="already started"):
+        runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+    assert calls == 2

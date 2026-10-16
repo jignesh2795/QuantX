@@ -53,11 +53,13 @@ class PendingRecoveryRun:
 
     @property
     def resolved(self) -> int:
-        return sum(result.definitive for result in self.results)
+        return sum(1 for result in self.results if result.definitive is True)
 
     @property
     def pending(self) -> int:
-        return sum(not result.definitive and result.error is None for result in self.results)
+        return sum(
+            1 for result in self.results if result.definitive is not True and result.error is None
+        )
 
     @property
     def failed(self) -> int:
