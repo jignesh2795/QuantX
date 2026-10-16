@@ -264,11 +264,16 @@ def prior_candle_history(
     if limit == 0:
         return ()
     eligible = tuple(
-        candle
-        for candle in candles
-        if (
-            candle.instrument == instrument
-            and candle.timestamp.astimezone(UTC) < as_of.astimezone(UTC)
+        sorted(
+            (
+                candle
+                for candle in candles
+                if (
+                    candle.instrument == instrument
+                    and candle.timestamp.astimezone(UTC) < as_of.astimezone(UTC)
+                )
+            ),
+            key=lambda candle: candle.timestamp.astimezone(UTC),
         )
     )
     return eligible[-limit:]
