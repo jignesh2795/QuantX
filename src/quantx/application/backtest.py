@@ -75,7 +75,7 @@ from quantx.strategy.engine_snapshot import (
 )
 from quantx.strategy.evaluation import StrategyEvaluation, StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
-from quantx.strategy.timers import TimerRegistry, TimerInvocation, UndeliveredTimer
+from quantx.strategy.timers import TimerRegistry, UndeliveredTimer
 from quantx.strategy.typed_params import TypedParams
 
 
@@ -615,8 +615,6 @@ class DeterministicBacktestService:
         # closed instead of recording an empty model list.
         effective_execution_models: tuple[SimulationModelIdentity, ...] | None = None
         if execution_engine is None:
-            from quantx.domain.clock import SimulatedClock
-
             first_timestamp = frames[0].observation.timestamp
             simulation_clock = SimulatedClock(first_timestamp)
             effective_slippage_bps = effective_profile.slippage_bps
@@ -672,6 +670,10 @@ class DeterministicBacktestService:
                 internally_composed=self._execution_engine is None,
                 configured_latency_ms=effective_profile.latency_ms,
             ).require_supported()
+            self._require_engine_time_coherent(
+                execution_engine,
+                frames[0].observation.timestamp,
+            )
             history_limit = TypedParams.from_ir(strategy_ir).get_int(
                 "history_bars", default=0, minimum=0, maximum=512
             )
