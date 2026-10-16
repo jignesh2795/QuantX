@@ -11,8 +11,8 @@ without any broker-submit path: execution flows exclusively through
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from decimal import Decimal
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from quantx.application.strategy_preflight import assess_rehearsal_event_time_support
 from quantx.domain.deployment import ExecutionMode, StrategyDeployment
