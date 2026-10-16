@@ -217,6 +217,20 @@ class EngineStateSnapshot:
         else:
             if self.account_state.timestamp.astimezone(UTC) > normalized_as_of:
                 raise TemporalIntegrityError("account-state evidence is later than snapshot as_of")
+            for valuation in self.account_state.valuation_evidence:
+                if valuation.selected_at.astimezone(UTC) > normalized_as_of:
+                    raise TemporalIntegrityError(
+                        f"account valuation selection for {valuation.instrument_id} "
+                        "is later than snapshot as_of"
+                    )
+                if (
+                    valuation.observed_at is not None
+                    and valuation.observed_at.astimezone(UTC) > normalized_as_of
+                ):
+                    raise TemporalIntegrityError(
+                        f"account valuation mark for {valuation.instrument_id} "
+                        "is later than snapshot as_of"
+                    )
             if (
                 self.account_state.completeness is AccountStateCompleteness.COMPLETE
                 and self.account_availability is not EvidenceAvailability.AVAILABLE
