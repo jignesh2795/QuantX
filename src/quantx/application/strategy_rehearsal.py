@@ -12,29 +12,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from decimal import Decimal
 
-from quantx.application.strategy_preflight import assess_rehearsal_event_time_support
 from quantx.domain.deployment import ExecutionMode, StrategyDeployment
 from quantx.domain.finance import AccountFinancialState
 from quantx.domain.instrument_registry import InstrumentRegistry
-from quantx.domain.market_data import Candle, MarketDataEvent
+from quantx.domain.market_data import MarketDataEvent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext
 from quantx.domain.risk import PreTradeRiskEngine
 from quantx.execution.paper.executor import PaperExecutionOutcome, PaperOrderExecutor
 from quantx.execution.paper.fills import MarketSnapshot
 from quantx.execution.paper.profile import OrderBookSnapshot
 from quantx.strategy.deployment import StrategyExecutionDecision
-from quantx.strategy.engine_snapshot import (
-    EngineEvidenceAdapter,
-    EngineStateSnapshot,
-    EvidenceCollection,
-    OpenOrderFact,
-    active_order_fact,
-    build_engine_snapshot,
-    position_facts,
-    prior_candle_history,
-)
 from quantx.strategy.evaluation import StrategyEvaluation, StrategyEvaluationService
 from quantx.strategy.execution import (
     StrategyExecutionPreparation,
@@ -43,7 +31,6 @@ from quantx.strategy.execution import (
 )
 from quantx.strategy.ir import StrategyIR
 from quantx.strategy.registry import StrategyRegistry
-from quantx.strategy.typed_params import TypedParams
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,81 +130,25 @@ class StrategyRehearsalSession:
         self._paper_executor = paper_executor
         self._financial_state = financial_state
         self._policy_context = policy_context or PolicyContext()
-        self._active_orders: dict[str, OpenOrderFact] = {}
         self._consumed = False
 
     def run(self, inputs: tuple[RehearsalInput, ...]) -> StrategyRehearsalResult:
         """Evaluate, bind, prepare, and paper-execute one input per step."""
         if self._consumed:
             raise ValueError("rehearsal session is single-use; resolve a fresh session per run")
-        previous_timestamp: datetime | None = None
-        for rehearsal_input in inputs:
-            timestamp = rehearsal_input.event.timestamp
-            if previous_timestamp is not None and timestamp < previous_timestamp:
-                raise ValueError("rehearsal input timestamps must be nondecreasing")
-            previous_timestamp = timestamp
-
-        history_bars = TypedParams.from_ir(self._strategy_ir).get_int(
-            "history_bars", default=0, minimum=0, maximum=512
-        )
-        assess_rehearsal_event_time_support(self._paper_executor).require_supported()
         self._consumed = True
-        candles = tuple(
-            item.event.payload for item in inputs if isinstance(item.event.payload, Candle)
-        )
-        steps = tuple(
-            self._step(rehearsal_input, candles=candles, history_bars=history_bars)
-            for rehearsal_input in inputs
-        )
+        steps = tuple(self._step(rehearsal_input) for rehearsal_input in inputs)
         return StrategyRehearsalResult(
             deployment=self._deployment,
             strategy_ir=self._strategy_ir,
             steps=steps,
         )
 
-    def _engine_snapshot(self, as_of: datetime) -> EngineStateSnapshot:
-        adapter = EngineEvidenceAdapter(
-            positions=EvidenceCollection.known(
-                position_facts(
-                    self._paper_executor.accounting.snapshot(),
-                    effective_at=as_of,
-                )
-            ),
-            orders=EvidenceCollection.known(
-                tuple(self._active_orders[key] for key in sorted(self._active_orders))
-            ),
-            account_state=None,
-            account_reason=(
-                "paper rehearsal does not have a canonical point-in-time account-state tracker"
-            ),
-        )
-        return build_engine_snapshot(adapter, as_of=as_of)
-
-    def _step(
-        self,
-        rehearsal_input: RehearsalInput,
-        *,
-        candles: tuple[Candle, ...],
-        history_bars: int,
-    ) -> StrategyRehearsalStep:
+    def _step(self, rehearsal_input: RehearsalInput) -> StrategyRehearsalStep:
         event = rehearsal_input.event
         if self._deployment.market.venue != event.instrument.venue:
             raise ValueError("deployment market venue does not match market event")
-        as_of = event.timestamp.astimezone(UTC)
-        engine = self._engine_snapshot(as_of)
-        history = prior_candle_history(
-            candles,
-            instrument=event.instrument,
-            as_of=as_of,
-            limit=history_bars,
-        )
-        evaluation = self._evaluation.evaluate(
-            event,
-            self._strategy_ir,
-            engine=engine,
-            as_of=as_of,
-            history=history,
-        )
+        evaluation = self._evaluation.evaluate(event, self._strategy_ir)
         if evaluation.result.signal.generated_at != event.timestamp:
             raise ValueError("strategy signal timestamp does not match market event")
         intent = evaluation.result.intent
@@ -249,10 +180,7 @@ class StrategyRehearsalSession:
         # default would be nondeterministic, so this path pins it here
         # without changing the shared default. The recorded preparation
         # carries the same deterministic order that reaches the paper venue.
-        deterministic = replace(
-            approved,
-            order=replace(approved.order, created_at=event.timestamp),
-        )
+        deterministic = replace(approved, order=replace(approved.order, created_at=event.timestamp))
         preparation = replace(preparation, request=deterministic)
         paper_outcome = self._paper_executor.execute(
             deterministic.order,
@@ -261,22 +189,6 @@ class StrategyRehearsalSession:
             observed_at=event.timestamp,
             order_book=rehearsal_input.order_book,
         )
-        order_key = str(deterministic.order.client_order_id)
-        fill = paper_outcome.fill
-        fact = active_order_fact(
-            client_order_id=order_key,
-            instrument=deterministic.order.instrument,
-            status=paper_outcome.lifecycle_status,
-            order_quantity=deterministic.order.quantity,
-            filled_quantity=Decimal("0") if fill is None else fill.quantity,
-            created_at=deterministic.order.created_at,
-            evidence_time=event.timestamp if fill is None else fill.filled_at,
-            reason=paper_outcome.reason or None,
-        )
-        if fact is None:
-            self._active_orders.pop(order_key, None)
-        else:
-            self._active_orders[order_key] = fact
         return StrategyRehearsalStep(
             event, evaluation, preparation, paper_outcome, "paper executed"
         )
