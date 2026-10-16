@@ -1132,7 +1132,38 @@ class DeterministicBacktestService:
                 risk_result=risk,
                 policy_result=policy,
             )
-            self._require_engine_time_coherent(execution_engine, frame.observation.timestamp)
+            try:
+                self._require_engine_time_coherent(
+                    execution_engine, frame.observation.timestamp
+                )
+            except Exception as exc:
+                fault = callback_fault("event_time_alignment", failure_identity, exc)
+                reason = (
+                    "execution event-time alignment failed before paper execution: "
+                    f"{fault.message}"
+                )
+                callback_faults.append(fault)
+                halt = RunHaltRecord(
+                    kind="EVENT_TIME_SUPPORT_VIOLATION",
+                    as_of=frame_time,
+                    identity=failure_identity,
+                    reason=reason,
+                )
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        risk,
+                        policy,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        reason,
+                        (fault,),
+                    )
+                )
+                continue
+
             receipt = execution_engine.execute(
                 request,
                 snapshot=snapshot,
