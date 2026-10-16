@@ -37,6 +37,12 @@ _FORBIDDEN_CALLS = {
     "cancel_timer",
     "add_job",
     "run_pending",
+    "Timer",
+    "Thread",
+    "BackgroundScheduler",
+    "AsyncIOScheduler",
+    "BlockingScheduler",
+    "run_in_executor",
 }
 _WALL_CLOCK_BARE_CALLS = {"now", "utcnow", "today", "monotonic"}
 _WALL_CLOCK_QUALIFIED_CALLS = {
@@ -63,6 +69,7 @@ _FORBIDDEN_IMPORT_PREFIXES = (
     "sched",
     "apscheduler",
     "schedule",
+    "threading",
 )
 
 
@@ -151,6 +158,7 @@ def test_boundary_scanner_flags_wallclock_and_forbidden_paths() -> None:
     unsafe_source = """
 import asyncio
 import datetime
+import threading
 import time
 
 from quantx.domain.deployment import ExecutionMode
@@ -161,12 +169,14 @@ def unsafe(broker):
     time.time()
     time.sleep(1)
     asyncio.create_task(None)
+    threading.Timer(1, lambda: None)
     broker.submit(None)
     mode = ExecutionMode.LIVE
 """
     observed = _audit_source(unsafe_source, "sentinel.py")
 
     assert "sentinel.py:import asyncio" in observed
+    assert "sentinel.py:import threading" in observed
     assert "sentinel.py:import time" in observed
     assert "sentinel.py:call datetime.datetime.now" in observed
     assert "sentinel.py:call time.time" in observed
@@ -180,5 +190,6 @@ def unsafe(broker):
     assert _audit_source("engine_clock.now()", "deterministic_clock.py") == []
     assert "sentinel.py:call sleep" in observed
     assert "sentinel.py:call create_task" in observed
+    assert "sentinel.py:call Timer" in observed
     assert "sentinel.py:call submit" in observed
     assert "sentinel.py:LIVE attribute" in observed
