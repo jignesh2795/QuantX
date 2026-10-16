@@ -524,7 +524,7 @@ class DeterministicBacktestService:
     @staticmethod
     def _require_engine_time_coherent(
         execution_engine: PaperExecutionEngine, frame_time: datetime
-    ) -> None:
+    ) -> datetime:
         """Fail closed before execution unless the engine clock is replay-safe.
 
         Reading the injected clock up front keeps a rejected run free of venue
@@ -550,6 +550,7 @@ class DeterministicBacktestService:
                 "injected execution clock predates the replay frame: "
                 "execution cannot precede the replay occurrence time"
             )
+        return engine_now
 
     @staticmethod
     def _candle_stop_disposition(intent: TradeIntent, snapshot: HistoricalSnapshot) -> str | None:
@@ -670,10 +671,16 @@ class DeterministicBacktestService:
                 internally_composed=self._execution_engine is None,
                 configured_latency_ms=effective_profile.latency_ms,
             ).require_supported()
-            self._require_engine_time_coherent(
+            first_frame_time = frames[0].observation.timestamp
+            initial_engine_time = self._require_engine_time_coherent(
                 execution_engine,
-                frames[0].observation.timestamp,
+                first_frame_time,
             )
+            if initial_engine_time != first_frame_time:
+                raise ValueError(
+                    "QX-08 event-time preflight requires the injected execution clock "
+                    "to start at the first replay frame"
+                )
             history_limit = TypedParams.from_ir(strategy_ir).get_int(
                 "history_bars", default=0, minimum=0, maximum=512
             )
