@@ -14,7 +14,7 @@ from enum import StrEnum
 from quantx.domain.enums import OrderStatus
 from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
-from quantx.execution.accounting import PositionLedgerEntry
+from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.historical_account_state import (
     AccountStateCompleteness,
     HistoricalAccountStateSnapshot,
