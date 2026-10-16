@@ -7,7 +7,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
-from quantx.domain.strategy import StrategyDefinition, StrategyId, StrategyResult, StrategySignal, TimerRequest
+from quantx.domain.strategy import (
+    SignalAction,
+    StrategyDefinition,
+    StrategyId,
+    StrategyResult,
+    StrategySignal,
+    TimerRequest,
+)
 from quantx.domain.value_objects import InstrumentId
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.runtime import StrategyRuntime
@@ -36,7 +43,7 @@ def _result(
             StrategyId("timer-test"),
             "1",
             instrument,
-            __import__("quantx.domain.strategy", fromlist=["SignalAction"]).SignalAction.HOLD,
+            SignalAction.HOLD,
             1.0,
             generated_at=timestamp,
         ),
@@ -85,7 +92,7 @@ def test_timer_dispatch_orders_by_due_time_then_timer_id_and_consumes_once() -> 
     due = registry.take_due(event_time + timedelta(minutes=1))
 
     assert tuple(item.timer_id for item in due) == ("timer-a", "timer-b")
-    assert registry.pending == (next(item for item in registry.pending if item.timer_id == "timer-z"),)
+    assert tuple(item.timer_id for item in registry.pending) == ("timer-z",)
     assert registry.take_due(event_time + timedelta(minutes=2))[0].timer_id == "timer-z"
     assert registry.take_due(event_time + timedelta(minutes=3)) == ()
 
