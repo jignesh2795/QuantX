@@ -85,7 +85,7 @@ class RunHaltRecord:
 
 @dataclass(frozen=True, slots=True)
 class TemporalIntegrityFault:
-    """Unexpected future-effective execution evidence detected after it is preserved."""
+    """Execution evidence outside its event-time cut, detected after preservation."""
 
     source: str
     identity: str
