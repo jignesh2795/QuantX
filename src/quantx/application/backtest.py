@@ -147,7 +147,9 @@ class BacktestResult:
 
     @property
     def executed_count(self) -> int:
-        return sum(step.disposition is BacktestDisposition.EXECUTED for step in self.steps)
+        return sum(
+            step.disposition is BacktestDisposition.EXECUTED for step in self.steps
+        )
 
     @property
     def rejected_count(self) -> int:
@@ -190,7 +192,9 @@ def _evidence_types(frames: tuple[ReplayFrame, ...]) -> tuple[str, ...]:
         elif isinstance(snapshot, MarketSnapshot):
             label = "QUOTE"
         else:
-            raise TypeError(f"unsupported backtest observation payload: {type(snapshot).__name__}")
+            raise TypeError(
+                f"unsupported backtest observation payload: {type(snapshot).__name__}"
+            )
         if label not in ordered:
             ordered.append(label)
     return tuple(ordered)
@@ -244,12 +248,14 @@ def _fidelity_limitations(
     if volume_participation_rate is not None and candle_order_types:
         limitations.append(
             "candle fills bounded by configured volume participation "
-            f"(rate={volume_participation_rate}); cap is modeled, not observed liquidity"
+            f"(rate={volume_participation_rate}); cap is modeled, not observed "
+            "liquidity"
         )
     if slippage_bps is not None and slippage_bps != 0:
         limitations.append(
             "configured deterministic slippage "
-            f"(slippage_bps={slippage_bps}); modeled price adjustment, not observed liquidity"
+            f"(slippage_bps={slippage_bps}); modeled price adjustment, not observed "
+            "liquidity"
         )
     return tuple(limitations)
 
@@ -271,7 +277,9 @@ def _backtest_fidelity(
         quality=quality,
         execution_models=_execution_models(receipts),
         evidence_types=_evidence_types(frames),
-        limitations=_fidelity_limitations(frames, steps, volume_participation_rate, slippage_bps),
+        limitations=_fidelity_limitations(
+            frames, steps, volume_participation_rate, slippage_bps
+        ),
     )
 
 
@@ -286,7 +294,9 @@ def _reference_price(snapshot: MarketSnapshot | Candle) -> Decimal | None:
         if snapshot.bid is not None and snapshot.ask is not None:
             return (snapshot.bid + snapshot.ask) / Decimal("2")
         return snapshot.ask if snapshot.ask is not None else snapshot.bid
-    raise TypeError(f"unsupported backtest observation payload: {type(snapshot).__name__}")
+    raise TypeError(
+        f"unsupported backtest observation payload: {type(snapshot).__name__}"
+    )
 
 
 def _require_coherent_run_configuration(
@@ -404,7 +414,9 @@ def _effective_run_configuration(
                 minimum_order_value=constraint.minimum_order_value,
                 minimum_quantity=constraint.minimum_quantity,
                 minimum_margin_amount=(
-                    None if constraint.minimum_margin is None else constraint.minimum_margin.amount
+                    None
+                    if constraint.minimum_margin is None
+                    else constraint.minimum_margin.amount
                 ),
                 minimum_margin_currency=(
                     None
@@ -443,7 +455,10 @@ def _require_coherent_provenance(
     inference, or catalog lookup is attempted. Heterogeneous multi-dataset
     provenance binding is explicitly deferred, never silently merged.
     """
-    pairs = {(frame.observation.dataset_id, frame.observation.dataset_version) for frame in frames}
+    pairs = {
+        (frame.observation.dataset_id, frame.observation.dataset_version)
+        for frame in frames
+    }
     if len(pairs) != 1:
         raise ValueError(
             "provenance binding requires replay evidence from exactly one dataset; "
@@ -451,9 +466,13 @@ def _require_coherent_provenance(
         )
     observed_id, observed_version = next(iter(pairs))
     if observed_id != provenance.dataset_id:
-        raise ValueError("supplied provenance dataset_id does not match replay evidence")
+        raise ValueError(
+            "supplied provenance dataset_id does not match replay evidence"
+        )
     if observed_version != provenance.dataset_version:
-        raise ValueError("supplied provenance dataset_version does not match replay evidence")
+        raise ValueError(
+            "supplied provenance dataset_version does not match replay evidence"
+        )
 
 
 class DeterministicBacktestService:
@@ -544,7 +563,9 @@ class DeterministicBacktestService:
             )
         engine_now = engine_clock.now()
         if engine_now.tzinfo is None or engine_now.utcoffset() is None:
-            raise ValueError("injected execution clock must return a timezone-aware timestamp")
+            raise ValueError(
+                "injected execution clock must return a timezone-aware timestamp"
+            )
         if engine_now < frame_time:
             raise ValueError(
                 "injected execution clock predates the replay frame: "
@@ -570,14 +591,22 @@ class DeterministicBacktestService:
                 CandleFillModel.classify_stop(intent.side, intent.stop_price, snapshot)
                 is StopTrigger.AMBIGUOUS
             ):
-                return "stop trigger intrabar path is unknowable from OHLCV; no simulated fill"
+                return (
+                    "stop trigger intrabar path is unknowable from OHLCV; "
+                    "no simulated fill"
+                )
             return None
         if intent.order_type is OrderType.STOP_LIMIT:
             if intent.stop_price is None:
                 return "stop price is required for stop-limit orders"
-            trigger = CandleFillModel.classify_stop(intent.side, intent.stop_price, snapshot)
+            trigger = CandleFillModel.classify_stop(
+                intent.side, intent.stop_price, snapshot
+            )
             if trigger is StopTrigger.AMBIGUOUS:
-                return "stop-limit intrabar path is unknowable from OHLCV; no fill simulated"
+                return (
+                    "stop-limit intrabar path is unknowable from OHLCV; "
+                    "no fill simulated"
+                )
             if trigger is StopTrigger.TRIGGERED:
                 return (
                     "stop triggered but post-trigger limit execution ordering "
@@ -663,6 +692,7 @@ class DeterministicBacktestService:
                 provenance.run_configuration,
             )
         qx08_active = isinstance(strategy, StrategyEvaluationService)
+        callback_target: object = strategy
         if isinstance(strategy, StrategyEvaluationService):
             if strategy_ir is None:
                 raise ValueError(
@@ -689,7 +719,6 @@ class DeterministicBacktestService:
             callback_target = strategy.callback_target
         else:
             history_limit = 0
-            callback_target = strategy
 
         timers = TimerRegistry()
         active_orders: dict[str, OpenOrderFact] = {}
@@ -739,13 +768,13 @@ class DeterministicBacktestService:
                     )
                     if engine_time != frame_time:
                         raise ValueError(
-                            "injected execution clock must align exactly with the current "
-                            "replay frame for QX-08 callbacks"
+                            "injected execution clock must align exactly "
+                            "with the current replay frame for QX-08 callbacks"
                         )
                 except Exception as exc:
                     reason = (
-                        "execution event-time alignment failed before strategy evaluation: "
-                        f"{type(exc).__name__}: {exc}"
+                        "execution event-time alignment failed before "
+                        f"strategy evaluation: {type(exc).__name__}: {exc}"
                     )
                     fault = callback_fault(
                         "event_time_alignment",
@@ -955,7 +984,8 @@ class DeterministicBacktestService:
                         None,
                         None,
                         BacktestDisposition.BLOCKED,
-                        f"instrument metadata unavailable for {frame.observation.instrument}",
+                        "instrument metadata unavailable for "
+                        f"{frame.observation.instrument}",
                     )
                 )
                 continue
@@ -1150,8 +1180,8 @@ class DeterministicBacktestService:
                 )
                 if qx08_active and engine_time != frame_time:
                     raise ValueError(
-                        "execution clock must align exactly with the current replay frame "
-                        "for QX-08 callbacks"
+                        "execution clock must align exactly with the current "
+                        "replay frame for QX-08 callbacks"
                     )
             except Exception as exc:
                 if not qx08_active:
@@ -1242,7 +1272,9 @@ class DeterministicBacktestService:
                             identity=str(receipt.receipt_id),
                             expected_at=frame_time,
                             effective_at=receipt.executed_at,
-                            reason="receipt effective time is later than the replay frame",
+                            reason=(
+                                "receipt effective time is later than the replay frame"
+                            ),
                         )
                     )
                 elif receipt.executed_at < order.created_at:
@@ -1263,7 +1295,9 @@ class DeterministicBacktestService:
                                 identity=str(fill.execution_id),
                                 expected_at=frame_time,
                                 effective_at=fill.filled_at,
-                                reason="fill effective time is later than the replay frame",
+                                reason=(
+                                    "fill effective time is later than the replay frame"
+                                ),
                             )
                         )
                     elif fill.filled_at < order.created_at:

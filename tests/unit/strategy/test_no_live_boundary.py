@@ -200,7 +200,9 @@ def unsafe(broker):
     assert "sentinel.py:call datetime.datetime.now" in observed
     assert "sentinel.py:call time.time" in observed
 
-    aliased_module = _audit_source("import datetime as dt\ndt.datetime.now()", "aliased_module.py")
+    aliased_module = _audit_source(
+        "import datetime as dt\ndt.datetime.now()", "aliased_module.py"
+    )
     assert "aliased_module.py:call datetime.datetime.now" in aliased_module
     aliased_class = _audit_source(
         "from datetime import datetime as dt\ndt.now()", "aliased_class.py"

@@ -103,7 +103,10 @@ def _deployment(
 def _ir() -> StrategyIR:
     return StrategyCompiler.compile(
         StrategyDefinition(
-            StrategyId("buy-and-hold"), "1", "Buy and Hold", parameters={"quantity": "2"}
+            StrategyId("buy-and-hold"),
+            "1",
+            "Buy and Hold",
+            parameters={"quantity": "2"},
         )
     )
 
@@ -255,7 +258,8 @@ def test_bind_rejects_conflicting_context() -> None:
 
 
 @pytest.mark.parametrize(
-    "mode", [ExecutionMode.LIVE, ExecutionMode.BACKTEST, ExecutionMode.REPLAY, ExecutionMode.SHADOW]
+    "mode",
+    [ExecutionMode.LIVE, ExecutionMode.BACKTEST, ExecutionMode.REPLAY, ExecutionMode.SHADOW],
 )
 def test_session_rejects_non_paper_deployment(mode: ExecutionMode) -> None:
     accounting = _CountingAccounting()
@@ -418,7 +422,7 @@ def test_missing_snapshot_produces_no_fill_without_accounting() -> None:
     assert accounting.applications == []
 
 
-def test_missing_instrument_metadata_fails_closed() -> None:
+def test_missing_instrument_metadata_is_recorded_as_blocked() -> None:
     accounting = _CountingAccounting()
     session = StrategyRehearsalSession(
         registry=_registry(),
@@ -428,8 +432,18 @@ def test_missing_instrument_metadata_fails_closed() -> None:
         paper_executor=_executor(accounting),
         financial_state=_financial_state(),
     )
-    with pytest.raises(ValueError, match="instrument metadata unavailable"):
-        session.run(_inputs(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+    result = session.run(_inputs(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+
+    assert len(result.steps) == 1
+    step = result.steps[0]
+    assert step.evaluation is not None
+    assert step.preparation is None
+    assert step.paper_outcome is None
+    assert step.note.startswith("pre-commit preparation failed:")
+    assert "instrument metadata unavailable" in step.note
+    assert tuple(fault.callback_name for fault in step.faults) == (
+        "strategy_preparation",
+    )
     assert accounting.applications == []
 
 
@@ -1088,7 +1102,9 @@ def test_backtest_paper_order_sequence_parity() -> None:
     )
 
     registry = StrategyRegistry()
-    registry.register("buy-and-hold", "1", lambda: _BoundEntryStrategy(_bound_context()))
+    registry.register(
+        "buy-and-hold", "1", lambda: _BoundEntryStrategy(_bound_context())
+    )
     session, _ = _session(registry=registry)
     rehearsal_result = session.run(_inputs(*moments))
     rehearsal_sequence = tuple(
@@ -1102,7 +1118,9 @@ def test_backtest_paper_order_sequence_parity() -> None:
     )
 
     assert rehearsal_sequence == backtest_sequence
-    assert rehearsal_sequence == ((InstrumentId("NSE", "TCS"), OrderSide.BUY, Decimal("2")),)
+    assert rehearsal_sequence == (
+        (InstrumentId("NSE", "TCS"), OrderSide.BUY, Decimal("2")),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1142,7 +1160,10 @@ def test_fill_never_precedes_observation_at_zero_latency() -> None:
     assert step.paper_outcome.fill is not None
     assert step.paper_outcome.fill.filled_at >= event_at
     assert step.preparation.request is not None
-    assert step.paper_outcome.fill.filled_at >= step.preparation.request.order.created_at
+    assert (
+        step.paper_outcome.fill.filled_at
+        >= step.preparation.request.order.created_at
+    )
 
 
 def test_wall_clock_signal_timestamp_blocks_step_and_later_event_continues() -> None:
@@ -1206,4 +1227,8 @@ def test_repeat_runs_agree_on_timestamps() -> None:
     assert second.preparation.request.order.created_at == event_at
     assert first.paper_outcome is not None and first.paper_outcome.fill is not None
     assert second.paper_outcome is not None and second.paper_outcome.fill is not None
-    assert first.paper_outcome.fill.filled_at == second.paper_outcome.fill.filled_at == event_at
+    assert (
+        first.paper_outcome.fill.filled_at
+        == second.paper_outcome.fill.filled_at
+        == event_at
+    )

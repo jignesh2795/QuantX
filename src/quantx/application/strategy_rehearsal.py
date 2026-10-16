@@ -162,7 +162,9 @@ class StrategyRehearsalSession:
     def run(self, inputs: tuple[RehearsalInput, ...]) -> StrategyRehearsalResult:
         """Run one monotonic, event-time-coherent paper rehearsal."""
         if self._consumed:
-            raise ValueError("rehearsal session is single-use; resolve a fresh session per run")
+            raise ValueError(
+                "rehearsal session is single-use; resolve a fresh session per run"
+            )
 
         previous: datetime | None = None
         for rehearsal_input in inputs:
@@ -263,7 +265,10 @@ class StrategyRehearsalSession:
                             None,
                             None,
                             None,
-                            "timestamp cohort blocked because a due timer callback failed",
+                            (
+                                "timestamp cohort blocked because a due timer callback "
+                                "failed"
+                            ),
                             tuple(due_faults) if offset == 0 else (),
                         )
                     )
@@ -490,7 +495,11 @@ class StrategyRehearsalSession:
                 None,
             )
             return StrategyRehearsalStep(
-                event, evaluation, preparation, None, "strategy produced no executable intent"
+                event,
+                evaluation,
+                preparation,
+                None,
+                "strategy produced no executable intent",
             )
         identity = f"{event.timestamp.isoformat()}:{event.instrument}"
         try:

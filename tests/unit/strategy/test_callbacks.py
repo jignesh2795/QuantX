@@ -80,14 +80,22 @@ def test_post_commit_dispatch_attempts_all_fills_then_order_update() -> None:
         _Observers(), context, fills, _order_update(at)
     )
 
-    assert tuple(call[0] for call in calls) == ("on_fill", "on_fill", "on_order_update")
+    assert tuple(call[0] for call in calls) == (
+        "on_fill",
+        "on_fill",
+        "on_order_update",
+    )
     assert all(call[1] is context for call in calls)
     assert len(faults) == 3
     assert tuple(fault.callback_name for fault in faults) == (
-        "on_fill", "on_fill", "on_order_update"
+        "on_fill",
+        "on_fill",
+        "on_order_update",
     )
     assert tuple(fault.exception_type for fault in faults) == (
-        "RuntimeError", "RuntimeError", "ValueError"
+        "RuntimeError",
+        "RuntimeError",
+        "ValueError",
     )
     assert all(not hasattr(fault, "traceback") for fault in faults)
 

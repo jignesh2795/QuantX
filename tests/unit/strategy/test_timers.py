@@ -70,7 +70,9 @@ def test_timer_request_rejects_equal_or_past_due_at(offset_seconds: int) -> None
     )
 
     with pytest.raises(ValueError, match="strictly later"):
-        TimerRegistry().register_result(_result(event_time, event.instrument, request), event)
+        TimerRegistry().register_result(
+            _result(event_time, event.instrument, request), event
+        )
 
 
 def test_timer_registry_rejects_cross_instrument_timer() -> None:
@@ -81,17 +83,25 @@ def test_timer_registry_rejects_cross_instrument_timer() -> None:
     )
 
     with pytest.raises(ValueError, match="match the registering event"):
-        TimerRegistry().register_result(_result(event_time, event.instrument, request), event)
+        TimerRegistry().register_result(
+            _result(event_time, event.instrument, request), event
+        )
 
 
 def test_timer_dispatch_orders_by_due_at_then_timer_id() -> None:
     event_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     event = _event(event_time)
     later = TimerRequest("timer-z", event.instrument, event_time + timedelta(minutes=2))
-    same_a = TimerRequest("timer-a", event.instrument, event_time + timedelta(minutes=1))
-    same_b = TimerRequest("timer-b", event.instrument, event_time + timedelta(minutes=1))
+    same_a = TimerRequest(
+        "timer-a", event.instrument, event_time + timedelta(minutes=1)
+    )
+    same_b = TimerRequest(
+        "timer-b", event.instrument, event_time + timedelta(minutes=1)
+    )
     registry = TimerRegistry()
-    registry.register_result(_result(event_time, event.instrument, later, same_b, same_a), event)
+    registry.register_result(
+        _result(event_time, event.instrument, later, same_b, same_a), event
+    )
 
     due = registry.take_due(event_time + timedelta(minutes=1))
 
@@ -105,25 +115,37 @@ def test_timer_registration_is_atomic_and_ids_cannot_be_reused_after_firing() ->
     event_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     event = _event(event_time)
     registry = TimerRegistry()
-    first = TimerRequest("timer-1", event.instrument, event_time + timedelta(minutes=1))
+    first = TimerRequest(
+        "timer-1", event.instrument, event_time + timedelta(minutes=1)
+    )
     registry.register_result(_result(event_time, event.instrument, first), event)
     registry.take_due(event_time + timedelta(minutes=1))
 
-    new_request = TimerRequest("timer-2", event.instrument, event_time + timedelta(minutes=2))
-    reused = TimerRequest("timer-1", event.instrument, event_time + timedelta(minutes=3))
+    new_request = TimerRequest(
+        "timer-2", event.instrument, event_time + timedelta(minutes=2)
+    )
+    reused = TimerRequest(
+        "timer-1", event.instrument, event_time + timedelta(minutes=3)
+    )
     with pytest.raises(ValueError, match="unique"):
-        registry.register_result(_result(event_time, event.instrument, new_request, reused), event)
+        registry.register_result(
+            _result(event_time, event.instrument, new_request, reused), event
+        )
     assert registry.pending == ()
 
 
 def test_timer_after_replay_horizon_is_reported_pending() -> None:
     event_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     event = _event(event_time)
-    request = TimerRequest("timer-1", event.instrument, event_time + timedelta(minutes=5))
+    request = TimerRequest(
+        "timer-1", event.instrument, event_time + timedelta(minutes=5)
+    )
     registry = TimerRegistry()
     registry.register_result(_result(event_time, event.instrument, request), event)
 
-    undelivered = registry.record_undelivered("run ended before the timer became due")
+    undelivered = registry.record_undelivered(
+        "run ended before the timer became due"
+    )
 
     assert len(undelivered) == 1
     assert undelivered[0].timer.timer_id == "timer-1"
@@ -149,7 +171,9 @@ def test_strategy_runtime_rejects_invalid_timer_request_before_returning_result(
                     generated_at=context.event.timestamp,
                 ),
                 timers=(
-                    TimerRequest("timer-1", context.event.instrument, context.event.timestamp),
+                    TimerRequest(
+                        "timer-1", context.event.instrument, context.event.timestamp
+                    ),
                 ),
             )
 
