@@ -28,6 +28,11 @@ class StrategyEvaluationService:
     def __init__(self, strategy: ExecutableStrategy) -> None:
         self._runtime = StrategyRuntime(strategy)
 
+    @property
+    def callback_target(self) -> ExecutableStrategy:
+        """The fresh run-scoped strategy instance for optional observer callbacks."""
+        return self._runtime.callback_target
+
     def evaluate(
         self,
         event: MarketDataEvent,
