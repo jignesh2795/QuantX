@@ -24,6 +24,7 @@ from quantx.domain.risk import PreTradeRiskEngine
 from quantx.execution.paper.executor import PaperExecutionOutcome, PaperOrderExecutor
 from quantx.execution.paper.fills import MarketSnapshot
 from quantx.execution.paper.profile import OrderBookSnapshot
+from quantx.strategy.deployment import StrategyExecutionDecision
 from quantx.strategy.engine_snapshot import (
     EngineEvidenceAdapter,
     EngineStateSnapshot,
@@ -34,7 +35,6 @@ from quantx.strategy.engine_snapshot import (
     position_facts,
     prior_candle_history,
 )
-from quantx.strategy.deployment import StrategyExecutionDecision
 from quantx.strategy.evaluation import StrategyEvaluation, StrategyEvaluationService
 from quantx.strategy.execution import (
     StrategyExecutionPreparation,
