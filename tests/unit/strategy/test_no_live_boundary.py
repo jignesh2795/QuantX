@@ -74,10 +74,39 @@ def _dotted_name(node: ast.expr) -> str | None:
     return None
 
 
+def _import_aliases(tree: ast.Module) -> dict[str, str]:
+    """Resolve direct import aliases so common datetime spellings audit identically."""
+    aliases: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local_name = alias.asname or alias.name.split(".", maxsplit=1)[0]
+                canonical_name = alias.name if alias.asname else alias.name.split(".", maxsplit=1)[0]
+                aliases[local_name] = canonical_name
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                local_name = alias.asname or alias.name
+                aliases[local_name] = f"{node.module}.{alias.name}"
+    return aliases
+
+
+def _canonical_dotted_name(node: ast.expr, aliases: dict[str, str]) -> str | None:
+    """Expand the first segment of a dotted path through direct import aliases."""
+    dotted = _dotted_name(node)
+    if dotted is None:
+        return None
+    root, separator, suffix = dotted.partition(".")
+    canonical_root = aliases.get(root, root)
+    return f"{canonical_root}.{suffix}" if separator else canonical_root
+
+
 def _audit_source(source: str, relative_path: str) -> list[str]:
     """Return static boundary violations; deliberately not a proof against reflection."""
     tree = ast.parse(source, filename=relative_path)
-    observed: list[str] = []
+    aliases = _import_aliases(tree)
+    observed: list[str] = [];
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             function = node.func
@@ -85,7 +114,7 @@ def _audit_source(source: str, relative_path: str) -> list[str]:
                 if function.id in _FORBIDDEN_CALLS | _WALL_CLOCK_BARE_CALLS:
                     observed.append(f"{relative_path}:call {function.id}")
             elif isinstance(function, ast.Attribute):
-                dotted = _dotted_name(function)
+                dotted = _canonical_dotted_name(function, aliases)
                 if function.attr in _FORBIDDEN_CALLS:
                     observed.append(f"{relative_path}:call {function.attr}")
                 elif dotted in _WALL_CLOCK_QUALIFIED_CALLS:
@@ -137,6 +166,15 @@ def unsafe(broker):
     assert "sentinel.py:import time" in observed
     assert "sentinel.py:call datetime.datetime.now" in observed
     assert "sentinel.py:call time.time" in observed
+
+    aliased_module = _audit_source(
+        "import datetime as dt\\ndt.datetime.now()", "aliased_module.py"
+    )
+    assert "aliased_module.py:call datetime.datetime.now" in aliased_module
+    aliased_class = _audit_source(
+        "from datetime import datetime as dt\\ndt.now()", "aliased_class.py"
+    )
+    assert "aliased_class.py:call datetime.datetime.now" in aliased_class
     assert _audit_source("engine_clock.now()", "deterministic_clock.py") == []
     assert "sentinel.py:call sleep" in observed
     assert "sentinel.py:call create_task" in observed
