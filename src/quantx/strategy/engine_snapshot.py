@@ -348,6 +348,7 @@ def active_order_fact(
     created_at: datetime,
     evidence_time: datetime,
     reason: str | None = None,
+    effective_at: datetime | None = None,
 ) -> OpenOrderFact | None:
     """Build a retained inventory fact, omitting only canonical terminal statuses."""
     if is_terminal_order_status(status):
@@ -362,4 +363,5 @@ def active_order_fact(
         created_at=created_at,
         evidence_time=evidence_time,
         reason=reason,
+        effective_at=effective_at,
     )
