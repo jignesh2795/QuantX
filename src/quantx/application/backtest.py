@@ -729,6 +729,72 @@ class DeterministicBacktestService:
                 )
                 continue
 
+            if qx08_active and simulation_clock is None:
+                identity = f"{frame_time.isoformat()}:{frame.observation.instrument}"
+                try:
+                    engine_time = self._require_engine_time_coherent(
+                        execution_engine, frame_time
+                    )
+                    if engine_time != frame_time:
+                        raise ValueError(
+                            "injected execution clock must align exactly with the current "
+                            "replay frame for QX-08 callbacks"
+                        )
+                except Exception as exc:
+                    reason = (
+                        "execution event-time alignment failed before strategy evaluation: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    observed_time: datetime | None = None
+                    try:
+                        candidate_time = execution_engine.clock.now()
+                        if (
+                            candidate_time.tzinfo is not None
+                            and candidate_time.utcoffset() is not None
+                        ):
+                            observed_time = candidate_time
+                    except Exception:
+                        pass
+                    if observed_time is not None:
+                        temporal_faults.append(
+                            TemporalIntegrityFault(
+                                source="execution_clock",
+                                identity=identity,
+                                expected_at=frame_time,
+                                effective_at=observed_time,
+                                reason=reason,
+                            )
+                        )
+                        halt_kind = "TEMPORAL_INTEGRITY"
+                    else:
+                        halt_kind = "EVENT_TIME_SUPPORT_VIOLATION"
+                    fault = callback_fault(
+                        "event_time_alignment",
+                        identity,
+                        ValueError(reason),
+                    )
+                    callback_faults.append(fault)
+                    halt = RunHaltRecord(
+                        kind=halt_kind,
+                        as_of=frame_time,
+                        identity=identity,
+                        reason=reason,
+                    )
+                    steps.append(
+                        BacktestStep(
+                            frame.index,
+                            timestamp,
+                            None,
+                            None,
+                            None,
+                            None,
+                            BacktestDisposition.BLOCKED,
+                            reason,
+                            (fault,),
+                        )
+                    )
+                    continue
+
             if current_cohort_time != frame_time:
                 current_cohort_time = frame_time
                 blocked_cohort_time = None
