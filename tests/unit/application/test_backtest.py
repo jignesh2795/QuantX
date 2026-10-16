@@ -644,6 +644,103 @@ def test_active_order_persists_into_next_strategy_context_until_terminal_status(
     assert observed_orders[1][0].remaining_quantity == Decimal("1")
 
 
+@pytest.mark.parametrize("failure_layer", ("risk", "policy"))
+def test_precommit_risk_or_policy_fault_preserves_timer_and_continues(
+    failure_layer: str,
+) -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    later = start + timedelta(minutes=1)
+    final = start + timedelta(minutes=2)
+    timer_due = start + timedelta(seconds=30)
+
+    class _FaultTimerStrategy:
+        def __init__(self) -> None:
+            self.entered = False
+            self.calls: list[tuple[object, ...]] = []
+
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            event = context.event
+            assert event is not None
+            self.calls.append(("market", event.timestamp))
+            if self.entered:
+                return StrategyResult(
+                    StrategySignal(
+                        context.ir.strategy_id,
+                        context.ir.version,
+                        event.instrument,
+                        SignalAction.HOLD,
+                        1.0,
+                        generated_at=event.timestamp,
+                    )
+                )
+
+            self.entered = True
+            intent = TradeIntent(
+                instrument=event.instrument,
+                side=OrderSide.BUY,
+                quantity=Decimal("1"),
+                execution_context=_context(),
+                strategy_id=context.ir.strategy_id.value,
+                strategy_version=context.ir.version,
+            )
+            return StrategyResult(
+                signal=StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    event.instrument,
+                    SignalAction.BUY,
+                    1.0,
+                    generated_at=event.timestamp,
+                ),
+                intent=intent,
+                timers=(TimerRequest("precommit-timer", event.instrument, timer_due),),
+            )
+
+        def on_timer(self, context: StrategyContext, timer) -> None:
+            self.calls.append(("timer", context.event, context.as_of, timer.timer_id))
+
+    class _FailingPrecommitEngine:
+        def evaluate(self, *args, **kwargs):
+            raise RuntimeError(f"{failure_layer} engine failed")
+
+    strategy = _FaultTimerStrategy()
+    engine = _FailingPrecommitEngine()
+    engine_options = (
+        {"risk_engine": engine}
+        if failure_layer == "risk"
+        else {"policy_engine": engine}
+    )
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
+        **engine_options,
+    ).run(
+        series=_timestamped_tcs_series(),
+        strategy=StrategyEvaluationService(strategy),
+        strategy_ir=_runtime_ir(f"precommit-{failure_layer}"),
+        financial_state=_financial_state(),
+    )
+
+    first = result.steps[0]
+    assert first.disposition is BacktestDisposition.BLOCKED
+    assert first.receipt is None
+    assert "pre-commit" in first.reason
+    assert tuple(fault.callback_name for fault in first.faults) == (
+        f"{failure_layer}_preparation",
+    )
+    assert tuple(fault.callback_name for fault in result.callback_faults) == (
+        f"{failure_layer}_preparation",
+    )
+    assert strategy.calls == [
+        ("market", start),
+        ("timer", None, timer_due, "precommit-timer"),
+        ("market", later),
+        ("market", final),
+    ]
+    assert result.halt is None
+    assert result.receipts == ()
+    assert result.steps[1].disposition is BacktestDisposition.NO_ACTION
+
+
 def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     strategy = _BacktestCommitThenFailObserver()
     ir = _runtime_ir("callback-backtest")
