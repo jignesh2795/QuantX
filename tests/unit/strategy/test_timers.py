@@ -40,8 +40,9 @@ def _signal() -> StrategySignal:
 
 
 def test_timer_request_rejects_empty_id_and_naive_due_at() -> None:
-    with pytest.raises(ValueError, match="timer id must not be empty"):
-        _request("   ", _EVENT_TIME + timedelta(seconds=1))
+    for timer_id in ("", "   "):
+        with pytest.raises(ValueError, match="timer id must not be empty"):
+            _request(timer_id, _EVENT_TIME + timedelta(seconds=1))
 
     with pytest.raises(ValueError, match="timer due_at must be timezone-aware"):
         _request("timer-1", datetime(2026, 1, 1, 0, 0, 1))
