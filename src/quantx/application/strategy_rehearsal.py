@@ -321,6 +321,7 @@ class StrategyRehearsalSession:
 
                 step = self._step(rehearsal_input, evaluation)
                 steps.append(step)
+                callback_faults.extend(step.faults)
                 outcome = step.paper_outcome
                 preparation = step.preparation
                 if outcome is None or preparation is None or preparation.request is None:
@@ -466,21 +467,43 @@ class StrategyRehearsalSession:
             return StrategyRehearsalStep(
                 event, evaluation, preparation, None, "strategy produced no executable intent"
             )
-        bound = replace(evaluation.result, intent=bind_deployment_context(intent, self._deployment))
-        preparation = self._preparer.prepare(
-            StrategyExecutionDecision(self._deployment, bound),
-            event,
-            self._financial_state,
-            policy_context=self._policy_context,
-        )
-        approved = preparation.request
-        if approved is None:
-            return StrategyRehearsalStep(
-                event, evaluation, preparation, None, self._rejection_note(preparation)
+        identity = f"{event.timestamp.isoformat()}:{event.instrument}"
+        try:
+            bound = replace(
+                evaluation.result,
+                intent=bind_deployment_context(intent, self._deployment),
             )
-        # Stamp order creation from the market event that caused the order.
-        deterministic = replace(approved, order=replace(approved.order, created_at=event.timestamp))
-        preparation = replace(preparation, request=deterministic)
+            preparation = self._preparer.prepare(
+                StrategyExecutionDecision(self._deployment, bound),
+                event,
+                self._financial_state,
+                policy_context=self._policy_context,
+            )
+            approved = preparation.request
+            if approved is None:
+                return StrategyRehearsalStep(
+                    event,
+                    evaluation,
+                    preparation,
+                    None,
+                    self._rejection_note(preparation),
+                )
+            # Stamp order creation from the market event that caused the order.
+            deterministic = replace(
+                approved,
+                order=replace(approved.order, created_at=event.timestamp),
+            )
+            preparation = replace(preparation, request=deterministic)
+        except Exception as exc:
+            fault = callback_fault("strategy_preparation", identity, exc)
+            return StrategyRehearsalStep(
+                event,
+                evaluation,
+                None,
+                None,
+                f"pre-commit preparation failed: {fault.message}",
+                (fault,),
+            )
         paper_outcome = self._paper_executor.execute(
             deterministic.order,
             snapshot=rehearsal_input.snapshot,
