@@ -597,7 +597,7 @@ def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     assert "run halted" in result.steps[1].reason
 
 
-def test_unexpected_future_effective_receipt_is_preserved_and_halts_without_callbacks() -> None:
+def test_unexpected_future_effective_receipt_preserves_facts_and_halts_without_false_snapshot() -> None:
     ahead = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
     engine = _CapturingEngine(clock=FixedClock(ahead))
     engine.event_time_support = EventTimeSupport.SUPPORTED
