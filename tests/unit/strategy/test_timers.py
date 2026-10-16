@@ -65,7 +65,9 @@ def test_timer_request_requires_nonempty_id_and_aware_due_time() -> None:
 def test_timer_registry_rejects_equal_or_past_due_time(offset_seconds: int) -> None:
     event_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     event = _event(event_time)
-    request = TimerRequest("timer-1", event.instrument, event_time + timedelta(seconds=offset_seconds))
+    request = TimerRequest(
+        "timer-1", event.instrument, event_time + timedelta(seconds=offset_seconds)
+    )
 
     with pytest.raises(ValueError, match="strictly later"):
         TimerRegistry().register_result(_result(event_time, event.instrument, request), event)
@@ -74,7 +76,9 @@ def test_timer_registry_rejects_equal_or_past_due_time(offset_seconds: int) -> N
 def test_timer_registry_rejects_cross_instrument_timer() -> None:
     event_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     event = _event(event_time)
-    request = TimerRequest("timer-1", InstrumentId("NSE", "INFY"), event_time + timedelta(minutes=1))
+    request = TimerRequest(
+        "timer-1", InstrumentId("NSE", "INFY"), event_time + timedelta(minutes=1)
+    )
 
     with pytest.raises(ValueError, match="match the registering event"):
         TimerRegistry().register_result(_result(event_time, event.instrument, request), event)
@@ -134,16 +138,19 @@ def test_strategy_runtime_rejects_invalid_timer_request_before_returning_result(
 
     class _BadTimerStrategy:
         def on_market_data(self, context):
+            assert context.event is not None
             return StrategyResult(
                 StrategySignal(
                     ir.strategy_id,
                     ir.version,
                     context.event.instrument,
-                    __import__("quantx.domain.strategy", fromlist=["SignalAction"]).SignalAction.HOLD,
+                    SignalAction.HOLD,
                     1.0,
                     generated_at=context.event.timestamp,
                 ),
-                timers=(TimerRequest("timer-1", context.event.instrument, context.event.timestamp),),
+                timers=(
+                    TimerRequest("timer-1", context.event.instrument, context.event.timestamp),
+                ),
             )
 
     with pytest.raises(ValueError, match="strictly later"):
