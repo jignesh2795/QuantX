@@ -73,10 +73,18 @@ class PositionFact:
     realized_pnl: Decimal
     fees: Decimal
     effective_at: datetime
+    evidence_time: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.effective_at.tzinfo is None or self.effective_at.utcoffset() is None:
             raise ValueError("position effective_at must be timezone-aware")
+        if self.evidence_time is not None:
+            if self.evidence_time.tzinfo is None or self.evidence_time.utcoffset() is None:
+                raise ValueError("position evidence_time must be timezone-aware")
+            object.__setattr__(self, "evidence_time", self.evidence_time.astimezone(UTC))
+        else:
+            object.__setattr__(self, "evidence_time", self.effective_at.astimezone(UTC))
+        object.__setattr__(self, "effective_at", self.effective_at.astimezone(UTC))
 
     @classmethod
     def from_ledger_entry(
@@ -84,6 +92,7 @@ class PositionFact:
         entry: PositionLedgerEntry,
         *,
         effective_at: datetime,
+        evidence_time: datetime | None = None,
     ) -> PositionFact:
         return cls(
             instrument=entry.instrument,
@@ -92,6 +101,7 @@ class PositionFact:
             realized_pnl=entry.realized_pnl,
             fees=entry.fees,
             effective_at=effective_at,
+            evidence_time=evidence_time,
         )
 
 
@@ -108,6 +118,7 @@ class OpenOrderFact:
     created_at: datetime
     evidence_time: datetime | None
     reason: str | None = None
+    effective_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.client_order_id.strip():
@@ -120,9 +131,19 @@ class OpenOrderFact:
             Decimal("0") <= self.remaining_quantity <= self.order_quantity
         ):
             raise ValueError("remaining_quantity must be between zero and order_quantity")
-        for name, value in (("created_at", self.created_at), ("evidence_time", self.evidence_time)):
+        for name, value in (
+            ("created_at", self.created_at),
+            ("evidence_time", self.evidence_time),
+            ("effective_at", self.effective_at),
+        ):
             if value is not None and (value.tzinfo is None or value.utcoffset() is None):
                 raise ValueError(f"{name} must be timezone-aware")
+        if self.created_at.tzinfo is not None:
+            object.__setattr__(self, "created_at", self.created_at.astimezone(UTC))
+        if self.evidence_time is not None:
+            object.__setattr__(self, "evidence_time", self.evidence_time.astimezone(UTC))
+        if self.effective_at is not None:
+            object.__setattr__(self, "effective_at", self.effective_at.astimezone(UTC))
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +188,14 @@ class EngineStateSnapshot:
             ):
                 raise TemporalIntegrityError(
                     f"order evidence for {order.client_order_id} is later than snapshot as_of"
+                )
+            if (
+                order.effective_at is not None
+                and order.effective_at.astimezone(UTC) > normalized_as_of
+            ):
+                raise TemporalIntegrityError(
+                    f"order effective evidence for {order.client_order_id} "
+                    "is later than snapshot as_of"
                 )
         if self.account_state is None:
             if self.account_availability is not EvidenceAvailability.UNAVAILABLE:
@@ -235,7 +264,11 @@ def build_simulated_engine_snapshot(
     """Normalize known paper/backtest state through the single shared projection."""
     adapter = EngineEvidenceAdapter(
         positions=EvidenceCollection.known(
-            position_facts(accounting.snapshot(), effective_at=as_of)
+            position_facts(
+                accounting.snapshot(),
+                effective_at=as_of,
+                evidence_time=as_of,
+            )
         ),
         orders=EvidenceCollection.known(active_orders),
         account_state=account_state,
@@ -262,10 +295,16 @@ def position_facts(
     entries: tuple[PositionLedgerEntry, ...],
     *,
     effective_at: datetime,
+    evidence_time: datetime | None = None,
 ) -> tuple[PositionFact, ...]:
-    """Stamp canonical ledger read views with the inventory snapshot's effective cut."""
+    """Project ledger facts with separate effective and evidence-availability times."""
     return tuple(
-        PositionFact.from_ledger_entry(entry, effective_at=effective_at) for entry in entries
+        PositionFact.from_ledger_entry(
+            entry,
+            effective_at=effective_at,
+            evidence_time=evidence_time,
+        )
+        for entry in entries
     )
 
 
