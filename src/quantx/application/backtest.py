@@ -1012,15 +1012,34 @@ class DeterministicBacktestService:
                 )
                 continue
 
-            risk = self._risk_engine.evaluate(
-                intent,
-                RiskContext(
-                    instrument=instrument,
-                    financial_state=financial_state,
-                    broker_constraints=broker_constraints,
-                    reference_price=_reference_price(frame.observation.snapshot),
-                ),
-            )
+            failure_identity = f"{timestamp}:{frame.observation.instrument}"
+            try:
+                risk = self._risk_engine.evaluate(
+                    intent,
+                    RiskContext(
+                        instrument=instrument,
+                        financial_state=financial_state,
+                        broker_constraints=broker_constraints,
+                        reference_price=_reference_price(frame.observation.snapshot),
+                    ),
+                )
+            except Exception as exc:
+                fault = callback_fault("risk_preparation", failure_identity, exc)
+                callback_faults.append(fault)
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        f"pre-commit risk preparation failed: {fault.message}",
+                        (fault,),
+                    )
+                )
+                continue
             if risk.decision is not RiskDecision.APPROVE:
                 disposition = (
                     BacktestDisposition.APPROVAL_REQUIRED
@@ -1041,7 +1060,25 @@ class DeterministicBacktestService:
                 )
                 continue
 
-            policy = self._policy_engine.evaluate(intent, effective_policy)
+            try:
+                policy = self._policy_engine.evaluate(intent, effective_policy)
+            except Exception as exc:
+                fault = callback_fault("policy_preparation", failure_identity, exc)
+                callback_faults.append(fault)
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        risk,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        f"pre-commit policy preparation failed: {fault.message}",
+                        (fault,),
+                    )
+                )
+                continue
             if not policy.approved:
                 disposition = (
                     BacktestDisposition.APPROVAL_REQUIRED
