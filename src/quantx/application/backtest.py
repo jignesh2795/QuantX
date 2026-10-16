@@ -1133,9 +1133,14 @@ class DeterministicBacktestService:
                 policy_result=policy,
             )
             try:
-                self._require_engine_time_coherent(
+                engine_time = self._require_engine_time_coherent(
                     execution_engine, frame.observation.timestamp
                 )
+                if qx08_active and simulation_clock is None and engine_time != frame_time:
+                    raise ValueError(
+                        "injected execution clock must align exactly with the current "
+                        "replay frame for QX-08 callbacks"
+                    )
             except Exception as exc:
                 fault = callback_fault("event_time_alignment", failure_identity, exc)
                 reason = (
