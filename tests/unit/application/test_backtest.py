@@ -877,6 +877,45 @@ def test_unexpected_future_effective_receipt_preserves_facts_and_halts() -> None
     assert len(result.account_state_series) == 1
 
 
+def test_unexpected_early_effective_receipt_preserves_facts_and_halts() -> None:
+    first_frame = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    before_frame = first_frame - timedelta(seconds=1)
+
+    class _BackwardsClockEngine(_CapturingEngine):
+        def execute(self, request, *, snapshot):
+            self._clock = FixedClock(before_frame)
+            return super().execute(request, snapshot=snapshot)
+
+    engine = _BackwardsClockEngine(clock=FixedClock(first_frame))
+    engine.event_time_support = EventTimeSupport.SUPPORTED
+    strategy = _BacktestCommitThenFailObserver()
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
+        execution_engine=engine,
+    ).run(
+        series=_series(),
+        strategy=StrategyEvaluationService(strategy),
+        strategy_ir=_runtime_ir("early-evidence-backtest"),
+        financial_state=_financial_state(),
+    )
+
+    assert len(result.receipts) == 1
+    assert result.receipts[0].executed_at == before_frame
+    assert result.receipts[0].fills
+    assert result.steps[0].receipt is result.receipts[0]
+    assert result.steps[0].disposition is BacktestDisposition.EXECUTED
+    assert result.ledger[0].quantity == Decimal("1")
+    assert result.account_states[0].timestamp == first_frame
+    assert result.account_states[0].completeness.value == "INCOMPLETE"
+    assert result.halt is not None
+    assert result.halt.kind == "TEMPORAL_INTEGRITY"
+    assert {fault.source for fault in result.temporal_faults} == {"receipt", "fill"}
+    assert strategy.calls == []
+    assert result.steps[1].disposition is BacktestDisposition.BLOCKED
+    assert len(result.account_state_series) == 1
+
+
 def test_qx08_preflight_rejects_clock_ahead_before_first_strategy_callback() -> None:
     ahead = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
     engine = _CapturingEngine(clock=FixedClock(ahead))
