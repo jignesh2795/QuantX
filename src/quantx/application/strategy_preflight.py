@@ -31,30 +31,41 @@ class EventTimeAssessment:
 
 
 def assess_rehearsal_event_time_support(executor: object) -> EventTimeAssessment:
-    """Admit only the built-in paper executor with a known zero-latency model."""
-    if type(executor) is not PaperOrderExecutor:
-        return EventTimeAssessment(
-            EventTimeSupport.UNKNOWN,
-            "custom paper executor has not declared event-time-coherent support",
-        )
-    broker = executor.broker
-    if type(broker) is not PaperBroker:
-        return EventTimeAssessment(
-            EventTimeSupport.UNKNOWN,
-            "custom paper broker has not declared event-time-coherent support",
-        )
-    latency = broker.latency
-    if type(latency) is not LatencyModel:
-        return EventTimeAssessment(
-            EventTimeSupport.UNKNOWN,
-            "custom latency model has not declared event-time-coherent support",
-        )
-    if latency.order_to_market_ms != 0 or latency.market_to_fill_ms != 0:
+    """Require built-in zero latency or an explicit typed custom capability."""
+    broker = getattr(executor, "broker", None)
+    latency = getattr(broker, "latency", None) if broker is not None else None
+
+    # A known nonzero paper latency is unsupported even if a caller adds a
+    # capability marker: the built-in executor will emit future-effective fills.
+    if isinstance(latency, LatencyModel) and (
+        latency.order_to_market_ms != 0 or latency.market_to_fill_ms != 0
+    ):
         return EventTimeAssessment(
             EventTimeSupport.UNSUPPORTED,
             "nonzero paper execution latency is unsupported for the QX-08 context path",
         )
-    return EventTimeAssessment(EventTimeSupport.SUPPORTED, "built-in zero-latency paper path")
+
+    if (
+        type(executor) is PaperOrderExecutor
+        and type(broker) is PaperBroker
+        and type(latency) is LatencyModel
+    ):
+        return EventTimeAssessment(
+            EventTimeSupport.SUPPORTED,
+            "built-in zero-latency paper path",
+        )
+
+    declared = getattr(executor, "event_time_support", EventTimeSupport.UNKNOWN)
+    if declared is EventTimeSupport.SUPPORTED:
+        return EventTimeAssessment(
+            EventTimeSupport.SUPPORTED,
+            "custom paper executor explicitly declared event-time-coherent support",
+        )
+    support = declared if isinstance(declared, EventTimeSupport) else EventTimeSupport.UNKNOWN
+    return EventTimeAssessment(
+        support,
+        "custom paper executor must explicitly declare EventTimeSupport.SUPPORTED",
+    )
 
 
 def assess_backtest_event_time_support(

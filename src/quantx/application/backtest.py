@@ -13,19 +13,30 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from quantx.domain.enums import OrderSide, OrderType
-from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+from quantx.application.strategy_preflight import assess_backtest_event_time_support
+from quantx.domain.clock import SimulatedClock
+from quantx.domain.enums import OrderSide, OrderStatus, OrderType
+from quantx.domain.execution_request import (
+    ApprovedExecutionRequest,
+    build_order_from_intent,
+)
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Order
-from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyDecision, PolicyResult
+from quantx.domain.policy import (
+    ExecutionPolicyEngine,
+    PolicyContext,
+    PolicyDecision,
+    PolicyResult,
+)
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.charges import PercentageBpsChargeModel
 from quantx.execution.historical_account_state import (
+    AccountStateCompleteness,
     HistoricalAccountStateSnapshot,
     HistoricalAccountStateTracker,
 )
@@ -54,8 +65,26 @@ from quantx.research.provenance import (
 from quantx.research.quality import DataQualityStatus
 from quantx.research.replay import HistoricalReplay, MultiSeries, ReplayFrame
 from quantx.research.result import ResultQuality
-from quantx.strategy.evaluation import StrategyEvaluationService
+from quantx.strategy.callbacks import (
+    CallbackFault,
+    OrderUpdateFact,
+    RunHaltRecord,
+    TemporalIntegrityFault,
+    callback_fault,
+    dispatch_post_commit_callbacks,
+    dispatch_timer_callback,
+)
+from quantx.strategy.context import StrategyContext
+from quantx.strategy.engine_snapshot import (
+    OpenOrderFact,
+    active_order_fact,
+    build_simulated_engine_snapshot,
+    prior_candle_history,
+)
+from quantx.strategy.evaluation import StrategyEvaluation, StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
+from quantx.strategy.timers import TimerRegistry, UndeliveredTimer
+from quantx.strategy.typed_params import TypedParams
 
 
 class BacktestDisposition(StrEnum):
@@ -76,12 +105,13 @@ class AccountStateSamplingPolicy(StrEnum):
 class BacktestStep:
     frame_index: int
     timestamp: str
-    strategy_result: StrategyResult
+    strategy_result: StrategyResult | None
     risk_result: RiskResult | None
     policy_result: PolicyResult | None
     receipt: ExecutionReceipt | None
     disposition: BacktestDisposition
     reason: str
+    faults: tuple[CallbackFault, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +148,10 @@ class BacktestResult:
         AccountStateSamplingPolicy.EXACT_CURRENT
     )
     provenance: ResearchProvenance | None = None
+    callback_faults: tuple[CallbackFault, ...] = ()
+    halt: RunHaltRecord | None = None
+    temporal_faults: tuple[TemporalIntegrityFault, ...] = ()
+    undelivered_timers: tuple[UndeliveredTimer, ...] = ()
 
     @property
     def executed_count(self) -> int:
@@ -201,8 +235,11 @@ def _fidelity_limitations(
     candle_order_types = {
         step.strategy_result.intent.order_type
         for frame, step in zip(frames, steps, strict=True)
-        if isinstance(frame.observation.snapshot, Candle)
-        and step.strategy_result.intent is not None
+        if (
+            isinstance(frame.observation.snapshot, Candle)
+            and step.strategy_result is not None
+            and step.strategy_result.intent is not None
+        )
     }
     if OrderType.MARKET in candle_order_types:
         limitations.append(_CANDLE_LIMITATIONS[0])
@@ -215,12 +252,14 @@ def _fidelity_limitations(
     if volume_participation_rate is not None and candle_order_types:
         limitations.append(
             "candle fills bounded by configured volume participation "
-            f"(rate={volume_participation_rate}); cap is modeled, not observed liquidity"
+            f"(rate={volume_participation_rate}); cap is modeled, not observed "
+            "liquidity"
         )
     if slippage_bps is not None and slippage_bps != 0:
         limitations.append(
             "configured deterministic slippage "
-            f"(slippage_bps={slippage_bps}); modeled price adjustment, not observed liquidity"
+            f"(slippage_bps={slippage_bps}); modeled price adjustment, not observed "
+            "liquidity"
         )
     return tuple(limitations)
 
@@ -495,7 +534,7 @@ class DeterministicBacktestService:
     @staticmethod
     def _require_engine_time_coherent(
         execution_engine: PaperExecutionEngine, frame_time: datetime
-    ) -> None:
+    ) -> datetime:
         """Fail closed before execution unless the engine clock is replay-safe.
 
         Reading the injected clock up front keeps a rejected run free of venue
@@ -521,6 +560,7 @@ class DeterministicBacktestService:
                 "injected execution clock predates the replay frame: "
                 "execution cannot precede the replay occurrence time"
             )
+        return engine_now
 
     @staticmethod
     def _candle_stop_disposition(intent: TradeIntent, snapshot: HistoricalSnapshot) -> str | None:
@@ -586,8 +626,6 @@ class DeterministicBacktestService:
         # closed instead of recording an empty model list.
         effective_execution_models: tuple[SimulationModelIdentity, ...] | None = None
         if execution_engine is None:
-            from quantx.domain.clock import SimulatedClock
-
             first_timestamp = frames[0].observation.timestamp
             simulation_clock = SimulatedClock(first_timestamp)
             effective_slippage_bps = effective_profile.slippage_bps
@@ -634,6 +672,48 @@ class DeterministicBacktestService:
                 ),
                 provenance.run_configuration,
             )
+        qx08_active = isinstance(strategy, StrategyEvaluationService)
+        callback_target: object = strategy
+        if isinstance(strategy, StrategyEvaluationService):
+            if strategy_ir is None:
+                raise ValueError("strategy_ir is required for StrategyEvaluationService")
+            assess_backtest_event_time_support(
+                execution_engine,
+                internally_composed=self._execution_engine is None,
+                configured_latency_ms=effective_profile.latency_ms,
+            ).require_supported()
+            first_frame_time = frames[0].observation.timestamp
+            initial_engine_time = self._require_engine_time_coherent(
+                execution_engine,
+                first_frame_time,
+            )
+            if initial_engine_time != first_frame_time:
+                raise ValueError(
+                    "QX-08 event-time preflight requires the injected execution clock "
+                    "to start at the first replay frame"
+                )
+            history_limit = TypedParams.from_ir(strategy_ir).get_int(
+                "history_bars", default=0, minimum=0, maximum=512
+            )
+            callback_target = strategy.callback_target
+        else:
+            history_limit = 0
+
+        timers = TimerRegistry()
+        active_orders: dict[str, OpenOrderFact] = {}
+        callback_faults: list[CallbackFault] = []
+        temporal_faults: list[TemporalIntegrityFault] = []
+        halt: RunHaltRecord | None = None
+        current_cohort_time: datetime | None = None
+        blocked_cohort_time: datetime | None = None
+        cohort_timer_faults: tuple[CallbackFault, ...] = ()
+        cohort_timer_faults_attached = False
+        candle_history = tuple(
+            frame.observation.snapshot
+            for frame in frames
+            if isinstance(frame.observation.snapshot, Candle)
+        )
+
         accounting = self._accounting_override or FillAccounting()
         steps: list[BacktestStep] = []
         receipts: list[ExecutionReceipt] = []
@@ -646,24 +726,211 @@ class DeterministicBacktestService:
         account_state_series: list[HistoricalAccountStateSnapshot] = []
 
         for frame in frames:
-            account_state_tracker.observe_mark(frame.observation.snapshot)
-            account_state_series.append(
-                account_state_tracker.snapshot_at(
-                    frame.observation.timestamp,
-                    require_current_marks=(
-                        account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
-                    ),
+            frame_time = frame.observation.timestamp
+            timestamp = frame_time.isoformat()
+            if halt is not None:
+                # Halted frames are recorded as blocked, but not sampled into a
+                # later account-state trajectory.
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        None,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        f"run halted: {halt.reason}",
+                    )
                 )
+                continue
+
+            if qx08_active and simulation_clock is None:
+                identity = f"{frame_time.isoformat()}:{frame.observation.instrument}"
+                try:
+                    engine_time = self._require_engine_time_coherent(execution_engine, frame_time)
+                    if engine_time != frame_time:
+                        raise ValueError(
+                            "injected execution clock must align exactly "
+                            "with the current replay frame for QX-08 callbacks"
+                        )
+                except Exception as exc:
+                    reason = (
+                        "execution event-time alignment failed before "
+                        f"strategy evaluation: {type(exc).__name__}: {exc}"
+                    )
+                    fault = callback_fault(
+                        "event_time_alignment",
+                        identity,
+                        ValueError(reason),
+                    )
+                    callback_faults.append(fault)
+                    halt = RunHaltRecord(
+                        kind="EVENT_TIME_SUPPORT_VIOLATION",
+                        as_of=frame_time,
+                        identity=identity,
+                        reason=reason,
+                    )
+                    steps.append(
+                        BacktestStep(
+                            frame.index,
+                            timestamp,
+                            None,
+                            None,
+                            None,
+                            None,
+                            BacktestDisposition.BLOCKED,
+                            reason,
+                            (fault,),
+                        )
+                    )
+                    continue
+
+            if current_cohort_time != frame_time:
+                current_cohort_time = frame_time
+                blocked_cohort_time = None
+                cohort_timer_faults = ()
+                cohort_timer_faults_attached = False
+                if isinstance(strategy, StrategyEvaluationService):
+                    assert strategy_ir is not None
+                    due_faults: list[CallbackFault] = []
+                    for timer in timers.take_due(frame_time):
+                        if simulation_clock is not None:
+                            simulation_clock.set_time(timer.due_at)
+                        try:
+                            timer_account = account_state_tracker.snapshot_at(
+                                timer.due_at,
+                                require_current_marks=(
+                                    account_state_sampling_policy
+                                    is AccountStateSamplingPolicy.EXACT_CURRENT
+                                ),
+                            )
+                            timer_engine = build_simulated_engine_snapshot(
+                                as_of=timer.due_at,
+                                accounting=accounting,
+                                active_orders=tuple(
+                                    active_orders[key] for key in sorted(active_orders)
+                                ),
+                                account_state=timer_account,
+                            )
+                            timer_history = prior_candle_history(
+                                candle_history,
+                                instrument=timer.instrument,
+                                as_of=timer.due_at,
+                                limit=history_limit,
+                            )
+                            timer_context = StrategyContext(
+                                event=None,
+                                ir=strategy_ir,
+                                as_of=timer.due_at,
+                                engine=timer_engine,
+                                history=timer_history,
+                            )
+                            timer_fault = dispatch_timer_callback(
+                                callback_target, timer_context, timer
+                            )
+                        except Exception as exc:
+                            timer_fault = callback_fault("on_timer_context", timer.timer_id, exc)
+                        if timer_fault is not None:
+                            due_faults.append(timer_fault)
+                            callback_faults.append(timer_fault)
+                    if simulation_clock is not None:
+                        simulation_clock.set_time(frame_time)
+                    if due_faults:
+                        blocked_cohort_time = frame_time
+                        cohort_timer_faults = tuple(due_faults)
+
+            if blocked_cohort_time == frame_time:
+                account_state_series.append(
+                    account_state_tracker.snapshot_at(
+                        frame_time,
+                        require_current_marks=(
+                            account_state_sampling_policy
+                            is AccountStateSamplingPolicy.EXACT_CURRENT
+                        ),
+                    )
+                )
+                step_faults = () if cohort_timer_faults_attached else cohort_timer_faults
+                cohort_timer_faults_attached = True
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        None,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        "timestamp cohort blocked because a due timer callback failed",
+                        step_faults,
+                    )
+                )
+                continue
+
+            account_state_tracker.observe_mark(frame.observation.snapshot)
+            pre_account_state = account_state_tracker.snapshot_at(
+                frame_time,
+                require_current_marks=(
+                    account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
+                ),
             )
+            account_state_series.append(pre_account_state)
+
+            strategy_evaluation: StrategyEvaluation | None = None
+            strategy_result: StrategyResult
             if isinstance(strategy, StrategyEvaluationService):
-                if strategy_ir is None:
-                    raise ValueError("strategy_ir is required for StrategyEvaluationService")
-                strategy_result = strategy.evaluate_replay_frame(frame, strategy_ir).result
+                try:
+                    assert strategy_ir is not None
+                    market_engine = build_simulated_engine_snapshot(
+                        as_of=frame_time,
+                        accounting=accounting,
+                        active_orders=tuple(active_orders[key] for key in sorted(active_orders)),
+                        account_state=pre_account_state,
+                    )
+                    history = prior_candle_history(
+                        candle_history,
+                        instrument=frame.observation.instrument,
+                        as_of=frame_time,
+                        limit=history_limit,
+                    )
+                    assert isinstance(strategy, StrategyEvaluationService)
+                    strategy_evaluation = strategy.evaluate_replay_frame(
+                        frame,
+                        strategy_ir,
+                        engine=market_engine,
+                        history=history,
+                    )
+                    strategy_result = strategy_evaluation.result
+                    self._validate_strategy_result(strategy_result, frame)
+                    timers.register_result(strategy_result, strategy_evaluation.event)
+                except Exception as exc:
+                    fault = callback_fault(
+                        "on_market_data",
+                        f"{frame_time.isoformat()}:{frame.observation.instrument}",
+                        exc,
+                    )
+                    callback_faults.append(fault)
+                    steps.append(
+                        BacktestStep(
+                            frame.index,
+                            timestamp,
+                            None,
+                            None,
+                            None,
+                            None,
+                            BacktestDisposition.BLOCKED,
+                            f"pre-commit strategy step failed: {fault.message}",
+                            (fault,),
+                        )
+                    )
+                    continue
             else:
                 strategy_result = strategy(frame)
-            self._validate_strategy_result(strategy_result, frame)
+                self._validate_strategy_result(strategy_result, frame)
+                if strategy_result.timers:
+                    raise ValueError("timer requests require StrategyEvaluationService context")
+
             intent = strategy_result.intent
-            timestamp = frame.observation.timestamp.isoformat()
 
             if intent is None or strategy_result.signal.action in {SignalAction.HOLD}:
                 steps.append(
@@ -756,15 +1023,36 @@ class DeterministicBacktestService:
                 )
                 continue
 
-            risk = self._risk_engine.evaluate(
-                intent,
-                RiskContext(
-                    instrument=instrument,
-                    financial_state=financial_state,
-                    broker_constraints=broker_constraints,
-                    reference_price=_reference_price(frame.observation.snapshot),
-                ),
-            )
+            failure_identity = f"{timestamp}:{frame.observation.instrument}"
+            try:
+                risk = self._risk_engine.evaluate(
+                    intent,
+                    RiskContext(
+                        instrument=instrument,
+                        financial_state=financial_state,
+                        broker_constraints=broker_constraints,
+                        reference_price=_reference_price(frame.observation.snapshot),
+                    ),
+                )
+            except Exception as exc:
+                if not qx08_active:
+                    raise
+                fault = callback_fault("risk_preparation", failure_identity, exc)
+                callback_faults.append(fault)
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        f"pre-commit risk preparation failed: {fault.message}",
+                        (fault,),
+                    )
+                )
+                continue
             if risk.decision is not RiskDecision.APPROVE:
                 disposition = (
                     BacktestDisposition.APPROVAL_REQUIRED
@@ -785,7 +1073,27 @@ class DeterministicBacktestService:
                 )
                 continue
 
-            policy = self._policy_engine.evaluate(intent, effective_policy)
+            try:
+                policy = self._policy_engine.evaluate(intent, effective_policy)
+            except Exception as exc:
+                if not qx08_active:
+                    raise
+                fault = callback_fault("policy_preparation", failure_identity, exc)
+                callback_faults.append(fault)
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        risk,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        f"pre-commit policy preparation failed: {fault.message}",
+                        (fault,),
+                    )
+                )
+                continue
             if not policy.approved:
                 disposition = (
                     BacktestDisposition.APPROVAL_REQUIRED
@@ -839,14 +1147,53 @@ class DeterministicBacktestService:
                 risk_result=risk,
                 policy_result=policy,
             )
-            self._require_engine_time_coherent(execution_engine, frame.observation.timestamp)
+            try:
+                engine_time = self._require_engine_time_coherent(
+                    execution_engine, frame.observation.timestamp
+                )
+                if qx08_active and engine_time != frame_time:
+                    raise ValueError(
+                        "execution clock must align exactly with the current "
+                        "replay frame for QX-08 callbacks"
+                    )
+            except Exception as exc:
+                if not qx08_active:
+                    raise
+                fault = callback_fault("event_time_alignment", failure_identity, exc)
+                reason = (
+                    f"execution event-time alignment failed before paper execution: {fault.message}"
+                )
+                callback_faults.append(fault)
+                halt = RunHaltRecord(
+                    kind="EVENT_TIME_SUPPORT_VIOLATION",
+                    as_of=frame_time,
+                    identity=failure_identity,
+                    reason=reason,
+                )
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        risk,
+                        policy,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        reason,
+                        (fault,),
+                    )
+                )
+                continue
+
             receipt = execution_engine.execute(
                 request,
                 snapshot=snapshot,
             )
-            self._require_coherent_execution_time(order, receipt)
+            if not qx08_active:
+                # Preserve the legacy callable path's fail-fast clock contract.
+                self._require_coherent_execution_time(order, receipt)
             receipts.append(receipt)
-            account_states.append(account_state_tracker.record(receipt, snapshot=snapshot))
+            post_account_state = account_state_tracker.record(receipt, snapshot=snapshot)
 
             steps.append(
                 BacktestStep(
@@ -860,6 +1207,155 @@ class DeterministicBacktestService:
                     receipt.message or receipt.outcome.value,
                 )
             )
+
+            if qx08_active:
+                order_id = str(order.client_order_id)
+                filled_quantity = (
+                    None
+                    if receipt.order_status is OrderStatus.UNKNOWN and not receipt.fills
+                    else sum(
+                        (fill.quantity for fill in receipt.fills),
+                        Decimal("0"),
+                    )
+                )
+                order_fact = active_order_fact(
+                    client_order_id=order_id,
+                    instrument=order.instrument,
+                    status=receipt.order_status,
+                    order_quantity=order.quantity,
+                    filled_quantity=filled_quantity,
+                    created_at=order.created_at,
+                    evidence_time=frame_time,
+                    reason=receipt.message,
+                    effective_at=receipt.executed_at,
+                )
+                if order_fact is None:
+                    active_orders.pop(order_id, None)
+                else:
+                    active_orders[order_id] = order_fact
+
+                temporal_violations: list[TemporalIntegrityFault] = []
+                if receipt.executed_at > frame_time:
+                    temporal_violations.append(
+                        TemporalIntegrityFault(
+                            source="receipt",
+                            identity=str(receipt.receipt_id),
+                            expected_at=frame_time,
+                            effective_at=receipt.executed_at,
+                            reason=("receipt effective time is later than the replay frame"),
+                        )
+                    )
+                elif receipt.executed_at < order.created_at:
+                    temporal_violations.append(
+                        TemporalIntegrityFault(
+                            source="receipt",
+                            identity=str(receipt.receipt_id),
+                            expected_at=frame_time,
+                            effective_at=receipt.executed_at,
+                            reason="receipt effective time precedes order creation",
+                        )
+                    )
+                for fill in receipt.fills:
+                    if fill.filled_at > frame_time:
+                        temporal_violations.append(
+                            TemporalIntegrityFault(
+                                source="fill",
+                                identity=str(fill.execution_id),
+                                expected_at=frame_time,
+                                effective_at=fill.filled_at,
+                                reason=("fill effective time is later than the replay frame"),
+                            )
+                        )
+                    elif fill.filled_at < order.created_at:
+                        temporal_violations.append(
+                            TemporalIntegrityFault(
+                                source="fill",
+                                identity=str(fill.execution_id),
+                                expected_at=frame_time,
+                                effective_at=fill.filled_at,
+                                reason="fill effective time precedes order creation",
+                            )
+                        )
+                if temporal_violations:
+                    temporal_faults.extend(temporal_violations)
+                    reason = (
+                        "execution evidence outside the replay frame's event-time cut; "
+                        "no coherent strategy snapshot delivered"
+                    )
+                    account_states.append(
+                        replace(
+                            post_account_state,
+                            timestamp=frame_time,
+                            cash=None,
+                            market_value=None,
+                            equity=None,
+                            unrealized_pnl=None,
+                            gross_exposure=None,
+                            completeness=AccountStateCompleteness.INCOMPLETE,
+                            issue=reason,
+                        )
+                    )
+                    halt = RunHaltRecord(
+                        kind="TEMPORAL_INTEGRITY",
+                        as_of=frame_time,
+                        identity=temporal_violations[0].identity,
+                        reason=reason,
+                    )
+                    continue
+
+                account_states.append(post_account_state)
+                post_engine = build_simulated_engine_snapshot(
+                    as_of=frame_time,
+                    accounting=accounting,
+                    active_orders=tuple(active_orders[key] for key in sorted(active_orders)),
+                    account_state=post_account_state,
+                )
+                assert strategy_evaluation is not None and strategy_ir is not None
+                post_context = StrategyContext(
+                    event=strategy_evaluation.event,
+                    ir=strategy_ir,
+                    as_of=frame_time,
+                    engine=post_engine,
+                    history=history,
+                )
+                update_reason = receipt.message or receipt.outcome.value
+                if receipt.order_status is OrderStatus.UNKNOWN and not receipt.message:
+                    update_reason = (
+                        "order status is UNKNOWN; fill and remaining quantities "
+                        "are not authoritative"
+                    )
+                order_update = OrderUpdateFact(
+                    client_order_id=order_id,
+                    instrument=order.instrument,
+                    status=receipt.order_status,
+                    order_quantity=order.quantity,
+                    filled_quantity=filled_quantity,
+                    remaining_quantity=(
+                        None
+                        if (filled_quantity is None or receipt.order_status is OrderStatus.UNKNOWN)
+                        else order.quantity - filled_quantity
+                    ),
+                    created_at=order.created_at,
+                    evidence_time=frame_time,
+                    reason=update_reason,
+                    effective_at=receipt.executed_at,
+                )
+                faults = dispatch_post_commit_callbacks(
+                    callback_target,
+                    post_context,
+                    receipt.fills,
+                    order_update,
+                )
+                if faults:
+                    callback_faults.extend(faults)
+                    halt = RunHaltRecord(
+                        kind="POST_COMMIT_CALLBACK_FAILURE",
+                        as_of=frame_time,
+                        identity=faults[0].identity,
+                        reason="one or more post-commit strategy callbacks failed",
+                    )
+            else:
+                account_states.append(post_account_state)
 
         frames_tuple = tuple(frames)
         steps_tuple = tuple(steps)
@@ -880,4 +1376,12 @@ class DeterministicBacktestService:
             account_state_series=tuple(account_state_series),
             account_state_sampling_policy=account_state_sampling_policy,
             provenance=provenance,
+            callback_faults=tuple(callback_faults),
+            halt=halt,
+            temporal_faults=tuple(temporal_faults),
+            undelivered_timers=timers.record_undelivered(
+                "run halted before timer delivery"
+                if halt is not None
+                else "run ended before the timer became due"
+            ),
         )

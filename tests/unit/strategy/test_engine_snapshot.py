@@ -9,10 +9,11 @@ from quantx.domain.finance import CapitalSourceType
 from quantx.domain.market_data import Candle, MarketDataEvent, MarketDataType, Quote
 from quantx.domain.strategy import StrategyDefinition, StrategyId
 from quantx.domain.value_objects import InstrumentId, Money
-from quantx.execution.accounting import PositionLedgerEntry
+from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
 from quantx.execution.historical_account_state import (
     AccountStateCompleteness,
     HistoricalAccountStateSnapshot,
+    HistoricalValuationEvidence,
 )
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
@@ -25,6 +26,7 @@ from quantx.strategy.engine_snapshot import (
     TemporalIntegrityError,
     active_order_fact,
     build_engine_snapshot,
+    build_simulated_engine_snapshot,
     prior_candle_history,
     unavailable_engine_snapshot,
 )
@@ -144,6 +146,43 @@ def test_unknown_order_status_is_not_removed_as_canonical_terminal() -> None:
     assert snapshot.orders.items == (fact,)
 
 
+def test_simulated_snapshot_marks_unknown_order_inventory_incomplete() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    unresolved = OpenOrderFact(
+        client_order_id="unknown-order",
+        instrument=_instrument(),
+        status=OrderStatus.UNKNOWN,
+        order_quantity=Decimal("2"),
+        filled_quantity=None,
+        remaining_quantity=None,
+        created_at=as_of,
+        evidence_time=as_of,
+        reason="execution status is unresolved",
+        effective_at=as_of,
+    )
+
+    snapshot = build_simulated_engine_snapshot(
+        as_of=as_of,
+        accounting=FillAccounting(),
+        active_orders=(unresolved,),
+        account_state=None,
+        account_reason="account valuation is unavailable in this driver",
+    )
+    known_empty = build_simulated_engine_snapshot(
+        as_of=as_of,
+        accounting=FillAccounting(),
+        active_orders=(),
+        account_state=None,
+        account_reason="account valuation is unavailable in this driver",
+    )
+
+    assert snapshot.orders.availability is EvidenceAvailability.INCOMPLETE
+    assert snapshot.orders.items == (unresolved,)
+    assert snapshot.orders.reason is not None
+    assert known_empty.orders.availability is EvidenceAvailability.AVAILABLE
+    assert known_empty.orders.items == ()
+
+
 def test_incomplete_position_order_and_account_evidence_keeps_reasons() -> None:
     as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     account = HistoricalAccountStateSnapshot(
@@ -179,6 +218,78 @@ def test_incomplete_position_order_and_account_evidence_keeps_reasons() -> None:
     assert snapshot.account_state is account
     assert snapshot.account_state.market_value is None
     assert snapshot.account_state.equity is None
+
+
+def _incomplete_account_with_valuation_evidence(
+    as_of: datetime,
+    evidence: HistoricalValuationEvidence,
+) -> HistoricalAccountStateSnapshot:
+    return HistoricalAccountStateSnapshot(
+        timestamp=as_of,
+        capital_source=CapitalSourceType.BACKTEST_CONFIGURED,
+        cash=Money(Decimal("1000"), "INR"),
+        market_value=None,
+        equity=None,
+        realized_pnl=Money.zero("INR"),
+        unrealized_pnl=None,
+        gross_exposure=None,
+        fees=Money.zero("INR"),
+        positions=(),
+        completeness=AccountStateCompleteness.INCOMPLETE,
+        unavailable_instruments=("NSE:TCS",),
+        issue="account valuation is incomplete",
+        valuation_evidence=(evidence,),
+    )
+
+
+def test_snapshot_rejects_future_account_mark_observation_time() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    account = _incomplete_account_with_valuation_evidence(
+        as_of,
+        HistoricalValuationEvidence(
+            instrument_id="NSE:TCS",
+            mark_price=Decimal("100"),
+            source="test",
+            observed_at=as_of + timedelta(seconds=1),
+            selected_at=as_of,
+            unavailable=False,
+        ),
+    )
+    with pytest.raises(TemporalIntegrityError, match="valuation mark"):
+        build_engine_snapshot(
+            EngineEvidenceAdapter(
+                positions=EvidenceCollection.known(()),
+                orders=EvidenceCollection.known(()),
+                account_state=account,
+                account_reason=account.issue,
+            ),
+            as_of=as_of,
+        )
+
+
+def test_snapshot_rejects_future_account_valuation_selection_time() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    account = _incomplete_account_with_valuation_evidence(
+        as_of,
+        HistoricalValuationEvidence(
+            instrument_id="NSE:TCS",
+            mark_price=Decimal("100"),
+            source="test",
+            observed_at=as_of,
+            selected_at=as_of + timedelta(seconds=1),
+            unavailable=False,
+        ),
+    )
+    with pytest.raises(TemporalIntegrityError, match="valuation selection"):
+        build_engine_snapshot(
+            EngineEvidenceAdapter(
+                positions=EvidenceCollection.known(()),
+                orders=EvidenceCollection.known(()),
+                account_state=account,
+                account_reason=account.issue,
+            ),
+            as_of=as_of,
+        )
 
 
 def test_context_snapshot_and_parameter_views_are_frozen() -> None:
@@ -255,6 +366,66 @@ def test_snapshot_rejects_future_effective_order_evidence() -> None:
     with pytest.raises(TemporalIntegrityError, match="later than snapshot as_of"):
         build_engine_snapshot(
             _adapter(orders=EvidenceCollection.known((future_fact,))),
+            as_of=as_of,
+        )
+
+
+def test_unknown_order_fact_does_not_fabricate_filled_or_remaining_quantity() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    fact = active_order_fact(
+        client_order_id="unknown-order",
+        instrument=_instrument(),
+        status=OrderStatus.UNKNOWN,
+        order_quantity=Decimal("2"),
+        filled_quantity=None,
+        created_at=as_of,
+        evidence_time=as_of,
+        effective_at=as_of,
+    )
+
+    assert fact is not None
+    assert fact.status is OrderStatus.UNKNOWN
+    assert fact.filled_quantity is None
+    assert fact.remaining_quantity is None
+
+
+def test_snapshot_rejects_future_effective_order_time_when_availability_is_current() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    future_fact = OpenOrderFact(
+        client_order_id="future-effective-order",
+        instrument=_instrument(),
+        status=OrderStatus.ACCEPTED,
+        order_quantity=Decimal("1"),
+        filled_quantity=Decimal("0"),
+        remaining_quantity=Decimal("1"),
+        created_at=as_of,
+        evidence_time=as_of,
+        effective_at=as_of + timedelta(seconds=1),
+    )
+    with pytest.raises(TemporalIntegrityError, match="order effective evidence"):
+        build_engine_snapshot(
+            _adapter(orders=EvidenceCollection.known((future_fact,))),
+            as_of=as_of,
+        )
+
+
+def test_snapshot_rejects_future_position_availability_time() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    entry = PositionLedgerEntry(
+        instrument=_instrument(),
+        quantity=Decimal("1"),
+        average_price=Decimal("100"),
+        realized_pnl=Decimal("0"),
+        fees=Decimal("0"),
+    )
+    fact = PositionFact.from_ledger_entry(
+        entry,
+        effective_at=as_of,
+        evidence_time=as_of + timedelta(seconds=1),
+    )
+    with pytest.raises(TemporalIntegrityError, match="availability"):
+        build_engine_snapshot(
+            _adapter(positions=EvidenceCollection.known((fact,))),
             as_of=as_of,
         )
 

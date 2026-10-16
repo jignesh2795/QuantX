@@ -36,6 +36,30 @@ def test_rehearsal_preflight_rejects_nonzero_latency_and_unknown_executor() -> N
     assert assess_rehearsal_event_time_support(object()).support is EventTimeSupport.UNKNOWN
 
 
+def test_rehearsal_preflight_requires_typed_custom_executor_capability() -> None:
+    class _DeclaredExecutor:
+        event_time_support = EventTimeSupport.SUPPORTED
+
+    class _UnsupportedExecutor:
+        event_time_support = EventTimeSupport.UNSUPPORTED
+
+    class _StringMarkerExecutor:
+        event_time_support = "SUPPORTED"
+
+    assert (
+        assess_rehearsal_event_time_support(_DeclaredExecutor()).support
+        is EventTimeSupport.SUPPORTED
+    )
+    assert (
+        assess_rehearsal_event_time_support(_UnsupportedExecutor()).support
+        is EventTimeSupport.UNSUPPORTED
+    )
+    assert (
+        assess_rehearsal_event_time_support(_StringMarkerExecutor()).support
+        is EventTimeSupport.UNKNOWN
+    )
+
+
 def test_backtest_preflight_accepts_owned_simulated_clock_only_at_zero_latency() -> None:
     clock = SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC))
     engine = PaperExecutionEngine(clock=clock, profile=PaperSimulationProfile())

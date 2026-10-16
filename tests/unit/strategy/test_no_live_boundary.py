@@ -7,6 +7,9 @@ from pathlib import Path
 
 _SEAM_FILES = (
     "src/quantx/strategy/context.py",
+    "src/quantx/domain/strategy.py",
+    "src/quantx/strategy/timers.py",
+    "src/quantx/strategy/callbacks.py",
     "src/quantx/strategy/engine_snapshot.py",
     "src/quantx/strategy/typed_params.py",
     "src/quantx/strategy/runtime.py",
@@ -35,6 +38,12 @@ _FORBIDDEN_CALLS = {
     "cancel_timer",
     "add_job",
     "run_pending",
+    "Timer",
+    "Thread",
+    "BackgroundScheduler",
+    "AsyncIOScheduler",
+    "BlockingScheduler",
+    "run_in_executor",
 }
 _WALL_CLOCK_BARE_CALLS = {"now", "utcnow", "today", "monotonic"}
 _WALL_CLOCK_QUALIFIED_CALLS = {
@@ -61,7 +70,14 @@ _FORBIDDEN_IMPORT_PREFIXES = (
     "sched",
     "apscheduler",
     "schedule",
+    "threading",
 )
+_GRANDFATHERED_WALL_CLOCK_DEFAULTS = {
+    (
+        "src/quantx/domain/strategy.py",
+        "generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))",
+    )
+}
 
 
 def _dotted_name(node: ast.expr) -> str | None:
@@ -104,10 +120,18 @@ def _canonical_dotted_name(node: ast.expr, aliases: dict[str, str]) -> str | Non
     return f"{canonical_root}.{suffix}" if separator else canonical_root
 
 
+def _is_forbidden_import(module: str) -> bool:
+    """Match forbidden modules exactly or at a dotted submodule boundary."""
+    return any(
+        module == prefix or module.startswith(f"{prefix}.") for prefix in _FORBIDDEN_IMPORT_PREFIXES
+    )
+
+
 def _audit_source(source: str, relative_path: str) -> list[str]:
     """Return static boundary violations; deliberately not a proof against reflection."""
     tree = ast.parse(source, filename=relative_path)
     aliases = _import_aliases(tree)
+    source_lines = source.splitlines()
     observed: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -119,7 +143,14 @@ def _audit_source(source: str, relative_path: str) -> list[str]:
                 dotted = _canonical_dotted_name(function, aliases)
                 if function.attr in _FORBIDDEN_CALLS:
                     observed.append(f"{relative_path}:call {function.attr}")
-                elif dotted in _WALL_CLOCK_QUALIFIED_CALLS:
+                elif (
+                    dotted in _WALL_CLOCK_QUALIFIED_CALLS
+                    and (
+                        relative_path,
+                        source_lines[node.lineno - 1].strip(),
+                    )
+                    not in _GRANDFATHERED_WALL_CLOCK_DEFAULTS
+                ):
                     observed.append(f"{relative_path}:call {dotted}")
         if isinstance(node, ast.Attribute) and node.attr == "LIVE":
             observed.append(f"{relative_path}:LIVE attribute")
@@ -127,11 +158,11 @@ def _audit_source(source: str, relative_path: str) -> list[str]:
             observed.append(f"{relative_path}:LIVE name")
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.startswith(_FORBIDDEN_IMPORT_PREFIXES):
+                if _is_forbidden_import(alias.name):
                     observed.append(f"{relative_path}:import {alias.name}")
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
-            if module.startswith(_FORBIDDEN_IMPORT_PREFIXES):
+            if _is_forbidden_import(module):
                 observed.append(f"{relative_path}:import {module}")
     return observed
 
@@ -149,6 +180,7 @@ def test_boundary_scanner_flags_wallclock_and_forbidden_paths() -> None:
     unsafe_source = """
 import asyncio
 import datetime
+import threading
 import time
 
 from quantx.domain.deployment import ExecutionMode
@@ -159,12 +191,14 @@ def unsafe(broker):
     time.time()
     time.sleep(1)
     asyncio.create_task(None)
+    threading.Timer(1, lambda: None)
     broker.submit(None)
     mode = ExecutionMode.LIVE
 """
     observed = _audit_source(unsafe_source, "sentinel.py")
 
     assert "sentinel.py:import asyncio" in observed
+    assert "sentinel.py:import threading" in observed
     assert "sentinel.py:import time" in observed
     assert "sentinel.py:call datetime.datetime.now" in observed
     assert "sentinel.py:call time.time" in observed
@@ -178,5 +212,25 @@ def unsafe(broker):
     assert _audit_source("engine_clock.now()", "deterministic_clock.py") == []
     assert "sentinel.py:call sleep" in observed
     assert "sentinel.py:call create_task" in observed
+    assert "sentinel.py:call Timer" in observed
     assert "sentinel.py:call submit" in observed
     assert "sentinel.py:LIVE attribute" in observed
+
+    # Relative timer imports and similar module names are not the "time" module.
+    assert _audit_source("from .timers import TimerRegistry", "safe_relative.py") == []
+    assert _audit_source("from timeseries import feed", "safe_prefix.py") == []
+
+    legacy_signal_default = (
+        "from dataclasses import field\n"
+        "from datetime import UTC, datetime\n"
+        "\n"
+        "class StrategySignal:\n"
+        "    generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))\n"
+    )
+    assert _audit_source(legacy_signal_default, "src/quantx/domain/strategy.py") == []
+    non_grandfathered_clock = (
+        "from datetime import UTC, datetime\ngenerated_at = datetime.now(UTC)\n"
+    )
+    assert "other.py:call datetime.datetime.now" in _audit_source(
+        non_grandfathered_clock, "other.py"
+    )

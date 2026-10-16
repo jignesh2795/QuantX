@@ -71,6 +71,31 @@ class StrategySignal:
 
 
 @dataclass(frozen=True, slots=True)
+class TimerRequest:
+    """One-shot, instrument-scoped timer requested by a validated strategy result."""
+
+    timer_id: str
+    instrument: InstrumentId
+    due_at: datetime
+
+    def __post_init__(self) -> None:
+        if not self.timer_id.strip():
+            raise ValueError("timer_id must not be empty")
+        if not isinstance(self.instrument, InstrumentId):
+            raise TypeError("timer instrument must be an InstrumentId")
+        if self.due_at.tzinfo is None or self.due_at.utcoffset() is None:
+            raise ValueError("timer due_at must be timezone-aware")
+        object.__setattr__(self, "due_at", self.due_at.astimezone(UTC))
+
+
+@dataclass(frozen=True, slots=True)
 class StrategyResult:
     signal: StrategySignal
     intent: TradeIntent | None = None
+    timers: tuple[TimerRequest, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.timers, tuple):
+            raise TypeError("strategy result timers must be an immutable tuple")
+        if any(not isinstance(timer, TimerRequest) for timer in self.timers):
+            raise TypeError("strategy result timers must contain TimerRequest values")
