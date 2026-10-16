@@ -546,7 +546,7 @@ def _same_time_infy_series() -> HistoricalDataSeries:
     )
 
 
-def test_timer_dispatch_precedes_equal_timestamp_backtest_cohort() -> None:
+def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     strategy = _BacktestTimerObserver(fail_timer=True)
     ir = _runtime_ir("timer-backtest")
     instruments = InMemoryInstrumentRegistry((_instrument(), _second_instrument()))
