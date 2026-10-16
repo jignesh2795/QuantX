@@ -628,7 +628,7 @@ def test_unexpected_future_effective_receipt_preserves_facts_and_halts_without_f
     assert len(result.account_state_series) == 1
 
 
-def test_backtest_event_time_preflight_rejects_unknown_injected_engine_before_side_effects() -> None:
+def test_unknown_executor_time_capability_fails_closed() -> None:
     instrument = _instrument()
     engine = _CapturingEngine(clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
     ir = _runtime_ir("preflight-backtest")
