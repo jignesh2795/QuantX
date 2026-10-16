@@ -81,7 +81,9 @@ def _import_aliases(tree: ast.Module) -> dict[str, str]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 local_name = alias.asname or alias.name.split(".", maxsplit=1)[0]
-                canonical_name = alias.name if alias.asname else alias.name.split(".", maxsplit=1)[0]
+                canonical_name = alias.name
+                if alias.asname is None:
+                    canonical_name = alias.name.split(".", maxsplit=1)[0]
                 aliases[local_name] = canonical_name
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
             for alias in node.names:
@@ -168,11 +170,11 @@ def unsafe(broker):
     assert "sentinel.py:call time.time" in observed
 
     aliased_module = _audit_source(
-        "import datetime as dt\\ndt.datetime.now()", "aliased_module.py"
+        "import datetime as dt\ndt.datetime.now()", "aliased_module.py"
     )
     assert "aliased_module.py:call datetime.datetime.now" in aliased_module
     aliased_class = _audit_source(
-        "from datetime import datetime as dt\\ndt.now()", "aliased_class.py"
+        "from datetime import datetime as dt\ndt.now()", "aliased_class.py"
     )
     assert "aliased_class.py:call datetime.datetime.now" in aliased_class
     assert _audit_source("engine_clock.now()", "deterministic_clock.py") == []
