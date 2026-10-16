@@ -7,7 +7,7 @@ This directory contains the architecture record for QuantX.
 1. `00-overview.md`, `01-principles.md`, `02-dependency-rules.md`
 2. `05-execution-environments.md`, `06-indian-market-domain.md`, `07-data-control-execution-planes.md`, `08-strategy-ir.md`
 3. `18-research-baseline.md`, `36-historical-data-integrity-and-no-hallucination.md`, `37-research-operational-integrity.md`, `39-research-provenance-and-fingerprints.md`, `40-point-in-time-market-rules.md`
-4. `34-capital-and-routing-invariants.md`, `54-execution-reliability-and-transaction-safety.md`, `43-execution-transaction-boundary.md`, `44-execution-and-integration-package-boundaries.md`, `45-execution-reliability-batch.md`, `55-execution-audit-findings.md`, `47-integration-boundaries.md`, `49-dhan-broker-plugin-boundary.md`
+4. `34-capital-and-routing-invariants.md`, `54-execution-reliability-and-transaction-safety.md`, `43-execution-transaction-boundary.md`, `44-execution-and-integration-package-boundaries.md`, `45-execution-reliability-batch.md`, `55-execution-audit-findings.md`, `56-live-execution-safety-audit-and-priority.md`, `47-integration-boundaries.md`, `49-dhan-broker-plugin-boundary.md`
 5. `41-current-package-map.md`, `42-implementation-batch-plan.md`, `46-consolidation-status.md`, `51-historical-account-state.md`, `52-transaction-cost-and-charges.md`
 
 ## v0.1 release gate
@@ -18,7 +18,7 @@ This directory contains the architecture record for QuantX.
 
 Architecture decisions: `adr/` holds accepted ADR-lite records explaining why the target shape exists (modular monolith, plugin-first extensibility, event-driven core, one semantic lifecycle, Indian-market-first domain, broker adapters, modular-hybrid topology). [ADR-010: Composed Multi-Leg Order Workflow Semantics](adr/ADR-010-composed-multi-leg-order-semantics.md) records the chosen multi-leg design; it is a design decision, not an implementation claim. [ADR-011: Order Product and Position Effect](adr/ADR-011-order-product-position-effect.md) records the QX-04 request-semantics contract; it is a design decision, not an implementation claim. [ADR-012: Derivative Contract Metadata and Resolution](adr/ADR-012-derivative-contract-metadata.md) records the QX-05 resolution contract; it is a design decision, not an implementation claim.
 
-Execution control path: `control-and-safety-path.md` describes the ordered, fail-closed execution path from intent to portfolio update and is the reference for control-path safety review.
+Execution control path: `control-and-safety-path.md` describes the ordered, fail-closed execution path from intent to portfolio update and is the reference for control-path safety review. The current audit and priority order for unresolved LIVE-safety gaps is tracked in `56-live-execution-safety-audit-and-priority.md` and issues #239–#241.
 
 Plugin model/contracts: `04-plugin-model.md`, `13-plugin-contract.md`.
 
