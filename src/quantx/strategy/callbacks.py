@@ -118,7 +118,10 @@ def _invoke_observer(
     value: object,
     identity: str,
 ) -> CallbackFault | None:
-    callback: Any = getattr(target, callback_name, None)
+    try:
+        callback: Any = getattr(target, callback_name, None)
+    except Exception as exc:
+        return callback_fault(callback_name, identity, exc)
     if callback is None:
         return None
     if not callable(callback):
