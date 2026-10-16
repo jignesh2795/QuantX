@@ -574,7 +574,7 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
 
 
-def test_backtest_postcommit_fault_completes_notifications_and_preserves_fill() -> None:
+def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     strategy = _BacktestCommitThenFailObserver()
     ir = _runtime_ir("callback-backtest")
     result = DeterministicBacktestService(
