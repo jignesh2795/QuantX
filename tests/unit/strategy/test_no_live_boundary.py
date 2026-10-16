@@ -35,10 +35,19 @@ _FORBIDDEN_CALLS = {
     "cancel_timer",
     "add_job",
     "run_pending",
-    "now",
-    "utcnow",
-    "today",
-    "monotonic",
+}
+_WALL_CLOCK_BARE_CALLS = {"now", "utcnow", "today", "monotonic"}
+_WALL_CLOCK_QUALIFIED_CALLS = {
+    "datetime.now",
+    "datetime.datetime.now",
+    "datetime.utcnow",
+    "datetime.datetime.utcnow",
+    "date.today",
+    "datetime.date.today",
+    "time.time",
+    "time.monotonic",
+    "time.perf_counter",
+    "time.process_time",
 }
 _FORBIDDEN_IMPORT_PREFIXES = (
     "dhanhq",
@@ -55,6 +64,16 @@ _FORBIDDEN_IMPORT_PREFIXES = (
 )
 
 
+def _dotted_name(node: ast.expr) -> str | None:
+    """Return a dotted import/name path, excluding arbitrary object attributes."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _dotted_name(node.value)
+        return None if prefix is None else f"{prefix}.{node.attr}"
+    return None
+
+
 def _audit_source(source: str, relative_path: str) -> list[str]:
     """Return static boundary violations; deliberately not a proof against reflection."""
     tree = ast.parse(source, filename=relative_path)
@@ -62,17 +81,15 @@ def _audit_source(source: str, relative_path: str) -> list[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             function = node.func
-            if isinstance(function, ast.Name) and function.id in _FORBIDDEN_CALLS:
-                observed.append(f"{relative_path}:call {function.id}")
+            if isinstance(function, ast.Name):
+                if function.id in _FORBIDDEN_CALLS | _WALL_CLOCK_BARE_CALLS:
+                    observed.append(f"{relative_path}:call {function.id}")
             elif isinstance(function, ast.Attribute):
+                dotted = _dotted_name(function)
                 if function.attr in _FORBIDDEN_CALLS:
                     observed.append(f"{relative_path}:call {function.attr}")
-                elif (
-                    function.attr == "time"
-                    and isinstance(function.value, ast.Name)
-                    and function.value.id == "time"
-                ):
-                    observed.append(f"{relative_path}:call time.time")
+                elif dotted in _WALL_CLOCK_QUALIFIED_CALLS:
+                    observed.append(f"{relative_path}:call {function.attr}")
         if isinstance(node, ast.Attribute) and node.attr == "LIVE":
             observed.append(f"{relative_path}:LIVE attribute")
         if isinstance(node, ast.Name) and node.id == "LIVE":
@@ -120,6 +137,7 @@ def unsafe(broker):
     assert "sentinel.py:import time" in observed
     assert "sentinel.py:call now" in observed
     assert "sentinel.py:call time.time" in observed
+    assert _audit_source("engine_clock.now()", "deterministic_clock.py") == []
     assert "sentinel.py:call sleep" in observed
     assert "sentinel.py:call create_task" in observed
     assert "sentinel.py:call submit" in observed
