@@ -14,7 +14,11 @@ from decimal import Decimal
 
 import pytest
 
-from quantx.application.backtest import BacktestResult, DeterministicBacktestService
+from quantx.application.backtest import (
+    BacktestDisposition,
+    BacktestResult,
+    DeterministicBacktestService,
+)
 from quantx.application.strategy_rehearsal import (
     RehearsalInput,
     StrategyRehearsalResult,
@@ -926,6 +930,50 @@ def test_rehearsal_rejects_regressing_input_timestamps_before_consuming_session(
     assert session.run(_inputs(start)).steps[0].evaluation is not None
 
 
+def test_rehearsal_preserves_caller_order_within_timestamp_cohort() -> None:
+    at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    instruments = (InstrumentId("NSE", "INFY"), InstrumentId("NSE", "TCS"))
+
+    class _CallerOrderObserver:
+        def __init__(self) -> None:
+            self.seen: list[InstrumentId] = []
+
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            event = context.event
+            assert event is not None
+            self.seen.append(event.instrument)
+            return StrategyResult(
+                StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    event.instrument,
+                    SignalAction.HOLD,
+                    1.0,
+                    generated_at=event.timestamp,
+                )
+            )
+
+    inputs = tuple(
+        RehearsalInput(
+            event=MarketDataEvent(
+                MarketDataType.QUOTE,
+                at,
+                instrument,
+                Quote(instrument, at, bid=Decimal("99"), ask=Decimal("100")),
+            ),
+            snapshot=_snapshot(),
+        )
+        for instrument in instruments
+    )
+    observer = _CallerOrderObserver()
+    session, _ = _session(registry=_registry_for_strategy(observer))
+
+    result = session.run(inputs)
+
+    assert observer.seen == list(instruments)
+    assert tuple(step.event.instrument for step in result.steps) == instruments
+
+
 # ---------------------------------------------------------------------------
 # Malformed and unsupported inputs
 # ---------------------------------------------------------------------------
@@ -1421,9 +1469,11 @@ def test_qx08_buy_and_hold_semantics_repeat_across_fresh_runs() -> None:
 class _AcceptedWithoutFillObserver:
     """Place one resting limit, then observe the retained engine order."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, fail_order_update: bool = False) -> None:
         self.contexts: list[StrategyContext] = []
         self.notifications: list[tuple[object, ...]] = []
+        self.callback_inventories: list[tuple[object, ...]] = []
+        self.fail_order_update = fail_order_update
 
     def on_market_data(self, context: StrategyContext) -> StrategyResult:
         self.contexts.append(context)
@@ -1467,6 +1517,7 @@ class _AcceptedWithoutFillObserver:
         self.notifications.append(("on_fill", fill.quantity, fill.price, fill.filled_at))
 
     def on_order_update(self, context: StrategyContext, update) -> None:
+        self.callback_inventories.append(tuple(context.engine.orders.items))
         self.notifications.append(
             (
                 "on_order_update",
@@ -1478,6 +1529,8 @@ class _AcceptedWithoutFillObserver:
                 update.effective_at,
             )
         )
+        if self.fail_order_update:
+            raise RuntimeError("order update callback failed")
 
 
 def test_qx08_backtest_rejects_live_execution_context_for_bound_intents() -> None:
@@ -1546,6 +1599,54 @@ def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> Non
     )
     assert backtest_strategy.contexts[1].engine.orders.availability.value == "AVAILABLE"
     assert rehearsal_strategy.contexts[1].engine.orders.availability.value == "AVAILABLE"
+
+
+def test_qx08_accepted_without_fill_is_preserved_after_order_callback_error() -> None:
+    backtest_strategy = _AcceptedWithoutFillObserver(fail_order_update=True)
+    backtest_result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_parity_series(),
+        strategy=StrategyEvaluationService(backtest_strategy),
+        strategy_ir=_ir(),
+        financial_state=_financial_state(),
+        execution_context=_bound_context(),
+    )
+
+    rehearsal_strategy = _AcceptedWithoutFillObserver(fail_order_update=True)
+    session, _ = _session(registry=_registry_for_strategy(rehearsal_strategy))
+    rehearsal_result = session.run(_parity_rehearsal_inputs())
+
+    assert len(backtest_result.receipts) == 1
+    assert backtest_result.receipts[0].order_status is OrderStatus.ACCEPTED
+    assert backtest_result.receipts[0].fills == ()
+    assert backtest_result.steps[0].receipt is backtest_result.receipts[0]
+    assert backtest_strategy.callback_inventories[0][0].status is OrderStatus.ACCEPTED
+    assert backtest_strategy.callback_inventories[0][0].filled_quantity == Decimal("0")
+    assert backtest_strategy.callback_inventories[0][0].remaining_quantity == Decimal("1")
+    assert tuple(fault.callback_name for fault in backtest_result.callback_faults) == (
+        "on_order_update",
+    )
+    assert backtest_result.halt is not None
+    assert backtest_result.halt.kind == "POST_COMMIT_CALLBACK_FAILURE"
+    assert backtest_result.steps[1].disposition is BacktestDisposition.BLOCKED
+    assert len(backtest_strategy.contexts) == 1
+
+    rehearsal_step = rehearsal_result.steps[0]
+    assert rehearsal_step.paper_outcome is not None
+    assert rehearsal_step.paper_outcome.lifecycle_status is OrderStatus.SUBMITTED
+    assert rehearsal_step.paper_outcome.fill is None
+    assert rehearsal_strategy.callback_inventories[0][0].status is OrderStatus.SUBMITTED
+    assert rehearsal_strategy.callback_inventories[0][0].filled_quantity == Decimal("0")
+    assert rehearsal_strategy.callback_inventories[0][0].remaining_quantity == Decimal("1")
+    assert tuple(fault.callback_name for fault in rehearsal_result.callback_faults) == (
+        "on_order_update",
+    )
+    assert rehearsal_result.halt is not None
+    assert rehearsal_result.halt.kind == "POST_COMMIT_CALLBACK_FAILURE"
+    assert rehearsal_result.steps[1].evaluation is None
+    assert "run halted" in rehearsal_result.steps[1].note
+    assert len(rehearsal_strategy.contexts) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1650,3 +1751,54 @@ def test_repeat_runs_agree_on_timestamps() -> None:
     assert first.paper_outcome is not None and first.paper_outcome.fill is not None
     assert second.paper_outcome is not None and second.paper_outcome.fill is not None
     assert first.paper_outcome.fill.filled_at == second.paper_outcome.fill.filled_at == event_at
+
+
+def test_rehearsal_preserves_future_effective_fill_and_halts_before_callbacks(
+    monkeypatch,
+) -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    later = start + timedelta(minutes=1)
+    future_effective = start + timedelta(seconds=1)
+    strategy = _ObservedBuyAndHold()
+    session, accounting = _session(registry=_registry_for_strategy(strategy))
+    broker = session._paper_executor.broker
+    execute = broker.execute
+    future_fill_at_ns = int(future_effective.timestamp() * 1_000_000_000)
+
+    def execute_with_future_fill(
+        order,
+        *,
+        snapshot,
+        submitted_at_ns,
+        order_book=None,
+    ):
+        outcome = execute(
+            order,
+            snapshot=snapshot,
+            submitted_at_ns=submitted_at_ns,
+            order_book=order_book,
+        )
+        if outcome.fill is None:
+            return outcome
+        return replace(outcome, fill_at_ns=future_fill_at_ns)
+
+    monkeypatch.setattr(broker, "execute", execute_with_future_fill)
+
+    result = session.run(_inputs(start, later))
+
+    first = result.steps[0]
+    assert first.paper_outcome is not None
+    assert first.paper_outcome.fill is not None
+    assert first.paper_outcome.fill.filled_at == future_effective
+    assert accounting.applications == [first.paper_outcome.fill]
+    assert first.paper_outcome.ledger_entry is not None
+    assert len(result.temporal_faults) == 1
+    assert result.temporal_faults[0].source == "paper_fill"
+    assert result.temporal_faults[0].expected_at == start
+    assert result.temporal_faults[0].effective_at == future_effective
+    assert result.halt is not None
+    assert result.halt.kind == "TEMPORAL_INTEGRITY"
+    assert result.halt.as_of == start
+    assert strategy.notifications == []
+    assert result.steps[1].evaluation is None
+    assert "run halted" in result.steps[1].note
