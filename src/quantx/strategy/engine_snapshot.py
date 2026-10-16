@@ -288,6 +288,23 @@ def build_simulated_engine_snapshot(
     account_reason: str | None = None,
 ) -> EngineStateSnapshot:
     """Normalize known paper/backtest state through the single shared projection."""
+    unresolved_orders = tuple(
+        order
+        for order in active_orders
+        if (
+            order.status is OrderStatus.UNKNOWN
+            or order.filled_quantity is None
+            or order.remaining_quantity is None
+        )
+    )
+    order_collection = (
+        EvidenceCollection.incomplete(
+            active_orders,
+            "active-order inventory contains unresolved status or quantity evidence",
+        )
+        if unresolved_orders
+        else EvidenceCollection.known(active_orders)
+    )
     adapter = EngineEvidenceAdapter(
         positions=EvidenceCollection.known(
             position_facts(
@@ -296,7 +313,7 @@ def build_simulated_engine_snapshot(
                 evidence_time=as_of,
             )
         ),
-        orders=EvidenceCollection.known(active_orders),
+        orders=order_collection,
         account_state=account_state,
         account_reason=account_reason,
     )
