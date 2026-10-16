@@ -25,6 +25,11 @@ class StrategyRuntime:
     def __init__(self, strategy: ExecutableStrategy) -> None:
         self._strategy = strategy
 
+    @property
+    def callback_target(self) -> ExecutableStrategy:
+        """Return this runtime's single run-scoped strategy instance."""
+        return self._strategy
+
     def evaluate(
         self,
         event: MarketDataEvent,
