@@ -8,12 +8,13 @@ any broker-submit path.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
-from quantx.application.backtest import DeterministicBacktestService
+from quantx.application.backtest import BacktestResult, DeterministicBacktestService
 from quantx.application.strategy_rehearsal import (
     RehearsalInput,
     StrategyRehearsalResult,
@@ -69,6 +70,7 @@ from quantx.execution.paper.profile import (
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
+from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.execution import bind_deployment_context
 from quantx.strategy.ir import StrategyIR
 from quantx.strategy.reference import BuyAndHoldStrategy
@@ -1079,6 +1081,30 @@ def _parity_series() -> HistoricalDataSeries:
     )
 
 
+def _parity_rehearsal_inputs() -> tuple[RehearsalInput, ...]:
+    inputs: list[RehearsalInput] = []
+    for observation in _parity_series().as_tuple():
+        quote = observation.snapshot
+        assert isinstance(quote, Quote)
+        event = MarketDataEvent(
+            MarketDataType.QUOTE,
+            observation.timestamp,
+            observation.instrument,
+            quote,
+        )
+        inputs.append(
+            RehearsalInput(
+                event=event,
+                snapshot=MarketSnapshot(
+                    bid=quote.bid,
+                    ask=quote.ask,
+                    last=quote.last if quote.last is not None else quote.ask,
+                ),
+            )
+        )
+    return tuple(inputs)
+
+
 def test_backtest_paper_order_sequence_parity() -> None:
     moments = (
         datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
@@ -1132,6 +1158,394 @@ def test_backtest_paper_order_sequence_parity() -> None:
 
     assert rehearsal_sequence == backtest_sequence
     assert rehearsal_sequence == ((InstrumentId("NSE", "TCS"), OrderSide.BUY, Decimal("2")),)
+
+
+class _ObservedBuyAndHold(BuyAndHoldStrategy):
+    """Capture QX-08 context and observer semantics without changing decisions."""
+
+    def __init__(self) -> None:
+        self.contexts: list[StrategyContext] = []
+        self.notifications: list[tuple[object, ...]] = []
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        self.contexts.append(context)
+        return super().on_market_data(context)
+
+    def on_fill(self, context: StrategyContext, fill: Fill) -> None:
+        self.notifications.append(
+            (
+                "on_fill",
+                fill.instrument,
+                fill.side,
+                fill.quantity,
+                fill.price,
+                fill.filled_at,
+                tuple(
+                    (position.instrument, position.quantity)
+                    for position in context.engine.positions.items
+                ),
+                tuple(
+                    (
+                        order.instrument,
+                        order.status,
+                        order.filled_quantity,
+                        order.remaining_quantity,
+                    )
+                    for order in context.engine.orders.items
+                ),
+            )
+        )
+
+    def on_order_update(self, context: StrategyContext, update) -> None:
+        self.notifications.append(
+            (
+                "on_order_update",
+                update.instrument,
+                update.status,
+                update.order_quantity,
+                update.filled_quantity,
+                update.remaining_quantity,
+                update.evidence_time,
+                update.effective_at,
+                tuple(
+                    (position.instrument, position.quantity)
+                    for position in context.engine.positions.items
+                ),
+                tuple(
+                    (
+                        order.instrument,
+                        order.status,
+                        order.filled_quantity,
+                        order.remaining_quantity,
+                    )
+                    for order in context.engine.orders.items
+                ),
+            )
+        )
+
+
+def _context_inventory_signature(
+    context: StrategyContext,
+) -> tuple[tuple[object, ...], ...]:
+    return (
+        tuple(
+            (position.instrument, position.quantity) for position in context.engine.positions.items
+        ),
+        tuple(
+            (
+                order.instrument,
+                order.status,
+                order.order_quantity,
+                order.filled_quantity,
+                order.remaining_quantity,
+            )
+            for order in context.engine.orders.items
+        ),
+    )
+
+
+def _buy_and_hold_driver_run():
+    backtest_strategy = _ObservedBuyAndHold()
+    backtest_result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_parity_series(),
+        strategy=StrategyEvaluationService(backtest_strategy),
+        strategy_ir=_ir(),
+        financial_state=_financial_state(),
+        execution_context=_bound_context(),
+    )
+
+    rehearsal_strategy = _ObservedBuyAndHold()
+    session, _ = _session(registry=_registry_for_strategy(rehearsal_strategy))
+    rehearsal_result = session.run(_parity_rehearsal_inputs())
+    return backtest_result, backtest_strategy, rehearsal_result, rehearsal_strategy
+
+
+def _buy_and_hold_result_signature(
+    result: BacktestResult | StrategyRehearsalResult,
+    strategy: _ObservedBuyAndHold,
+) -> tuple[object, ...]:
+    if isinstance(result, StrategyRehearsalResult):
+        decisions = tuple(
+            (
+                step.evaluation.result.signal.action,
+                None
+                if step.evaluation.result.intent is None
+                else (
+                    step.evaluation.result.intent.instrument,
+                    step.evaluation.result.intent.side,
+                    step.evaluation.result.intent.quantity,
+                ),
+            )
+            for step in result.steps
+            if step.evaluation is not None
+        )
+        receipts = tuple(
+            (
+                step.paper_outcome.lifecycle_status,
+                ()
+                if step.paper_outcome.fill is None
+                else (
+                    (
+                        step.paper_outcome.fill.instrument,
+                        step.paper_outcome.fill.side,
+                        step.paper_outcome.fill.quantity,
+                        step.paper_outcome.fill.price,
+                        step.paper_outcome.fill.filled_at,
+                    ),
+                ),
+            )
+            for step in result.steps
+            if step.paper_outcome is not None
+        )
+    else:
+        decisions = tuple(
+            (
+                step.strategy_result.signal.action,
+                None
+                if step.strategy_result.intent is None
+                else (
+                    step.strategy_result.intent.instrument,
+                    step.strategy_result.intent.side,
+                    step.strategy_result.intent.quantity,
+                ),
+            )
+            for step in result.steps
+            if step.strategy_result is not None
+        )
+        receipts = tuple(
+            (
+                receipt.order_status,
+                tuple(
+                    (
+                        fill.instrument,
+                        fill.side,
+                        fill.quantity,
+                        fill.price,
+                        fill.filled_at,
+                    )
+                    for fill in receipt.fills
+                ),
+            )
+            for receipt in result.receipts
+        )
+
+    contexts = tuple(
+        (
+            context.event.timestamp if context.event is not None else context.as_of,
+            *_context_inventory_signature(context),
+        )
+        for context in strategy.contexts
+    )
+    faults = tuple(
+        (fault.callback_name, fault.exception_type, fault.message)
+        for fault in result.callback_faults
+    )
+    halt = (
+        None if result.halt is None else (result.halt.kind, result.halt.as_of, result.halt.reason)
+    )
+    return decisions, receipts, contexts, tuple(strategy.notifications), faults, halt
+
+
+def test_qx08_buy_and_hold_driver_state_and_callback_parity() -> None:
+    (
+        backtest,
+        backtest_strategy,
+        rehearsal,
+        rehearsal_strategy,
+    ) = _buy_and_hold_driver_run()
+
+    backtest_decisions = tuple(step.strategy_result.signal.action for step in backtest.steps)
+    rehearsal_decisions = tuple(step.evaluation.result.signal.action for step in rehearsal.steps)
+    assert (
+        backtest_decisions
+        == rehearsal_decisions
+        == (
+            SignalAction.BUY,
+            SignalAction.HOLD,
+        )
+    )
+    assert len(backtest.receipts) == 1
+    assert backtest.receipts[0].order_status is OrderStatus.FILLED
+    assert len(backtest.receipts[0].fills) == 1
+    assert rehearsal.steps[0].paper_outcome is not None
+    assert rehearsal.steps[0].paper_outcome.lifecycle_status is OrderStatus.FILLED
+    assert rehearsal.steps[0].paper_outcome.fill is not None
+
+    # The state seen at both market callbacks must agree: known-empty before
+    # entry, then the same engine-owned position and no active entry order.
+    backtest_contexts = tuple(
+        _context_inventory_signature(context) for context in backtest_strategy.contexts
+    )
+    rehearsal_contexts = tuple(
+        _context_inventory_signature(context) for context in rehearsal_strategy.contexts
+    )
+    assert backtest_contexts == rehearsal_contexts
+    assert backtest_contexts[0] == ((), ())
+    assert backtest_contexts[1][0] == ((InstrumentId("NSE", "TCS"), Decimal("2")),)
+    assert backtest_contexts[1][1] == ()
+
+    assert tuple(item[0] for item in backtest_strategy.notifications) == (
+        "on_fill",
+        "on_order_update",
+    )
+    assert tuple(item[0] for item in rehearsal_strategy.notifications) == (
+        "on_fill",
+        "on_order_update",
+    )
+    assert backtest_strategy.notifications == rehearsal_strategy.notifications
+
+    # The account dimension is intentionally not conflated: rehearsal has no
+    # authoritative valuation tracker, while backtest does. The unavailability
+    # and its reason are a contract, not a value to normalize to zero.
+    assert rehearsal_strategy.contexts[0].engine.account_availability.value == "UNAVAILABLE"
+    assert rehearsal_strategy.contexts[0].engine.account_reason
+    assert backtest_strategy.contexts[0].engine.account_reason is None
+
+
+def test_qx08_buy_and_hold_semantics_repeat_across_fresh_runs() -> None:
+    first = _buy_and_hold_driver_run()
+    second = _buy_and_hold_driver_run()
+
+    first_backtest = _buy_and_hold_result_signature(first[0], first[1])
+    second_backtest = _buy_and_hold_result_signature(second[0], second[1])
+    first_rehearsal = _buy_and_hold_result_signature(first[2], first[3])
+    second_rehearsal = _buy_and_hold_result_signature(second[2], second[3])
+
+    assert first_backtest == second_backtest
+    assert first_rehearsal == second_rehearsal
+    assert first_backtest == first_rehearsal
+
+
+class _AcceptedWithoutFillObserver:
+    """Place one resting limit, then observe the retained engine order."""
+
+    def __init__(self) -> None:
+        self.contexts: list[StrategyContext] = []
+        self.notifications: list[tuple[object, ...]] = []
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        self.contexts.append(context)
+        event = context.event
+        assert event is not None
+        if len(self.contexts) > 1:
+            return StrategyResult(
+                StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    event.instrument,
+                    SignalAction.HOLD,
+                    1.0,
+                    generated_at=event.timestamp,
+                    reason="observe accepted order",
+                )
+            )
+        intent = TradeIntent(
+            instrument=event.instrument,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("90"),
+            strategy_id=context.ir.strategy_id.value,
+            strategy_version=context.ir.version,
+        )
+        return StrategyResult(
+            StrategySignal(
+                context.ir.strategy_id,
+                context.ir.version,
+                event.instrument,
+                SignalAction.BUY,
+                1.0,
+                generated_at=event.timestamp,
+                reason="rest limit",
+            ),
+            intent,
+        )
+
+    def on_fill(self, context: StrategyContext, fill: Fill) -> None:
+        self.notifications.append(("on_fill", fill.quantity, fill.price, fill.filled_at))
+
+    def on_order_update(self, context: StrategyContext, update) -> None:
+        self.notifications.append(
+            (
+                "on_order_update",
+                update.status,
+                update.order_quantity,
+                update.filled_quantity,
+                update.remaining_quantity,
+                update.evidence_time,
+                update.effective_at,
+            )
+        )
+
+
+def test_qx08_backtest_rejects_live_execution_context_for_bound_intents() -> None:
+    context = replace(_bound_context(), execution_mode=ExecutionMode.LIVE)
+    service = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    )
+
+    with pytest.raises(ValueError, match="supported simulated mode"):
+        service.run(
+            series=_parity_series(),
+            strategy=StrategyEvaluationService(BuyAndHoldStrategy()),
+            strategy_ir=_ir(),
+            financial_state=_financial_state(),
+            execution_context=context,
+        )
+
+
+def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> None:
+    backtest_strategy = _AcceptedWithoutFillObserver()
+    backtest_result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    ).run(
+        series=_parity_series(),
+        strategy=StrategyEvaluationService(backtest_strategy),
+        strategy_ir=_ir(),
+        financial_state=_financial_state(),
+        execution_context=_bound_context(),
+    )
+
+    rehearsal_strategy = _AcceptedWithoutFillObserver()
+    session, _ = _session(registry=_registry_for_strategy(rehearsal_strategy))
+    rehearsal_result = session.run(_parity_rehearsal_inputs())
+
+    assert len(backtest_result.receipts) == 1
+    assert backtest_result.receipts[0].order_status is OrderStatus.ACCEPTED
+    assert backtest_result.receipts[0].fills == ()
+    assert rehearsal_result.steps[0].paper_outcome is not None
+    assert rehearsal_result.steps[0].paper_outcome.lifecycle_status in {
+        OrderStatus.ACCEPTED,
+        OrderStatus.SUBMITTED,
+    }
+    assert rehearsal_result.steps[0].paper_outcome.fill is None
+
+    assert tuple(item[0] for item in backtest_strategy.notifications) == ("on_order_update",)
+    assert tuple(item[0] for item in rehearsal_strategy.notifications) == ("on_order_update",)
+    # The backtest paper engine reports ACCEPTED while the rehearsal executor
+    # retains SUBMITTED; the normative contract permits either committed
+    # nonterminal status, but both must notify and preserve the active order.
+    backtest_update = backtest_strategy.notifications[0]
+    rehearsal_update = rehearsal_strategy.notifications[0]
+    assert backtest_update[1] is OrderStatus.ACCEPTED
+    assert rehearsal_update[1] is OrderStatus.SUBMITTED
+    assert backtest_update[2:] == rehearsal_update[2:]
+
+    backtest_orders = backtest_strategy.contexts[1].engine.orders.items
+    rehearsal_orders = rehearsal_strategy.contexts[1].engine.orders.items
+    assert len(backtest_orders) == len(rehearsal_orders) == 1
+    assert backtest_orders[0].status is OrderStatus.ACCEPTED
+    assert rehearsal_orders[0].status is OrderStatus.SUBMITTED
+    assert backtest_orders[0].filled_quantity == rehearsal_orders[0].filled_quantity == Decimal("0")
+    assert (
+        backtest_orders[0].remaining_quantity
+        == rehearsal_orders[0].remaining_quantity
+        == Decimal("1")
+    )
+    assert backtest_strategy.contexts[1].engine.orders.availability.value == "AVAILABLE"
+    assert rehearsal_strategy.contexts[1].engine.orders.availability.value == "AVAILABLE"
 
 
 # ---------------------------------------------------------------------------

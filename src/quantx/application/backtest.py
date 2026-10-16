@@ -15,6 +15,7 @@ from enum import StrEnum
 
 from quantx.application.strategy_preflight import assess_backtest_event_time_support
 from quantx.domain.clock import SimulatedClock
+from quantx.domain.deployment import ExecutionContext, ExecutionMode
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
@@ -603,6 +604,7 @@ class DeterministicBacktestService:
         strategy: StrategyRunner | StrategyEvaluationService,
         financial_state: AccountFinancialState,
         strategy_ir: StrategyIR | None = None,
+        execution_context: ExecutionContext | None = None,
         policy_context: PolicyContext | None = None,
         broker_constraints: tuple[BrokerConstraint, ...] = (),
         allow_incomplete: bool = False,
@@ -613,6 +615,12 @@ class DeterministicBacktestService:
         ),
         provenance: ResearchProvenance | None = None,
     ) -> BacktestResult:
+        """Run replay; bind the explicit context only to bare QX-08 strategy intents.
+
+        The supplied context is caller-owned simulated execution authority. Existing
+        intent contexts remain unchanged, and the legacy callable strategy path is
+        unaffected.
+        """
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
         if provenance is not None:
@@ -673,6 +681,15 @@ class DeterministicBacktestService:
                 provenance.run_configuration,
             )
         qx08_active = isinstance(strategy, StrategyEvaluationService)
+        if execution_context is not None and not qx08_active:
+            raise ValueError("execution_context binding requires StrategyEvaluationService")
+        if (
+            qx08_active
+            and execution_context is not None
+            and execution_context.execution_mode
+            not in {ExecutionMode.PAPER, ExecutionMode.SHADOW, ExecutionMode.REPLAY}
+        ):
+            raise ValueError("QX-08 backtest execution context must use a supported simulated mode")
         callback_target: object = strategy
         if isinstance(strategy, StrategyEvaluationService):
             if strategy_ir is None:
@@ -931,6 +948,17 @@ class DeterministicBacktestService:
                     raise ValueError("timer requests require StrategyEvaluationService context")
 
             intent = strategy_result.intent
+            if (
+                qx08_active
+                and intent is not None
+                and intent.execution_context is None
+                and execution_context is not None
+            ):
+                # Mirror rehearsal's deployment-owned binding for bare intents,
+                # while keeping the chosen execution authority explicit at the
+                # backtest call site. Existing intent contexts are left untouched.
+                intent = replace(intent, execution_context=execution_context)
+                strategy_result = replace(strategy_result, intent=intent)
 
             if intent is None or strategy_result.signal.action in {SignalAction.HOLD}:
                 steps.append(
