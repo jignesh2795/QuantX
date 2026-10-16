@@ -1087,6 +1087,7 @@ class DeterministicBacktestService:
                     created_at=order.created_at,
                     evidence_time=frame_time,
                     reason=receipt.message,
+                    effective_at=receipt.executed_at,
                 )
                 if order_fact is None:
                     active_orders.pop(order_id, None)
