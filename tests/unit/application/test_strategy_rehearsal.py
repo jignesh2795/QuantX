@@ -37,7 +37,7 @@ from quantx.domain.instruments import (
     MarketFamily,
     MarketRegion,
 )
-from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
+from quantx.domain.market_data import Candle, MarketDataEvent, MarketDataType, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.strategy import (
@@ -566,7 +566,7 @@ def _registry_for_strategy(strategy) -> StrategyRegistry:
     return registry
 
 
-def test_timer_dispatch_precedes_equal_timestamp_cohort_and_failure_blocks_only_cohort() -> None:
+def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     cohort = start + timedelta(minutes=1)
     later = start + timedelta(minutes=2)
@@ -589,7 +589,7 @@ def test_timer_dispatch_precedes_equal_timestamp_cohort_and_failure_blocks_only_
     assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
 
 
-def test_postcommit_callback_fault_attempts_order_update_and_preserves_fill_then_halts() -> None:
+def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     later = start + timedelta(minutes=1)
     strategy = _CommitThenFailObserver()
@@ -610,6 +610,82 @@ def test_postcommit_callback_fault_attempts_order_update_and_preserves_fill_then
     assert "run halted" in result.steps[1].note
 
 
+class _HistoryTimerObserver:
+    def __init__(self) -> None:
+        self.requested = False
+        self.timer_contexts: list[StrategyContext] = []
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        event = context.event
+        assert event is not None
+        timers: tuple[TimerRequest, ...] = ()
+        if not self.requested:
+            self.requested = True
+            timers = (
+                TimerRequest(
+                    "history-timer",
+                    event.instrument,
+                    event.timestamp + timedelta(minutes=1),
+                ),
+            )
+        return StrategyResult(
+            signal=StrategySignal(
+                context.ir.strategy_id,
+                context.ir.version,
+                event.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=event.timestamp,
+            ),
+            timers=timers,
+        )
+
+    def on_timer(self, context: StrategyContext, timer) -> None:
+        self.timer_contexts.append(context)
+
+
+def _candle_event(at: datetime, instrument: InstrumentId) -> MarketDataEvent:
+    candle = Candle(
+        instrument=instrument,
+        timeframe="1m",
+        timestamp=at,
+        open=Decimal("100"),
+        high=Decimal("102"),
+        low=Decimal("99"),
+        close=Decimal("101"),
+        volume=Decimal("10"),
+    )
+    return MarketDataEvent(MarketDataType.CANDLE, at, instrument, candle)
+
+
+def test_timer_history_is_prior_only_and_same_instrument() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    other_instrument_time = start + timedelta(seconds=30)
+    due_at = start + timedelta(minutes=1)
+    tcs = InstrumentId("NSE", "TCS")
+    infy = InstrumentId("NSE", "INFY")
+    inputs = tuple(
+        RehearsalInput(event, _snapshot())
+        for event in (
+            _candle_event(start, tcs),
+            _candle_event(other_instrument_time, infy),
+            _candle_event(due_at, tcs),
+        )
+    )
+    strategy = _HistoryTimerObserver()
+    session, _ = _session(registry=_registry_for_strategy(strategy))
+
+    result = session.run(inputs)
+
+    assert len(strategy.timer_contexts) == 1
+    timer_context = strategy.timer_contexts[0]
+    assert timer_context.event is None
+    assert timer_context.as_of == due_at
+    assert tuple(candle.instrument for candle in timer_context.history) == (tcs,)
+    assert tuple(candle.timestamp for candle in timer_context.history) == (start,)
+    assert result.steps[-1].evaluation is not None
+
+
 def test_rehearsal_preflight_rejects_nonzero_latency_before_consumption() -> None:
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     session, _ = _session()
@@ -622,7 +698,7 @@ def test_rehearsal_preflight_rejects_nonzero_latency_before_consumption() -> Non
     assert session.run(_inputs(start)).steps[0].evaluation is not None
 
 
-def test_rehearsal_rejects_regressing_timestamps_before_consuming_session() -> None:
+def test_rehearsal_rejects_regressing_input_timestamps_before_consuming_session() -> None:
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     later = start + timedelta(minutes=1)
     session, _ = _session()
