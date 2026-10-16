@@ -714,9 +714,26 @@ def test_rehearsal_rejects_regressing_input_timestamps_before_consuming_session(
 # ---------------------------------------------------------------------------
 
 
-def test_malformed_signal_rejected() -> None:
+def test_invalid_strategy_result_blocks_step_and_later_event_continues() -> None:
     class _BrokenStrategy:
+        def __init__(self) -> None:
+            self.calls = 0
+
         def on_market_data(self, context: StrategyContext):
+            self.calls += 1
+            if self.calls > 1:
+                event = context.event
+                assert event is not None
+                return StrategyResult(
+                    StrategySignal(
+                        strategy_id=context.ir.strategy_id,
+                        strategy_version=context.ir.version,
+                        instrument=event.instrument,
+                        action=SignalAction.HOLD,
+                        confidence=1.0,
+                        generated_at=event.timestamp,
+                    )
+                )
             return StrategyResult(
                 signal=StrategySignal(
                     strategy_id=context.ir.strategy_id,
@@ -738,11 +755,18 @@ def test_malformed_signal_rejected() -> None:
     registry = StrategyRegistry()
     registry.register("buy-and-hold", "1", _BrokenStrategy)
     session, _ = _session(registry=registry)
-    with pytest.raises(ValueError, match="BUY signal"):
-        session.run(_inputs(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    result = session.run(_inputs(start, start + timedelta(minutes=1)))
+
+    assert len(result.steps) == 2
+    assert result.steps[0].evaluation is None
+    assert result.steps[0].faults
+    assert "BUY signal" in result.steps[0].faults[0].message
+    assert result.steps[1].evaluation is not None
+    assert result.halt is None
 
 
-def test_venue_mismatch_rejected() -> None:
+def test_venue_mismatch_blocks_precommit_step() -> None:
     session, _ = _session()
     foreign = InstrumentId("BSE", "TCS")
     observed_at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
@@ -752,8 +776,11 @@ def test_venue_mismatch_rejected() -> None:
         foreign,
         Quote(foreign, observed_at, bid=Decimal("99"), ask=Decimal("100")),
     )
-    with pytest.raises(ValueError, match="venue"):
-        session.run((RehearsalInput(event=event, snapshot=_snapshot()),))
+    result = session.run((RehearsalInput(event=event, snapshot=_snapshot()),))
+
+    assert len(result.steps) == 1
+    assert result.steps[0].evaluation is None
+    assert "venue" in result.steps[0].faults[0].message
 
 
 # ---------------------------------------------------------------------------
@@ -932,27 +959,40 @@ def test_fill_never_precedes_observation_at_zero_latency() -> None:
     assert step.paper_outcome.fill.filled_at >= step.preparation.request.order.created_at
 
 
-def test_default_signal_timestamp_rejected() -> None:
+def test_wall_clock_signal_timestamp_blocks_step_and_later_event_continues() -> None:
     """A strategy omitting generated_at gets wall-clock time, which must not
     silently enter a deterministic rehearsal."""
 
     class _WallClockSignalStrategy:
+        def __init__(self) -> None:
+            self.calls = 0
+
         def on_market_data(self, context: StrategyContext):
+            self.calls += 1
+            event = context.event
+            assert event is not None
             return StrategyResult(
                 signal=StrategySignal(
                     strategy_id=context.ir.strategy_id,
                     strategy_version=context.ir.version,
-                    instrument=context.event.instrument,
+                    instrument=event.instrument,
                     action=SignalAction.HOLD,
                     confidence=1.0,
+                    generated_at=None if self.calls == 1 else event.timestamp,
                 )
             )
 
     registry = StrategyRegistry()
     registry.register("buy-and-hold", "1", _WallClockSignalStrategy)
     session, _ = _session(registry=registry)
-    with pytest.raises(ValueError, match="signal timestamp"):
-        session.run(_inputs(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    result = session.run(_inputs(start, start + timedelta(minutes=1)))
+
+    assert len(result.steps) == 2
+    assert result.steps[0].evaluation is None
+    assert "signal timestamp" in result.steps[0].faults[0].message
+    assert result.steps[1].evaluation is not None
+    assert result.halt is None
 
 
 def test_repeat_runs_agree_on_timestamps() -> None:
