@@ -1155,6 +1155,12 @@ class DeterministicBacktestService:
                     engine=post_engine,
                     history=history,
                 )
+                update_reason = receipt.message or receipt.outcome.value
+                if receipt.order_status is OrderStatus.UNKNOWN and not receipt.message:
+                    update_reason = (
+                        "order status is UNKNOWN; fill and remaining quantities "
+                        "are not authoritative"
+                    )
                 order_update = OrderUpdateFact(
                     client_order_id=order_id,
                     instrument=order.instrument,
@@ -1168,7 +1174,7 @@ class DeterministicBacktestService:
                     ),
                     created_at=order.created_at,
                     evidence_time=frame_time,
-                    reason=receipt.message or receipt.outcome.value,
+                    reason=update_reason,
                     effective_at=receipt.executed_at,
                 )
                 faults = dispatch_post_commit_callbacks(
