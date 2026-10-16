@@ -70,8 +70,8 @@ from quantx.execution.paper.profile import (
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
-from quantx.strategy.execution import bind_deployment_context
 from quantx.strategy.evaluation import StrategyEvaluationService
+from quantx.strategy.execution import bind_deployment_context
 from quantx.strategy.ir import StrategyIR
 from quantx.strategy.reference import BuyAndHoldStrategy
 from quantx.strategy.registry import StrategyRegistry
@@ -1403,7 +1403,8 @@ def test_qx08_buy_and_hold_driver_state_and_callback_parity() -> None:
     # authoritative valuation tracker, while backtest does. The unavailability
     # and its reason are a contract, not a value to normalize to zero.
     assert (
-        rehearsal_strategy.contexts[0].engine.account_availability.value == "UNAVAILABLE"
+        rehearsal_strategy.contexts[0].engine.account_availability.value
+        == "UNAVAILABLE"
     )
     assert rehearsal_strategy.contexts[0].engine.account_reason
     assert backtest_strategy.contexts[0].engine.account_reason is None
