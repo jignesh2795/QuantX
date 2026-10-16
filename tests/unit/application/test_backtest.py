@@ -741,6 +741,76 @@ def test_precommit_risk_or_policy_fault_preserves_timer_and_continues(
     assert result.steps[1].disposition is BacktestDisposition.NO_ACTION
 
 
+def test_clock_drift_between_strategy_and_execution_is_recorded_without_execute() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    ahead = start + timedelta(seconds=1)
+    later = start + timedelta(minutes=1)
+    engine = _CapturingEngine(clock=FixedClock(start))
+    engine.event_time_support = EventTimeSupport.SUPPORTED
+    observed: list[datetime] = []
+    strategy_ir = _runtime_ir("clock-drift-before-execution")
+
+    class _BuyOnceStrategy:
+        def __init__(self) -> None:
+            self.entered = False
+
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            event = context.event
+            assert event is not None
+            observed.append(event.timestamp)
+            if self.entered:
+                action = SignalAction.HOLD
+                intent = None
+            else:
+                self.entered = True
+                action = SignalAction.BUY
+                intent = TradeIntent(
+                    instrument=event.instrument,
+                    side=OrderSide.BUY,
+                    quantity=Decimal("1"),
+                    execution_context=_context(),
+                    strategy_id=context.ir.strategy_id.value,
+                    strategy_version=context.ir.version,
+                )
+            return StrategyResult(
+                StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    event.instrument,
+                    action,
+                    1.0,
+                    generated_at=event.timestamp,
+                ),
+                intent,
+            )
+
+    class _DriftingRiskEngine:
+        def evaluate(self, intent, context) -> RiskResult:
+            engine._clock = FixedClock(ahead)
+            return RiskResult(RiskDecision.APPROVE, "approved before clock drift")
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
+        execution_engine=engine,
+        risk_engine=_DriftingRiskEngine(),
+    ).run(
+        series=_series(),
+        strategy=StrategyEvaluationService(_BuyOnceStrategy()),
+        strategy_ir=strategy_ir,
+        financial_state=_financial_state(),
+    )
+
+    assert observed == [start]
+    assert result.steps[0].disposition is BacktestDisposition.BLOCKED
+    assert "event-time alignment failed before paper execution" in result.steps[0].reason
+    assert result.steps[0].faults[0].callback_name == "event_time_alignment"
+    assert result.halt is not None
+    assert result.halt.kind == "EVENT_TIME_SUPPORT_VIOLATION"
+    assert result.receipts == ()
+    assert engine.captured == []
+    assert result.steps[1].disposition is BacktestDisposition.BLOCKED
+
+
 def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     strategy = _BacktestCommitThenFailObserver()
     ir = _runtime_ir("callback-backtest")
