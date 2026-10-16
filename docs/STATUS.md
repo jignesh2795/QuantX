@@ -26,7 +26,13 @@ The bounded source/test reconciliation now has traceable evidence for every in-s
 
 **Design only; no multi-leg execution is implemented or enabled.** Implementation is gated on canonical per-leg product/position-effect and derivative-contract decisions in #193/#194, plus a bounded trace of existing aggregate-risk, reservation, persistence and recovery seams. If those contracts cannot prove safe aggregate admission and restart/reconciliation, the workflow must fail closed. Native baskets, parallel submission, assumed spread-margin offsets, automatic flatten/hedge, and cross-broker atomicity remain unsupported.
 
-## Current state — QX-06 ADR accepted; QX-08 acceptance complete; QX-09 complete
+## QX-04 order product and position-effect decision — accepted (2026-10-16)
+
+[ADR-011: Order Product and Position Effect](architecture/adr/ADR-011-order-product-position-effect.md) settles the canonical contract choice for issue #193: product and position effect are per-order request semantics, not instrument attributes. Product vocabularies, support and compatibility defaults are resolved by the applicable versioned market-pack rules; Dhan adapters translate the resolved approved product to wire values. Position effect distinguishes OPEN, CLOSE, AUTO and absent/not-applicable, with AUTO requiring authoritative position evidence before approval. Fingerprints must include resolved product/effect and relevant rule identity. Current code does not yet implement this contract: `TradeIntent`/`Order` lack these fields, and Dhan product selection still comes from `DhanInstrumentRef.product_type`.
+
+**Design only; issue #193 remains open for implementation.** The implementation must preserve the reserve-before-submit, idempotency, receipt-validation, and no-automatic-retry/UNKNOWN guarantees; update the canonical fingerprint path; and trace serialization/recovery as well as the adapter submit path.
+
+## Current state — QX-04/QX-06 design decisions accepted; QX-08 acceptance complete; QX-09 complete
 
 PR #221 merged QX-09 from `feat/qx-09-market-pack-checks-v1` at validated head `7793646e0e3d210e81364d39605ee3383e434723` as merge commit `1e4ebf4f4671e90dcdcafc1cda578182ab39d58b`. The PR covers 15 focused files (+5,746/−229); local validation was reported at the exact feature head, and no GitHub Actions results are claimed. Repository Actions are disabled by project policy.
 

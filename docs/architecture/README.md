@@ -16,7 +16,7 @@ This directory contains the architecture record for QuantX.
 
 ## Other architecture areas
 
-Architecture decisions: `adr/` holds accepted ADR-lite records explaining why the target shape exists (modular monolith, plugin-first extensibility, event-driven core, one semantic lifecycle, Indian-market-first domain, broker adapters, modular-hybrid topology). [ADR-010: Composed Multi-Leg Order Workflow Semantics](adr/ADR-010-composed-multi-leg-order-semantics.md) records the chosen multi-leg design; it is a design decision, not an implementation claim.
+Architecture decisions: `adr/` holds accepted ADR-lite records explaining why the target shape exists (modular monolith, plugin-first extensibility, event-driven core, one semantic lifecycle, Indian-market-first domain, broker adapters, modular-hybrid topology). [ADR-010: Composed Multi-Leg Order Workflow Semantics](adr/ADR-010-composed-multi-leg-order-semantics.md) records the chosen multi-leg design; it is a design decision, not an implementation claim. [ADR-011: Order Product and Position Effect](adr/ADR-011-order-product-position-effect.md) records the QX-04 request-semantics contract; it is a design decision, not an implementation claim.
 
 Execution control path: `control-and-safety-path.md` describes the ordered, fail-closed execution path from intent to portfolio update and is the reference for control-path safety review.
 
