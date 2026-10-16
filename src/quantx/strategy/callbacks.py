@@ -8,7 +8,6 @@ from decimal import Decimal
 from typing import Any
 
 from quantx.domain.enums import OrderStatus
-from quantx.domain.market_data import Candle
 from quantx.domain.orders import Fill
 from quantx.domain.value_objects import InstrumentId
 
