@@ -21,6 +21,14 @@ def _quantity(context: StrategyContext, strategy_name: str) -> Decimal:
     return quantity
 
 
+def _legacy_quantity(ir: StrategyIR, strategy_name: str) -> Decimal:
+    """Preserve the independent BuyThenClose reference strategy's input behavior."""
+    quantity = Decimal(ir.parameter("quantity") or "1")
+    if quantity <= 0:
+        raise ValueError(f"{strategy_name} quantity must be positive")
+    return quantity
+
+
 def _hold(
     ir: StrategyIR,
     event: MarketDataEvent,
@@ -108,7 +116,7 @@ class BuyThenCloseStrategy:
             )
             return StrategyResult(signal=signal)
 
-        quantity = _quantity(context, "buy-then-close")
+        quantity = _legacy_quantity(ir, "buy-then-close")
         if key not in self._entered:
             self._entered.add(key)
             signal = StrategySignal(
