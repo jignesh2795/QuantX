@@ -39,6 +39,11 @@ class StrategyContext:
         if as_of.tzinfo is None or as_of.utcoffset() is None:
             raise ValueError("as_of must be timezone-aware")
         logical_time = as_of.astimezone(UTC)
+        if event is not None:
+            if event.timestamp.tzinfo is None or event.timestamp.utcoffset() is None:
+                raise ValueError("event timestamp must be timezone-aware")
+            if event.timestamp.astimezone(UTC) > logical_time:
+                raise ValueError("event timestamp must not be later than context as_of")
         snapshot = engine or unavailable_engine_snapshot(
             logical_time,
             "engine snapshot was not supplied by an authoritative driver",
