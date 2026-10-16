@@ -49,7 +49,7 @@ from quantx.strategy.execution import (
 )
 from quantx.strategy.ir import StrategyIR
 from quantx.strategy.registry import StrategyRegistry
-from quantx.strategy.timers import TimerRegistry, TimerInvocation, UndeliveredTimer
+from quantx.strategy.timers import TimerRegistry, UndeliveredTimer
 from quantx.strategy.typed_params import TypedParams
 
 
