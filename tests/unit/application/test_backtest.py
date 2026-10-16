@@ -466,6 +466,8 @@ class _BacktestCommitThenFailObserver:
     def __init__(self) -> None:
         self.entered = False
         self.calls: list[str] = []
+        self.positions_seen: list[tuple[object, ...]] = []
+        self.order_updates: list[object] = []
 
     def on_market_data(self, context: StrategyContext) -> StrategyResult:
         event = context.event
@@ -498,10 +500,12 @@ class _BacktestCommitThenFailObserver:
 
     def on_fill(self, context: StrategyContext, fill) -> None:
         self.calls.append("on_fill")
+        self.positions_seen.append(context.engine.positions.items)
         raise RuntimeError("fill observer failed")
 
     def on_order_update(self, context: StrategyContext, update) -> None:
         self.calls.append("on_order_update")
+        self.order_updates.append(update)
 
 
 def _runtime_ir(strategy_id: str) -> StrategyIR:
@@ -656,6 +660,11 @@ def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     assert result.receipts[0].fills
     assert result.ledger[0].quantity == Decimal("1")
     assert strategy.calls == ["on_fill", "on_order_update"]
+    assert len(strategy.positions_seen) == 1
+    assert strategy.positions_seen[0][0].quantity == Decimal("1")
+    assert len(strategy.order_updates) == 1
+    assert strategy.order_updates[0].status is OrderStatus.FILLED
+    assert strategy.order_updates[0].remaining_quantity == Decimal("0")
     assert result.halt is not None
     assert result.halt.kind == "POST_COMMIT_CALLBACK_FAILURE"
     assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_fill",)
