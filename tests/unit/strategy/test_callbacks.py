@@ -112,6 +112,31 @@ def test_timer_callback_receives_eventless_context_at_due_time() -> None:
     assert seen[0][0].as_of == due_at
 
 
+def test_callback_lookup_fault_does_not_skip_later_order_update() -> None:
+    at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    context = StrategyContext(_event(at), _ir(), as_of=at)
+    order_updates: list[OrderUpdateFact] = []
+
+    class _ObserverWithBrokenDescriptor:
+        @property
+        def on_fill(self):
+            raise RuntimeError("callback descriptor failed")
+
+        def on_order_update(self, callback_context, update):
+            order_updates.append(update)
+
+    faults = dispatch_post_commit_callbacks(
+        _ObserverWithBrokenDescriptor(),
+        context,
+        (_fill(at),),
+        _order_update(at),
+    )
+
+    assert tuple(fault.callback_name for fault in faults) == ("on_fill",)
+    assert faults[0].message == "callback descriptor failed"
+    assert len(order_updates) == 1
+
+
 def test_order_update_preserves_evidence_time_separately_from_effective_time() -> None:
     available_at = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     effective_at = available_at + timedelta(milliseconds=5)
