@@ -342,7 +342,7 @@ class StrategyRehearsalSession:
                     filled_quantity=filled_quantity,
                     created_at=order.created_at,
                     evidence_time=event.timestamp,
-                    reason=outcome.reason,
+                    reason=update_reason,
                     effective_at=(
                         event.timestamp
                         if outcome.fill is None
@@ -388,6 +388,12 @@ class StrategyRehearsalSession:
                     engine=post_snapshot,
                     history=history,
                 )
+                update_reason = outcome.reason
+                if outcome.lifecycle_status is OrderStatus.UNKNOWN and not update_reason:
+                    update_reason = (
+                        "order status is UNKNOWN; fill and remaining quantities "
+                        "are not authoritative"
+                    )
                 update = OrderUpdateFact(
                     client_order_id=order_id,
                     instrument=order.instrument,
