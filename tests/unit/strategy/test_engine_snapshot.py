@@ -279,6 +279,27 @@ def test_snapshot_rejects_future_effective_order_time_when_availability_is_curre
         )
 
 
+def test_snapshot_rejects_future_position_availability_time() -> None:
+    as_of = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    entry = PositionLedgerEntry(
+        instrument=_instrument(),
+        quantity=Decimal("1"),
+        average_price=Decimal("100"),
+        realized_pnl=Decimal("0"),
+        fees=Decimal("0"),
+    )
+    fact = PositionFact.from_ledger_entry(
+        entry,
+        effective_at=as_of,
+        evidence_time=as_of + timedelta(seconds=1),
+    )
+    with pytest.raises(TemporalIntegrityError, match="availability"):
+        build_engine_snapshot(
+            _adapter(positions=EvidenceCollection.known((fact,))),
+            as_of=as_of,
+        )
+
+
 def test_history_is_prior_only_same_instrument_and_most_recent_first_window() -> None:
     as_of = datetime(2026, 1, 1, 9, 18, tzinfo=UTC)
     candles = (
