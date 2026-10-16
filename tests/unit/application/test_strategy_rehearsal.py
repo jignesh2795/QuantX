@@ -594,6 +594,72 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
 
 
+def test_due_timer_failure_does_not_skip_other_due_timers() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    cohort = start + timedelta(minutes=1)
+    later = start + timedelta(minutes=2)
+
+    class _MultipleDueTimers:
+        def __init__(self) -> None:
+            self.requested = False
+            self.market_times: list[datetime] = []
+            self.timer_ids: list[str] = []
+
+        def on_market_data(self, context: StrategyContext) -> StrategyResult:
+            event = context.event
+            assert event is not None
+            self.market_times.append(event.timestamp)
+            timers: tuple[TimerRequest, ...] = ()
+            if not self.requested:
+                self.requested = True
+                due_at = event.timestamp + timedelta(seconds=30)
+                timers = (
+                    TimerRequest("timer-b", event.instrument, due_at),
+                    TimerRequest("timer-a", event.instrument, due_at),
+                )
+            return StrategyResult(
+                signal=StrategySignal(
+                    context.ir.strategy_id,
+                    context.ir.version,
+                    event.instrument,
+                    SignalAction.HOLD,
+                    1.0,
+                    generated_at=event.timestamp,
+                ),
+                timers=timers,
+            )
+
+        def on_timer(self, context: StrategyContext, timer) -> None:
+            self.timer_ids.append(timer.timer_id)
+            if timer.timer_id == "timer-a":
+                raise RuntimeError("first due timer failed")
+
+    strategy = _MultipleDueTimers()
+    session, _ = _session(registry=_registry_for_strategy(strategy))
+    result = session.run(_inputs(start, cohort, cohort, later))
+
+    assert strategy.timer_ids == ["timer-a", "timer-b"]
+    assert strategy.market_times == [start, later]
+    assert result.steps[1].evaluation is None
+    assert result.steps[2].evaluation is None
+    assert result.steps[3].evaluation is not None
+    assert result.halt is None
+    assert tuple(fault.callback_name for fault in result.callback_faults) == ("on_timer",)
+
+
+def test_rehearsal_reports_timers_undelivered_beyond_input_horizon() -> None:
+    start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    strategy = _TimerObserver()
+    session, _ = _session(registry=_registry_for_strategy(strategy))
+
+    result = session.run(_inputs(start))
+
+    assert len(result.undelivered_timers) == 1
+    assert result.undelivered_timers[0].timer.timer_id == "timer-1"
+    assert "run ended before the timer became due" in result.undelivered_timers[0].reason
+    assert strategy.calls == [("market", start)]
+
+
 def test_precommit_preparation_failure_preserves_timer_and_later_steps() -> None:
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     later = start + timedelta(minutes=1)
