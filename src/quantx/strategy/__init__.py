@@ -1,7 +1,9 @@
 """Strategy runtime evaluation contracts."""
 
-from .compiler import StrategyCompiler
+from quantx.domain.strategy import TimerRequest
+
 from .callbacks import CallbackFault, OrderUpdateFact, RunHaltRecord, TemporalIntegrityFault
+from .compiler import StrategyCompiler
 from .context import StrategyContext
 from .deployment import StrategyDeploymentRuntime, StrategyExecutionDecision
 from .engine_snapshot import (
@@ -29,7 +31,6 @@ from .registry import StrategyRegistry
 from .runtime import ExecutableStrategy, StrategyRuntime
 from .timers import TimerInvocation, TimerRegistry, UndeliveredTimer
 from .typed_params import TypedParams
-from quantx.domain.strategy import TimerRequest
 
 __all__ = [
     "BuyAndHoldStrategy",
