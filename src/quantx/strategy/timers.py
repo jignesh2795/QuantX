@@ -72,7 +72,11 @@ class TimerRegistry:
     _registered_ids: set[str] = field(default_factory=set, init=False)
     _next_sequence: int = field(default=0, init=False)
 
-    def register_result(self, result: StrategyResult, event: MarketDataEvent) -> tuple[TimerInvocation, ...]:
+    def register_result(
+        self,
+        result: StrategyResult,
+        event: MarketDataEvent,
+    ) -> tuple[TimerInvocation, ...]:
         """Validate atomically, then register the timer requests in result order."""
         validate_timer_requests(
             result,
