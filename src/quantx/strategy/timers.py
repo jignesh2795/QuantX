@@ -50,10 +50,14 @@ class TimerInvocation:
             raise ValueError("timer due_at must be timezone-aware")
         if self.registered_at.tzinfo is None or self.registered_at.utcoffset() is None:
             raise ValueError("timer registered_at must be timezone-aware")
-        if self.registration_sequence < 0:
+        if isinstance(self.registration_sequence, bool) or self.registration_sequence < 0:
             raise ValueError("registration_sequence must be non-negative")
-        object.__setattr__(self, "due_at", self.due_at.astimezone(UTC))
-        object.__setattr__(self, "registered_at", self.registered_at.astimezone(UTC))
+        due_at = self.due_at.astimezone(UTC)
+        registered_at = self.registered_at.astimezone(UTC)
+        if due_at <= registered_at:
+            raise ValueError("timer due_at must be strictly later than registered_at")
+        object.__setattr__(self, "due_at", due_at)
+        object.__setattr__(self, "registered_at", registered_at)
 
 
 @dataclass(frozen=True, slots=True)
