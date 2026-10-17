@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Protocol
 from uuid import UUID
 
@@ -20,6 +21,7 @@ from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.ports import ExecutionReceipt
 from quantx.integrations.reconciliation.account import (
     AccountFinancialState,
+    ReconciliationFinding,
     ReconciliationReport,
 )
 from quantx.integrations.reconciliation.broker_evidence import (
@@ -162,15 +164,46 @@ _ADVISORY_ACCOUNT_AMOUNT_FIELDS = frozenset(
 )
 
 
+def _is_canonical_amount_string(value: object) -> bool:
+    """True only for the string form the canonical account reconciler emits.
+
+    ``AccountReconciler`` serializes Decimal amounts with ``str``; anything
+    that is not a decimal-parseable string cannot be canonical balance
+    evidence, so non-strings, blanks, and malformed strings never qualify.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        Decimal(value)
+    except InvalidOperation:
+        return False
+    return True
+
+
 def is_advisory_account_amount_evidence(report: ReconciliationReport) -> bool:
     """True when every finding is a both-sides balance delta on an advisory field.
 
-    Identity, availability, currency, and staleness findings never qualify.
+    Only the canonical account-reconciler shape qualifies: each finding names
+    an advisory amount field and carries decimal-parseable strings on both
+    sides. Identity, availability, currency, staleness, half-sided, and
+    non-string findings never qualify.
     """
-    return bool(report.findings) and all(
-        finding.field in _ADVISORY_ACCOUNT_AMOUNT_FIELDS and finding.observed is not None
-        for finding in report.findings
-    )
+    findings = report.findings
+    if not isinstance(findings, tuple) or not findings:
+        return False
+    for finding in findings:
+        if not isinstance(finding, ReconciliationFinding):
+            return False
+        if (
+            not isinstance(finding.field, str)
+            or finding.field not in _ADVISORY_ACCOUNT_AMOUNT_FIELDS
+        ):
+            return False
+        if not _is_canonical_amount_string(finding.expected):
+            return False
+        if not _is_canonical_amount_string(finding.observed):
+            return False
+    return True
 
 
 class ReconciliationIdempotencyResolver:

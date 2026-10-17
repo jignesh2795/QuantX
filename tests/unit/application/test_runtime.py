@@ -79,6 +79,15 @@ def _identity_account_report() -> ReconciliationReport:
     )
 
 
+def _advisory_finding_account(
+    field: object,
+    expected: object,
+    observed: object,
+) -> ReconciliationReport:
+    finding = ReconciliationFinding(field, expected, observed, "balance delta")  # type: ignore[arg-type]
+    return _account_report(AccountReconciliationStatus.MISMATCH, (finding,))
+
+
 def _reconciliation_result(**overrides: object) -> OrderStateReconciliationResult:
     base: dict[str, object] = {
         "order_id": _ORDER_ID,
@@ -711,6 +720,61 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
             result=_reconciliation_result(status=OrderWorkflowStatus.MISMATCH),
         ),
     ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", None, "123"),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", "100", Decimal("101")),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", Decimal("100"), "101"),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", "", "101"),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account([], "100", "101"),
+            ),
+        ),
+    ),
 )
 
 _MALFORMED_DEFINITIVE_IDS: tuple[str, ...] = (
@@ -747,6 +811,11 @@ _MALFORMED_DEFINITIVE_IDS: tuple[str, ...] = (
     "mismatch-with-unavailable-position",
     "mismatch-with-unmatched-position",
     "mismatch-with-matched-account",
+    "advisory-half-sided-finding",
+    "advisory-non-string-observed",
+    "advisory-non-string-expected",
+    "advisory-empty-expected",
+    "advisory-unhashable-field",
 )
 
 
