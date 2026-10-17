@@ -1,6 +1,6 @@
 {
   "schema": "quantx.skills-manifest.v1",
-  "generated_at": "2026-10-17T18:21:43+00:00",
+  "generated_at": "2026-10-17T18:26:20+00:00",
   "files": {
     "quantx-adversarial-review/SKILL.md": "54fa7fcd8090095a179ab837f7d9b79110c6f08b13a9eb7e68abc79728585325",
     "quantx-architecture/SKILL.md": "652ffcdf3392a460dd6356b574a290570cf0b4a7a4253c9fae0e92e2b0250931",
@@ -22,7 +22,7 @@
     "quantx-migration-consolidation/SKILL.md": "7c353f0cf397054cd8d0da1bb10b6b7d8ecab400aeda2b42cdf64eb2c580ca7a",
     "quantx-operating-model/SKILL.md": "c5fbd5a69b3a65f8025374eea9b66bc33f1523fa094622138d019b5b5bf82d6c",
     "quantx-release-gate/SKILL.md": "8773f5b8ab0269d90dc959df3818424c776e7f1e4758b3adc0f55d48232fa567",
-    "quantx-release-gate/scripts/release_check.py": "b0aa6bd1fe99fab6a8ed8360146c975c1a0be7e4c48821ac997d8fe7c8103dd1",
+    "quantx-release-gate/scripts/release_check.py": "df560d37f832c2cbd5ca28c2acb20a2b5ad76aa8b49515fa9c139284bacb0c4e",
     "quantx-repo-auditor/SKILL.md": "2810bfc0b09e4b16c10438f6643f4be558b2536deed95d66e1f3e9feec7e5110",
     "quantx-research-data/SKILL.md": "d4aca41bce336fdf409d913acecd064c38635bad5fbe9c22968fbdd15851f0b7",
     "quantx-risk-policy/SKILL.md": "30088b04ebbb32dad041f5928f27e122e5c9055d567571b90e9db5978c5463e5",
@@ -35,6 +35,6 @@
     "quantx-strategy-plugins/SKILL.md": "65e8eaec68c8c8ba2091d9f52b26d27390c6dcd380b97bba14fb4d84a21109fc",
     "quantx-testing/SKILL.md": "f59049fc14adc0e4f4b438b72b1a1117e8b182a3027560bde3bd225778a986b4",
     "quantx-validation-gate/SKILL.md": "ebb1c1ba42d00f0d727e13ece766c0b6ba255f68968ac278fa1a518bae6fee67",
-    "quantx-validation-gate/scripts/run_validation.py": "c0f9334237c5e4e343aeb4f4797cb03fe42ff7497681e51c3bcb480c9dd805c6"
+    "quantx-validation-gate/scripts/run_validation.py": "6ceee033ac7041257dc9fac88d1318dbc86ac00af89d613b03d7b1871acf897a"
   }
 }
