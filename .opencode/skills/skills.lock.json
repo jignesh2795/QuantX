@@ -1,6 +1,6 @@
 {
   "schema": "quantx.skills-manifest.v1",
-  "generated_at": "2026-10-17T18:26:20+00:00",
+  "generated_at": "2026-10-17T18:57:35+00:00",
   "files": {
     "quantx-adversarial-review/SKILL.md": "54fa7fcd8090095a179ab837f7d9b79110c6f08b13a9eb7e68abc79728585325",
     "quantx-architecture/SKILL.md": "652ffcdf3392a460dd6356b574a290570cf0b4a7a4253c9fae0e92e2b0250931",
@@ -21,7 +21,7 @@
     "quantx-india-market/references/plugin-registration.md": "286448b0775a28f29092330aaa26cb66ccd388bdf5b2d5c3bed8ba1e6a5d2c41",
     "quantx-migration-consolidation/SKILL.md": "7c353f0cf397054cd8d0da1bb10b6b7d8ecab400aeda2b42cdf64eb2c580ca7a",
     "quantx-operating-model/SKILL.md": "c5fbd5a69b3a65f8025374eea9b66bc33f1523fa094622138d019b5b5bf82d6c",
-    "quantx-release-gate/SKILL.md": "8773f5b8ab0269d90dc959df3818424c776e7f1e4758b3adc0f55d48232fa567",
+    "quantx-release-gate/SKILL.md": "37b96ef413c646ed7a99129075cceef536c0cde3e5e9170f830ce10f932b071f",
     "quantx-release-gate/scripts/release_check.py": "df560d37f832c2cbd5ca28c2acb20a2b5ad76aa8b49515fa9c139284bacb0c4e",
     "quantx-repo-auditor/SKILL.md": "2810bfc0b09e4b16c10438f6643f4be558b2536deed95d66e1f3e9feec7e5110",
     "quantx-research-data/SKILL.md": "d4aca41bce336fdf409d913acecd064c38635bad5fbe9c22968fbdd15851f0b7",
