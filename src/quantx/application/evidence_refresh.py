@@ -399,7 +399,7 @@ class ReconciliationEvidenceRefresher:
         if not account.findings:
             return False
         return all(
-            finding.field in _ADVISORY_ACCOUNT_AMOUNT_FIELDS and finding.observed is not None
+            finding.field in _ADVISORY_ACCOUNT_AMOUNT_FIELDS and isinstance(finding.observed, str)
             for finding in account.findings
         )
 

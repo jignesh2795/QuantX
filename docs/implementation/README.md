@@ -3,6 +3,7 @@
 ## Canonical documents
 
 - `v0.1-build-order.md` — implementation sequence and release gates.
+- `local-release-validation-playbook.md` — end-to-end local validation sequence for a release candidate: isolated worktree, both dependency configurations, evidence retention, release gate, and cleanup.
 - `p0-canonical-contracts.md` — stable internal vocabulary and invariants.
 - `v0.1-repository-tree.md` — historical v0.1 target tree; it is not the current source tree.
 
