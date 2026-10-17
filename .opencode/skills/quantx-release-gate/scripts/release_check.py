@@ -8,10 +8,15 @@ mandatory check contract of the `quantx.validation-evidence.v1` schema: every
 check record emitted by the validation gate (pytest, ruff-check, ruff-format,
 mypy, git-diff-check, worktree-integrity) must be present exactly once as a
 well-formed record, and the overall verdict is recomputed from those records
-and never trusted as a summary field. Recomputing verifies internal
-consistency only; it does not prove the evidence was genuinely produced by a
-test run. Checks tracked-worktree cleanliness and diff-range whitespace, and
-reports PASS / FAIL / UNKNOWN (fail-closed).
+and never trusted as a summary field. Record semantics are cross-checked
+against the producer's shapes: status/exit-code contradictions (a PASS with a
+nonzero exit code, a FAIL without one), pytest PASS summaries without a parsed
+pass count or containing failures, and non-finite or negative durations are
+rejected, while the Ruff vacuous-pass shape is preserved; worktree-integrity
+is produced without an exit code. Recomputing verifies internal consistency
+only; it does not prove the evidence was genuinely produced by a test run.
+Checks tracked-worktree cleanliness and diff-range whitespace, and reports
+PASS / FAIL / UNKNOWN (fail-closed).
 
 This script authorizes nothing by itself and never modifies the repository.
 It does not fix, retry, or re-run validation; missing, incomplete, or
@@ -29,7 +34,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -63,6 +70,12 @@ CHECK_RECORD_FIELDS: tuple[str, ...] = (
     "summary",
     "notes",
     "output_tail",
+)
+
+_COMMAND_CHECKS = ("ruff-check", "ruff-format", "mypy", "git-diff-check")
+
+_PYTEST_COUNT_RE = re.compile(
+    r"(\d+) (passed|failed|error|errors|skipped|xfailed|xpassed|deselected)"
 )
 
 NON_CLAIMS = [
@@ -134,8 +147,9 @@ def check_record_problems(index: int, entry: object) -> list[str]:
             problems.append(f"check {label!r} is missing field {field_name!r}")
     if not isinstance(name, str) or not name:
         problems.append(f"check {label!r} has an empty or non-string name")
-    if entry.get("status") not in (PASS, FAIL, UNKNOWN):
-        problems.append(f"check {label!r} has unsupported status {entry.get('status')!r}")
+    status = entry.get("status")
+    if status not in (PASS, FAIL, UNKNOWN):
+        problems.append(f"check {label!r} has unsupported status {status!r}")
     if not isinstance(entry.get("summary"), str):
         problems.append(f"check {label!r} has a non-string summary")
     notes = entry.get("notes")
@@ -150,9 +164,77 @@ def check_record_problems(index: int, entry: object) -> list[str]:
     duration = entry.get("duration_s")
     if isinstance(duration, bool) or not isinstance(duration, int | float | None):
         problems.append(f"check {label!r} has a malformed duration_s")
+    elif duration is not None and (not math.isfinite(duration) or duration < 0):
+        problems.append(f"check {label!r} has a malformed duration_s {duration!r}")
     if not isinstance(entry.get("output_tail"), str):
         problems.append(f"check {label!r} has a non-string output_tail")
+    if problems:
+        return problems
+    if isinstance(name, str) and name in MANDATORY_CHECKS:
+        problems.extend(semantic_record_problems(name, status, exit_code, entry["summary"]))
     return problems
+
+
+def semantic_record_problems(
+    name: str, status: str, exit_code: int | None, summary: str
+) -> list[str]:
+    """Reject statuses that contradict the producer's exit codes or summaries."""
+    problems: list[str] = []
+    if name == "worktree-integrity":
+        if exit_code is not None:
+            problems.append(
+                "check 'worktree-integrity' is produced without an exit code but "
+                f"has exit_code {exit_code!r}"
+            )
+        expected_summary = {PASS: "clean tracked tree", FAIL: "tracked modifications", UNKNOWN: ""}
+        if summary != expected_summary[status]:
+            problems.append(
+                f"check 'worktree-integrity' has status {status} with summary {summary!r}"
+            )
+        return problems
+    if name == "pytest":
+        if status == PASS:
+            if exit_code != 0:
+                problems.append(f"check 'pytest' has status PASS with exit_code {exit_code!r}")
+            ok, explanation = pytest_pass_summary(summary)
+            if not ok:
+                problems.append(f"check 'pytest' has status PASS with {explanation}")
+        return problems
+    vacuous = name in ("ruff-check", "ruff-format") and summary == "vacuous pass"
+    if vacuous:
+        if status != PASS or exit_code is not None:
+            problems.append(
+                f"check {name!r} has a vacuous-pass summary contradicting "
+                f"status {status!r} and exit_code {exit_code!r}"
+            )
+        return problems
+    if status == PASS:
+        if exit_code != 0:
+            problems.append(f"check {name!r} has status PASS with exit_code {exit_code!r}")
+    elif status == FAIL:
+        if not isinstance(exit_code, int) or exit_code == 0:
+            problems.append(f"check {name!r} has status FAIL with exit_code {exit_code!r}")
+    elif status == UNKNOWN:
+        if exit_code is not None:
+            problems.append(f"check {name!r} has status UNKNOWN with exit_code {exit_code!r}")
+    return problems
+
+
+def pytest_pass_summary(summary: str) -> tuple[bool, str]:
+    """Check the producer's pytest PASS contract: parsed pass count, no failures."""
+    if not summary or summary == "no pytest summary line parsed":
+        return False, f"an empty or unparsed summary {summary!r}"
+    counts: dict[str, int] = {}
+    for match in _PYTEST_COUNT_RE.finditer(summary):
+        key = match.group(2)
+        if key == "error":
+            key = "errors"
+        counts[key] = max(counts.get(key, 0), int(match.group(1)))
+    if counts.get("failed") or counts.get("errors"):
+        return False, f"failure counts in summary {summary!r}"
+    if not counts.get("passed"):
+        return False, f"no parsed pass count in summary {summary!r}"
+    return True, ""
 
 
 def load_evidence(path: Path | None) -> tuple[dict | None, str]:
@@ -217,7 +299,10 @@ def evaluate(
         if not isinstance(raw_checks, list) or not raw_checks:
             integrity_problems.append("evidence has no checks list to verify")
         else:
+            seen: set[str] = set()
             for index, entry in enumerate(raw_checks):
+                if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]:
+                    seen.add(entry["name"])
                 problems = check_record_problems(index, entry)
                 if problems:
                     integrity_problems.extend(problems)
@@ -230,7 +315,7 @@ def evaluate(
                 else:
                     statuses[name] = entry["status"]
             for name in MANDATORY_CHECKS:
-                if name not in statuses:
+                if name not in statuses and name not in seen:
                     integrity_problems.append(f"mandatory check {name!r} is missing")
         recomputed: str | None = None
         if not integrity_problems:
@@ -456,17 +541,36 @@ def self_test() -> int:
         check_case("head resolved", head is not None)
         assert head is not None
 
-        def record(name: str, status: str, summary: str = "") -> dict:
-            return {
+        def record(name: str, status: str = PASS, **overrides: object) -> dict:
+            base: dict = {
                 "name": name,
                 "argv": ["fixture"],
                 "status": status,
                 "exit_code": 0 if status == PASS else None,
                 "duration_s": 0.1,
-                "summary": summary,
+                "summary": "",
                 "notes": [],
                 "output_tail": "",
             }
+            if name == "worktree-integrity":
+                base["exit_code"] = None
+                base["summary"] = {
+                    PASS: "clean tracked tree",
+                    FAIL: "tracked modifications",
+                    UNKNOWN: "",
+                }[status]
+            elif name == "pytest":
+                base["summary"] = (
+                    "2045 passed, 1 skipped" if status == PASS else "3 failed, 10 passed"
+                )
+            elif name in ("ruff-check", "ruff-format"):
+                base["summary"] = "4 changed file(s)"
+            elif name == "git-diff-check":
+                base["summary"] = (
+                    "no whitespace errors" if status == PASS else "whitespace errors found"
+                )
+            base.update(overrides)
+            return base
 
         def payload(**overrides: object) -> dict:
             data: dict = {
@@ -474,7 +578,7 @@ def self_test() -> int:
                 "overall": PASS,
                 "head_sha": head,
                 "repo": str(tmp),
-                "checks": [record(name, PASS, "fixture pass") for name in MANDATORY_CHECKS],
+                "checks": [record(name) for name in MANDATORY_CHECKS],
             }
             data.update(overrides)
             return data
@@ -484,50 +588,51 @@ def self_test() -> int:
             path.write_text(json.dumps(data), encoding="utf-8")
             return path
 
+        def case_checks() -> list[dict]:
+            return [record(name) for name in MANDATORY_CHECKS]
+
         valid = write_case("valid.json", payload())
         report = evaluate(tmp, valid, None, head)
-        check_case("complete mandatory inventory passes", report["overall"] == PASS)
+        check_case("valid complete producer output passes", report["overall"] == PASS)
 
-        single = write_case(
-            "single-check.json", payload(checks=[record("pytest", PASS, "2045 passed")])
-        )
+        single = write_case("single-check.json", payload(checks=[record("pytest")]))
         report = evaluate(tmp, single, None, head)
         check_case("single-check evidence fails", report["overall"] == FAIL)
 
         for missing in MANDATORY_CHECKS:
-            partial = [record(name, PASS) for name in MANDATORY_CHECKS if name != missing]
+            partial = [record(name) for name in MANDATORY_CHECKS if name != missing]
             path = write_case(f"missing-{missing}.json", payload(checks=partial))
             report = evaluate(tmp, path, None, head)
             check_case(f"omitted {missing} fails", report["overall"] == FAIL)
 
-        duplicated = [record(name, PASS) for name in MANDATORY_CHECKS] + [record("pytest", PASS)]
+        duplicated = [*case_checks(), record("pytest")]
         path = write_case("duplicated.json", payload(checks=duplicated))
         report = evaluate(tmp, path, None, head)
         check_case("duplicate mandatory check fails", report["overall"] == FAIL)
 
-        swapped = [record(name, PASS) for name in MANDATORY_CHECKS if name != "ruff-format"]
-        swapped.append(record("deploy-check", PASS))
+        swapped = [record(name) for name in MANDATORY_CHECKS if name != "ruff-format"]
+        swapped.append(record("deploy-check"))
         path = write_case("unsupported-name.json", payload(checks=swapped))
         report = evaluate(tmp, path, None, head)
         check_case("unsupported check name fails", report["overall"] == FAIL)
 
         malformed_cases: list[tuple[str, dict]] = []
-        empty_name = [record(name, PASS) for name in MANDATORY_CHECKS]
+        empty_name = case_checks()
         empty_name[0]["name"] = ""
         malformed_cases.append(("empty check name fails", payload(checks=empty_name)))
-        non_string_name = [record(name, PASS) for name in MANDATORY_CHECKS]
+        non_string_name = case_checks()
         non_string_name[0]["name"] = 42
         malformed_cases.append(("non-string check name fails", payload(checks=non_string_name)))
-        non_object = [record(name, PASS) for name in MANDATORY_CHECKS]
+        non_object = case_checks()
         non_object[0] = "pytest"
         malformed_cases.append(("non-object check record fails", payload(checks=non_object)))
-        bad_status = [record(name, PASS) for name in MANDATORY_CHECKS]
+        bad_status = case_checks()
         bad_status[0]["status"] = "OK"
         malformed_cases.append(("unsupported check status fails", payload(checks=bad_status)))
-        missing_field = [record(name, PASS) for name in MANDATORY_CHECKS]
+        missing_field = case_checks()
         del missing_field[0]["summary"]
         malformed_cases.append(("missing record field fails", payload(checks=missing_field)))
-        bad_field_type = [record(name, PASS) for name in MANDATORY_CHECKS]
+        bad_field_type = case_checks()
         bad_field_type[0]["notes"] = "none"
         malformed_cases.append(("malformed record field fails", payload(checks=bad_field_type)))
         for case_name, data in malformed_cases:
@@ -535,25 +640,92 @@ def self_test() -> int:
             report = evaluate(tmp, path, None, head)
             check_case(case_name, report["overall"] == FAIL)
 
-        failed_checks = [record(name, PASS) for name in MANDATORY_CHECKS]
-        failed_checks[0] = record("pytest", FAIL, "3 failed")
+        contradiction_cases: list[tuple[str, dict]] = []
+        for command_check in ("pytest", "ruff-check", "ruff-format", "mypy", "git-diff-check"):
+            checks = case_checks()
+            checks[MANDATORY_CHECKS.index(command_check)] = record(command_check, exit_code=1)
+            contradiction_cases.append(
+                (f"{command_check} PASS with exit code 1 fails", payload(checks=checks))
+            )
+        checks = case_checks()
+        checks[1] = record("ruff-check", exit_code=None)
+        contradiction_cases.append(
+            ("ruff-check PASS without exit code fails", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[1] = record("ruff-check", exit_code=0, summary="vacuous pass")
+        contradiction_cases.append(("vacuous summary with exit code fails", payload(checks=checks)))
+        checks = case_checks()
+        checks[1] = record("ruff-check", FAIL, exit_code=None, summary="vacuous pass")
+        contradiction_cases.append(
+            ("vacuous summary with FAIL status fails", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", exit_code=0, summary="3 failed, 10 passed")
+        contradiction_cases.append(
+            ("pytest PASS with failure counts fails", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", exit_code=0, summary="")
+        contradiction_cases.append(
+            ("pytest PASS with missing summary fails", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", exit_code=0, summary="no pytest summary line parsed")
+        contradiction_cases.append(
+            ("pytest PASS with unparsed summary fails", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", exit_code=0, summary="no tests ran")
+        contradiction_cases.append(("pytest PASS with no tests ran fails", payload(checks=checks)))
+        checks = case_checks()
+        checks[0] = record("pytest", exit_code=0, summary="1 skipped")
+        contradiction_cases.append(
+            ("pytest PASS without parsed passes fails", payload(checks=checks))
+        )
+        for case_name, data in contradiction_cases:
+            path = write_case("contradiction-case.json", data)
+            report = evaluate(tmp, path, None, head)
+            check_case(case_name, report["overall"] == FAIL)
+
+        vacuous = case_checks()
+        vacuous[1] = record("ruff-check", exit_code=None, summary="vacuous pass", argv=[])
+        vacuous[2] = record("ruff-format", exit_code=None, summary="vacuous pass", argv=[])
+        path = write_case("vacuous.json", payload(checks=vacuous))
+        report = evaluate(tmp, path, None, head)
+        check_case("ruff vacuous PASS without exit codes passes", report["overall"] == PASS)
+
+        for label, bad_duration in (
+            ("boolean duration fails", True),
+            ("negative duration fails", -0.1),
+            ("NaN duration fails", float("nan")),
+            ("infinite duration fails", float("inf")),
+        ):
+            checks = case_checks()
+            checks[0] = record("pytest", duration_s=bad_duration)
+            path = write_case("bad-duration.json", payload(checks=checks))
+            report = evaluate(tmp, path, None, head)
+            check_case(label, report["overall"] == FAIL)
+
+        failed_checks = case_checks()
+        failed_checks[0] = record("pytest", FAIL)
         path = write_case("failed-check.json", payload(overall=FAIL, checks=failed_checks))
         report = evaluate(tmp, path, None, head)
         check_case("consistent FAIL evidence fails", report["overall"] == FAIL)
 
-        unknown_checks = [record(name, PASS) for name in MANDATORY_CHECKS]
-        unknown_checks[3] = record("mypy", UNKNOWN, "tool missing")
+        unknown_checks = case_checks()
+        unknown_checks[3] = record("mypy", UNKNOWN)
         path = write_case("unknown-check.json", payload(overall=UNKNOWN, checks=unknown_checks))
         report = evaluate(tmp, path, None, head)
         check_case("consistent UNKNOWN evidence is UNKNOWN", report["overall"] == UNKNOWN)
 
-        unknown_reported_pass = [record(name, PASS) for name in MANDATORY_CHECKS]
+        unknown_reported_pass = case_checks()
         unknown_reported_pass[3] = record("mypy", UNKNOWN)
         path = write_case("unknown-reported-pass.json", payload(checks=unknown_reported_pass))
         report = evaluate(tmp, path, None, head)
         check_case("UNKNOWN check behind PASS summary fails", report["overall"] == FAIL)
 
-        tampered = [record(name, PASS) for name in MANDATORY_CHECKS]
+        tampered = case_checks()
         tampered[0] = record("pytest", FAIL)
         path = write_case("tampered.json", payload(checks=tampered))
         report = evaluate(tmp, path, None, head)
