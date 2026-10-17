@@ -25,42 +25,15 @@ Rules of thumb:
 - Current priorities are authoritative in `docs/STATUS.md` and `docs/roadmap/`. Use the repository documents to determine the active milestone.
 - Do not create one permanent document per batch unless it introduces a durable architectural decision.
 
-## Environment setup
-
-```powershell
-.\scripts\setup.ps1          # bootstrap: uv python install + uv sync --dev
-uv python install
-uv sync --dev
-uv sync --dev --extra dhan    # optional Dhan SDK (version authoritative in pyproject.toml/uv.lock)
-uv lock                       # regenerate lockfile after dependency changes; commit uv.lock
-```
-
-## Validation commands
-
-```powershell
-uv run pytest -q                                    # full suite (also: python scripts/test_all.py)
-uv run pytest tests/unit -q                         # fast unit layer (also: scripts/test_fast.py)
-uv run pytest tests/unit/execution -q               # execution-focused (also: scripts/test_execution.py)
-uv run pytest tests/unit/execution/paper -q         # paper venue
-uv run pytest tests/unit/plugins/dhan -q            # Dhan plugin slice
-uv run ruff check                                   # lint
-uv run ruff format --check                          # format check
-uv run mypy                                         # strict typecheck (package quantx)
-git diff --check                                    # whitespace errors
-```
-
-Repository gate (must pass before push):
+## Repository gate
 
 ```
 pytest green + changed-file Ruff clean + git diff --check clean
 ```
 
-Notes:
+The gate is *changed-file* Ruff (repo-wide Ruff may have pre-existing findings — inspect before claiming counts), enforced by `scripts/hooks/pre-push`; enable with `git config core.hooksPath scripts/hooks`.
 
-- The repository gate is *changed-file* Ruff (repo-wide Ruff may have pre-existing findings — inspect before claiming counts), enforced by `scripts/hooks/pre-push`. Enable with: `git config core.hooksPath scripts/hooks`.
-- The pre-push hook runs `uv run ruff check` over `.py` files in `git diff --name-only '@{push}...HEAD'` (fallback `origin/main...HEAD`).
-- Validation-gate policy (whether GitHub Actions counts as evidence, and the current execution gate) is authoritative in `docs/STATUS.md` — verify there instead of assuming.
-- The full CI sequence (`.github/workflows/test.yml`): `uv sync --locked --dev --extra dhan` → ruff check/format on Dhan paths → pytest dhan → pytest paper → full pytest.
+Exact environment setup, the full validation command catalog, hook/CI details, and executable-gate tooling: `references/commands.md`.
 
 ## Branching and commits
 
@@ -70,37 +43,15 @@ Notes:
 
 ## Git worktree lifecycle (mandatory)
 
-Worktrees are not disposable silently. Every temporary validation or implementation worktree must have a defined end condition, and cleanup is part of task completion.
+Every temporary validation or implementation worktree is a tracked resource with an explicit purpose, path, base/head SHA, owner, and cleanup condition. Summary rules:
 
-### Create and track
+- Inspect `git worktree list --porcelain` before creating one; reuse the task's worktree across reruns instead of creating a new checkout per attempt.
+- Validation-only runs use a detached worktree at the exact requested SHA, must not edit files, and must capture evidence before removal.
+- Remove the task-created worktree when no further work or validation depends on it (`git worktree remove <path>`); prefer normal removal — `--force` only after the documented checks.
+- Never remove the primary checkout or another task's worktree; never delete branches/commits as cleanup; never substitute broad `Temp\opencode` deletion for `git worktree remove`.
+- Report any worktree intentionally left ACTIVE with its path, purpose, branch/SHA, and cleanup condition.
 
-1. Before creating a worktree, run `git worktree list --porcelain` and inspect existing worktrees. Reuse the task's worktree on reruns whenever practical instead of creating a new checkout for each validation command or attempt.
-2. Use a task-specific path and record the purpose, branch or detached state, base SHA, and owner in the task notes/report. Validation-only work must use a detached worktree at the exact requested SHA and must not edit files.
-3. Never assume a path is stale from its name or age. Identify it from Git's worktree inventory and the task that created it.
-
-### Complete and remove
-
-1. Before removing a worktree, capture the exact HEAD SHA, validation results, and any logs or evidence required for the final report. Inspect `git status --short`; preserve needed uncommitted evidence before removal.
-2. Once no more work or validation depends on the checkout, remove the task-created worktree with `git worktree remove <path>`. Run this at the end of each completed validation/batch, whether the result passed or failed, after preserving the evidence. A pushed branch and its commits remain available after removing the local worktree.
-3. Prefer normal removal. Use `git worktree remove --force <path>` only if normal removal is blocked and you have verified that (a) the exact path was created by this task, (b) its contents are disposable, and (c) no owner changes, untracked evidence, or needed logs will be lost. If any of these are uncertain, stop and report the path instead of forcing removal.
-4. After removal, run `git worktree list --porcelain` again and verify the task-created path is gone. Keep an explicit list of worktrees intentionally left active for follow-up, each with a reason and cleanup condition.
-
-### Prune safely
-
-- `git worktree prune` removes stale Git administrative records for worktrees whose directories are already absent; it does not remove live worktree directories. Preview first with `git worktree prune --dry-run`, inspect the paths, and prune only records confirmed stale.
-- Do not delete branches or commits as part of worktree cleanup. Worktree removal is not branch deletion.
-- Never remove the primary checkout, a user's workspace, or a worktree owned by another active task. Do not use broad directory deletion of `Temp\opencode` or other temp roots as a substitute for `git worktree remove`.
-- If the task is interrupted or further work is pending, mark the worktree `ACTIVE` and report its path, purpose, branch/SHA, and explicit cleanup condition. A completed task must not leave its temporary worktree silently behind.
-
-Example end-of-task checklist:
-
-```powershell
-git status --short
-git rev-parse HEAD
-# Preserve any required logs/evidence and record the validation result.
-git worktree remove "<task-worktree-path>"
-git worktree list --porcelain
-```
+Full create/track/remove/prune procedure and the end-of-task checklist: `references/worktree-lifecycle.md`.
 
 ## Documentation policy
 
