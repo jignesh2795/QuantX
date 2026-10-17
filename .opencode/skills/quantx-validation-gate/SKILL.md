@@ -56,9 +56,9 @@ Notes:
 ```powershell
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head <sha>
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --skip-full   # degrades to UNKNOWN, never PASS
-```- Runs: full `uv run pytest` (pyproject `addopts` supplies `-q`; an extra `-q` would suppress
-  the summary line and fail-closed to UNKNOWN), changed-file `uv run ruff check` +
-  `ruff format --check`, `uv run mypy`, `git diff --check`, `git status --porcelain`.
+```
+
+- Runs: full `uv run pytest` (pyproject `addopts` supplies `-q`; an extra `-q` would suppress the summary line and fail-closed to UNKNOWN), changed-file `uv run ruff check` + `ruff format --check`, `uv run mypy`, `git diff --check`, `git status --porcelain`.
 - Every check record stores the **actual argument vector** it ran in `argv` (e.g. pytest as
   `["uv", "run", "pytest", *--pytest-target…]`), and the evidence stores `base_rev` — the rev
   the changed-file Ruff scope was computed against. The release gate independently validates
