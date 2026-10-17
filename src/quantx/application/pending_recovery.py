@@ -60,8 +60,10 @@ class PendingRecoveryResult:
     must be the canonical refresh outcome whose nested reconciliation result
     is structurally valid and semantically consistent with the reconciliation
     contract, ``client_order_id`` must be a non-empty record identity, and
-    ``error`` must be absent. Contradictory or malformed combinations are
-    never counted as resolved.
+    ``error`` must be absent. The record identity, the nested result order
+    identity, and the outcome's broker observation must all name the same
+    order. Contradictory or malformed combinations are never counted as
+    resolved.
     """
 
     client_order_id: str
@@ -183,6 +185,7 @@ def _result_structurally_valid(result: OrderStateReconciliationResult) -> bool:
     if order is not None and (
         not isinstance(order, OrderReconciliationResult)
         or not isinstance(order.status, OrderReconciliationStatus)
+        or not isinstance(order.order_id, UUID)
     ):
         return False
     position = result.position
@@ -225,14 +228,15 @@ def _evidence_scope_matches_result(
 def _definitive_result_consistent(result: object) -> bool:
     """True only for a canonical nested result that can back a definitive outcome.
 
-    Every definitive claim requires a matched order, no identity failure, and
-    position evidence that is matched or absent with scope matching the result
-    context. The MATCHED aggregate also requires absent or matched account
-    evidence. The MISMATCH aggregate is definitive only under the
-    advisory-amounts contract: the account mismatch must be present, scope
-    consistent, and limited to both-sides balance deltas. UNKNOWN and
-    INCOMPLETE aggregates, unresolved or mismatched positions, matched
-    accounts, conflicting evidence scope, and identity failures never back a
+    Every definitive claim requires a matched order whose own order identity
+    equals the result identity, no identity failure, and position evidence
+    that is matched or absent with scope matching the result context. The
+    MATCHED aggregate also requires absent or matched account evidence. The
+    MISMATCH aggregate is definitive only under the advisory-amounts contract:
+    the account mismatch must be present, scope consistent, and limited to
+    both-sides balance deltas. UNKNOWN and INCOMPLETE aggregates, unresolved
+    or mismatched positions, matched accounts, conflicting evidence scope,
+    identity failures, and order-identity disagreement never back a
     definitive outcome.
     """
     if not isinstance(result, OrderStateReconciliationResult):
@@ -243,6 +247,8 @@ def _definitive_result_consistent(result: object) -> bool:
         return False
     order = result.order
     if order is None or order.status is not OrderReconciliationStatus.MATCHED:
+        return False
+    if result.order_id is None or order.order_id != result.order_id:
         return False
     position = result.position
     if position is not None:
@@ -264,11 +270,76 @@ def _definitive_result_consistent(result: object) -> bool:
     return False
 
 
+def _canonical_record_order_id(client_order_id: object) -> UUID | None:
+    """Return the order UUID a canonical recovery-record identity carries.
+
+    The canonical runner identifies each pending record by
+    ``str(order.client_order_id)``, so a canonical record identity is exactly
+    a string that parses as a UUID and round-trips through ``str`` unchanged.
+    Anything else can never back a definitive resolution.
+    """
+    if not isinstance(client_order_id, str):
+        return None
+    try:
+        parsed = UUID(client_order_id)
+    except ValueError:
+        return None
+    if str(parsed) != client_order_id:
+        return None
+    return parsed
+
+
+def _record_binds_nested_result(result: PendingRecoveryResult, nested: object) -> bool:
+    """True when the record identity and nested order identity name one order.
+
+    The canonical resolution path refuses to resolve a pending reservation
+    unless the nested result order identity equals the receipt order identity,
+    which is the record identity. A record that names one order while its
+    nested evidence names another is contradictory and never resolved.
+    """
+    record_order_id = _canonical_record_order_id(result.client_order_id)
+    if record_order_id is None:
+        return False
+    return isinstance(nested, OrderStateReconciliationResult) and nested.order_id == record_order_id
+
+
+def _definitive_evidence_consistent(outcome: EvidenceRefreshOutcome) -> bool:
+    """True only when the nested result is bound to its broker observation.
+
+    A matched order can only be produced from both local and broker
+    observations carrying the same order id, and the canonical refresh
+    outcome surfaces that same broker observation. A definitive outcome with
+    missing broker observation or a disagreeing broker order identity is
+    contradictory and never resolved; broker identifiers the result does not
+    carry are not constrained.
+    """
+    nested = outcome.result
+    if not _definitive_result_consistent(nested):
+        return False
+    assert isinstance(nested, OrderStateReconciliationResult)
+    broker_order = outcome.broker_order
+    if not isinstance(broker_order, OrderObservation):
+        return False
+    if broker_order.order_id != nested.order_id:
+        return False
+    if (
+        nested.broker_order_id is not None
+        and broker_order.broker_order_id is not None
+        and nested.broker_order_id != broker_order.broker_order_id
+    ):
+        return False
+    return True
+
+
 def _has_definitive_evidence(result: PendingRecoveryResult) -> bool:
     outcome = result.outcome
     if not isinstance(outcome, EvidenceRefreshOutcome) or outcome.definitive is not True:
         return False
-    return _outcome_structurally_valid(outcome) and _definitive_result_consistent(outcome.result)
+    if not _outcome_structurally_valid(outcome):
+        return False
+    if not _definitive_evidence_consistent(outcome):
+        return False
+    return _record_binds_nested_result(result, outcome.result)
 
 
 def _is_resolved(result: PendingRecoveryResult) -> bool:

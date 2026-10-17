@@ -65,6 +65,7 @@ from quantx.integrations.reconciliation.account import (
     ReconciliationStatus as AccountReconciliationStatus,
 )
 from quantx.integrations.reconciliation.orders import (
+    OrderObservation,
     OrderReconciliationResult,
     OrderReconciliationStatus,
 )
@@ -790,8 +791,26 @@ def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
 
 
 _NESTED_ORDER_ID = UUID("00000000-0000-0000-0000-000000000002")
+_NESTED_ORDER_ID_2 = UUID("00000000-0000-0000-0000-000000000003")
+_NESTED_ORDER_KEY = str(_NESTED_ORDER_ID)
+_NESTED_UNSET: object = object()
 _NESTED_ACCOUNT_ID = AccountId("account-1")
 _NESTED_CONNECTION_ID = BrokerConnectionId("connection-1")
+
+
+def _nested_broker_observation(
+    order_id: UUID = _NESTED_ORDER_ID,
+    broker_order_id: str | None = "broker-1",
+) -> OrderObservation:
+    return OrderObservation(
+        order_id=order_id,
+        status=OrderStatus.ACCEPTED,
+        requested_quantity="1",
+        filled_quantity="0",
+        broker_order_id=broker_order_id,
+        account_id=_NESTED_ACCOUNT_ID,
+        connection_id=_NESTED_CONNECTION_ID,
+    )
 
 
 def _matched_nested_result(**overrides: object) -> OrderStateReconciliationResult:
@@ -859,29 +878,39 @@ def _advisory_nested_account(
     )
 
 
-def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
+def _definitive_nested_outcome(
+    result: object,
+    broker_order: object = _NESTED_UNSET,
+) -> EvidenceRefreshOutcome:
+    if broker_order is _NESTED_UNSET:
+        broker_order = _nested_broker_observation()
     return EvidenceRefreshOutcome(
         result=result,
         attempts=0,
         refreshed_domains=(),
         definitive=True,
+        broker_order=broker_order,
     )
 
 
 @pytest.mark.parametrize(
     "report",
     [
-        PendingRecoveryRun((PendingRecoveryResult("order-1", True),)),
+        PendingRecoveryRun((PendingRecoveryResult(_NESTED_ORDER_KEY, True),)),
         PendingRecoveryRun(results=[PendingRecoveryResult("order-1", False)]),
         PendingRecoveryRun((PendingRecoveryResult("order-1", False), object())),
         PendingRecoveryRun((PendingRecoveryResult("order-1", 1),)),
         PendingRecoveryRun(
-            (PendingRecoveryResult("order-1", True, outcome=_definitive_nested_outcome(None)),)
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY, True, outcome=_definitive_nested_outcome(None)
+                ),
+            )
         ),
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(status=OrderWorkflowStatus.UNKNOWN)
@@ -901,7 +930,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(_matched_nested_result(order=None)),
                 ),
@@ -910,7 +939,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -926,7 +955,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -941,7 +970,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -956,7 +985,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(status=OrderWorkflowStatus.MISMATCH)
@@ -967,7 +996,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -981,7 +1010,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -995,7 +1024,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -1009,7 +1038,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -1023,7 +1052,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -1037,7 +1066,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -1051,7 +1080,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -1065,7 +1094,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -1079,7 +1108,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -1093,7 +1122,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -1107,7 +1136,7 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _NESTED_ORDER_KEY,
                     True,
                     outcome=_definitive_nested_outcome(
                         _matched_nested_result(
@@ -1117,6 +1146,70 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
                                 account_id=AccountId("account-2"),
                             ),
                             account=_advisory_nested_account(),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            order=OrderReconciliationResult(
+                                _NESTED_ORDER_ID_2,
+                                OrderReconciliationStatus.MATCHED,
+                                "order state matches",
+                            )
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    str(_NESTED_ORDER_ID_2),
+                    True,
+                    outcome=_definitive_nested_outcome(_matched_nested_result()),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(),
+                        broker_order=_nested_broker_observation(order_id=_NESTED_ORDER_ID_2),
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(_matched_nested_result(), broker_order=None),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            order=OrderReconciliationResult(
+                                "not-a-uuid",  # type: ignore[arg-type]
+                                OrderReconciliationStatus.MATCHED,
+                                "order state matches",
+                            )
                         )
                     ),
                 ),
@@ -1147,6 +1240,11 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         "advisory-non-canonical-format",
         "advisory-account-scope-conflict",
         "advisory-position-scope-conflict",
+        "nested-order-identity-conflict",
+        "record-order-identity-conflict",
+        "broker-observation-order-conflict",
+        "missing-broker-observation",
+        "malformed-nested-order-identity",
     ],
 )
 def test_live_with_malformed_recovery_report_is_blocked_without_submit(

@@ -13,6 +13,7 @@ from quantx.application.reconciliation import (
     OrderWorkflowStatus,
 )
 from quantx.application.runtime import ApplicationRuntime
+from quantx.domain.enums import OrderStatus
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.integrations.reconciliation.account import (
     ReconciliationFinding,
@@ -22,6 +23,7 @@ from quantx.integrations.reconciliation.account import (
     ReconciliationStatus as AccountReconciliationStatus,
 )
 from quantx.integrations.reconciliation.orders import (
+    OrderObservation,
     OrderReconciliationResult,
     OrderReconciliationStatus,
 )
@@ -33,14 +35,32 @@ from quantx.integrations.reconciliation.positions import (
 _ACCOUNT_ID = AccountId("account-1")
 _CONNECTION_ID = BrokerConnectionId("connection-1")
 _ORDER_ID = UUID("00000000-0000-0000-0000-000000000001")
+_ORDER_ID_2 = UUID("00000000-0000-0000-0000-000000000002")
 _CHECKED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 _UNSET: object = object()
+_ORDER_KEY = str(_ORDER_ID)
 
 
 def _order_result(
     status: OrderReconciliationStatus = OrderReconciliationStatus.MATCHED,
+    order_id: UUID = _ORDER_ID,
 ) -> OrderReconciliationResult:
-    return OrderReconciliationResult(_ORDER_ID, status, "order state matches")
+    return OrderReconciliationResult(order_id, status, "order state matches")
+
+
+def _broker_observation(
+    order_id: UUID = _ORDER_ID,
+    broker_order_id: str | None = "broker-1",
+) -> OrderObservation:
+    return OrderObservation(
+        order_id=order_id,
+        status=OrderStatus.ACCEPTED,
+        requested_quantity="1",
+        filled_quantity="0",
+        broker_order_id=broker_order_id,
+        account_id=_ACCOUNT_ID,
+        connection_id=_CONNECTION_ID,
+    )
 
 
 def _position_result(
@@ -122,18 +142,30 @@ def _outcome(
         "attempts": 0,
         "refreshed_domains": (),
         "definitive": definitive,
+        "broker_order": _broker_observation(),
     }
     base.update(overrides)
     return EvidenceRefreshOutcome(**base)
 
 
-def _resolved(client_order_id: str) -> PendingRecoveryResult:
-    return PendingRecoveryResult(client_order_id, True, outcome=_outcome(definitive=True))
-
-
-def _unresolved(client_order_id: str) -> PendingRecoveryResult:
+def _resolved(order_id: UUID = _ORDER_ID) -> PendingRecoveryResult:
     return PendingRecoveryResult(
-        client_order_id,
+        str(order_id),
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                order_id=order_id,
+                order=_order_result(order_id=order_id),
+            ),
+            broker_order=_broker_observation(order_id=order_id),
+        ),
+    )
+
+
+def _unresolved(order_id: UUID = _ORDER_ID) -> PendingRecoveryResult:
+    return PendingRecoveryResult(
+        str(order_id),
         False,
         outcome=_outcome(
             definitive=False,
@@ -156,7 +188,7 @@ class FakeRecovery:
 
 def test_runtime_starts_when_recovery_fully_resolves() -> None:
     checked_at = datetime(2026, 1, 1, 12, tzinfo=UTC)
-    recovery = FakeRecovery(PendingRecoveryRun((_resolved("order-1"), _resolved("order-2"))))
+    recovery = FakeRecovery(PendingRecoveryRun((_resolved(_ORDER_ID), _resolved(_ORDER_ID_2))))
     runtime = ApplicationRuntime(pending_recovery=recovery)
 
     result = runtime.start(checked_at=checked_at)
@@ -191,7 +223,7 @@ def test_runtime_stays_unready_when_recovery_fails() -> None:
 
 
 def test_runtime_stays_unready_when_recovery_pending() -> None:
-    recovery = FakeRecovery(PendingRecoveryRun((_unresolved("order-1"),)))
+    recovery = FakeRecovery(PendingRecoveryRun((_unresolved(_ORDER_ID),)))
     runtime = ApplicationRuntime(pending_recovery=recovery)
 
     result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
@@ -206,8 +238,8 @@ def test_runtime_stays_unready_when_recovery_pending() -> None:
 def test_runtime_mixed_recovery_preserves_evidence_and_stays_unready() -> None:
     report = PendingRecoveryRun(
         (
-            _resolved("order-1"),
-            _unresolved("order-2"),
+            _resolved(_ORDER_ID),
+            _unresolved(_ORDER_ID_2),
             PendingRecoveryResult("order-3", False, error="broker unavailable"),
         )
     )
@@ -229,7 +261,7 @@ def test_runtime_retry_after_unready_startup_is_allowed() -> None:
     """An unready runtime may be started again; success stays one-shot."""
     reports = [
         PendingRecoveryRun((PendingRecoveryResult("order-1", False, error="broker unavailable"),)),
-        PendingRecoveryRun((_resolved("order-1"),)),
+        PendingRecoveryRun((_resolved(_ORDER_ID),)),
     ]
     calls = 0
 
@@ -348,7 +380,7 @@ def test_runtime_rejects_definitive_with_non_definitive_outcome_evidence() -> No
     """Outcome evidence that is not definitive cannot support a definitive claim."""
     recovery = FakeRecovery(
         PendingRecoveryRun(
-            (PendingRecoveryResult("order-1", True, outcome=_outcome(definitive=False)),)
+            (PendingRecoveryResult(_ORDER_KEY, True, outcome=_outcome(definitive=False)),)
         )
     )
     runtime = ApplicationRuntime(pending_recovery=recovery)
@@ -365,7 +397,7 @@ def test_runtime_rejects_definitive_with_non_definitive_outcome_evidence() -> No
 def test_runtime_rejects_definitive_with_foreign_outcome_evidence() -> None:
     """Outcome evidence of the wrong type cannot support a definitive claim."""
     recovery = FakeRecovery(
-        PendingRecoveryRun((PendingRecoveryResult("order-1", True, outcome="resolved"),))
+        PendingRecoveryRun((PendingRecoveryResult(_ORDER_KEY, True, outcome="resolved"),))
     )
     runtime = ApplicationRuntime(pending_recovery=recovery)
 
@@ -381,7 +413,7 @@ def test_runtime_rejects_definitive_with_foreign_outcome_evidence() -> None:
 def test_runtime_rejects_contradictory_definitive_error() -> None:
     """definitive=True with error is contradictory; treated as non-ready."""
     recovery = FakeRecovery(
-        PendingRecoveryRun((PendingRecoveryResult("order-1", True, error="broker unavailable"),))
+        PendingRecoveryRun((PendingRecoveryResult(_ORDER_KEY, True, error="broker unavailable"),))
     )
     runtime = ApplicationRuntime(pending_recovery=recovery)
 
@@ -399,7 +431,7 @@ def test_runtime_rejects_definitive_with_error_and_definitive_outcome() -> None:
         PendingRecoveryRun(
             (
                 PendingRecoveryResult(
-                    "order-1",
+                    _ORDER_KEY,
                     True,
                     outcome=_outcome(definitive=True),
                     error="broker unavailable",
@@ -420,7 +452,7 @@ def test_runtime_rejects_definitive_with_error_and_definitive_outcome() -> None:
 
 def test_runtime_rejects_list_results_container() -> None:
     """A results list is not the supported tuple container and never grants readiness."""
-    report = PendingRecoveryRun(results=[_resolved("order-1")])
+    report = PendingRecoveryRun(results=[_resolved(_ORDER_ID)])
     runtime = ApplicationRuntime(pending_recovery=FakeRecovery(report))
 
     result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
@@ -450,7 +482,7 @@ def test_runtime_rejects_none_results_container() -> None:
 
 def test_runtime_rejects_dict_results_container() -> None:
     """A dict results container is unsupported and never grants readiness."""
-    report = PendingRecoveryRun(results={"order-1": _resolved("order-1")})
+    report = PendingRecoveryRun(results={"order-1": _resolved(_ORDER_ID)})
     runtime = ApplicationRuntime(pending_recovery=FakeRecovery(report))
 
     result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
@@ -464,7 +496,7 @@ def test_runtime_rejects_dict_results_container() -> None:
 
 def test_runtime_rejects_malformed_element_in_valid_report() -> None:
     """A non-result element inside an otherwise valid report blocks readiness."""
-    report = PendingRecoveryRun((_resolved("order-1"), object()))
+    report = PendingRecoveryRun((_resolved(_ORDER_ID), object()))
     runtime = ApplicationRuntime(pending_recovery=FakeRecovery(report))
 
     result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
@@ -510,7 +542,7 @@ def test_runtime_retry_after_unready_with_malformed() -> None:
     """An unready runtime with malformed definitive may be explicitly started again."""
     reports = [
         PendingRecoveryRun((PendingRecoveryResult("order-1", 1),)),
-        PendingRecoveryRun((_resolved("order-1"),)),
+        PendingRecoveryRun((_resolved(_ORDER_ID),)),
     ]
     calls = 0
 
@@ -538,10 +570,10 @@ def test_runtime_retry_after_unready_with_malformed() -> None:
 
 
 _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
-    PendingRecoveryResult("order-1", True, outcome=_outcome(definitive=True, result=None)),
-    PendingRecoveryResult("order-1", True, outcome=_outcome(definitive=True, result="definitive")),
+    PendingRecoveryResult(_ORDER_KEY, True, outcome=_outcome(definitive=True, result=None)),
+    PendingRecoveryResult(_ORDER_KEY, True, outcome=_outcome(definitive=True, result="definitive")),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -549,7 +581,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -557,12 +589,12 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(definitive=True, result=_reconciliation_result(status="MATCHED")),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(definitive=True, result=_reconciliation_result(order_id="not-a-uuid")),
     ),
@@ -570,31 +602,31 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
     PendingRecoveryResult("", True, outcome=_outcome(definitive=True)),
     PendingRecoveryResult("   ", True, outcome=_outcome(definitive=True)),
     PendingRecoveryResult(123, True, outcome=_outcome(definitive=True)),
-    PendingRecoveryResult("order-1", True, outcome=_outcome(definitive=True, attempts="many")),
-    PendingRecoveryResult("order-1", True, outcome=_outcome(definitive=True, attempts=-1)),
+    PendingRecoveryResult(_ORDER_KEY, True, outcome=_outcome(definitive=True, attempts="many")),
+    PendingRecoveryResult(_ORDER_KEY, True, outcome=_outcome(definitive=True, attempts=-1)),
     PendingRecoveryResult(
-        "order-1", True, outcome=_outcome(definitive=True, refreshed_domains=["order"])
+        _ORDER_KEY, True, outcome=_outcome(definitive=True, refreshed_domains=["order"])
     ),
-    PendingRecoveryResult("order-1", True, outcome=_outcome(definitive=True, reasons="done")),
+    PendingRecoveryResult(_ORDER_KEY, True, outcome=_outcome(definitive=True, reasons="done")),
     PendingRecoveryResult(
-        "order-1", True, outcome=_outcome(definitive=True, broker_order="snapshot")
-    ),
-    PendingRecoveryResult(
-        "order-1", True, outcome=_outcome(definitive=True, broker_position="position")
+        _ORDER_KEY, True, outcome=_outcome(definitive=True, broker_order="snapshot")
     ),
     PendingRecoveryResult(
-        "order-1", True, outcome=_outcome(definitive=True, broker_account="account")
+        _ORDER_KEY, True, outcome=_outcome(definitive=True, broker_position="position")
     ),
     PendingRecoveryResult(
-        "order-1", True, outcome=_outcome(definitive=True, not_found_eligibility="eligible")
+        _ORDER_KEY, True, outcome=_outcome(definitive=True, broker_account="account")
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY, True, outcome=_outcome(definitive=True, not_found_eligibility="eligible")
+    ),
+    PendingRecoveryResult(
+        _ORDER_KEY,
         True,
         outcome=_outcome(definitive=True, result=_reconciliation_result(order=None)),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -604,12 +636,12 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(definitive=True, result=_reconciliation_result(order="order")),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -619,7 +651,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -627,12 +659,12 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(definitive=True, result=_reconciliation_result(position="position")),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -640,7 +672,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -652,7 +684,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -660,7 +692,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -671,7 +703,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -683,7 +715,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -695,7 +727,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -707,7 +739,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -719,7 +751,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -727,7 +759,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -738,7 +770,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -749,7 +781,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -760,7 +792,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -771,7 +803,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -782,7 +814,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -793,7 +825,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -804,7 +836,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -815,7 +847,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -826,7 +858,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -837,7 +869,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -848,7 +880,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -861,7 +893,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -874,7 +906,7 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
         ),
     ),
     PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -882,6 +914,45 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
                 status=OrderWorkflowStatus.MISMATCH,
                 position=_position_result(account_id=AccountId("account-2")),
                 account=_advisory_account_report(),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        _ORDER_KEY,
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                order_id=_ORDER_ID,
+                order=_order_result(order_id=_ORDER_ID_2),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        str(_ORDER_ID_2),
+        True,
+        outcome=_outcome(definitive=True),
+    ),
+    PendingRecoveryResult(
+        _ORDER_KEY,
+        True,
+        outcome=_outcome(
+            definitive=True,
+            broker_order=_broker_observation(order_id=_ORDER_ID_2),
+        ),
+    ),
+    PendingRecoveryResult(
+        _ORDER_KEY,
+        True,
+        outcome=_outcome(definitive=True, broker_order=None),
+    ),
+    PendingRecoveryResult(
+        _ORDER_KEY,
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                order=_order_result(order_id="not-a-uuid")  # type: ignore[arg-type]
             ),
         ),
     ),
@@ -935,6 +1006,11 @@ _MALFORMED_DEFINITIVE_IDS: tuple[str, ...] = (
     "advisory-account-scope-conflict",
     "advisory-connection-scope-conflict",
     "advisory-position-scope-conflict",
+    "nested-order-identity-conflict",
+    "record-order-identity-conflict",
+    "broker-observation-order-conflict",
+    "missing-broker-observation",
+    "malformed-nested-order-identity",
 )
 
 
@@ -979,7 +1055,7 @@ def test_runtime_accepts_definitive_advisory_account_mismatch() -> None:
     """A mismatch caused solely by advisory balance deltas is a supported
     definitive outcome and must keep resolving."""
     record = PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -1002,7 +1078,7 @@ def test_runtime_accepts_definitive_advisory_account_mismatch() -> None:
 def test_runtime_accepts_definitive_advisory_mismatch_without_position() -> None:
     """Absent position evidence leaves the advisory-amounts MISMATCH definitive."""
     record = PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
@@ -1026,7 +1102,7 @@ def test_runtime_accepts_definitive_advisory_mismatch_without_position() -> None
 def test_runtime_accepts_definitive_with_refresh_trail() -> None:
     """Canonical refresh metadata on a definitive outcome never blocks readiness."""
     record = PendingRecoveryResult(
-        "order-1",
+        _ORDER_KEY,
         True,
         outcome=_outcome(
             definitive=True,
