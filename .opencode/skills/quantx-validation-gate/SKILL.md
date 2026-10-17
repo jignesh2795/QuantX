@@ -54,7 +54,7 @@ python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expec
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --skip-full   # degrades to UNKNOWN, never PASS
 ```
 
-- Runs: full `uv run pytest -q`, changed-file `uv run ruff check` + `ruff format --check`, `uv run mypy`, `git diff --check`, `git status --porcelain`.
+- Runs: full `uv run pytest` (pyproject `addopts` supplies `-q`; an extra `-q` would suppress the summary line and fail-closed to UNKNOWN), changed-file `uv run ruff check` + `ruff format --check`, `uv run mypy`, `git diff --check`, `git status --porcelain`.
 - Classifies every check PASS/FAIL/UNKNOWN fail-closed: unparsed output, contradictory pytest summary, timeout, or missing tool → UNKNOWN; overall = worst status.
 - Verifies HEAD is unchanged before and after the run; evidence JSON (`quantx.validation-evidence.v1`) is written to `%TEMP%\quantx-validation\`.
 - Exit codes: 0 PASS, 1 FAIL, 2 UNKNOWN, 3 usage/internal error. A non-zero exit is never a PASS.

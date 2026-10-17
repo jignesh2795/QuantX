@@ -12,7 +12,7 @@ a HEAD change during the run are never reported as PASS.
 Usage:
     python .opencode/skills/quantx-validation-gate/scripts/run_validation.py
     python ... run_validation.py --expected-head <sha> --base origin/main
-    python ... run_validation.py --pytest-target tests/unit/execution -q
+    python ... run_validation.py --pytest-target tests/unit/execution/
     python ... run_validation.py --self-test
 
 Exit codes: 0 = PASS, 1 = FAIL, 2 = UNKNOWN, 3 = usage/internal error.
@@ -206,10 +206,10 @@ def build_checks(args: argparse.Namespace, repo: Path) -> list[Check]:
 
     if args.skip_pytest:
         checks.append(
-            Check("pytest", ["uv", "run", "pytest", "-q"], UNKNOWN, notes=["skipped by request"])
+            Check("pytest", ["uv", "run", "pytest"], UNKNOWN, notes=["skipped by request"])
         )
     else:
-        argv = ["uv", "run", "pytest", "-q", *args.pytest_target]
+        argv = ["uv", "run", "pytest", *args.pytest_target]
         outcome = run_command(argv, repo, args.timeout)
         if outcome.kind != "completed" or outcome.exit_code is None:
             checks.append(
