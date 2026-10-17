@@ -4,11 +4,14 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
+
 from quantx.application.evidence_refresh import (
     DefinitiveEvidencePolicy,
     ReconciliationEvidenceRefresher,
     ReconciliationIdempotencyResolver,
     RefreshPolicy,
+    is_advisory_account_amount_evidence,
 )
 from quantx.application.reconciliation import OrderWorkflowStatus
 from quantx.domain.enums import OrderStatus
@@ -22,6 +25,13 @@ from quantx.integrations.reconciliation import (
     PositionState,
     ReconciliationPolicy,
     StateSource,
+)
+from quantx.integrations.reconciliation.account import (
+    ReconciliationFinding,
+    ReconciliationReport,
+)
+from quantx.integrations.reconciliation.account import (
+    ReconciliationStatus as AccountReconciliationStatus,
 )
 from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidence
 
@@ -713,8 +723,6 @@ def test_reconciliation_resolution_rejects_wrong_order_identity() -> None:
     store = InMemoryIdempotencyStore()
     store.reserve_or_get(other_order_id, "fingerprint-a")
 
-    import pytest
-
     with pytest.raises(ValueError, match="order identity"):
         ReconciliationIdempotencyResolver.resolve(
             outcome,
@@ -722,3 +730,93 @@ def test_reconciliation_resolution_rejects_wrong_order_identity() -> None:
             request_fingerprint="fingerprint-a",
             idempotency=store,
         )
+
+
+_ADVISORY_REPORT_ACCOUNT = AccountId("acct-1")
+_ADVISORY_REPORT_CONNECTION = BrokerConnectionId("conn-1")
+
+
+def _advisory_finding_report(
+    field: object,
+    expected: object,
+    observed: object,
+) -> ReconciliationReport:
+    finding = ReconciliationFinding(field, expected, observed, "balance delta")  # type: ignore[arg-type]
+    return ReconciliationReport(
+        _ADVISORY_REPORT_ACCOUNT,
+        _ADVISORY_REPORT_CONNECTION,
+        AccountReconciliationStatus.MISMATCH,
+        (finding,),
+    )
+
+
+def test_advisory_evidence_accepts_canonical_two_sided_amount_delta() -> None:
+    assert (
+        is_advisory_account_amount_evidence(_advisory_finding_report("equity", "100", "101"))
+        is True
+    )
+    assert (
+        is_advisory_account_amount_evidence(_advisory_finding_report("equity", "0.10", "0.20"))
+        is True
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "expected", "observed"),
+    [
+        ("equity", None, "123"),
+        ("equity", "100", Decimal("101")),
+        ("equity", Decimal("100"), "101"),
+        ("equity", "", "101"),
+        ("equity", "100", object()),
+        ([], "100", "101"),
+        ("identity", "conn-1", "conn-2"),
+        ("state", None, None),
+        ("currency", "INR", "USD"),
+        ("observed_at", "a", "b"),
+        ("equity", "100", "100"),
+        ("equity", "100", "1E2"),
+        ("equity", "100", "Infinity"),
+        ("equity", "100", "-Infinity"),
+        ("equity", "100", "NaN"),
+        ("equity", "NaN", "100"),
+        ("equity", "-100", "100"),
+        ("equity", "100", "-1"),
+        ("equity", " 100 ", "101"),
+        ("equity", "+100", "101"),
+        ("equity", "007", "8"),
+        ("equity", "1_000", "1001"),
+    ],
+    ids=[
+        "half-sided-expected-none",
+        "non-string-observed-decimal",
+        "non-string-expected-decimal",
+        "empty-expected",
+        "non-string-observed-object",
+        "unhashable-field",
+        "identity-field",
+        "availability-field",
+        "currency-field",
+        "staleness-field",
+        "equal-amounts",
+        "numeric-equal-different-text",
+        "non-finite-infinity",
+        "non-finite-negative-infinity",
+        "non-finite-nan",
+        "non-finite-expected-nan",
+        "negative-expected",
+        "negative-observed",
+        "padded-whitespace",
+        "plus-sign",
+        "leading-zeros",
+        "underscore-digits",
+    ],
+)
+def test_advisory_evidence_rejects_non_canonical_findings(
+    field: object,
+    expected: object,
+    observed: object,
+) -> None:
+    report = _advisory_finding_report(field, expected, observed)
+
+    assert is_advisory_account_amount_evidence(report) is False
