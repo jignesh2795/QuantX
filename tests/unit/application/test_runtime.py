@@ -45,10 +45,12 @@ def _order_result(
 
 def _position_result(
     status: PositionReconciliationStatus = PositionReconciliationStatus.MATCHED,
+    account_id: AccountId = _ACCOUNT_ID,
+    connection_id: BrokerConnectionId = _CONNECTION_ID,
 ) -> PositionReconciliation:
     return PositionReconciliation(
-        _ACCOUNT_ID,
-        _CONNECTION_ID,
+        account_id,
+        connection_id,
         "NSE:TCS",
         status,
         Decimal("1"),
@@ -83,9 +85,13 @@ def _advisory_finding_account(
     field: object,
     expected: object,
     observed: object,
+    account_id: AccountId = _ACCOUNT_ID,
+    connection_id: BrokerConnectionId = _CONNECTION_ID,
 ) -> ReconciliationReport:
     finding = ReconciliationFinding(field, expected, observed, "balance delta")  # type: ignore[arg-type]
-    return _account_report(AccountReconciliationStatus.MISMATCH, (finding,))
+    return ReconciliationReport(
+        account_id, connection_id, AccountReconciliationStatus.MISMATCH, (finding,)
+    )
 
 
 def _reconciliation_result(**overrides: object) -> OrderStateReconciliationResult:
@@ -775,6 +781,110 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
             ),
         ),
     ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", "100", "100"),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", "100", "1E2"),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", "100", "Infinity"),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", "NaN", "100"),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", "-100", "100"),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account("equity", " 100 ", "101"),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account(
+                    "equity", "100", "101", account_id=AccountId("account-2")
+                ),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_finding_account(
+                    "equity", "100", "101", connection_id=BrokerConnectionId("connection-2")
+                ),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                position=_position_result(account_id=AccountId("account-2")),
+                account=_advisory_account_report(),
+            ),
+        ),
+    ),
 )
 
 _MALFORMED_DEFINITIVE_IDS: tuple[str, ...] = (
@@ -816,6 +926,15 @@ _MALFORMED_DEFINITIVE_IDS: tuple[str, ...] = (
     "advisory-non-string-expected",
     "advisory-empty-expected",
     "advisory-unhashable-field",
+    "advisory-equal-amounts",
+    "advisory-numeric-equal-amounts",
+    "advisory-non-finite-observed",
+    "advisory-non-finite-expected",
+    "advisory-negative-expected",
+    "advisory-non-canonical-format",
+    "advisory-account-scope-conflict",
+    "advisory-connection-scope-conflict",
+    "advisory-position-scope-conflict",
 )
 
 

@@ -164,29 +164,37 @@ _ADVISORY_ACCOUNT_AMOUNT_FIELDS = frozenset(
 )
 
 
-def _is_canonical_amount_string(value: object) -> bool:
-    """True only for the string form the canonical account reconciler emits.
+def _canonical_amount(value: object) -> Decimal | None:
+    """Return the Decimal a canonical amount string carries, else ``None``.
 
-    ``AccountReconciler`` serializes Decimal amounts with ``str``; anything
-    that is not a decimal-parseable string cannot be canonical balance
-    evidence, so non-strings, blanks, and malformed strings never qualify.
+    ``AccountReconciler`` serializes finite, nonnegative Decimal amounts with
+    ``str``, so canonical evidence is exactly a string that parses as a
+    finite, nonnegative Decimal and round-trips through ``str`` unchanged.
+    Blanks, padded or signed text, exponent or underscore forms, non-finite
+    values, and negatives are never canonical financial evidence.
     """
     if not isinstance(value, str):
-        return False
+        return None
     try:
-        Decimal(value)
+        amount = Decimal(value)
     except InvalidOperation:
-        return False
-    return True
+        return None
+    if not amount.is_finite() or amount < 0:
+        return None
+    if str(amount) != value:
+        return None
+    return amount
 
 
 def is_advisory_account_amount_evidence(report: ReconciliationReport) -> bool:
     """True when every finding is a both-sides balance delta on an advisory field.
 
     Only the canonical account-reconciler shape qualifies: each finding names
-    an advisory amount field and carries decimal-parseable strings on both
-    sides. Identity, availability, currency, staleness, half-sided, and
-    non-string findings never qualify.
+    an advisory amount field and carries a genuine numeric difference between
+    two canonical amount strings (finite, nonnegative, ``str``-round-tripping).
+    Identity, availability, currency, staleness, half-sided, non-string,
+    equal-valued, non-finite, negative, and non-canonical-format findings
+    never qualify.
     """
     findings = report.findings
     if not isinstance(findings, tuple) or not findings:
@@ -199,9 +207,11 @@ def is_advisory_account_amount_evidence(report: ReconciliationReport) -> bool:
             or finding.field not in _ADVISORY_ACCOUNT_AMOUNT_FIELDS
         ):
             return False
-        if not _is_canonical_amount_string(finding.expected):
+        expected = _canonical_amount(finding.expected)
+        observed = _canonical_amount(finding.observed)
+        if expected is None or observed is None:
             return False
-        if not _is_canonical_amount_string(finding.observed):
+        if expected == observed:
             return False
     return True
 

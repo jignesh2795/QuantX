@@ -202,16 +202,38 @@ def _result_structurally_valid(result: OrderStateReconciliationResult) -> bool:
     return True
 
 
+def _evidence_scope_matches_result(
+    result: OrderStateReconciliationResult,
+    evidence_account_id: AccountId,
+    evidence_connection_id: BrokerConnectionId,
+) -> bool:
+    """True when evidence scope cannot conflict with the nested result scope.
+
+    The canonical workflow sets ``identity_error`` whenever collected position
+    or account evidence names a different account or connection than the
+    execution receipt, so a consistent nested result can never carry
+    conflicting evidence scope. Scope bindings the result does not carry are
+    not constrained.
+    """
+    if result.account_id is not None and evidence_account_id != result.account_id:
+        return False
+    if result.connection_id is not None and evidence_connection_id != result.connection_id:
+        return False
+    return True
+
+
 def _definitive_result_consistent(result: object) -> bool:
     """True only for a canonical nested result that can back a definitive outcome.
 
     Every definitive claim requires a matched order, no identity failure, and
-    position evidence that is matched or absent. The MATCHED aggregate also
-    requires absent or matched account evidence. The MISMATCH aggregate is
-    definitive only under the advisory-amounts contract: the account mismatch
-    must be present and limited to both-sides balance deltas. UNKNOWN and
+    position evidence that is matched or absent with scope matching the result
+    context. The MATCHED aggregate also requires absent or matched account
+    evidence. The MISMATCH aggregate is definitive only under the
+    advisory-amounts contract: the account mismatch must be present, scope
+    consistent, and limited to both-sides balance deltas. UNKNOWN and
     INCOMPLETE aggregates, unresolved or mismatched positions, matched
-    accounts, and identity failures never back a definitive outcome.
+    accounts, conflicting evidence scope, and identity failures never back a
+    definitive outcome.
     """
     if not isinstance(result, OrderStateReconciliationResult):
         return False
@@ -223,9 +245,16 @@ def _definitive_result_consistent(result: object) -> bool:
     if order is None or order.status is not OrderReconciliationStatus.MATCHED:
         return False
     position = result.position
-    if position is not None and position.status.value != "MATCHED":
-        return False
+    if position is not None:
+        if position.status.value != "MATCHED":
+            return False
+        if not _evidence_scope_matches_result(result, position.account_id, position.connection_id):
+            return False
     account = result.account
+    if account is not None and not _evidence_scope_matches_result(
+        result, account.account_id, account.connection_id
+    ):
+        return False
     if result.status is OrderWorkflowStatus.MATCHED:
         return account is None or account.status.value == "MATCHED"
     if result.status is OrderWorkflowStatus.MISMATCH:

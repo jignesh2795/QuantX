@@ -92,3 +92,20 @@ def test_negative_financial_values_are_rejected() -> None:
             currency="USD",
             equity=Decimal("-1"),
         )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")],
+    ids=["nan", "infinity", "negative-infinity"],
+)
+def test_non_finite_financial_values_are_rejected(value: Decimal) -> None:
+    with pytest.raises(ValueError, match="equity must be finite"):
+        AccountFinancialState(
+            account_id=AccountId("acct-1"),
+            connection_id=BrokerConnectionId("conn-1"),
+            observed_at=datetime.now(UTC),
+            source=StateSource.BROKER,
+            currency="USD",
+            equity=value,
+        )

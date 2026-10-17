@@ -751,9 +751,14 @@ def _advisory_finding_report(
 
 
 def test_advisory_evidence_accepts_canonical_two_sided_amount_delta() -> None:
-    report = _advisory_finding_report("equity", "100", "101")
-
-    assert is_advisory_account_amount_evidence(report) is True
+    assert (
+        is_advisory_account_amount_evidence(_advisory_finding_report("equity", "100", "101"))
+        is True
+    )
+    assert (
+        is_advisory_account_amount_evidence(_advisory_finding_report("equity", "0.10", "0.20"))
+        is True
+    )
 
 
 @pytest.mark.parametrize(
@@ -769,6 +774,18 @@ def test_advisory_evidence_accepts_canonical_two_sided_amount_delta() -> None:
         ("state", None, None),
         ("currency", "INR", "USD"),
         ("observed_at", "a", "b"),
+        ("equity", "100", "100"),
+        ("equity", "100", "1E2"),
+        ("equity", "100", "Infinity"),
+        ("equity", "100", "-Infinity"),
+        ("equity", "100", "NaN"),
+        ("equity", "NaN", "100"),
+        ("equity", "-100", "100"),
+        ("equity", "100", "-1"),
+        ("equity", " 100 ", "101"),
+        ("equity", "+100", "101"),
+        ("equity", "007", "8"),
+        ("equity", "1_000", "1001"),
     ],
     ids=[
         "half-sided-expected-none",
@@ -781,6 +798,18 @@ def test_advisory_evidence_accepts_canonical_two_sided_amount_delta() -> None:
         "availability-field",
         "currency-field",
         "staleness-field",
+        "equal-amounts",
+        "numeric-equal-different-text",
+        "non-finite-infinity",
+        "non-finite-negative-infinity",
+        "non-finite-nan",
+        "non-finite-expected-nan",
+        "negative-expected",
+        "negative-observed",
+        "padded-whitespace",
+        "plus-sign",
+        "leading-zeros",
+        "underscore-digits",
     ],
 )
 def test_advisory_evidence_rejects_non_canonical_findings(

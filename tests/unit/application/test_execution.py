@@ -827,9 +827,12 @@ def _matched_nested_result(**overrides: object) -> OrderStateReconciliationResul
     return OrderStateReconciliationResult(**base)
 
 
-def _nested_position(status: PositionReconciliationStatus) -> PositionReconciliation:
+def _nested_position(
+    status: PositionReconciliationStatus,
+    account_id: AccountId = _NESTED_ACCOUNT_ID,
+) -> PositionReconciliation:
     return PositionReconciliation(
-        _NESTED_ACCOUNT_ID,
+        account_id,
         _NESTED_CONNECTION_ID,
         "NSE:TCS",
         status,
@@ -844,11 +847,13 @@ def _advisory_nested_account(
     field: object = "available_cash",
     expected: object = "100",
     observed: object = "101",
+    account_id: AccountId = _NESTED_ACCOUNT_ID,
+    connection_id: BrokerConnectionId = _NESTED_CONNECTION_ID,
 ) -> ReconciliationReport:
     finding = ReconciliationFinding(field, expected, observed, "balance delta")  # type: ignore[arg-type]
     return ReconciliationReport(
-        _NESTED_ACCOUNT_ID,
-        _NESTED_CONNECTION_ID,
+        account_id,
+        connection_id,
         AccountReconciliationStatus.MISMATCH,
         (finding,),
     )
@@ -1015,6 +1020,108 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
                 ),
             )
         ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(observed="100"),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(observed="1E2"),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(observed="Infinity"),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(expected="-100"),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(expected=" 100 "),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(account_id=AccountId("account-2")),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            position=_nested_position(
+                                PositionReconciliationStatus.MATCHED,
+                                account_id=AccountId("account-2"),
+                            ),
+                            account=_advisory_nested_account(),
+                        )
+                    ),
+                ),
+            )
+        ),
     ],
     ids=[
         "definitive-without-outcome-evidence",
@@ -1033,6 +1140,13 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         "advisory-non-string-observed",
         "advisory-empty-expected",
         "advisory-unhashable-field",
+        "advisory-equal-amounts",
+        "advisory-numeric-equal-amounts",
+        "advisory-non-finite-observed",
+        "advisory-negative-expected",
+        "advisory-non-canonical-format",
+        "advisory-account-scope-conflict",
+        "advisory-position-scope-conflict",
     ],
 )
 def test_live_with_malformed_recovery_report_is_blocked_without_submit(
