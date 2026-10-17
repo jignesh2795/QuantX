@@ -15,6 +15,14 @@ Usage:
     python ... run_validation.py --pytest-target tests/unit/execution/
     python ... run_validation.py --self-test
 
+Every check record stores the actual argument vector (`argv`) it ran, and the
+evidence stores the `base_rev` the changed-file scope was computed against.
+A run produced with `--pytest-target` is a diagnostic: its recorded argv is
+not the canonical full-suite invocation ["uv", "run", "pytest"], and the
+release gate rejects it as mandatory full-suite evidence regardless of its
+test counts or overall verdict. Scope is verified by the release gate from
+recorded arguments, never by a self-declared label or the overall field.
+
 Exit codes: 0 = PASS, 1 = FAIL, 2 = UNKNOWN, 3 = usage/internal error.
 """
 
@@ -43,6 +51,16 @@ OUTPUT_TAIL_CHARS = 4000
 _PYTEST_COUNT_RE = re.compile(
     r"(\d+) (passed|failed|error|errors|skipped|xfailed|xpassed|deselected)"
 )
+
+# Canonical full-suite invocation. The release gate requires exactly this
+# argv on a PASS pytest record; anything else (e.g. --pytest-target paths)
+# is diagnostic-only evidence.
+CANONICAL_PYTEST_ARGV = ("uv", "run", "pytest")
+
+
+def pytest_argv(targets: list[str]) -> list[str]:
+    """Build the actual pytest invocation; recorded verbatim in the evidence."""
+    return [*CANONICAL_PYTEST_ARGV, *targets]
 
 
 @dataclass
@@ -206,10 +224,15 @@ def build_checks(args: argparse.Namespace, repo: Path) -> list[Check]:
 
     if args.skip_pytest:
         checks.append(
-            Check("pytest", ["uv", "run", "pytest"], UNKNOWN, notes=["skipped by request"])
+            Check(
+                "pytest",
+                [*CANONICAL_PYTEST_ARGV],
+                UNKNOWN,
+                notes=["skipped by request"],
+            )
         )
     else:
-        argv = ["uv", "run", "pytest", *args.pytest_target]
+        argv = pytest_argv(args.pytest_target)
         outcome = run_command(argv, repo, args.timeout)
         if outcome.kind != "completed" or outcome.exit_code is None:
             checks.append(
@@ -466,6 +489,19 @@ def self_test() -> int:
             failures.append(name)
 
     check("pytest pass", classify_pytest(0, "2027 passed, 1 skipped in 12.3s")[0] == PASS)
+    check(
+        "canonical full-suite argv",
+        pytest_argv([]) == list(CANONICAL_PYTEST_ARGV)
+        and pytest_argv([]) == ["uv", "run", "pytest"],
+    )
+    check(
+        "targeted argv recorded verbatim",
+        pytest_argv(["tests/unit/execution/"]) == ["uv", "run", "pytest", "tests/unit/execution/"],
+    )
+    check(
+        "targeted argv is not canonical",
+        tuple(pytest_argv(["tests/"])) != CANONICAL_PYTEST_ARGV,
+    )
     check("pytest fail", classify_pytest(1, "3 failed, 10 passed in 4s")[0] == FAIL)
     check("pytest no tests", classify_pytest(5, "no tests ran in 0.01s")[0] == FAIL)
     check("pytest contradiction", classify_pytest(0, "2 failed, 5 passed in 1s")[0] == UNKNOWN)
@@ -528,7 +564,9 @@ def main(argv: list[str] | None = None) -> int:
         "--pytest-target",
         action="append",
         default=[],
-        help="pytest path selector (repeatable); default full suite",
+        help="pytest path selector (repeatable); default full suite. A targeted "
+        "run is diagnostic evidence only: its recorded argv cannot satisfy "
+        "the release gate's canonical full-suite contract.",
     )
     parser.add_argument("--timeout", type=float, default=3600.0, help="per-check timeout seconds")
     parser.add_argument("--output", default=None, help="evidence JSON path (default: temp dir)")
