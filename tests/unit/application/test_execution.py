@@ -2,12 +2,17 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from threading import Event, Thread
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
+from quantx.application.evidence_refresh import EvidenceRefreshOutcome
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
-from quantx.application.pending_recovery import PendingRecoveryRun
+from quantx.application.pending_recovery import PendingRecoveryResult, PendingRecoveryRun
+from quantx.application.reconciliation import (
+    OrderStateReconciliationResult,
+    OrderWorkflowStatus,
+)
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
@@ -51,6 +56,22 @@ from quantx.integrations.brokers import (
     BrokerConnectionRef,
     BrokerDescriptor,
     CapabilitySet,
+)
+from quantx.integrations.reconciliation.account import (
+    ReconciliationFinding,
+    ReconciliationReport,
+)
+from quantx.integrations.reconciliation.account import (
+    ReconciliationStatus as AccountReconciliationStatus,
+)
+from quantx.integrations.reconciliation.orders import (
+    OrderObservation,
+    OrderReconciliationResult,
+    OrderReconciliationStatus,
+)
+from quantx.integrations.reconciliation.positions import PositionReconciliation
+from quantx.integrations.reconciliation.positions import (
+    ReconciliationStatus as PositionReconciliationStatus,
 )
 from quantx.persistence import ReceiptRepository, UnitOfWork
 from quantx.persistence.sqlite import (
@@ -720,6 +741,529 @@ def test_live_with_unstarted_application_runtime_is_blocked() -> None:
             return PendingRecoveryRun()
 
     runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
+
+    result = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        application_runtime=runtime,
+    ).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "started ApplicationRuntime" in result.reason
+    assert broker.submit_calls == 0
+
+
+def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
+    """A runtime that attempted startup with unresolved recovery stays unready,
+    so LIVE orchestration blocks with no broker submission."""
+    request = _live_request()
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    class FailedRecovery:
+        def run(self, *, checked_at=None) -> PendingRecoveryRun:
+            return PendingRecoveryRun(
+                (PendingRecoveryResult("order-1", False, error="broker unavailable"),)
+            )
+
+    runtime = ApplicationRuntime(pending_recovery=FailedRecovery())
+    report = runtime.start(checked_at=datetime(2026, 1, 1, tzinfo=UTC))
+    assert report.ready is False
+    assert not runtime.started
+
+    result = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        application_runtime=runtime,
+    ).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "started ApplicationRuntime" in result.reason
+    assert broker.submit_calls == 0
+
+
+_NESTED_ORDER_ID = UUID("00000000-0000-0000-0000-000000000002")
+_NESTED_ORDER_ID_2 = UUID("00000000-0000-0000-0000-000000000003")
+_NESTED_ORDER_KEY = str(_NESTED_ORDER_ID)
+_NESTED_UNSET: object = object()
+_NESTED_ACCOUNT_ID = AccountId("account-1")
+_NESTED_CONNECTION_ID = BrokerConnectionId("connection-1")
+
+
+def _nested_broker_observation(
+    order_id: UUID = _NESTED_ORDER_ID,
+    broker_order_id: str | None = "broker-1",
+) -> OrderObservation:
+    return OrderObservation(
+        order_id=order_id,
+        status=OrderStatus.ACCEPTED,
+        requested_quantity="1",
+        filled_quantity="0",
+        broker_order_id=broker_order_id,
+        account_id=_NESTED_ACCOUNT_ID,
+        connection_id=_NESTED_CONNECTION_ID,
+    )
+
+
+def _matched_nested_result(**overrides: object) -> OrderStateReconciliationResult:
+    base: dict[str, object] = {
+        "order_id": _NESTED_ORDER_ID,
+        "account_id": _NESTED_ACCOUNT_ID,
+        "connection_id": _NESTED_CONNECTION_ID,
+        "broker_order_id": "broker-1",
+        "order": OrderReconciliationResult(
+            _NESTED_ORDER_ID, OrderReconciliationStatus.MATCHED, "order state matches"
+        ),
+        "position": PositionReconciliation(
+            _NESTED_ACCOUNT_ID,
+            _NESTED_CONNECTION_ID,
+            "NSE:TCS",
+            PositionReconciliationStatus.MATCHED,
+            Decimal("1"),
+            Decimal("1"),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            "position quantity reconciled",
+        ),
+        "account": ReconciliationReport(
+            _NESTED_ACCOUNT_ID,
+            _NESTED_CONNECTION_ID,
+            AccountReconciliationStatus.MATCHED,
+            (),
+        ),
+        "status": OrderWorkflowStatus.MATCHED,
+        "reasons": (),
+        "identity_error": None,
+    }
+    base.update(overrides)
+    return OrderStateReconciliationResult(**base)
+
+
+def _nested_position(
+    status: PositionReconciliationStatus,
+    account_id: AccountId = _NESTED_ACCOUNT_ID,
+) -> PositionReconciliation:
+    return PositionReconciliation(
+        account_id,
+        _NESTED_CONNECTION_ID,
+        "NSE:TCS",
+        status,
+        Decimal("1"),
+        Decimal("1"),
+        datetime(2026, 1, 1, tzinfo=UTC),
+        "position evidence",
+    )
+
+
+def _advisory_nested_account(
+    field: object = "available_cash",
+    expected: object = "100",
+    observed: object = "101",
+    account_id: AccountId = _NESTED_ACCOUNT_ID,
+    connection_id: BrokerConnectionId = _NESTED_CONNECTION_ID,
+) -> ReconciliationReport:
+    finding = ReconciliationFinding(field, expected, observed, "balance delta")  # type: ignore[arg-type]
+    return ReconciliationReport(
+        account_id,
+        connection_id,
+        AccountReconciliationStatus.MISMATCH,
+        (finding,),
+    )
+
+
+def _definitive_nested_outcome(
+    result: object,
+    broker_order: object = _NESTED_UNSET,
+) -> EvidenceRefreshOutcome:
+    if broker_order is _NESTED_UNSET:
+        broker_order = _nested_broker_observation()
+    return EvidenceRefreshOutcome(
+        result=result,
+        attempts=0,
+        refreshed_domains=(),
+        definitive=True,
+        broker_order=broker_order,
+    )
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        PendingRecoveryRun((PendingRecoveryResult(_NESTED_ORDER_KEY, True),)),
+        PendingRecoveryRun(results=[PendingRecoveryResult("order-1", False)]),
+        PendingRecoveryRun((PendingRecoveryResult("order-1", False), object())),
+        PendingRecoveryRun((PendingRecoveryResult("order-1", 1),)),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY, True, outcome=_definitive_nested_outcome(None)
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(status=OrderWorkflowStatus.UNKNOWN)
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    None,
+                    True,
+                    outcome=_definitive_nested_outcome(_matched_nested_result()),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(_matched_nested_result(order=None)),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            identity_error=(
+                                "broker order identity does not match execution receipt"
+                            ),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            position=_nested_position(PositionReconciliationStatus.INCOMPLETE),
+                            account=_advisory_nested_account(),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            position=_nested_position(PositionReconciliationStatus.MISMATCH),
+                            account=_advisory_nested_account(),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(status=OrderWorkflowStatus.MISMATCH)
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(expected=None),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(observed=Decimal("101")),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(expected=""),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(field=[]),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(observed="100"),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(observed="1E2"),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(observed="Infinity"),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(expected="-100"),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(expected=" 100 "),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            account=_advisory_nested_account(account_id=AccountId("account-2")),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            position=_nested_position(
+                                PositionReconciliationStatus.MATCHED,
+                                account_id=AccountId("account-2"),
+                            ),
+                            account=_advisory_nested_account(),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            order=OrderReconciliationResult(
+                                _NESTED_ORDER_ID_2,
+                                OrderReconciliationStatus.MATCHED,
+                                "order state matches",
+                            )
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    str(_NESTED_ORDER_ID_2),
+                    True,
+                    outcome=_definitive_nested_outcome(_matched_nested_result()),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(),
+                        broker_order=_nested_broker_observation(order_id=_NESTED_ORDER_ID_2),
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(_matched_nested_result(), broker_order=None),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    _NESTED_ORDER_KEY,
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            order=OrderReconciliationResult(
+                                "not-a-uuid",  # type: ignore[arg-type]
+                                OrderReconciliationStatus.MATCHED,
+                                "order state matches",
+                            )
+                        )
+                    ),
+                ),
+            )
+        ),
+    ],
+    ids=[
+        "definitive-without-outcome-evidence",
+        "list-results-container",
+        "malformed-result-element",
+        "non-bool-definitive",
+        "nested-result-none",
+        "nested-status-unknown",
+        "malformed-identity",
+        "matched-without-order",
+        "mismatch-with-identity-error",
+        "mismatch-with-unresolved-position",
+        "mismatch-with-unmatched-position",
+        "mismatch-with-matched-account",
+        "advisory-half-sided-finding",
+        "advisory-non-string-observed",
+        "advisory-empty-expected",
+        "advisory-unhashable-field",
+        "advisory-equal-amounts",
+        "advisory-numeric-equal-amounts",
+        "advisory-non-finite-observed",
+        "advisory-negative-expected",
+        "advisory-non-canonical-format",
+        "advisory-account-scope-conflict",
+        "advisory-position-scope-conflict",
+        "nested-order-identity-conflict",
+        "record-order-identity-conflict",
+        "broker-observation-order-conflict",
+        "missing-broker-observation",
+        "malformed-nested-order-identity",
+    ],
+)
+def test_live_with_malformed_recovery_report_is_blocked_without_submit(
+    report: PendingRecoveryRun,
+) -> None:
+    """A malformed recovery report never starts the runtime, so LIVE
+    orchestration blocks before any broker submission."""
+    request = _live_request()
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    class MalformedRecovery:
+        def run(self, *, checked_at=None) -> PendingRecoveryRun:
+            return report
+
+    runtime = ApplicationRuntime(pending_recovery=MalformedRecovery())
+    startup = runtime.start(checked_at=datetime(2026, 1, 1, tzinfo=UTC))
+    assert startup.ready is False
+    assert not runtime.started
 
     result = ExecutionOrchestrator(
         unit_of_work=unit_of_work,

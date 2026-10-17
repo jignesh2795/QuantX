@@ -12,13 +12,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Protocol
 from uuid import UUID
 
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.ports import ExecutionReceipt
-from quantx.integrations.reconciliation.account import AccountFinancialState
+from quantx.integrations.reconciliation.account import (
+    AccountFinancialState,
+    ReconciliationFinding,
+    ReconciliationReport,
+)
 from quantx.integrations.reconciliation.broker_evidence import (
     BrokerOrderEvidence,
     BrokerOrderEvidenceStatus,
@@ -157,6 +162,58 @@ class EvidenceRefreshOutcome:
 _ADVISORY_ACCOUNT_AMOUNT_FIELDS = frozenset(
     {"available_cash", "equity", "margin_used", "margin_available"}
 )
+
+
+def _canonical_amount(value: object) -> Decimal | None:
+    """Return the Decimal a canonical amount string carries, else ``None``.
+
+    ``AccountReconciler`` serializes finite, nonnegative Decimal amounts with
+    ``str``, so canonical evidence is exactly a string that parses as a
+    finite, nonnegative Decimal and round-trips through ``str`` unchanged.
+    Blanks, padded or signed text, exponent or underscore forms, non-finite
+    values, and negatives are never canonical financial evidence.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        amount = Decimal(value)
+    except InvalidOperation:
+        return None
+    if not amount.is_finite() or amount < 0:
+        return None
+    if str(amount) != value:
+        return None
+    return amount
+
+
+def is_advisory_account_amount_evidence(report: ReconciliationReport) -> bool:
+    """True when every finding is a both-sides balance delta on an advisory field.
+
+    Only the canonical account-reconciler shape qualifies: each finding names
+    an advisory amount field and carries a genuine numeric difference between
+    two canonical amount strings (finite, nonnegative, ``str``-round-tripping).
+    Identity, availability, currency, staleness, half-sided, non-string,
+    equal-valued, non-finite, negative, and non-canonical-format findings
+    never qualify.
+    """
+    findings = report.findings
+    if not isinstance(findings, tuple) or not findings:
+        return False
+    for finding in findings:
+        if not isinstance(finding, ReconciliationFinding):
+            return False
+        if (
+            not isinstance(finding.field, str)
+            or finding.field not in _ADVISORY_ACCOUNT_AMOUNT_FIELDS
+        ):
+            return False
+        expected = _canonical_amount(finding.expected)
+        observed = _canonical_amount(finding.observed)
+        if expected is None or observed is None:
+            return False
+        if expected == observed:
+            return False
+    return True
 
 
 class ReconciliationIdempotencyResolver:
@@ -396,12 +453,7 @@ class ReconciliationEvidenceRefresher:
             return True
         if not self._evidence.advisory_account_amounts:
             return False
-        if not account.findings:
-            return False
-        return all(
-            finding.field in _ADVISORY_ACCOUNT_AMOUNT_FIELDS and finding.observed is not None
-            for finding in account.findings
-        )
+        return is_advisory_account_amount_evidence(account)
 
     @staticmethod
     def _is_definitive_mismatch(result: OrderStateReconciliationResult) -> bool:

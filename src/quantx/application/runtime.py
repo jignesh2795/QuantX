@@ -38,24 +38,55 @@ class ApplicationStartupResult:
     def recovered(self) -> int:
         return self.pending_recovery.resolved
 
+    @property
+    def ready(self) -> bool:
+        """True only when the recovery report is well formed and fully resolved."""
+        recovery = self.pending_recovery
+        if not isinstance(recovery, PendingRecoveryRun):
+            return False
+        return recovery.fully_resolved
+
 
 class ApplicationRuntime:
-    """Run explicit startup recovery exactly once."""
+    """Run explicit startup recovery until it resolves definitively.
+
+    Readiness is granted only by a structurally valid, complete recovery
+    report in which every record resolved definitively with definitive
+    outcome evidence. Unresolved or malformed reports leave the runtime
+    unstarted while remaining inspectable through ``last_startup_result``;
+    the operator may explicitly start again to rerun recovery after
+    remediation (for example operator resolution of the pending reservation).
+    Once successfully started, repeated startup is rejected. A recovery-hook
+    exception or a report of the wrong type propagates and likewise leaves
+    readiness false.
+    """
 
     def __init__(self, *, pending_recovery: StartupRecoveryHook) -> None:
         self._pending_recovery = pending_recovery
         self._started = False
+        self._last_startup_result: ApplicationStartupResult | None = None
 
     @property
     def started(self) -> bool:
         return self._started
+
+    @property
+    def last_startup_result(self) -> ApplicationStartupResult | None:
+        """The latest complete startup report, if any attempt has finished."""
+        return self._last_startup_result
 
     def start(
         self,
         *,
         checked_at: datetime | None = None,
     ) -> ApplicationStartupResult:
-        """Run startup recovery once, then mark the runtime started."""
+        """Run startup recovery and grant readiness only when it resolves.
+
+        Returns the complete recovery report either way and retains it for
+        inspection. A report with pending, failed, or malformed records leaves
+        the runtime unstarted without submitting orders, retrying, or altering
+        any reservation; the caller may retry explicitly after remediation.
+        """
         if self._started:
             raise RuntimeError("application runtime is already started")
 
@@ -64,5 +95,10 @@ class ApplicationRuntime:
             raise ValueError("checked_at must be timezone-aware")
 
         recovery = self._pending_recovery.run(checked_at=observed_at)
-        self._started = True
-        return ApplicationStartupResult(pending_recovery=recovery)
+        if not isinstance(recovery, PendingRecoveryRun):
+            raise TypeError("startup recovery must return PendingRecoveryRun")
+        result = ApplicationStartupResult(pending_recovery=recovery)
+        self._last_startup_result = result
+        if result.ready:
+            self._started = True
+        return result

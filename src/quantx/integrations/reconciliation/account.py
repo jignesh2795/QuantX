@@ -40,6 +40,8 @@ class AccountFinancialState:
             raise ValueError("currency must not be empty")
         for name in ("available_cash", "equity", "margin_used", "margin_available"):
             value = getattr(self, name)
+            if value is not None and not value.is_finite():
+                raise ValueError(f"{name} must be finite")
             if value is not None and value < 0:
                 raise ValueError(f"{name} cannot be negative")
 
