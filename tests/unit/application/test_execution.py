@@ -57,7 +57,10 @@ from quantx.integrations.brokers import (
     BrokerDescriptor,
     CapabilitySet,
 )
-from quantx.integrations.reconciliation.account import ReconciliationReport
+from quantx.integrations.reconciliation.account import (
+    ReconciliationFinding,
+    ReconciliationReport,
+)
 from quantx.integrations.reconciliation.account import (
     ReconciliationStatus as AccountReconciliationStatus,
 )
@@ -824,6 +827,28 @@ def _matched_nested_result(**overrides: object) -> OrderStateReconciliationResul
     return OrderStateReconciliationResult(**base)
 
 
+def _nested_position(status: PositionReconciliationStatus) -> PositionReconciliation:
+    return PositionReconciliation(
+        _NESTED_ACCOUNT_ID,
+        _NESTED_CONNECTION_ID,
+        "NSE:TCS",
+        status,
+        Decimal("1"),
+        Decimal("1"),
+        datetime(2026, 1, 1, tzinfo=UTC),
+        "position evidence",
+    )
+
+
+def _advisory_nested_account() -> ReconciliationReport:
+    return ReconciliationReport(
+        _NESTED_ACCOUNT_ID,
+        _NESTED_CONNECTION_ID,
+        AccountReconciliationStatus.MISMATCH,
+        (ReconciliationFinding("available_cash", "100", "101", "available_cash differs"),),
+    )
+
+
 def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
     return EvidenceRefreshOutcome(
         result=result,
@@ -888,6 +913,47 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
                 ),
             )
         ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            position=_nested_position(PositionReconciliationStatus.INCOMPLETE),
+                            account=_advisory_nested_account(),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            position=_nested_position(PositionReconciliationStatus.MISMATCH),
+                            account=_advisory_nested_account(),
+                        )
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(status=OrderWorkflowStatus.MISMATCH)
+                    ),
+                ),
+            )
+        ),
     ],
     ids=[
         "definitive-without-outcome-evidence",
@@ -899,6 +965,9 @@ def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
         "malformed-identity",
         "matched-without-order",
         "mismatch-with-identity-error",
+        "mismatch-with-unresolved-position",
+        "mismatch-with-unmatched-position",
+        "mismatch-with-matched-account",
     ],
 )
 def test_live_with_malformed_recovery_report_is_blocked_without_submit(

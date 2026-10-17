@@ -655,6 +655,62 @@ _MALFORMED_DEFINITIVE_RECORDS: tuple[PendingRecoveryResult, ...] = (
             ),
         ),
     ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                position=_position_result(PositionReconciliationStatus.INCOMPLETE),
+                account=_advisory_account_report(),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                position=_position_result(PositionReconciliationStatus.STALE),
+                account=_advisory_account_report(),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                position=_position_result(PositionReconciliationStatus.UNAVAILABLE),
+                account=_advisory_account_report(),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                position=_position_result(PositionReconciliationStatus.MISMATCH),
+                account=_advisory_account_report(),
+            ),
+        ),
+    ),
+    PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(status=OrderWorkflowStatus.MISMATCH),
+        ),
+    ),
 )
 
 _MALFORMED_DEFINITIVE_IDS: tuple[str, ...] = (
@@ -686,6 +742,11 @@ _MALFORMED_DEFINITIVE_IDS: tuple[str, ...] = (
     "mismatch-with-identity-error",
     "mismatch-without-account",
     "mismatch-with-non-advisory-account",
+    "mismatch-with-unresolved-position",
+    "mismatch-with-stale-position",
+    "mismatch-with-unavailable-position",
+    "mismatch-with-unmatched-position",
+    "mismatch-with-matched-account",
 )
 
 
@@ -736,6 +797,30 @@ def test_runtime_accepts_definitive_advisory_account_mismatch() -> None:
             definitive=True,
             result=_reconciliation_result(
                 status=OrderWorkflowStatus.MISMATCH,
+                account=_advisory_account_report(),
+            ),
+        ),
+    )
+    runtime = ApplicationRuntime(pending_recovery=FakeRecovery(PendingRecoveryRun((record,))))
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert runtime.started
+    assert result.ready is True
+    assert result.recovered == 1
+    assert result.failed == 0
+
+
+def test_runtime_accepts_definitive_advisory_mismatch_without_position() -> None:
+    """Absent position evidence leaves the advisory-amounts MISMATCH definitive."""
+    record = PendingRecoveryResult(
+        "order-1",
+        True,
+        outcome=_outcome(
+            definitive=True,
+            result=_reconciliation_result(
+                status=OrderWorkflowStatus.MISMATCH,
+                position=None,
                 account=_advisory_account_report(),
             ),
         ),

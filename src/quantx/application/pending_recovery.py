@@ -202,31 +202,16 @@ def _result_structurally_valid(result: OrderStateReconciliationResult) -> bool:
     return True
 
 
-def _downstream_evidence_matched(result: OrderStateReconciliationResult) -> bool:
-    position = result.position
-    if position is not None and position.status.value != "MATCHED":
-        return False
-    account = result.account
-    if account is not None and account.status.value != "MATCHED":
-        return False
-    return True
-
-
-def _account_permits_definitive_mismatch(account: ReconciliationReport | None) -> bool:
-    if account is None:
-        return False
-    if account.status.value == "MATCHED":
-        return True
-    return is_advisory_account_amount_evidence(account)
-
-
 def _definitive_result_consistent(result: object) -> bool:
     """True only for a canonical nested result that can back a definitive outcome.
 
-    The canonical workflow aggregates MATCHED only over a matched order with no
-    unmatched downstream evidence, and a definitive MISMATCH requires a matched
-    order plus account evidence limited to advisory balance deltas. UNKNOWN and
-    INCOMPLETE aggregates can never be definitive under any evidence policy.
+    Every definitive claim requires a matched order, no identity failure, and
+    position evidence that is matched or absent. The MATCHED aggregate also
+    requires absent or matched account evidence. The MISMATCH aggregate is
+    definitive only under the advisory-amounts contract: the account mismatch
+    must be present and limited to both-sides balance deltas. UNKNOWN and
+    INCOMPLETE aggregates, unresolved or mismatched positions, matched
+    accounts, and identity failures never back a definitive outcome.
     """
     if not isinstance(result, OrderStateReconciliationResult):
         return False
@@ -237,10 +222,16 @@ def _definitive_result_consistent(result: object) -> bool:
     order = result.order
     if order is None or order.status is not OrderReconciliationStatus.MATCHED:
         return False
+    position = result.position
+    if position is not None and position.status.value != "MATCHED":
+        return False
+    account = result.account
     if result.status is OrderWorkflowStatus.MATCHED:
-        return _downstream_evidence_matched(result)
+        return account is None or account.status.value == "MATCHED"
     if result.status is OrderWorkflowStatus.MISMATCH:
-        return _account_permits_definitive_mismatch(result.account)
+        if account is None or account.status.value != "MISMATCH":
+            return False
+        return is_advisory_account_amount_evidence(account)
     return False
 
 
