@@ -2,9 +2,11 @@
 """QuantX release gate: bind validation evidence to the exact merge candidate.
 
 Consumes the machine-readable evidence produced by the validation gate
-(`quantx-validation-gate/scripts/run_validation.py`), verifies that it belongs
-to the current HEAD, checks tracked-worktree cleanliness and diff-range
-whitespace, and reports PASS / FAIL / UNKNOWN (fail-closed).
+(`quantx-validation-gate/scripts/run_validation.py`), verifies that it was
+produced in this repository, belongs to the current HEAD, and is internally
+consistent (the overall verdict is recomputed from the evidence's own checks
+and never trusted as a summary field), checks tracked-worktree cleanliness and
+diff-range whitespace, and reports PASS / FAIL / UNKNOWN (fail-closed).
 
 This script authorizes nothing by itself and never modifies the repository.
 It does not fix, retry, or re-run validation; missing or mismatched evidence
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -38,7 +41,8 @@ EVIDENCE_SCHEMA = "quantx.validation-evidence.v1"
 EVIDENCE_DIR_NAME = "quantx-validation"
 
 NON_CLAIMS = [
-    "PASS confirms: local validation evidence with overall PASS exists for this exact HEAD, "
+    "PASS confirms: internally consistent validation evidence produced in this repository, "
+    "whose overall was recomputed as PASS from its own checks, exists for this exact HEAD; "
     "the tracked worktree is clean, and the diff range has no whitespace errors.",
     "PASS does NOT prove: production readiness, broker correctness, LIVE trading safety, "
     "or that GitHub Actions executed.",
@@ -83,6 +87,10 @@ def find_latest_evidence() -> Path | None:
 
 def check(name: str, status: str, summary: str, notes: list[str] | None = None) -> dict:
     return {"name": name, "status": status, "summary": summary, "notes": notes or []}
+
+
+def normalized_path(value: str) -> str:
+    return os.path.normcase(os.path.realpath(value))
 
 
 def load_evidence(path: Path | None) -> tuple[dict | None, str]:
@@ -140,12 +148,86 @@ def evaluate(
                 f"validation evidence loaded (overall={evidence.get('overall')!r})",
             )
         )
-        overall = evidence.get("overall")
-        if overall == PASS:
-            checks.append(check("evidence-overall", PASS, "validation overall is PASS"))
+        raw_checks = evidence.get("checks")
+        reported = evidence.get("overall")
+        statuses: list[str] = []
+        integrity_problems: list[str] = []
+        if not isinstance(raw_checks, list) or not raw_checks:
+            integrity_problems.append("evidence has no checks list to verify")
+        else:
+            for index, entry in enumerate(raw_checks):
+                if (
+                    not isinstance(entry, dict)
+                    or not isinstance(entry.get("name"), str)
+                    or entry.get("status") not in (PASS, FAIL, UNKNOWN)
+                ):
+                    integrity_problems.append(f"check #{index} is malformed")
+                    continue
+                statuses.append(entry["status"])
+        recomputed: str | None = None
+        if not integrity_problems:
+            if FAIL in statuses:
+                recomputed = FAIL
+            elif UNKNOWN in statuses:
+                recomputed = UNKNOWN
+            else:
+                recomputed = PASS
+            if recomputed != reported:
+                integrity_problems.append(
+                    f"reported overall {reported!r} does not match recomputed "
+                    f"{recomputed!r} from {len(statuses)} checks"
+                )
+        if integrity_problems:
+            checks.append(
+                check(
+                    "evidence-integrity",
+                    FAIL,
+                    "evidence structure or overall is not trustworthy",
+                    integrity_problems[:10],
+                )
+            )
+            checks.append(
+                check("evidence-overall", FAIL, "validation overall could not be verified")
+            )
         else:
             checks.append(
-                check("evidence-overall", FAIL, f"validation overall is {overall!r}, not PASS")
+                check(
+                    "evidence-integrity",
+                    PASS,
+                    f"recomputed overall {recomputed} from {len(statuses)} checks matches reported",
+                )
+            )
+            if recomputed == PASS:
+                checks.append(check("evidence-overall", PASS, "validation overall is PASS"))
+            else:
+                checks.append(
+                    check(
+                        "evidence-overall",
+                        FAIL,
+                        f"validation overall is {recomputed!r}, not PASS",
+                    )
+                )
+        evidence_repo = evidence.get("repo")
+        if not isinstance(evidence_repo, str) or not evidence_repo:
+            checks.append(
+                check(
+                    "evidence-repo-binding",
+                    FAIL,
+                    "evidence does not record which repository it belongs to",
+                )
+            )
+        elif normalized_path(evidence_repo) == normalized_path(str(repo)):
+            checks.append(
+                check("evidence-repo-binding", PASS, "evidence belongs to this repository")
+            )
+        else:
+            checks.append(
+                check(
+                    "evidence-repo-binding",
+                    FAIL,
+                    "evidence belongs to a different repository path",
+                    [f"evidence repo {evidence_repo}; this repo {repo}"],
+                )
             )
         if head is None:
             checks.append(check("evidence-head-binding", UNKNOWN, "cannot resolve repository HEAD"))
@@ -304,7 +386,15 @@ def self_test() -> int:
 
         evidence = tmp / "evidence.json"
         evidence.write_text(
-            json.dumps({"schema": EVIDENCE_SCHEMA, "overall": PASS, "head_sha": head}),
+            json.dumps(
+                {
+                    "schema": EVIDENCE_SCHEMA,
+                    "overall": PASS,
+                    "head_sha": head,
+                    "repo": str(tmp),
+                    "checks": [{"name": "pytest", "status": PASS, "summary": "2045 passed"}],
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -318,7 +408,15 @@ def self_test() -> int:
 
         mismatched = tmp / "mismatched.json"
         mismatched.write_text(
-            json.dumps({"schema": EVIDENCE_SCHEMA, "overall": PASS, "head_sha": "0" * 40}),
+            json.dumps(
+                {
+                    "schema": EVIDENCE_SCHEMA,
+                    "overall": PASS,
+                    "head_sha": "0" * 40,
+                    "repo": str(tmp),
+                    "checks": [{"name": "pytest", "status": PASS, "summary": "2045 passed"}],
+                }
+            ),
             encoding="utf-8",
         )
         report = evaluate(tmp, mismatched, None, head)
@@ -326,11 +424,67 @@ def self_test() -> int:
 
         failed_overall = tmp / "failed.json"
         failed_overall.write_text(
-            json.dumps({"schema": EVIDENCE_SCHEMA, "overall": FAIL, "head_sha": head}),
+            json.dumps(
+                {
+                    "schema": EVIDENCE_SCHEMA,
+                    "overall": FAIL,
+                    "head_sha": head,
+                    "repo": str(tmp),
+                    "checks": [{"name": "pytest", "status": FAIL, "summary": "3 failed"}],
+                }
+            ),
             encoding="utf-8",
         )
         report = evaluate(tmp, failed_overall, None, head)
         check_case("non-PASS validation fails", report["overall"] == FAIL)
+
+        tampered = tmp / "tampered.json"
+        tampered.write_text(
+            json.dumps(
+                {
+                    "schema": EVIDENCE_SCHEMA,
+                    "overall": PASS,
+                    "head_sha": head,
+                    "repo": str(tmp),
+                    "checks": [{"name": "pytest", "status": FAIL, "summary": "3 failed"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        report = evaluate(tmp, tampered, None, head)
+        check_case("tampered overall summary fails", report["overall"] == FAIL)
+
+        empty_checks = tmp / "empty-checks.json"
+        empty_checks.write_text(
+            json.dumps(
+                {
+                    "schema": EVIDENCE_SCHEMA,
+                    "overall": PASS,
+                    "head_sha": head,
+                    "repo": str(tmp),
+                    "checks": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        report = evaluate(tmp, empty_checks, None, head)
+        check_case("evidence without checks fails", report["overall"] == FAIL)
+
+        other_repo = tmp / "other-repo.json"
+        other_repo.write_text(
+            json.dumps(
+                {
+                    "schema": EVIDENCE_SCHEMA,
+                    "overall": PASS,
+                    "head_sha": head,
+                    "repo": str(tmp) + "-elsewhere",
+                    "checks": [{"name": "pytest", "status": PASS, "summary": "2045 passed"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        report = evaluate(tmp, other_repo, None, head)
+        check_case("foreign-repo evidence fails", report["overall"] == FAIL)
 
         report = evaluate(tmp, tmp / "missing.json", None, head)
         check_case("missing evidence is UNKNOWN", report["overall"] == UNKNOWN)

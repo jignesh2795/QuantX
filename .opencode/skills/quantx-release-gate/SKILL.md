@@ -32,8 +32,8 @@ python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence 
 python .opencode/skills/quantx-release-gate/scripts/release_check.py --self-test
 ```
 
-- Consumes validation evidence (`quantx.validation-evidence.v1`, latest by default) and requires `overall == PASS` **bound to the exact current HEAD**.
-- Checks: expected-HEAD match, no tracked worktree modifications, `git diff --check <base>...HEAD` clean, informational changed-file scope vs base (`origin/main` by default).
+- Consumes validation evidence (`quantx.validation-evidence.v1`, latest by default), requires it to be **bound to the exact current HEAD**, **produced in this repository** (`evidence-repo-binding`), and **internally consistent**: the overall verdict is recomputed from the evidence's own checks (`evidence-integrity`) and the reported summary field is never trusted alone. Tampered summaries, empty check lists, malformed checks, or foreign-repo evidence are FAIL, never PASS.
+- Checks: evidence presence/integrity/overall/head/repo bindings, expected-HEAD match, no tracked worktree modifications, `git diff --check <base>...HEAD` clean, informational changed-file scope vs base (`origin/main` by default).
 - Exit codes: 0 PASS, 1 FAIL, 2 UNKNOWN, 3 usage/internal error. Missing, mismatched, or unreadable evidence is never PASS.
 - PASS means the local evidence chain is internally consistent; it does not claim production readiness, broker correctness, LIVE safety, or that CI ran. Non-claims are printed with every report.
 - `--self-test` exercises the evaluator against a throwaway temp git repo.
