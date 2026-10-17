@@ -1,6 +1,6 @@
 ---
 name: quantx-risk-policy
-description: Use when working on QuantX risk or kill-switch behavior — pre-trade limits, exposure/drawdown/daily-loss, margin, approval-required, trading-gate trips, post-trade breach. Maps existing implemented contracts; never adds new enforcement. Keywords: risk, limits, drawdown, margin, kill switch, gate, approval, breach, blocked.
+description: Use when working on QuantX risk or kill-switch behavior — pre-trade limits, exposure/drawdown/daily-loss, margin, approval-required, trading-gate trips, post-trade breach. Maps existing implemented contracts; never adds new enforcement. Keywords: risk, limits, margin, kill switch, gate, breach.
 metadata:
   quantx/role: risk
 ---

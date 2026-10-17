@@ -1,6 +1,6 @@
 ---
 name: quantx-architecture
-description: Use when adding, moving, or refactoring code in QuantX and deciding WHERE it belongs — package placement, module boundaries, dependency rules, ports and adapters, event-driven domain core, layering (domain/application/execution/integrations/plugins/ports/persistence/india). Front-load keywords: architecture, package placement, where to put code, new module, port, adapter, boundary, dependency rule.
+description: Use when adding, moving, or refactoring QuantX code and deciding where it belongs — package placement, module boundaries, dependency rules, ports and adapters, event-driven core, layering (domain/application/execution/integrations/plugins/ports/persistence/india). Keywords: where to put code, new module, port, adapter, boundary.
 ---
 
 # QuantX Architecture & Code Placement

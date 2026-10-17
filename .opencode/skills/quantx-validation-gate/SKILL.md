@@ -1,6 +1,6 @@
 ---
 name: quantx-validation-gate
-description: Generates exact read-only validation prompts and evidence requirements for QuantX — focused/full pytest, changed-file Ruff, strict mypy, git diff --check, scope and integrity audits. Use when validation evidence is requested. Never fixes during validation.
+description: Use when validation evidence is requested — exact read-only validation prompts and requirements for QuantX: focused/full pytest, changed-file Ruff, strict mypy, git diff --check, scope and integrity audits. Never fixes during validation.
 metadata:
   quantx/role: validation
 ---

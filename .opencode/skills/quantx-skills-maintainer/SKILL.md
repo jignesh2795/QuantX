@@ -1,6 +1,6 @@
 ---
 name: quantx-skills-maintainer
-description: Use when adding, editing, splitting, or validating opencode skills under .opencode/skills/ in QuantX — frontmatter contract, router+references structure, script conventions, and SHA-256 manifest regeneration/verification with the integrity validator.
+description: Use when adding, editing, splitting, or validating opencode skills under .opencode/skills/ — frontmatter contract, router+references structure, script conventions, trigger-eval assets, and SHA-256 manifest regeneration/verification.
 ---
 
 # QuantX Skills Maintainer
@@ -37,3 +37,15 @@ python .opencode/skills/quantx-skills-maintainer/scripts/skill_integrity.py --se
 - Missing or unreadable manifest → UNKNOWN (run `--update`), never PASS.
 - `--update` refuses to write the manifest while frontmatter validation fails.
 - Hashes are line-ending independent (CRLF normalized to LF before hashing): the repo has no `.gitattributes` and `core.autocrlf=true` on Windows checkouts.
+
+## Trigger-eval assets
+
+`quantx-skills-maintainer/evals/triggers.json` (`quantx.trigger-eval.v1`) holds per-skill `should_trigger` (≥3) and `should_not_trigger` (≥2, each with a `belongs_to` skill) prompts.
+
+```powershell
+python .opencode/skills/quantx-skills-maintainer/scripts/check_trigger_assets.py
+```
+
+- The evaluator is a **static keyword-overlap proxy, not ground truth**: it verifies that prompts are keyword-coherent with descriptions and discriminate toward the declared skill — nothing about real model routing.
+- It self-validates on fixtures first and refuses to produce a verdict if the evaluator itself misbehaves.
+- Run an evaluation against the target model before making any trigger-accuracy claim; a proxy PASS is not a routing guarantee.

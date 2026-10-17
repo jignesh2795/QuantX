@@ -1,6 +1,6 @@
 ---
 name: quantx-dev-workflow
-description: Use when running validation, tests, lint, typecheck, commits, branches, or making any code change in the QuantX repo. Covers the 7-step implementation discipline, uv/pytest/ruff/mypy commands, the git hook gate, branching and commit conventions, and where documentation belongs (docs/STATUS.md, docs/implementation, docs/decisions, docs/roadmap).
+description: Use when making any code change in QuantX — 7-step implementation discipline, uv/pytest/ruff/mypy commands, git hook gate, branching and commit conventions, worktree lifecycle, and where documentation belongs (docs/STATUS.md, docs/implementation, docs/decisions, docs/roadmap).
 ---
 
 # QuantX Developer Workflow

@@ -1,6 +1,6 @@
 ---
 name: quantx-india-market
-description: Use when working on India-market specifics in QuantX — Indian exchanges/segments, F&O contracts, order validity rules, IST session calendar, instrument catalog, Dhan broker plugin, Dhan SDK, option/futures specs, price bands, rolls, lot sizes. Front-load keywords: India, Indian, Dhan, F&O, futures, options, expiry, strike, IST, session, exchange, NSE, BSE, lot size, broker.
+description: Use when working on India-market specifics — Indian exchanges/segments, F&O contracts, order validity rules, IST session calendar, instrument catalog, Dhan broker plugin and SDK, option/futures specs, price bands, rolls, lot sizes. Keywords: India, Dhan, F&O, expiry, strike, IST, NSE, BSE, lot size.
 ---
 
 # QuantX India Market & Broker Plugins

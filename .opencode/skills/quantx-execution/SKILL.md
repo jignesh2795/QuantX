@@ -1,6 +1,6 @@
 ---
 name: quantx-execution
-description: Use when working on QuantX execution integrity — paper trading, order receipts, preconditions, idempotency, reconciliation, pending-order recovery, trading gate, uncertain submissions, partial-fill continuation, ExecutionOrchestrator, startup recovery. Front-load keywords: execution, receipt, reconciliation, recovery, idempotency, fail-closed, paper, trading gate, pending order, submission.
+description: Use when working on QuantX execution integrity — paper trading, order receipts, preconditions, idempotency, reconciliation, pending-order recovery, trading gate, uncertain submissions, partial-fill continuation, ExecutionOrchestrator, startup recovery. Keywords: execution, receipt, reconciliation, recovery, trading gate.
 ---
 
 # QuantX Execution Integrity & Recovery

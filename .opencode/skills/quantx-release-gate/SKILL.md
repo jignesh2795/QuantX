@@ -1,6 +1,6 @@
 ---
 name: quantx-release-gate
-description: Decides whether a QuantX branch/PR is ready to merge — test evidence, quality gates, semantic audit, safety review, scope integrity, and explicit non-claims. Use before any merge or release decision.
+description: Use before any merge or release decision — decides whether a QuantX branch/PR is ready: test evidence, quality gates, semantic/safety audit, scope integrity, explicit non-claims, plus the executable release-check script.
 metadata:
   quantx/role: release
 ---
