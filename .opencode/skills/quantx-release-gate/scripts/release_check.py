@@ -10,14 +10,18 @@ mypy, git-diff-check, worktree-integrity) must be present exactly once as a
 well-formed record, and the overall verdict is recomputed from those records
 and never trusted as a summary field. Record semantics are cross-checked
 against the producer's shapes: for the command checks a PASS requires exit 0,
-a FAIL requires a nonzero exit, and an UNKNOWN cannot carry an exit code;
-pytest records must match the exact classify_pytest shapes (canonical count
-summary, status/exit-code/notes combinations the producer can emit, including
-the collected-no-tests FAIL that can occur with exit 0 and the exit-0 UNKNOWN
-contradiction/incomplete paths); non-finite or negative durations are
-rejected, while the Ruff vacuous-pass shape is preserved; worktree-integrity
-is produced without an exit code. Recomputing verifies internal consistency
-only; it does not prove the evidence was genuinely produced by a test run.
+a FAIL requires a nonzero exit, and an UNKNOWN cannot carry an exit code,
+with the single exception of git-diff-check, whose completed Git-error
+UNKNOWN path carries a nonzero exit code and is accepted only with its exact
+producer summary and note (pass/fail/incomplete/skipped shapes are pinned to
+the producer's summaries and notes as well); pytest records must match the
+exact classify_pytest shapes (canonical count summary, status/exit-code/notes
+combinations the producer can emit, including the collected-no-tests FAIL
+that can occur with exit 0 and the exit-0 UNKNOWN contradiction/incomplete
+paths); non-finite or negative durations are rejected, while the Ruff
+vacuous-pass shape is preserved; worktree-integrity is produced without an
+exit code. Recomputing verifies internal consistency only; it does not prove
+the evidence was genuinely produced by a test run.
 Checks tracked-worktree cleanliness and diff-range whitespace, and reports
 PASS / FAIL / UNKNOWN (fail-closed).
 
@@ -86,6 +90,15 @@ _PYTEST_NO_SUMMARY = "no pytest summary line parsed"
 _PYTEST_NO_TESTS_NOTE = "pytest collected no tests"
 _PYTEST_CONTRADICTION_NOTE = "exit 0 contradicts failure counts; evidence rejected"
 _PYTEST_INCOMPLETE_NOTE = "exit 0 without a parsed pass summary; incomplete evidence"
+
+# Producer strings from run_validation.classify_diff_check and build_checks.
+_DIFF_CHECK_PASS_SUMMARY = "no whitespace errors"
+_DIFF_CHECK_FAIL_SUMMARY = "whitespace errors found"
+_DIFF_CHECK_FAIL_NOTE = "git diff --check reported findings"
+_DIFF_CHECK_INCOMPLETE_SUMMARY = "diff check did not complete"
+_DIFF_CHECK_ERROR_SUMMARY = "git diff --check failed without actionable output"
+_DIFF_CHECK_ERROR_NOTE = "git error"
+_DIFF_CHECK_SKIPPED_NOTE = "skipped by request"
 
 NON_CLAIMS = [
     "PASS confirms: complete, internally consistent validation evidence for this repository and "
@@ -206,6 +219,9 @@ def semantic_record_problems(
     if name == "pytest":
         problems.extend(pytest_record_problems(status, exit_code, summary, notes))
         return problems
+    if name == "git-diff-check":
+        problems.extend(diff_check_record_problems(status, exit_code, summary, notes))
+        return problems
     vacuous = name in ("ruff-check", "ruff-format") and summary == "vacuous pass"
     if vacuous:
         if status != PASS or exit_code is not None:
@@ -320,6 +336,51 @@ def pytest_record_problems(
         elif notes != [_PYTEST_INCOMPLETE_NOTE]:
             problems.append(
                 f"check 'pytest' has status UNKNOWN with summary {summary!r} but notes {notes!r}"
+            )
+    return problems
+
+
+def diff_check_record_problems(
+    status: str, exit_code: int | None, summary: str, notes: list[str]
+) -> list[str]:
+    """Mirror classify_diff_check: pin every git-diff-check record to its shape.
+
+    The completed Git-error path is the one command-check UNKNOWN that
+    legitimately carries a nonzero exit code; it is accepted only with the
+    producer's exact summary and note.
+    """
+    problems: list[str] = []
+    if status == PASS:
+        if exit_code != 0:
+            problems.append(f"check 'git-diff-check' has status PASS with exit_code {exit_code!r}")
+        if summary != _DIFF_CHECK_PASS_SUMMARY:
+            problems.append(f"check 'git-diff-check' has status PASS with summary {summary!r}")
+        if notes:
+            problems.append(f"check 'git-diff-check' has status PASS with notes {notes!r}")
+    elif status == FAIL:
+        if not isinstance(exit_code, int) or exit_code == 0:
+            problems.append(f"check 'git-diff-check' has status FAIL with exit_code {exit_code!r}")
+        if summary != _DIFF_CHECK_FAIL_SUMMARY:
+            problems.append(f"check 'git-diff-check' has status FAIL with summary {summary!r}")
+        if notes != [_DIFF_CHECK_FAIL_NOTE]:
+            problems.append(f"check 'git-diff-check' has status FAIL with notes {notes!r}")
+    elif status == UNKNOWN:
+        if exit_code is None:
+            skipped = summary == "" and notes == [_DIFF_CHECK_SKIPPED_NOTE]
+            incomplete = summary == _DIFF_CHECK_INCOMPLETE_SUMMARY and bool(notes)
+            if not skipped and not incomplete:
+                problems.append(
+                    "check 'git-diff-check' has status UNKNOWN without an exit code but "
+                    f"summary {summary!r} and notes {notes!r}"
+                )
+        elif exit_code == 0:
+            problems.append(
+                f"check 'git-diff-check' has status UNKNOWN with exit_code {exit_code!r}"
+            )
+        elif summary != _DIFF_CHECK_ERROR_SUMMARY or notes != [_DIFF_CHECK_ERROR_NOTE]:
+            problems.append(
+                "check 'git-diff-check' has status UNKNOWN with a nonzero exit code but "
+                f"summary {summary!r} and notes {notes!r}"
             )
     return problems
 
@@ -968,6 +1029,175 @@ def self_test() -> int:
         )
         for case_name, data in pytest_reject_cases:
             path = write_case("pytest-reject.json", data)
+            report = evaluate(tmp, path, None, head)
+            check_case(case_name, integrity_status(report) == FAIL)
+
+        diff_check_slot = MANDATORY_CHECKS.index("git-diff-check")
+        diff_check_accept_cases: list[tuple[str, dict, str]] = []
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            UNKNOWN,
+            exit_code=128,
+            summary="git diff --check failed without actionable output",
+            notes=["git error"],
+        )
+        diff_check_accept_cases.append(
+            (
+                "git-diff-check git-error UNKNOWN exit 128 accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            UNKNOWN,
+            exit_code=None,
+            duration_s=None,
+            summary="",
+            notes=["skipped by request"],
+        )
+        diff_check_accept_cases.append(
+            (
+                "git-diff-check skipped UNKNOWN accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            UNKNOWN,
+            exit_code=None,
+            summary="diff check did not complete",
+            notes=["tool not found on PATH: git"],
+        )
+        diff_check_accept_cases.append(
+            (
+                "git-diff-check incomplete UNKNOWN accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            FAIL,
+            exit_code=2,
+            summary="whitespace errors found",
+            notes=["git diff --check reported findings"],
+        )
+        diff_check_accept_cases.append(
+            (
+                "git-diff-check whitespace FAIL accepted",
+                payload(overall=FAIL, checks=checks),
+                FAIL,
+            )
+        )
+        for case_name, data, expected_overall in diff_check_accept_cases:
+            path = write_case("diff-check-accept.json", data)
+            report = evaluate(tmp, path, None, head)
+            check_case(
+                case_name,
+                integrity_status(report) == PASS and report["overall"] == expected_overall,
+            )
+
+        diff_check_reject_cases: list[tuple[str, dict]] = []
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            UNKNOWN,
+            exit_code=128,
+            summary="some error",
+            notes=["git error"],
+        )
+        diff_check_reject_cases.append(
+            (
+                "git-diff-check UNKNOWN exit with wrong summary rejected",
+                payload(overall=UNKNOWN, checks=checks),
+            )
+        )
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            UNKNOWN,
+            exit_code=128,
+            summary="git diff --check failed without actionable output",
+            notes=["boom"],
+        )
+        diff_check_reject_cases.append(
+            (
+                "git-diff-check UNKNOWN exit with wrong notes rejected",
+                payload(overall=UNKNOWN, checks=checks),
+            )
+        )
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            PASS,
+            exit_code=0,
+            summary="whitespace errors found",
+            notes=[],
+        )
+        diff_check_reject_cases.append(
+            ("git-diff-check PASS with wrong summary rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            PASS,
+            exit_code=0,
+            summary="no whitespace errors",
+            notes=["git error"],
+        )
+        diff_check_reject_cases.append(
+            ("git-diff-check PASS with notes rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            FAIL,
+            exit_code=0,
+            summary="whitespace errors found",
+            notes=["git diff --check reported findings"],
+        )
+        diff_check_reject_cases.append(
+            (
+                "git-diff-check FAIL with exit 0 rejected",
+                payload(overall=FAIL, checks=checks),
+            )
+        )
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            FAIL,
+            exit_code=2,
+            summary="whitespace errors found",
+            notes=["git error"],
+        )
+        diff_check_reject_cases.append(
+            (
+                "git-diff-check FAIL with wrong notes rejected",
+                payload(overall=FAIL, checks=checks),
+            )
+        )
+        checks = case_checks()
+        checks[diff_check_slot] = record(
+            "git-diff-check",
+            UNKNOWN,
+            exit_code=128,
+            summary="git diff --check failed without actionable output",
+            notes=["git error"],
+        )
+        diff_check_reject_cases.append(
+            (
+                "git-diff-check valid UNKNOWN behind reported PASS rejected",
+                payload(checks=checks),
+            )
+        )
+        for case_name, data in diff_check_reject_cases:
+            path = write_case("diff-check-reject.json", data)
             report = evaluate(tmp, path, None, head)
             check_case(case_name, integrity_status(report) == FAIL)
 
