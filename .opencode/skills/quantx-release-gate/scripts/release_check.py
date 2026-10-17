@@ -9,9 +9,12 @@ check record emitted by the validation gate (pytest, ruff-check, ruff-format,
 mypy, git-diff-check, worktree-integrity) must be present exactly once as a
 well-formed record, and the overall verdict is recomputed from those records
 and never trusted as a summary field. Record semantics are cross-checked
-against the producer's shapes: status/exit-code contradictions (a PASS with a
-nonzero exit code, a FAIL without one), pytest PASS summaries without a parsed
-pass count or containing failures, and non-finite or negative durations are
+against the producer's shapes: for the command checks a PASS requires exit 0,
+a FAIL requires a nonzero exit, and an UNKNOWN cannot carry an exit code;
+pytest records must match the exact classify_pytest shapes (canonical count
+summary, status/exit-code/notes combinations the producer can emit, including
+the collected-no-tests FAIL that can occur with exit 0 and the exit-0 UNKNOWN
+contradiction/incomplete paths); non-finite or negative durations are
 rejected, while the Ruff vacuous-pass shape is preserved; worktree-integrity
 is produced without an exit code. Recomputing verifies internal consistency
 only; it does not prove the evidence was genuinely produced by a test run.
@@ -77,6 +80,12 @@ _COMMAND_CHECKS = ("ruff-check", "ruff-format", "mypy", "git-diff-check")
 _PYTEST_COUNT_RE = re.compile(
     r"(\d+) (passed|failed|error|errors|skipped|xfailed|xpassed|deselected)"
 )
+
+# Producer strings from run_validation.classify_pytest; evidence must match them.
+_PYTEST_NO_SUMMARY = "no pytest summary line parsed"
+_PYTEST_NO_TESTS_NOTE = "pytest collected no tests"
+_PYTEST_CONTRADICTION_NOTE = "exit 0 contradicts failure counts; evidence rejected"
+_PYTEST_INCOMPLETE_NOTE = "exit 0 without a parsed pass summary; incomplete evidence"
 
 NON_CLAIMS = [
     "PASS confirms: complete, internally consistent validation evidence for this repository and "
@@ -171,12 +180,14 @@ def check_record_problems(index: int, entry: object) -> list[str]:
     if problems:
         return problems
     if isinstance(name, str) and name in MANDATORY_CHECKS:
-        problems.extend(semantic_record_problems(name, status, exit_code, entry["summary"]))
+        problems.extend(
+            semantic_record_problems(name, status, exit_code, entry["summary"], entry["notes"])
+        )
     return problems
 
 
 def semantic_record_problems(
-    name: str, status: str, exit_code: int | None, summary: str
+    name: str, status: str, exit_code: int | None, summary: str, notes: list[str]
 ) -> list[str]:
     """Reject statuses that contradict the producer's exit codes or summaries."""
     problems: list[str] = []
@@ -193,12 +204,7 @@ def semantic_record_problems(
             )
         return problems
     if name == "pytest":
-        if status == PASS:
-            if exit_code != 0:
-                problems.append(f"check 'pytest' has status PASS with exit_code {exit_code!r}")
-            ok, explanation = pytest_pass_summary(summary)
-            if not ok:
-                problems.append(f"check 'pytest' has status PASS with {explanation}")
+        problems.extend(pytest_record_problems(status, exit_code, summary, notes))
         return problems
     vacuous = name in ("ruff-check", "ruff-format") and summary == "vacuous pass"
     if vacuous:
@@ -220,21 +226,102 @@ def semantic_record_problems(
     return problems
 
 
-def pytest_pass_summary(summary: str) -> tuple[bool, str]:
-    """Check the producer's pytest PASS contract: parsed pass count, no failures."""
-    if not summary or summary == "no pytest summary line parsed":
-        return False, f"an empty or unparsed summary {summary!r}"
+def pytest_summary_counts(summary: str) -> dict[str, int] | None:
+    """Decode a producer pytest summary.
+
+    Returns the parsed counts for a canonical classify_pytest summary line,
+    `{}` for the unparsed-summary marker, and None when the text cannot have
+    been emitted by run_validation.py.
+    """
+    if summary == _PYTEST_NO_SUMMARY:
+        return {}
+    if not summary:
+        return None
     counts: dict[str, int] = {}
     for match in _PYTEST_COUNT_RE.finditer(summary):
         key = match.group(2)
         if key == "error":
             key = "errors"
         counts[key] = max(counts.get(key, 0), int(match.group(1)))
-    if counts.get("failed") or counts.get("errors"):
-        return False, f"failure counts in summary {summary!r}"
-    if not counts.get("passed"):
-        return False, f"no parsed pass count in summary {summary!r}"
-    return True, ""
+    if not counts:
+        return None
+    canonical = ", ".join(f"{value} {key}" for key, value in sorted(counts.items()))
+    if canonical != summary:
+        return None
+    return counts
+
+
+def pytest_record_problems(
+    status: str, exit_code: int | None, summary: str, notes: list[str]
+) -> list[str]:
+    """Mirror classify_pytest: reject pytest records the producer cannot emit."""
+    problems: list[str] = []
+    counts = pytest_summary_counts(summary)
+    if status == PASS:
+        if exit_code != 0:
+            problems.append(f"check 'pytest' has status PASS with exit_code {exit_code!r}")
+        if notes:
+            problems.append(f"check 'pytest' has status PASS with notes {notes!r}")
+        if counts is None or not counts:
+            problems.append(
+                f"check 'pytest' has status PASS without a producer count summary {summary!r}"
+            )
+        elif counts.get("failed") or counts.get("errors"):
+            problems.append(f"check 'pytest' has status PASS with failure counts {summary!r}")
+        elif not counts.get("passed"):
+            problems.append(f"check 'pytest' has status PASS without a pass count {summary!r}")
+    elif status == FAIL:
+        if exit_code is None:
+            problems.append("check 'pytest' has status FAIL without an exit code")
+        if counts is None:
+            problems.append(
+                f"check 'pytest' has status FAIL with a non-producer summary {summary!r}"
+            )
+        if exit_code == 0:
+            if notes != [_PYTEST_NO_TESTS_NOTE]:
+                problems.append(
+                    "check 'pytest' has status FAIL with exit_code 0 but notes "
+                    f"{notes!r}; only the no-tests path fails with exit 0"
+                )
+        elif exit_code is not None and notes not in (
+            [f"pytest exit code {exit_code}"],
+            [_PYTEST_NO_TESTS_NOTE],
+        ):
+            problems.append(
+                f"check 'pytest' has status FAIL with exit_code {exit_code} and notes {notes!r}"
+            )
+    elif status == UNKNOWN:
+        if exit_code is None:
+            if summary != "":
+                problems.append(
+                    "check 'pytest' has status UNKNOWN without an exit code but "
+                    f"summary {summary!r}"
+                )
+            if not notes:
+                problems.append("check 'pytest' has status UNKNOWN without an exit code or notes")
+        elif exit_code != 0:
+            problems.append(f"check 'pytest' has status UNKNOWN with exit_code {exit_code!r}")
+        elif counts is None:
+            problems.append(
+                "check 'pytest' has status UNKNOWN with exit_code 0 and a "
+                f"non-producer summary {summary!r}"
+            )
+        elif counts.get("failed") or counts.get("errors"):
+            if notes != [_PYTEST_CONTRADICTION_NOTE]:
+                problems.append(
+                    f"check 'pytest' has status UNKNOWN with failure counts {summary!r} "
+                    f"but notes {notes!r}"
+                )
+        elif counts.get("passed"):
+            problems.append(
+                f"check 'pytest' has status UNKNOWN with a pass count {summary!r}; "
+                "the producer classifies that PASS"
+            )
+        elif notes != [_PYTEST_INCOMPLETE_NOTE]:
+            problems.append(
+                f"check 'pytest' has status UNKNOWN with summary {summary!r} but notes {notes!r}"
+            )
+    return problems
 
 
 def load_evidence(path: Path | None) -> tuple[dict | None, str]:
@@ -560,9 +647,15 @@ def self_test() -> int:
                     UNKNOWN: "",
                 }[status]
             elif name == "pytest":
-                base["summary"] = (
-                    "2045 passed, 1 skipped" if status == PASS else "3 failed, 10 passed"
-                )
+                if status == PASS:
+                    base["summary"] = "2045 passed, 1 skipped"
+                elif status == FAIL:
+                    base["exit_code"] = 1
+                    base["summary"] = "3 failed, 10 passed"
+                    base["notes"] = ["pytest exit code 1"]
+                else:
+                    base["summary"] = ""
+                    base["notes"] = ["skipped by request"]
             elif name in ("ruff-check", "ruff-format"):
                 base["summary"] = "4 changed file(s)"
             elif name == "git-diff-check":
@@ -590,6 +683,11 @@ def self_test() -> int:
 
         def case_checks() -> list[dict]:
             return [record(name) for name in MANDATORY_CHECKS]
+
+        def integrity_status(report: dict) -> str:
+            return next(
+                item["status"] for item in report["checks"] if item["name"] == "evidence-integrity"
+            )
 
         valid = write_case("valid.json", payload())
         report = evaluate(tmp, valid, None, head)
@@ -641,7 +739,7 @@ def self_test() -> int:
             check_case(case_name, report["overall"] == FAIL)
 
         contradiction_cases: list[tuple[str, dict]] = []
-        for command_check in ("pytest", "ruff-check", "ruff-format", "mypy", "git-diff-check"):
+        for command_check in ("pytest", *_COMMAND_CHECKS):
             checks = case_checks()
             checks[MANDATORY_CHECKS.index(command_check)] = record(command_check, exit_code=1)
             contradiction_cases.append(
@@ -687,6 +785,191 @@ def self_test() -> int:
             path = write_case("contradiction-case.json", data)
             report = evaluate(tmp, path, None, head)
             check_case(case_name, report["overall"] == FAIL)
+
+        pytest_accept_cases: list[tuple[str, dict, str]] = []
+        checks = case_checks()
+        checks[0] = record(
+            "pytest",
+            FAIL,
+            exit_code=5,
+            summary="no pytest summary line parsed",
+            notes=["pytest collected no tests"],
+        )
+        pytest_accept_cases.append(
+            (
+                "pytest FAIL exit 5 no-tests note accepted",
+                payload(overall=FAIL, checks=checks),
+                FAIL,
+            )
+        )
+        checks = case_checks()
+        checks[0] = record(
+            "pytest",
+            FAIL,
+            exit_code=0,
+            summary="2045 passed, 1 skipped",
+            notes=["pytest collected no tests"],
+        )
+        pytest_accept_cases.append(
+            (
+                "pytest FAIL exit 0 no-tests note accepted",
+                payload(overall=FAIL, checks=checks),
+                FAIL,
+            )
+        )
+        checks = case_checks()
+        checks[0] = record(
+            "pytest",
+            UNKNOWN,
+            exit_code=0,
+            summary="1 failed, 2044 passed",
+            notes=["exit 0 contradicts failure counts; evidence rejected"],
+        )
+        pytest_accept_cases.append(
+            (
+                "pytest UNKNOWN exit 0 contradiction accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        checks = case_checks()
+        checks[0] = record(
+            "pytest",
+            UNKNOWN,
+            exit_code=0,
+            summary="2 errors",
+            notes=["exit 0 contradicts failure counts; evidence rejected"],
+        )
+        pytest_accept_cases.append(
+            (
+                "pytest UNKNOWN exit 0 errors contradiction accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        checks = case_checks()
+        checks[0] = record(
+            "pytest",
+            UNKNOWN,
+            exit_code=0,
+            summary="1 skipped",
+            notes=["exit 0 without a parsed pass summary; incomplete evidence"],
+        )
+        pytest_accept_cases.append(
+            (
+                "pytest UNKNOWN exit 0 incomplete accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        checks = case_checks()
+        checks[0] = record(
+            "pytest",
+            UNKNOWN,
+            exit_code=0,
+            summary="no pytest summary line parsed",
+            notes=["exit 0 without a parsed pass summary; incomplete evidence"],
+        )
+        pytest_accept_cases.append(
+            (
+                "pytest UNKNOWN exit 0 unparsed incomplete accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", UNKNOWN)
+        pytest_accept_cases.append(
+            (
+                "pytest UNKNOWN skipped without exit accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        for case_name, data, expected_overall in pytest_accept_cases:
+            path = write_case("pytest-accept.json", data)
+            report = evaluate(tmp, path, None, head)
+            check_case(
+                case_name,
+                integrity_status(report) == PASS and report["overall"] == expected_overall,
+            )
+
+        pytest_reject_cases: list[tuple[str, dict]] = []
+        checks = case_checks()
+        checks[0] = record("pytest", FAIL, exit_code=None, summary="", notes=[])
+        pytest_reject_cases.append(
+            ("pytest FAIL without exit code rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record(
+            "pytest",
+            FAIL,
+            exit_code=0,
+            summary="2045 passed, 1 skipped",
+            notes=["pytest exit code 0"],
+        )
+        pytest_reject_cases.append(
+            ("pytest FAIL exit 0 without no-tests note rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", FAIL, exit_code=1, notes=["boom"])
+        pytest_reject_cases.append(
+            ("pytest FAIL with foreign notes rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", FAIL, exit_code=1, summary="tests failed")
+        pytest_reject_cases.append(
+            ("pytest FAIL with non-producer summary rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", UNKNOWN, exit_code=1, notes=["pytest exit code 1"])
+        pytest_reject_cases.append(
+            ("pytest UNKNOWN with exit code rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", UNKNOWN, exit_code=0, summary="1 skipped", notes=[])
+        pytest_reject_cases.append(
+            ("pytest UNKNOWN exit 0 without notes rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record(
+            "pytest",
+            UNKNOWN,
+            exit_code=0,
+            summary="2045 passed, 1 skipped",
+            notes=["exit 0 without a parsed pass summary; incomplete evidence"],
+        )
+        pytest_reject_cases.append(
+            ("pytest UNKNOWN claiming pass summary rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record(
+            "pytest",
+            UNKNOWN,
+            exit_code=0,
+            summary="1 skipped",
+            notes=["exit 0 contradicts failure counts; evidence rejected"],
+        )
+        pytest_reject_cases.append(
+            ("pytest UNKNOWN contradiction note without failures rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", UNKNOWN, summary="1 skipped", notes=["skipped by request"])
+        pytest_reject_cases.append(
+            ("pytest UNKNOWN without exit but with summary rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[0] = record("pytest", PASS, notes=["extra context"])
+        pytest_reject_cases.append(("pytest PASS with notes rejected", payload(checks=checks)))
+        checks = case_checks()
+        checks[0] = record("pytest", PASS, summary="1 skipped, 2045 passed")
+        pytest_reject_cases.append(
+            ("pytest PASS with reordered summary rejected", payload(checks=checks))
+        )
+        for case_name, data in pytest_reject_cases:
+            path = write_case("pytest-reject.json", data)
+            report = evaluate(tmp, path, None, head)
+            check_case(case_name, integrity_status(report) == FAIL)
 
         vacuous = case_checks()
         vacuous[1] = record("ruff-check", exit_code=None, summary="vacuous pass", argv=[])
