@@ -1,6 +1,6 @@
 ---
 name: quantx-validation-gate
-description: Generates exact read-only validation prompts and evidence requirements for QuantX — focused/full pytest, changed-file Ruff, strict mypy, git diff --check, scope and integrity audits. Use when validation evidence is requested. Never fixes during validation.
+description: Use when validation evidence is requested — exact read-only validation prompts and requirements for QuantX: focused/full pytest, changed-file Ruff, strict mypy, git diff --check, scope and integrity audits. Never fixes during validation.
 metadata:
   quantx/role: validation
 ---
@@ -44,6 +44,21 @@ Notes:
 - Repo-wide Ruff has pre-existing findings; the gate is changed-file Ruff only.
 - Optional Dhan tests need `uv sync --dev --extra dhan`; otherwise they self-skip.
 - Test-count baseline to compare against lives in `docs/STATUS.md`.
+
+## Executable gate
+
+`scripts/run_validation.py` runs the gate read-only and emits machine-readable evidence:
+
+```powershell
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head <sha>
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --skip-full   # degrades to UNKNOWN, never PASS
+```
+
+- Runs: full `uv run pytest` (pyproject `addopts` supplies `-q`; an extra `-q` would suppress the summary line and fail-closed to UNKNOWN), changed-file `uv run ruff check` + `ruff format --check`, `uv run mypy`, `git diff --check`, `git status --porcelain`.
+- Classifies every check PASS/FAIL/UNKNOWN fail-closed: unparsed output, contradictory pytest summary, timeout, or missing tool → UNKNOWN; overall = worst status.
+- Verifies HEAD is unchanged before and after the run; evidence JSON (`quantx.validation-evidence.v1`) is written to `%TEMP%\quantx-validation\`.
+- Exit codes: 0 PASS, 1 FAIL, 2 UNKNOWN, 3 usage/internal error. A non-zero exit is never a PASS.
+- `--self-test` validates the classifier against fixture outputs and does not touch the repo.
 
 ## Evidence discipline
 

@@ -27,10 +27,10 @@ CORE       quantx-core-governance, quantx-operating-model
 UNDERSTAND quantx-repo-auditor, quantx-architecture, quantx-migration-consolidation
 PLAN       quantx-roadmap-planner
 DOMAIN     quantx-execution, quantx-india-market, quantx-strategy-plugins,
-           quantx-research-data, quantx-simulation-accounting
+           quantx-research-data, quantx-simulation-accounting, quantx-risk-policy
 QUALITY    quantx-testing, quantx-adversarial-review, quantx-validation-gate
 SHIP       quantx-release-gate, quantx-docs-maintainer
-WORKFLOW   quantx-dev-workflow
+WORKFLOW   quantx-dev-workflow, quantx-skills-maintainer
 ```
 
 Normal engineering task order: `core → audit → plan → implement → adversarial-review → validation-gate → release-gate → docs sync`.
@@ -43,6 +43,7 @@ Normal engineering task order: `core → audit → plan → implement → advers
 - No fabricated market/broker evidence; missing evidence stays UNKNOWN.
 - Recovery never submits broker orders; no real broker orders in development or validation.
 - Tests mirror the source tree under `tests/unit/`; no `conftest.py` conventions — use `_`-prefixed factory helpers.
+- After editing any file under `.opencode/skills/`, regenerate `.opencode/skills/skills.lock.json` (`python .opencode/skills/quantx-skills-maintainer/scripts/skill_integrity.py --update`) and commit it with the change; `--check` must pass before merge and a missing manifest is never PASS.
 
 ## Validation response
 

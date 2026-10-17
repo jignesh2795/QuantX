@@ -1,6 +1,6 @@
 ---
 name: quantx-roadmap-planner
-description: Selects and sequences the next QuantX workstream using repository evidence, dependency order, safety priority, scope isolation, and KEEP/ADAPT/EXTRACT/INTEGRATE/REJECT/DEFER decisions. Use when choosing what to build next.
+description: Use when choosing what to build next in QuantX — selects and sequences the next workstream using repository evidence, dependency order, safety priority, scope isolation, and KEEP/ADAPT/EXTRACT/INTEGRATE/REJECT/DEFER decisions.
 metadata:
   quantx/role: planning
 ---

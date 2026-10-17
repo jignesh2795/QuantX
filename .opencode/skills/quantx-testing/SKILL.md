@@ -1,6 +1,6 @@
 ---
 name: quantx-testing
-description: Use when writing, fixing, or running tests in QuantX — pytest conventions, test file/function naming, mirrored test tree, fixtures vs factory helpers, fakes, skip rules, parametrize usage, and exact pytest commands. Front-load keywords: test, pytest, write a test, regression test, test fails, test suite.
+description: Use when writing, fixing, or running QuantX tests — pytest conventions, test file/function naming, mirrored test tree, fixtures vs factory helpers, fakes, skip rules, parametrize usage, and exact pytest commands. Keywords: test, pytest, regression test, fixture, fake.
 ---
 
 # QuantX Testing

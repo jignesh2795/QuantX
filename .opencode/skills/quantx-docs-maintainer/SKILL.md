@@ -1,6 +1,6 @@
 ---
 name: quantx-docs-maintainer
-description: Maintains canonical QuantX STATUS, architecture, roadmap, ADR, and README docs without creating duplicate stale sources of truth. Use when updating documentation, reporting test counts, recording decisions, or writing non-claims.
+description: Use when updating QuantX documentation, reporting test counts, or recording decisions — maintains canonical STATUS, architecture, roadmap, ADR, and README docs without creating duplicate stale sources of truth.
 metadata:
   quantx/role: documentation
 ---

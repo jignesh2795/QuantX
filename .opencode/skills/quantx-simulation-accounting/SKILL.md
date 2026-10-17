@@ -1,6 +1,6 @@
 ---
 name: quantx-simulation-accounting
-description: QuantX paper/backtest accounting knowledge — fill accounting, cash and margin ledgers, valuation, account financial state, P&L, charges, partial fills, and simulation honesty. Use when working on backtest or paper money accounting, valuation, or charges — distinct from order submission and reconciliation (quantx-execution).
+description: Use when working on QuantX paper/backtest money accounting — fill accounting, cash and margin ledgers, valuation, account financial state, P&L, charges, partial fills, and simulation honesty. Distinct from order submission and reconciliation (quantx-execution).
 metadata:
   quantx/role: simulation-accounting
 ---
