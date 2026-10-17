@@ -22,6 +22,22 @@ Require all of the following, for the **exact HEAD being merged**:
 - exact scope audit (no scope leak);
 - repository integrity (`git status --porcelain` clean apart from intended changes).
 
+## Executable release check
+
+`scripts/release_check.py` verifies the merge candidate read-only and reports PASS/FAIL/UNKNOWN fail-closed:
+
+```powershell
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --expected-head <sha>
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence <validation-json>
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --self-test
+```
+
+- Consumes validation evidence (`quantx.validation-evidence.v1`, latest by default) and requires `overall == PASS` **bound to the exact current HEAD**.
+- Checks: expected-HEAD match, no tracked worktree modifications, `git diff --check <base>...HEAD` clean, informational changed-file scope vs base (`origin/main` by default).
+- Exit codes: 0 PASS, 1 FAIL, 2 UNKNOWN, 3 usage/internal error. Missing, mismatched, or unreadable evidence is never PASS.
+- PASS means the local evidence chain is internally consistent; it does not claim production readiness, broker correctness, LIVE safety, or that CI ran. Non-claims are printed with every report.
+- `--self-test` exercises the evaluator against a throwaway temp git repo.
+
 ## Merge rule
 
 Merge only when:
