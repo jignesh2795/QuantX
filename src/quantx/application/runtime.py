@@ -40,19 +40,25 @@ class ApplicationStartupResult:
 
     @property
     def ready(self) -> bool:
-        """True only when every recovery record resolved definitively."""
-        return self.pending == 0 and self.failed == 0
+        """True only when the recovery report is well formed and fully resolved."""
+        recovery = self.pending_recovery
+        if not isinstance(recovery, PendingRecoveryRun):
+            return False
+        return recovery.fully_resolved
 
 
 class ApplicationRuntime:
     """Run explicit startup recovery until it resolves definitively.
 
-    Readiness is granted only by a complete recovery report with zero pending
-    and zero failed records. An unresolved report leaves the runtime
-    unstarted; the operator may explicitly start again to rerun recovery
-    after remediation (for example operator resolution of the pending
-    reservation). Once successfully started, repeated startup is rejected.
-    A recovery-hook exception propagates and likewise leaves readiness false.
+    Readiness is granted only by a structurally valid, complete recovery
+    report in which every record resolved definitively with definitive
+    outcome evidence. Unresolved or malformed reports leave the runtime
+    unstarted while remaining inspectable through ``last_startup_result``;
+    the operator may explicitly start again to rerun recovery after
+    remediation (for example operator resolution of the pending reservation).
+    Once successfully started, repeated startup is rejected. A recovery-hook
+    exception or a report of the wrong type propagates and likewise leaves
+    readiness false.
     """
 
     def __init__(self, *, pending_recovery: StartupRecoveryHook) -> None:
@@ -77,9 +83,9 @@ class ApplicationRuntime:
         """Run startup recovery and grant readiness only when it resolves.
 
         Returns the complete recovery report either way and retains it for
-        inspection. A report with pending or failed records leaves the runtime
-        unstarted without submitting orders, retrying, or altering any
-        reservation; the caller may retry explicitly after remediation.
+        inspection. A report with pending, failed, or malformed records leaves
+        the runtime unstarted without submitting orders, retrying, or altering
+        any reservation; the caller may retry explicitly after remediation.
         """
         if self._started:
             raise RuntimeError("application runtime is already started")

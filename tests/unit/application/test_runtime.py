@@ -4,8 +4,39 @@ from datetime import UTC, datetime
 
 import pytest
 
+from quantx.application.evidence_refresh import EvidenceRefreshOutcome
 from quantx.application.pending_recovery import PendingRecoveryResult, PendingRecoveryRun
+from quantx.application.reconciliation import (
+    OrderStateReconciliationResult,
+    OrderWorkflowStatus,
+)
 from quantx.application.runtime import ApplicationRuntime
+
+
+def _outcome(*, definitive: bool) -> EvidenceRefreshOutcome:
+    return EvidenceRefreshOutcome(
+        result=OrderStateReconciliationResult(
+            order_id=None,
+            account_id=None,
+            connection_id=None,
+            broker_order_id=None,
+            order=None,
+            position=None,
+            account=None,
+            status=OrderWorkflowStatus.MATCHED if definitive else OrderWorkflowStatus.UNKNOWN,
+        ),
+        attempts=0,
+        refreshed_domains=(),
+        definitive=definitive,
+    )
+
+
+def _resolved(client_order_id: str) -> PendingRecoveryResult:
+    return PendingRecoveryResult(client_order_id, True, outcome=_outcome(definitive=True))
+
+
+def _unresolved(client_order_id: str) -> PendingRecoveryResult:
+    return PendingRecoveryResult(client_order_id, False, outcome=_outcome(definitive=False))
 
 
 class FakeRecovery:
@@ -22,14 +53,7 @@ class FakeRecovery:
 
 def test_runtime_starts_when_recovery_fully_resolves() -> None:
     checked_at = datetime(2026, 1, 1, 12, tzinfo=UTC)
-    recovery = FakeRecovery(
-        PendingRecoveryRun(
-            (
-                PendingRecoveryResult("order-1", True),
-                PendingRecoveryResult("order-2", True),
-            )
-        )
-    )
+    recovery = FakeRecovery(PendingRecoveryRun((_resolved("order-1"), _resolved("order-2"))))
     runtime = ApplicationRuntime(pending_recovery=recovery)
 
     result = runtime.start(checked_at=checked_at)
@@ -64,7 +88,7 @@ def test_runtime_stays_unready_when_recovery_fails() -> None:
 
 
 def test_runtime_stays_unready_when_recovery_pending() -> None:
-    recovery = FakeRecovery(PendingRecoveryRun((PendingRecoveryResult("order-1", False),)))
+    recovery = FakeRecovery(PendingRecoveryRun((_unresolved("order-1"),)))
     runtime = ApplicationRuntime(pending_recovery=recovery)
 
     result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
@@ -79,8 +103,8 @@ def test_runtime_stays_unready_when_recovery_pending() -> None:
 def test_runtime_mixed_recovery_preserves_evidence_and_stays_unready() -> None:
     report = PendingRecoveryRun(
         (
-            PendingRecoveryResult("order-1", True),
-            PendingRecoveryResult("order-2", False),
+            _resolved("order-1"),
+            _unresolved("order-2"),
             PendingRecoveryResult("order-3", False, error="broker unavailable"),
         )
     )
@@ -102,7 +126,7 @@ def test_runtime_retry_after_unready_startup_is_allowed() -> None:
     """An unready runtime may be started again; success stays one-shot."""
     reports = [
         PendingRecoveryRun((PendingRecoveryResult("order-1", False, error="broker unavailable"),)),
-        PendingRecoveryRun((PendingRecoveryResult("order-1", True),)),
+        PendingRecoveryRun((_resolved("order-1"),)),
     ]
     calls = 0
 
@@ -189,6 +213,68 @@ def test_runtime_rejects_non_bool_definitive_str() -> None:
     assert result.failed == 0
 
 
+def test_runtime_rejects_non_bool_definitive_none() -> None:
+    """definitive=None must not bypass readiness; treated as non-definitive."""
+    recovery = FakeRecovery(PendingRecoveryRun((PendingRecoveryResult("order-1", None),)))
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.pending == 1
+    assert result.failed == 0
+
+
+def test_runtime_rejects_definitive_without_outcome_evidence() -> None:
+    """A definitive claim without outcome evidence must never grant readiness."""
+    recovery = FakeRecovery(PendingRecoveryRun((PendingRecoveryResult("order-1", True),)))
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.recovered == 0
+    assert result.pending == 0
+    assert result.failed == 1
+    assert runtime.last_startup_result is result
+
+
+def test_runtime_rejects_definitive_with_non_definitive_outcome_evidence() -> None:
+    """Outcome evidence that is not definitive cannot support a definitive claim."""
+    recovery = FakeRecovery(
+        PendingRecoveryRun(
+            (PendingRecoveryResult("order-1", True, outcome=_outcome(definitive=False)),)
+        )
+    )
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.recovered == 0
+    assert result.failed == 1
+    assert runtime.last_startup_result is result
+
+
+def test_runtime_rejects_definitive_with_foreign_outcome_evidence() -> None:
+    """Outcome evidence of the wrong type cannot support a definitive claim."""
+    recovery = FakeRecovery(
+        PendingRecoveryRun((PendingRecoveryResult("order-1", True, outcome="resolved"),))
+    )
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.recovered == 0
+    assert result.failed == 1
+    assert runtime.last_startup_result is result
+
+
 def test_runtime_rejects_contradictory_definitive_error() -> None:
     """definitive=True with error is contradictory; treated as non-ready."""
     recovery = FakeRecovery(
@@ -202,6 +288,89 @@ def test_runtime_rejects_contradictory_definitive_error() -> None:
     assert result.ready is False
     assert result.pending == 0
     assert result.failed == 1
+
+
+def test_runtime_rejects_definitive_with_error_and_definitive_outcome() -> None:
+    """Error evidence always fails, even with otherwise definitive outcome evidence."""
+    recovery = FakeRecovery(
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_outcome(definitive=True),
+                    error="broker unavailable",
+                ),
+            )
+        )
+    )
+    runtime = ApplicationRuntime(pending_recovery=recovery)
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.recovered == 0
+    assert result.pending == 0
+    assert result.failed == 1
+
+
+def test_runtime_rejects_list_results_container() -> None:
+    """A results list is not the supported tuple container and never grants readiness."""
+    report = PendingRecoveryRun(results=[_resolved("order-1")])
+    runtime = ApplicationRuntime(pending_recovery=FakeRecovery(report))
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    retained = runtime.last_startup_result
+    assert retained is not None
+    assert retained.pending_recovery is report
+
+
+def test_runtime_rejects_none_results_container() -> None:
+    """A None results container is unsupported and never grants readiness."""
+    report = PendingRecoveryRun(results=None)
+    runtime = ApplicationRuntime(pending_recovery=FakeRecovery(report))
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    assert result.pending == 0
+    assert result.failed == 0
+    retained = runtime.last_startup_result
+    assert retained is not None
+    assert retained.pending_recovery is report
+
+
+def test_runtime_rejects_dict_results_container() -> None:
+    """A dict results container is unsupported and never grants readiness."""
+    report = PendingRecoveryRun(results={"order-1": _resolved("order-1")})
+    runtime = ApplicationRuntime(pending_recovery=FakeRecovery(report))
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    retained = runtime.last_startup_result
+    assert retained is not None
+    assert retained.pending_recovery is report
+
+
+def test_runtime_rejects_malformed_element_in_valid_report() -> None:
+    """A non-result element inside an otherwise valid report blocks readiness."""
+    report = PendingRecoveryRun((_resolved("order-1"), object()))
+    runtime = ApplicationRuntime(pending_recovery=FakeRecovery(report))
+
+    result = runtime.start(checked_at=datetime(2026, 1, 1, 12, tzinfo=UTC))
+
+    assert not runtime.started
+    assert result.ready is False
+    retained = runtime.last_startup_result
+    assert retained is not None
+    assert retained.pending_recovery is report
 
 
 def test_runtime_valid_empty_report_ready() -> None:
@@ -237,8 +406,8 @@ def test_runtime_report_retention_after_unready() -> None:
 def test_runtime_retry_after_unready_with_malformed() -> None:
     """An unready runtime with malformed definitive may be explicitly started again."""
     reports = [
-        PendingRecoveryRun((PendingRecoveryResult("order-1", 1),)),  # definitive=1 → unready
-        PendingRecoveryRun((PendingRecoveryResult("order-1", True),)),  # definitive=True → ready
+        PendingRecoveryRun((PendingRecoveryResult("order-1", 1),)),
+        PendingRecoveryRun((_resolved("order-1"),)),
     ]
     calls = 0
 

@@ -769,6 +769,54 @@ def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
     assert broker.submit_calls == 0
 
 
+@pytest.mark.parametrize(
+    "report",
+    [
+        PendingRecoveryRun((PendingRecoveryResult("order-1", True),)),
+        PendingRecoveryRun(results=[PendingRecoveryResult("order-1", False)]),
+        PendingRecoveryRun((PendingRecoveryResult("order-1", False), object())),
+        PendingRecoveryRun((PendingRecoveryResult("order-1", 1),)),
+    ],
+    ids=[
+        "definitive-without-outcome-evidence",
+        "list-results-container",
+        "malformed-result-element",
+        "non-bool-definitive",
+    ],
+)
+def test_live_with_malformed_recovery_report_is_blocked_without_submit(
+    report: PendingRecoveryRun,
+) -> None:
+    """A malformed recovery report never starts the runtime, so LIVE
+    orchestration blocks before any broker submission."""
+    request = _live_request()
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    class MalformedRecovery:
+        def run(self, *, checked_at=None) -> PendingRecoveryRun:
+            return report
+
+    runtime = ApplicationRuntime(pending_recovery=MalformedRecovery())
+    startup = runtime.start(checked_at=datetime(2026, 1, 1, tzinfo=UTC))
+    assert startup.ready is False
+    assert not runtime.started
+
+    result = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        application_runtime=runtime,
+    ).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "started ApplicationRuntime" in result.reason
+    assert broker.submit_calls == 0
+
+
 def test_live_gate_block_not_blocked_by_slow_broker() -> None:
     """
     R0-B: trading_gate.block() must not be indefinitely serialized behind

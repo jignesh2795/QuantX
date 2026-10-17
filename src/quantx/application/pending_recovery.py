@@ -33,7 +33,13 @@ from .pending_reconciliation import reconcile_pending_execution
 
 @dataclass(frozen=True, slots=True)
 class PendingRecoveryResult:
-    """Outcome for one persisted pending execution context."""
+    """Outcome for one persisted pending execution context.
+
+    A definitive claim is only valid when it is backed by definitive outcome
+    evidence: ``definitive`` must be the real boolean ``True``, ``outcome``
+    must be the canonical refresh outcome, and ``error`` must be absent.
+    Contradictory combinations are never counted as resolved.
+    """
 
     client_order_id: str
     definitive: bool
@@ -43,27 +49,71 @@ class PendingRecoveryResult:
 
 @dataclass(frozen=True, slots=True)
 class PendingRecoveryRun:
-    """Deterministic summary of one pending-recovery pass."""
+    """Deterministic summary of one pending-recovery pass.
+
+    ``results`` must be the immutable tuple produced by the recovery runner.
+    Any other container, and any element that is not a ``PendingRecoveryResult``,
+    makes the report structurally invalid so startup readiness can never be
+    granted from it; malformed reports remain constructible and inspectable.
+    """
 
     results: tuple[PendingRecoveryResult, ...] = ()
 
     @property
+    def structurally_valid(self) -> bool:
+        """True only for a tuple of well-formed recovery results."""
+        results = self.results
+        if not isinstance(results, tuple):
+            return False
+        return all(isinstance(result, PendingRecoveryResult) for result in results)
+
+    @property
+    def fully_resolved(self) -> bool:
+        """True only when well formed and every record resolved definitively."""
+        return self.structurally_valid and all(_is_resolved(result) for result in self.results)
+
+    @property
     def attempted(self) -> int:
-        return len(self.results)
+        return len(self._records)
 
     @property
     def resolved(self) -> int:
-        return sum(1 for result in self.results if result.definitive is True)
+        return sum(1 for result in self._records if _is_resolved(result))
 
     @property
     def pending(self) -> int:
-        return sum(
-            1 for result in self.results if result.definitive is not True and result.error is None
-        )
+        return sum(1 for result in self._records if _is_pending(result))
 
     @property
     def failed(self) -> int:
-        return sum(result.error is not None for result in self.results)
+        return sum(1 for result in self._records if _is_failed(result))
+
+    @property
+    def _records(self) -> tuple[PendingRecoveryResult, ...]:
+        """Well-formed records only; unsupported structures count nothing here."""
+        results = self.results
+        if not isinstance(results, tuple):
+            return ()
+        return tuple(result for result in results if isinstance(result, PendingRecoveryResult))
+
+
+def _has_definitive_evidence(result: PendingRecoveryResult) -> bool:
+    outcome = result.outcome
+    return isinstance(outcome, EvidenceRefreshOutcome) and outcome.definitive is True
+
+
+def _is_resolved(result: PendingRecoveryResult) -> bool:
+    return result.definitive is True and result.error is None and _has_definitive_evidence(result)
+
+
+def _is_pending(result: PendingRecoveryResult) -> bool:
+    return result.definitive is not True and result.error is None
+
+
+def _is_failed(result: PendingRecoveryResult) -> bool:
+    if result.error is not None:
+        return True
+    return result.definitive is True and not _has_definitive_evidence(result)
 
 
 ProviderResolver = Callable[
