@@ -56,6 +56,7 @@ python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --skip-
 
 - Runs: full `uv run pytest` (pyproject `addopts` supplies `-q`; an extra `-q` would suppress the summary line and fail-closed to UNKNOWN), changed-file `uv run ruff check` + `ruff format --check`, `uv run mypy`, `git diff --check`, `git status --porcelain`.
 - Classifies every check PASS/FAIL/UNKNOWN fail-closed: unparsed output, contradictory pytest summary, timeout, or missing tool → UNKNOWN; overall = worst status.
+- Both Ruff invocations (`ruff check`, `ruff format --check`) keep their **complete** stdout/stderr in `output_full` next to `exit_code`, so a formatting verdict can be re-read from the evidence instead of re-running Ruff; `output_tail` stays the bounded tail the release gate and console report consume. A Ruff check that did not complete (skipped, missing tool, timeout) records `output_full: null`, never an empty string, while `output_tail` still carries any captured partial output.
 - Verifies HEAD is unchanged before and after the run; evidence JSON (`quantx.validation-evidence.v1`) is written to `%TEMP%\quantx-validation\`.
 - Exit codes: 0 PASS, 1 FAIL, 2 UNKNOWN, 3 usage/internal error. A non-zero exit is never a PASS.
 - `--self-test` validates the classifier against fixture outputs and does not touch the repo.

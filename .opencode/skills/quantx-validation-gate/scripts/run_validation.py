@@ -9,6 +9,11 @@ The script never modifies the repository and never fixes anything. Missing
 tools, timeouts, unparsed summaries, skipped checks, dirty tracked files, or
 a HEAD change during the run are never reported as PASS.
 
+Ruff invocations are recorded with their complete stdout/stderr in
+`output_full`, so a formatter/linter verdict can be re-read from the evidence
+without re-running Ruff; `output_tail` stays the bounded tail that the
+release gate and console report consume.
+
 Usage:
     python .opencode/skills/quantx-validation-gate/scripts/run_validation.py
     python ... run_validation.py --expected-head <sha> --base origin/main
@@ -54,6 +59,7 @@ class RunOutcome:
     duration_s: float = 0.0
     notes: list[str] = field(default_factory=list)
     output_tail: str = ""
+    output_full: str = ""
 
 
 @dataclass
@@ -66,10 +72,19 @@ class Check:
     summary: str = ""
     notes: list[str] = field(default_factory=list)
     output_tail: str = ""
+    # Complete stdout/stderr; set for Ruff invocations, None when the
+    # invocation was skipped, missing, or timed out.
+    output_full: str | None = None
 
 
-def run_command(argv: list[str], cwd: Path, timeout: float) -> RunOutcome:
-    """Execute one read-only command; never raises for command failures."""
+def run_command(
+    argv: list[str], cwd: Path, timeout: float, *, capture_full: bool = False
+) -> RunOutcome:
+    """Execute one read-only command; never raises for command failures.
+
+    ``capture_full`` retains the complete output for evidence; otherwise only
+    the bounded tail is kept, which is all most checks need.
+    """
     tool = shutil.which(argv[0])
     if tool is None:
         return RunOutcome("missing", notes=[f"tool not found on PATH: {argv[0]}"])
@@ -104,6 +119,7 @@ def run_command(argv: list[str], cwd: Path, timeout: float) -> RunOutcome:
         exit_code=proc.returncode,
         duration_s=time.monotonic() - started,
         output_tail=output[-OUTPUT_TAIL_CHARS:],
+        output_full=output if capture_full else "",
     )
 
 
@@ -253,7 +269,8 @@ def build_checks(args: argparse.Namespace, repo: Path) -> list[Check]:
     else:
         for name, extra in (("ruff-check", []), ("ruff-format", ["--check"])):
             argv = ["uv", "run", "ruff", ("format" if extra else "check"), *extra, *py_files]
-            outcome = run_command(argv, repo, args.timeout)
+            # Ruff output is small and is the evidence: keep all of it, not a summary.
+            outcome = run_command(argv, repo, args.timeout, capture_full=True)
             if outcome.kind != "completed" or outcome.exit_code is None:
                 checks.append(
                     Check(
@@ -263,6 +280,7 @@ def build_checks(args: argparse.Namespace, repo: Path) -> list[Check]:
                         duration_s=outcome.duration_s,
                         notes=outcome.notes,
                         output_tail=outcome.output_tail,
+                        output_full=outcome.output_full if outcome.kind == "completed" else None,
                     )
                 )
             else:
@@ -277,6 +295,7 @@ def build_checks(args: argparse.Namespace, repo: Path) -> list[Check]:
                         summary=f"{len(py_files)} changed file(s)",
                         notes=notes,
                         output_tail=outcome.output_tail,
+                        output_full=outcome.output_full,
                     )
                 )
 
@@ -511,6 +530,29 @@ def self_test() -> int:
     check("run_command missing", missing.kind == "missing")
     slow = run_command([sys.executable, "-c", "import time; time.sleep(3)"], Path.cwd(), 1)
     check("run_command timeout", slow.kind == "timeout")
+    oversized = OUTPUT_TAIL_CHARS + 500
+    full = run_command(
+        [sys.executable, "-c", f"import sys; sys.stdout.write('x' * {oversized})"],
+        Path.cwd(),
+        30,
+        capture_full=True,
+    )
+    check(
+        "run_command retains full output",
+        full.kind == "completed"
+        and len(full.output_full) == oversized
+        and len(full.output_tail) == OUTPUT_TAIL_CHARS,
+    )
+    tail_only = run_command([sys.executable, "-c", "print('ok')"], Path.cwd(), 30)
+    check("run_command tail only by default", tail_only.kind == "completed")
+    check("run_command no full output by default", tail_only.output_full == "")
+    check(
+        "check record carries full output",
+        asdict(Check("ruff-format", [], PASS, output_full="4 files already formatted\n"))[
+            "output_full"
+        ]
+        == "4 files already formatted\n",
+    )
 
     if failures:
         print(f"SELF-TEST FAILED ({len(failures)}/{total} failing): {', '.join(failures)}")
