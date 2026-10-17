@@ -2,12 +2,17 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from threading import Event, Thread
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
+from quantx.application.evidence_refresh import EvidenceRefreshOutcome
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.application.pending_recovery import PendingRecoveryResult, PendingRecoveryRun
+from quantx.application.reconciliation import (
+    OrderStateReconciliationResult,
+    OrderWorkflowStatus,
+)
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
@@ -51,6 +56,18 @@ from quantx.integrations.brokers import (
     BrokerConnectionRef,
     BrokerDescriptor,
     CapabilitySet,
+)
+from quantx.integrations.reconciliation.account import ReconciliationReport
+from quantx.integrations.reconciliation.account import (
+    ReconciliationStatus as AccountReconciliationStatus,
+)
+from quantx.integrations.reconciliation.orders import (
+    OrderReconciliationResult,
+    OrderReconciliationStatus,
+)
+from quantx.integrations.reconciliation.positions import PositionReconciliation
+from quantx.integrations.reconciliation.positions import (
+    ReconciliationStatus as PositionReconciliationStatus,
 )
 from quantx.persistence import ReceiptRepository, UnitOfWork
 from quantx.persistence.sqlite import (
@@ -769,6 +786,53 @@ def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
     assert broker.submit_calls == 0
 
 
+_NESTED_ORDER_ID = UUID("00000000-0000-0000-0000-000000000002")
+_NESTED_ACCOUNT_ID = AccountId("account-1")
+_NESTED_CONNECTION_ID = BrokerConnectionId("connection-1")
+
+
+def _matched_nested_result(**overrides: object) -> OrderStateReconciliationResult:
+    base: dict[str, object] = {
+        "order_id": _NESTED_ORDER_ID,
+        "account_id": _NESTED_ACCOUNT_ID,
+        "connection_id": _NESTED_CONNECTION_ID,
+        "broker_order_id": "broker-1",
+        "order": OrderReconciliationResult(
+            _NESTED_ORDER_ID, OrderReconciliationStatus.MATCHED, "order state matches"
+        ),
+        "position": PositionReconciliation(
+            _NESTED_ACCOUNT_ID,
+            _NESTED_CONNECTION_ID,
+            "NSE:TCS",
+            PositionReconciliationStatus.MATCHED,
+            Decimal("1"),
+            Decimal("1"),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            "position quantity reconciled",
+        ),
+        "account": ReconciliationReport(
+            _NESTED_ACCOUNT_ID,
+            _NESTED_CONNECTION_ID,
+            AccountReconciliationStatus.MATCHED,
+            (),
+        ),
+        "status": OrderWorkflowStatus.MATCHED,
+        "reasons": (),
+        "identity_error": None,
+    }
+    base.update(overrides)
+    return OrderStateReconciliationResult(**base)
+
+
+def _definitive_nested_outcome(result: object) -> EvidenceRefreshOutcome:
+    return EvidenceRefreshOutcome(
+        result=result,
+        attempts=0,
+        refreshed_domains=(),
+        definitive=True,
+    )
+
+
 @pytest.mark.parametrize(
     "report",
     [
@@ -776,12 +840,65 @@ def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
         PendingRecoveryRun(results=[PendingRecoveryResult("order-1", False)]),
         PendingRecoveryRun((PendingRecoveryResult("order-1", False), object())),
         PendingRecoveryRun((PendingRecoveryResult("order-1", 1),)),
+        PendingRecoveryRun(
+            (PendingRecoveryResult("order-1", True, outcome=_definitive_nested_outcome(None)),)
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(status=OrderWorkflowStatus.UNKNOWN)
+                    ),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    None,
+                    True,
+                    outcome=_definitive_nested_outcome(_matched_nested_result()),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(_matched_nested_result(order=None)),
+                ),
+            )
+        ),
+        PendingRecoveryRun(
+            (
+                PendingRecoveryResult(
+                    "order-1",
+                    True,
+                    outcome=_definitive_nested_outcome(
+                        _matched_nested_result(
+                            status=OrderWorkflowStatus.MISMATCH,
+                            identity_error=(
+                                "broker order identity does not match execution receipt"
+                            ),
+                        )
+                    ),
+                ),
+            )
+        ),
     ],
     ids=[
         "definitive-without-outcome-evidence",
         "list-results-container",
         "malformed-result-element",
         "non-bool-definitive",
+        "nested-result-none",
+        "nested-status-unknown",
+        "malformed-identity",
+        "matched-without-order",
+        "mismatch-with-identity-error",
     ],
 )
 def test_live_with_malformed_recovery_report_is_blocked_without_submit(

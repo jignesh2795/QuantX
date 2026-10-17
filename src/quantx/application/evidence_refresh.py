@@ -18,7 +18,10 @@ from uuid import UUID
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.ports import ExecutionReceipt
-from quantx.integrations.reconciliation.account import AccountFinancialState
+from quantx.integrations.reconciliation.account import (
+    AccountFinancialState,
+    ReconciliationReport,
+)
 from quantx.integrations.reconciliation.broker_evidence import (
     BrokerOrderEvidence,
     BrokerOrderEvidenceStatus,
@@ -157,6 +160,17 @@ class EvidenceRefreshOutcome:
 _ADVISORY_ACCOUNT_AMOUNT_FIELDS = frozenset(
     {"available_cash", "equity", "margin_used", "margin_available"}
 )
+
+
+def is_advisory_account_amount_evidence(report: ReconciliationReport) -> bool:
+    """True when every finding is a both-sides balance delta on an advisory field.
+
+    Identity, availability, currency, and staleness findings never qualify.
+    """
+    return bool(report.findings) and all(
+        finding.field in _ADVISORY_ACCOUNT_AMOUNT_FIELDS and finding.observed is not None
+        for finding in report.findings
+    )
 
 
 class ReconciliationIdempotencyResolver:
@@ -396,12 +410,7 @@ class ReconciliationEvidenceRefresher:
             return True
         if not self._evidence.advisory_account_amounts:
             return False
-        if not account.findings:
-            return False
-        return all(
-            finding.field in _ADVISORY_ACCOUNT_AMOUNT_FIELDS and finding.observed is not None
-            for finding in account.findings
-        )
+        return is_advisory_account_amount_evidence(account)
 
     @staticmethod
     def _is_definitive_mismatch(result: OrderStateReconciliationResult) -> bool:

@@ -11,14 +11,31 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from uuid import UUID
 
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.orders import Fill
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.integrations.reconciliation import (
     AccountFinancialState,
     OrderObservation,
     PositionState,
+)
+from quantx.integrations.reconciliation.account import (
+    ReconciliationFinding,
+    ReconciliationReport,
+)
+from quantx.integrations.reconciliation.account import (
+    ReconciliationStatus as AccountReconciliationStatus,
+)
+from quantx.integrations.reconciliation.orders import (
+    OrderReconciliationResult,
+    OrderReconciliationStatus,
+)
+from quantx.integrations.reconciliation.positions import PositionReconciliation
+from quantx.integrations.reconciliation.positions import (
+    ReconciliationStatus as PositionReconciliationStatus,
 )
 from quantx.persistence import UnitOfWork
 
@@ -27,8 +44,11 @@ from .evidence_refresh import (
     EvidenceRefreshOutcome,
     ReconciliationEvidenceProvider,
     RefreshPolicy,
+    is_advisory_account_amount_evidence,
 )
+from .not_found_policy import NotFoundResolution
 from .pending_reconciliation import reconcile_pending_execution
+from .reconciliation import OrderStateReconciliationResult, OrderWorkflowStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,8 +57,11 @@ class PendingRecoveryResult:
 
     A definitive claim is only valid when it is backed by definitive outcome
     evidence: ``definitive`` must be the real boolean ``True``, ``outcome``
-    must be the canonical refresh outcome, and ``error`` must be absent.
-    Contradictory combinations are never counted as resolved.
+    must be the canonical refresh outcome whose nested reconciliation result
+    is structurally valid and semantically consistent with the reconciliation
+    contract, ``client_order_id`` must be a non-empty record identity, and
+    ``error`` must be absent. Contradictory or malformed combinations are
+    never counted as resolved.
     """
 
     client_order_id: str
@@ -55,6 +78,8 @@ class PendingRecoveryRun:
     Any other container, and any element that is not a ``PendingRecoveryResult``,
     makes the report structurally invalid so startup readiness can never be
     granted from it; malformed reports remain constructible and inspectable.
+    Records whose identity is unusable or whose definitive claim is not backed
+    by valid nested evidence are never counted as resolved.
     """
 
     results: tuple[PendingRecoveryResult, ...] = ()
@@ -97,20 +122,151 @@ class PendingRecoveryRun:
         return tuple(result for result in results if isinstance(result, PendingRecoveryResult))
 
 
+def _is_str_tuple(value: object) -> bool:
+    return isinstance(value, tuple) and all(isinstance(item, str) for item in value)
+
+
+def _is_non_negative_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _has_record_identity(result: PendingRecoveryResult) -> bool:
+    """True only for a non-blank string client_order_id."""
+    client_order_id = result.client_order_id
+    return isinstance(client_order_id, str) and client_order_id.strip() != ""
+
+
+def _outcome_structurally_valid(outcome: EvidenceRefreshOutcome) -> bool:
+    """True only when the refresh outcome fields carry their canonical types."""
+    if not _is_non_negative_int(outcome.attempts):
+        return False
+    if not _is_str_tuple(outcome.refreshed_domains):
+        return False
+    if not _is_str_tuple(outcome.reasons):
+        return False
+    if outcome.broker_order is not None and not isinstance(outcome.broker_order, OrderObservation):
+        return False
+    if outcome.broker_position is not None and not isinstance(
+        outcome.broker_position, PositionState
+    ):
+        return False
+    if outcome.broker_account is not None and not isinstance(
+        outcome.broker_account, AccountFinancialState
+    ):
+        return False
+    if outcome.not_found_eligibility is not None and not isinstance(
+        outcome.not_found_eligibility, NotFoundResolution
+    ):
+        return False
+    return True
+
+
+def _result_structurally_valid(result: OrderStateReconciliationResult) -> bool:
+    """True only when the nested reconciliation result carries canonical types."""
+    if not isinstance(result.status, OrderWorkflowStatus):
+        return False
+    if result.identity_error is not None and not isinstance(result.identity_error, str):
+        return False
+    if not _is_str_tuple(result.reasons):
+        return False
+    if result.order_id is not None and not isinstance(result.order_id, UUID):
+        return False
+    if result.account_id is not None and not isinstance(result.account_id, AccountId):
+        return False
+    if result.connection_id is not None and not isinstance(
+        result.connection_id, BrokerConnectionId
+    ):
+        return False
+    if result.broker_order_id is not None and not isinstance(result.broker_order_id, str):
+        return False
+    order = result.order
+    if order is not None and (
+        not isinstance(order, OrderReconciliationResult)
+        or not isinstance(order.status, OrderReconciliationStatus)
+    ):
+        return False
+    position = result.position
+    if position is not None and (
+        not isinstance(position, PositionReconciliation)
+        or not isinstance(position.status, PositionReconciliationStatus)
+    ):
+        return False
+    account = result.account
+    if account is not None and (
+        not isinstance(account, ReconciliationReport)
+        or not isinstance(account.status, AccountReconciliationStatus)
+        or not isinstance(account.findings, tuple)
+        or not all(isinstance(finding, ReconciliationFinding) for finding in account.findings)
+    ):
+        return False
+    return True
+
+
+def _downstream_evidence_matched(result: OrderStateReconciliationResult) -> bool:
+    position = result.position
+    if position is not None and position.status.value != "MATCHED":
+        return False
+    account = result.account
+    if account is not None and account.status.value != "MATCHED":
+        return False
+    return True
+
+
+def _account_permits_definitive_mismatch(account: ReconciliationReport | None) -> bool:
+    if account is None:
+        return False
+    if account.status.value == "MATCHED":
+        return True
+    return is_advisory_account_amount_evidence(account)
+
+
+def _definitive_result_consistent(result: object) -> bool:
+    """True only for a canonical nested result that can back a definitive outcome.
+
+    The canonical workflow aggregates MATCHED only over a matched order with no
+    unmatched downstream evidence, and a definitive MISMATCH requires a matched
+    order plus account evidence limited to advisory balance deltas. UNKNOWN and
+    INCOMPLETE aggregates can never be definitive under any evidence policy.
+    """
+    if not isinstance(result, OrderStateReconciliationResult):
+        return False
+    if not _result_structurally_valid(result):
+        return False
+    if result.identity_error is not None:
+        return False
+    order = result.order
+    if order is None or order.status is not OrderReconciliationStatus.MATCHED:
+        return False
+    if result.status is OrderWorkflowStatus.MATCHED:
+        return _downstream_evidence_matched(result)
+    if result.status is OrderWorkflowStatus.MISMATCH:
+        return _account_permits_definitive_mismatch(result.account)
+    return False
+
+
 def _has_definitive_evidence(result: PendingRecoveryResult) -> bool:
     outcome = result.outcome
-    return isinstance(outcome, EvidenceRefreshOutcome) and outcome.definitive is True
+    if not isinstance(outcome, EvidenceRefreshOutcome) or outcome.definitive is not True:
+        return False
+    return _outcome_structurally_valid(outcome) and _definitive_result_consistent(outcome.result)
 
 
 def _is_resolved(result: PendingRecoveryResult) -> bool:
-    return result.definitive is True and result.error is None and _has_definitive_evidence(result)
+    return (
+        _has_record_identity(result)
+        and result.definitive is True
+        and result.error is None
+        and _has_definitive_evidence(result)
+    )
 
 
 def _is_pending(result: PendingRecoveryResult) -> bool:
-    return result.definitive is not True and result.error is None
+    return _has_record_identity(result) and result.definitive is not True and result.error is None
 
 
 def _is_failed(result: PendingRecoveryResult) -> bool:
+    if not _has_record_identity(result):
+        return True
     if result.error is not None:
         return True
     return result.definitive is True and not _has_definitive_evidence(result)
