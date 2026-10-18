@@ -1,6 +1,6 @@
 ---
 name: quantx-operating-model
-description: Routes QuantX work so the AI makes engineering decisions and performs all non-validation work, while validation (tests/lint/typecheck) is run read-only for evidence. Defines who decides, who validates, and the normal implementation loop.
+description: Use when deciding who does what in QuantX work — routes engineering decisions and implementation to the agent and validation (tests/lint/typecheck) to read-only evidence runs; defines the normal implementation loop.
 metadata:
   quantx/role: workflow
 ---
