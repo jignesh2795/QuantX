@@ -5,9 +5,10 @@
 `src/quantx/plugins/registry.py` — explicit in-process `PluginRegistry` (no entry-point discovery):
 
 ```python
-registry.register(descriptor, factory)   # duplicate plugin_id raises
-registry.enable(id); registry.mark_ready(id)
-instance = registry.create(id)           # only from ENABLED/READY
+registry.register(descriptor, factory)  # duplicate plugin_id raises
+registry.enable(id)
+registry.mark_ready(id)
+instance = registry.create(id)  # only from ENABLED/READY
 ```
 
 - `PluginKind`: BROKER, MARKET_DATA, STRATEGY, RESEARCH, RISK, UI.
