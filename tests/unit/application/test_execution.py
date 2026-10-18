@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from threading import Event, Thread
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -2490,6 +2491,178 @@ def test_preflight_rejection_closure_failure_is_unresolved_without_resubmit(monk
 
     assert replay.status is ExecutionDispatchStatus.UNKNOWN
     assert broker.submit_calls == 1
+
+
+class _ArbitraryResponseBroker(FakeBroker):
+    """Broker double returning an arbitrary (possibly malformed) response."""
+
+    def __init__(self, response: object) -> None:
+        super().__init__()
+        self._response = response
+
+    def submit(self, request):
+        self.submit_calls += 1
+        return self._response
+
+
+def test_malformed_receipt_shape_after_submit_is_unknown_not_raised(tmp_path) -> None:
+    """A broker response outside the receipt contract cannot escape as an exception.
+
+    Once submission may have reached the broker, a malformed runtime shape
+    must be reported as explicit UNKNOWN with the pending reservation kept
+    and sanitized evidence retained, never as an exception implying a known
+    outcome, and never as an automatic retry.
+    """
+    database, unit_of_work, orchestrator, quarantine = _sqlite_setup_with_quarantine(tmp_path)
+    try:
+        request = _live_request()
+        broker = _ArbitraryResponseBroker(object())
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert "reconciliation" in result.reason
+        assert broker.submit_calls == 1
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.MALFORMED_RECEIPT
+        assert observation.request_correlation_id == request.correlation_id
+        assert observation.broker_order_id is None
+        assert observation.source is None
+        assert observation.outcome is None
+        assert observation.order_status is None
+
+        replay = orchestrator.execute(request, broker=broker)
+
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_malformed_receipt_runtime_enum_is_unknown_and_sanitized(tmp_path) -> None:
+    """A receipt carrying malformed runtime enums never becomes canonical.
+
+    The dataclass accepts arbitrary runtime values, so a hostile or broken
+    adapter can hand back a receipt whose outcome/status are plain strings.
+    That response must be quarantined as malformed evidence, reported
+    UNKNOWN, and kept out of canonical receipts and idempotency completion.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate = DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True)
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database, gate=gate)
+        request = _live_request()
+        malformed = ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=request.order.client_order_id,
+            outcome=cast(ExecutionOutcome, "ACCEPTED"),
+            order_status=cast(OrderStatus, "ACCEPTED"),
+            executed_at=datetime.now(UTC),
+            simulated=False,
+            source="fake-broker",
+            broker_order_id="BR-CORRUPT-1",
+            correlation_id=request.correlation_id,
+            order_id=request.order.client_order_id,
+            order_quantity=request.order.quantity,
+            account_id=request.execution_context.account_id,
+            connection_id=request.execution_context.broker_connection_id,
+        )
+        broker = _ArbitraryResponseBroker(malformed)
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert broker.submit_calls == 1
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.MALFORMED_RECEIPT
+        assert observation.source == "fake-broker"
+        assert observation.broker_order_id == "BR-CORRUPT-1"
+        assert observation.request_correlation_id == request.correlation_id
+        assert observation.outcome is None
+        assert observation.order_status is None
+        # Evidence was retained, so the fail-closed admission fault is not latched.
+        assert gate.allow() is True
+
+        replay = orchestrator.execute(request, broker=broker)
+
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_receipt_serialization_failure_after_submit_is_unknown_with_quarantine(
+    tmp_path,
+) -> None:
+    """A canonical receipt that cannot be serialized is still an explicit UNKNOWN.
+
+    Serialization happens after the broker may have accepted, so the
+    failure must not escape. The pending reservation stays, sanitized
+    evidence is quarantined, and a replay never resubmits.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate = DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True)
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database, gate=gate)
+        request = _live_request()
+        unserializable = ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=request.order.client_order_id,
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=datetime.now(UTC),
+            simulated=False,
+            source="fake-broker",
+            message=cast(str, object()),
+            broker_order_id="BR-UNSERIALIZABLE-1",
+            correlation_id=request.correlation_id,
+            order_id=request.order.client_order_id,
+            order_quantity=request.order.quantity,
+            account_id=request.execution_context.account_id,
+            connection_id=request.execution_context.broker_connection_id,
+        )
+        broker = _ArbitraryResponseBroker(unserializable)
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert "post-submit persistence failed" in result.reason
+        assert broker.submit_calls == 1
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        assert observations[0].kind is QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN
+        assert observations[0].broker_order_id == "BR-UNSERIALIZABLE-1"
+        assert gate.allow() is True
+
+        replay = orchestrator.execute(request, broker=broker)
+
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
 
 
 def test_quarantined_observations_never_become_authoritative(tmp_path) -> None:

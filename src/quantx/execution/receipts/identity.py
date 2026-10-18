@@ -54,10 +54,12 @@ PENDING, and reconciliation remains responsible for the outcome.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
+from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
 
-from .models import ExecutionReceipt
+from .models import ExecutionOutcome, ExecutionReceipt
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +67,41 @@ class ReceiptIdentityViolation:
     """Non-empty reason string describing the first identity violation found."""
 
     reason: str
+
+
+def validate_receipt_runtime_shape(receipt: object) -> ReceiptIdentityViolation | None:
+    """Validate a broker response's runtime shape before any attribute trust.
+
+    The broker adapter is an untrusted plugin boundary: its response is
+    typed as ``ExecutionReceipt``, but at runtime it can be any object, and
+    the receipt dataclass accepts arbitrary runtime values for its enum and
+    identity fields. A response outside the canonical contract must never
+    reach request-identity validation, canonical persistence, idempotency
+    completion or accounting — and, because it arrives after the external
+    submit may have started, it must not raise out of the public execution
+    call either.
+
+    The returned reason is static: no broker-supplied value is echoed here,
+    because it is recorded as sanitized, non-authoritative quarantine
+    evidence rather than an authoritative rejection.
+    """
+    if not isinstance(receipt, ExecutionReceipt):
+        return ReceiptIdentityViolation(reason="broker response is not an ExecutionReceipt")
+    if not isinstance(receipt.outcome, ExecutionOutcome):
+        return ReceiptIdentityViolation(
+            reason="receipt outcome is not a canonical ExecutionOutcome"
+        )
+    if not isinstance(receipt.order_status, OrderStatus):
+        return ReceiptIdentityViolation(
+            reason="receipt order status is not a canonical OrderStatus"
+        )
+    if not isinstance(receipt.receipt_id, UUID):
+        return ReceiptIdentityViolation(reason="receipt id is not a UUID")
+    if not isinstance(receipt.source, str):
+        return ReceiptIdentityViolation(reason="receipt source is not a string")
+    if not isinstance(receipt.fills, tuple):
+        return ReceiptIdentityViolation(reason="receipt fills are not a tuple")
+    return None
 
 
 def validate_live_receipt_identity(
@@ -233,4 +270,5 @@ def validate_live_receipt_identity(
 __all__ = [
     "ReceiptIdentityViolation",
     "validate_live_receipt_identity",
+    "validate_receipt_runtime_shape",
 ]

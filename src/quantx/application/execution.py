@@ -17,7 +17,10 @@ from quantx.execution.idempotency import NotSubmittedSource, PendingExecutionCon
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
-from quantx.execution.receipts.identity import validate_live_receipt_identity
+from quantx.execution.receipts.identity import (
+    validate_live_receipt_identity,
+    validate_receipt_runtime_shape,
+)
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.receipts.quarantine import (
     QuarantinedSubmissionObservation,
@@ -88,6 +91,9 @@ _QUARANTINE_REASONS: dict[QuarantineObservationKind, str] = {
     ),
     QuarantineObservationKind.IDENTITY_REJECTED: (
         "broker receipt identity rejected; retained for reconciliation only"
+    ),
+    QuarantineObservationKind.MALFORMED_RECEIPT: (
+        "broker response outside the canonical receipt contract; retained for reconciliation only"
     ),
     QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN: (
         "canonical receipt persistence failed after the submission may have "
@@ -1052,6 +1058,25 @@ class ExecutionOrchestrator:
                 receipt=None,
                 reason=f"submission outcome is unknown; reconciliation is required: {exc}",
             )
+        # The broker response is untrusted plugin-boundary data: it may be any
+        # runtime object and its enum/identity fields may hold non-canonical
+        # values. Because the external submit may already have started, such a
+        # response must become explicit uncertainty with quarantined evidence —
+        # never an exception escaping the public API, and never authoritative.
+        runtime_violation = validate_receipt_runtime_shape(receipt)
+        if runtime_violation is not None:
+            return self._fail_closed_unknown(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.MALFORMED_RECEIPT,
+                receipt=receipt,
+                expose_receipt=False,
+                reason=(
+                    "broker returned a response outside the canonical receipt contract; "
+                    "submission outcome is unknown and reconciliation is required"
+                ),
+                quarantine_reason=runtime_violation.reason,
+            )
         if receipt.outcome is ExecutionOutcome.UNKNOWN:
             return self._fail_closed_unknown(
                 request,
@@ -1066,7 +1091,23 @@ class ExecutionOrchestrator:
         # PENDING reservation intact so that reconciliation can resolve the outcome;
         # the foreign receipt is never written to the canonical store, and its
         # sanitized identity evidence is retained separately for reconciliation.
-        identity_violation = validate_live_receipt_identity(request, receipt)
+        # A residual runtime failure inside the validator is the same class of
+        # untrusted-response fault as a malformed shape: keep it as UNKNOWN.
+        try:
+            identity_violation = validate_live_receipt_identity(request, receipt)
+        except Exception:
+            return self._fail_closed_unknown(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.MALFORMED_RECEIPT,
+                receipt=receipt,
+                expose_receipt=False,
+                reason=(
+                    "broker receipt could not be validated against the approved request; "
+                    "submission outcome is unknown and reconciliation is required"
+                ),
+                quarantine_reason=("receipt failed request-identity validation at runtime"),
+            )
         if identity_violation is not None:
             return self._fail_closed_unknown(
                 request,
@@ -1187,7 +1228,7 @@ class ExecutionOrchestrator:
         fingerprint: str,
         *,
         kind: QuarantineObservationKind,
-        receipt: ExecutionReceipt | None,
+        receipt: object | None,
         reason: str,
         quarantine_reason: str | None = None,
         expose_receipt: bool = True,
@@ -1217,7 +1258,7 @@ class ExecutionOrchestrator:
             reason = f"{reason}; {self._latch_persistence_safety_fault(kind.value)}"
         return ExecutionResult(
             ExecutionDispatchStatus.UNKNOWN,
-            receipt=receipt if expose_receipt else None,
+            receipt=(receipt if expose_receipt and isinstance(receipt, ExecutionReceipt) else None),
             reason=reason,
         )
 
@@ -1227,7 +1268,7 @@ class ExecutionOrchestrator:
         fingerprint: str,
         *,
         kind: QuarantineObservationKind,
-        receipt: ExecutionReceipt | None,
+        receipt: object | None,
         reason: str,
     ) -> bool:
         """Attempt one sanitized, non-authoritative observation record.
@@ -1249,7 +1290,7 @@ class ExecutionOrchestrator:
                 client_order_id=request.order.client_order_id,
                 request_correlation_id=request.correlation_id,
                 receipt=receipt,
-                reason=reason,
+                reason=self._bounded_quarantine_reason(reason),
                 observed_at=datetime.now(UTC),
             )
             recorder.record(observation)
@@ -1258,11 +1299,25 @@ class ExecutionOrchestrator:
         return False
 
     @staticmethod
+    def _bounded_quarantine_reason(reason: str) -> str:
+        """Bound a quarantine reason to a stored-evidence-safe size.
+
+        Identity-violation diagnostics embed broker-supplied identity values,
+        so a hostile response could otherwise make the reason unbounded. The
+        record is non-authoritative reconciliation evidence: bounding it keeps
+        the store safe without dropping the observation.
+        """
+        text = " ".join(reason.split())
+        if not text:
+            return "unspecified submission uncertainty"
+        return text[:384]
+
+    @staticmethod
     def _quarantine_observation_id(
         request: ApprovedExecutionRequest,
         fingerprint: str,
         kind: QuarantineObservationKind,
-        receipt: ExecutionReceipt | None,
+        receipt: object | None,
     ) -> UUID:
         """Derive one stable observation identity per logical uncertainty.
 
@@ -1270,7 +1325,12 @@ class ExecutionOrchestrator:
         re-observation of the same unresolved event writes idempotently
         instead of duplicating evidence.
         """
-        receipt_key = "no-receipt" if receipt is None else str(receipt.receipt_id)
+        receipt_key = "no-receipt"
+        if receipt is not None:
+            receipt_id = getattr(receipt, "receipt_id", None)
+            receipt_key = (
+                str(receipt_id) if isinstance(receipt_id, UUID) else "unidentified-receipt"
+            )
         key = (
             f"quantx:submission-quarantine:{kind.value}:"
             f"{request.order.client_order_id}:{fingerprint}:{receipt_key}"
