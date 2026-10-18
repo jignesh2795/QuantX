@@ -26,6 +26,8 @@ No LIVE-readiness claim is made. The presence of a `BrokerPort`, a `LIVE` enum v
 
 ### P0.1 — Durable kill-switch failure and submission admission race
 
+**Remediation status (2026-10-17):** fixed and merged in PR #243 (commits `a75ad3c`, `9e961d0`, `f2db0d8`, skills sync `7dd4640`). The pre-fix narrative below is retained as the audit record; do not read it as current behavior. P0.2 and P0.3 remain open.
+
 **Source-confirmed at current main**
 
 - `src/quantx/execution/trading_gate.py::DurableTradingGate.block` persists the disabled state before updating the local state. If `state_store.save()` raises, the local update is not performed.

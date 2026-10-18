@@ -1,0 +1,234 @@
+{
+  "schema": "quantx.trigger-eval.v1",
+  "notes": "Static proxy assets, not ground truth. should_trigger prompts must share at least 2 significant tokens with the skill description; should_not_trigger prompts must discriminate toward belongs_to (higher overlap there than with this skill). Evaluated by scripts/check_trigger_assets.py.",
+  "cases": [
+    {
+      "skill": "quantx-core-governance",
+      "should_trigger": [
+        "before we start, remind me of the non-negotiable safety and decimal money rules for this trading repo",
+        "what are the fail-closed evidence rules and the control-path safety review for this task",
+        "can I import the broker SDK into the domain package? are there core-vs-plugin boundaries"
+      ],
+      "should_not_trigger": [
+        { "text": "set up pytest fixtures and naming conventions for a new test file", "belongs_to": "quantx-testing" },
+        { "text": "sequence the next milestone workstream", "belongs_to": "quantx-roadmap-planner" }
+      ]
+    },
+    {
+      "skill": "quantx-operating-model",
+      "should_trigger": [
+        "ownership of decisions and validation runs in this workflow",
+        "should the agent or the owner run the validation tests?",
+        "explain the implementation loop and the read-only validation evidence model"
+      ],
+      "should_not_trigger": [
+        { "text": "how do branches and commit conventions work for code changes", "belongs_to": "quantx-dev-workflow" },
+        { "text": "write a regression test for the risk engine", "belongs_to": "quantx-testing" }
+      ]
+    },
+    {
+      "skill": "quantx-repo-auditor",
+      "should_trigger": [
+        "audit the repository baseline before I start this task",
+        "map the branch topology and find duplicate implementations and stale docs",
+        "is there test-count drift between STATUS.md and the actual suite?"
+      ],
+      "should_not_trigger": [
+        { "text": "write the SKILL.md frontmatter for a new skill", "belongs_to": "quantx-skills-maintainer" },
+        { "text": "decide the package placement for a new module", "belongs_to": "quantx-architecture" }
+      ]
+    },
+    {
+      "skill": "quantx-architecture",
+      "should_trigger": [
+        "where should this new module live — domain or application?",
+        "is it allowed for the risk engine to import the dhan adapter? what dependency rule applies",
+        "refactor across packages — which port and adapter boundary applies"
+      ],
+      "should_not_trigger": [
+        { "text": "why was the submission rejected by the trading gate and is it retried", "belongs_to": "quantx-execution" },
+        { "text": "how do I register a new strategy in the registry", "belongs_to": "quantx-strategy-plugins" }
+      ]
+    },
+    {
+      "skill": "quantx-migration-consolidation",
+      "should_trigger": [
+        "help me consolidate this stale branch and preserve useful commits",
+        "how do I decide KEEP or REBUILD for the duplicate implementation on this branch",
+        "preserve useful work from resets and recover duplicate lines"
+      ],
+      "should_not_trigger": [
+        { "text": "choose the next workstream to build from the roadmap", "belongs_to": "quantx-roadmap-planner" },
+        { "text": "worktree lifecycle cleanup after finishing a task", "belongs_to": "quantx-dev-workflow" }
+      ]
+    },
+    {
+      "skill": "quantx-roadmap-planner",
+      "should_trigger": [
+        "what should we build next and in what order?",
+        "sequence the next workstream by dependency and safety priority",
+        "KEEP, INTEGRATE, or DEFER decision for this candidate workstream"
+      ],
+      "should_not_trigger": [
+        { "text": "review my diff adversarially for safety and evidence gaps", "belongs_to": "quantx-adversarial-review" },
+        { "text": "update the architecture doc to reflect the current state", "belongs_to": "quantx-docs-maintainer" }
+      ]
+    },
+    {
+      "skill": "quantx-execution",
+      "should_trigger": [
+        "the submission was uncertain — how does reconciliation resolve the pending order?",
+        "explain the trading gate permit and admit flow before broker submit",
+        "recover pending live executions at startup without submitting orders"
+      ],
+      "should_not_trigger": [
+        { "text": "compute P&L and margin ledger valuation for the paper session", "belongs_to": "quantx-simulation-accounting" },
+        { "text": "why is the risk limit rejecting my pre-trade request", "belongs_to": "quantx-risk-policy" }
+      ]
+    },
+    {
+      "skill": "quantx-india-market",
+      "should_trigger": [
+        "lot size and expiry handling for NSE F&O contracts",
+        "does the Dhan plugin accept GTC order validity",
+        "check the IST session calendar permission before cancellation"
+      ],
+      "should_not_trigger": [
+        { "text": "normalize the historical OHLCV dataset for replay", "belongs_to": "quantx-research-data" },
+        { "text": "should market rules live in domain or in a separate package", "belongs_to": "quantx-architecture" }
+      ]
+    },
+    {
+      "skill": "quantx-strategy-plugins",
+      "should_trigger": [
+        "how do I write a new strategy and register it in the registry?",
+        "validate the signal and intent produced by on_market_data",
+        "build a plugin factory and descriptor for a new broker kind"
+      ],
+      "should_not_trigger": [
+        { "text": "how do branches and commit conventions work for code changes", "belongs_to": "quantx-dev-workflow" },
+        { "text": "write a regression test and run pytest for my change", "belongs_to": "quantx-testing" }
+      ]
+    },
+    {
+      "skill": "quantx-research-data",
+      "should_trigger": [
+        "ingest the historical candle dataset with provenance and point-in-time rules",
+        "set up event replay for the backtest data",
+        "check data quality of the OHLCV quote storage"
+      ],
+      "should_not_trigger": [
+        { "text": "how are fills accounted into the cash and margin ledgers", "belongs_to": "quantx-simulation-accounting" },
+        { "text": "does the Dhan adapter accept GTC order validity", "belongs_to": "quantx-india-market" }
+      ]
+    },
+    {
+      "skill": "quantx-simulation-accounting",
+      "should_trigger": [
+        "how are fills accounted into the cash and margin ledgers?",
+        "compute account valuation and P&L with charges for the paper session",
+        "partial fill accounting honesty in backtest results"
+      ],
+      "should_not_trigger": [
+        { "text": "reconcile the uncertain pending order against broker evidence", "belongs_to": "quantx-execution" },
+        { "text": "which pre-trade limits exist and what does approval-required mean", "belongs_to": "quantx-risk-policy" }
+      ]
+    },
+    {
+      "skill": "quantx-risk-policy",
+      "should_trigger": [
+        "which pre-trade limits exist and what does approval-required mean?",
+        "explain the drawdown and daily-loss breach handling",
+        "what trips the kill switch and how does the trading gate block submissions"
+      ],
+      "should_not_trigger": [
+        { "text": "implement idempotency reservation and receipt recovery", "belongs_to": "quantx-execution" },
+        { "text": "price band rules for NSE equities trading", "belongs_to": "quantx-india-market" }
+      ]
+    },
+    {
+      "skill": "quantx-testing",
+      "should_trigger": [
+        "write a regression test for the trading gate fix",
+        "conventions for test file naming and factory helpers in the unit test tree",
+        "run pytest with parametrize and skip rules for the failing test"
+      ],
+      "should_not_trigger": [
+        { "text": "review my diff adversarially for safety and evidence gaps", "belongs_to": "quantx-adversarial-review" },
+        { "text": "sequence the next workstream by dependency order", "belongs_to": "quantx-roadmap-planner" }
+      ]
+    },
+    {
+      "skill": "quantx-adversarial-review",
+      "should_trigger": [
+        "review this diff adversarially before merge",
+        "try to break the change and find scope leakage",
+        "are the tests misleading or is UNKNOWN handling correct in this change"
+      ],
+      "should_not_trigger": [
+        { "text": "produce validation evidence at this exact HEAD", "belongs_to": "quantx-validation-gate" },
+        { "text": "update STATUS.md with the new test counts after merge", "belongs_to": "quantx-docs-maintainer" }
+      ]
+    },
+    {
+      "skill": "quantx-validation-gate",
+      "should_trigger": [
+        "produce validation evidence at this exact HEAD",
+        "run focused and full pytest plus changed-file Ruff before we claim tests pass",
+        "read-only validation run: mypy, git diff --check, scope audit"
+      ],
+      "should_not_trigger": [
+        { "text": "decide whether this branch may merge into main", "belongs_to": "quantx-release-gate" },
+        { "text": "write the missing regression test for the fix", "belongs_to": "quantx-testing" }
+      ]
+    },
+    {
+      "skill": "quantx-release-gate",
+      "should_trigger": [
+        "is this branch ready to merge? check the quality gates and non-claims",
+        "release decision: scope integrity and safety audit evidence",
+        "bind the validation evidence to the merge candidate HEAD"
+      ],
+      "should_not_trigger": [
+        { "text": "generate the read-only validation evidence report", "belongs_to": "quantx-validation-gate" },
+        { "text": "write an ADR and update STATUS.md documentation", "belongs_to": "quantx-docs-maintainer" }
+      ]
+    },
+    {
+      "skill": "quantx-docs-maintainer",
+      "should_trigger": [
+        "update STATUS.md with the new test counts",
+        "record architecture decisions and roadmap updates in the docs",
+        "report test counts without creating stale duplicate docs"
+      ],
+      "should_not_trigger": [
+        { "text": "give me a release decision for this PR", "belongs_to": "quantx-release-gate" },
+        { "text": "audit the repo baseline and stale docs inventory", "belongs_to": "quantx-repo-auditor" }
+      ]
+    },
+    {
+      "skill": "quantx-dev-workflow",
+      "should_trigger": [
+        "how do branches and commit conventions work for code changes?",
+        "run the pre-push hook checks and tell me what the repository gate is",
+        "worktree lifecycle cleanup after finishing the implementation task"
+      ],
+      "should_not_trigger": [
+        { "text": "which package should host the new reconciliation module", "belongs_to": "quantx-architecture" },
+        { "text": "who owns merge decisions versus validation runs", "belongs_to": "quantx-operating-model" }
+      ]
+    },
+    {
+      "skill": "quantx-skills-maintainer",
+      "should_trigger": [
+        "add a new skill with valid frontmatter and regenerate the skills manifest",
+        "validate skill frontmatter and verify the manifest hashes",
+        "should SKILL.md content be split into router and references files"
+      ],
+      "should_not_trigger": [
+        { "text": "normalize this historical dataset for replay", "belongs_to": "quantx-research-data" },
+        { "text": "update the architecture docs for the new boundary", "belongs_to": "quantx-docs-maintainer" }
+      ]
+    }
+  ]
+}

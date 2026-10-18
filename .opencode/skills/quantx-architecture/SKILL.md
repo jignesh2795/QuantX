@@ -1,6 +1,6 @@
 ---
 name: quantx-architecture
-description: Use when adding, moving, or refactoring code in QuantX and deciding WHERE it belongs — package placement, module boundaries, dependency rules, ports and adapters, event-driven domain core, layering (domain/application/execution/integrations/plugins/ports/persistence/india). Front-load keywords: architecture, package placement, where to put code, new module, port, adapter, boundary, dependency rule.
+description: Use when adding, moving, or refactoring QuantX code and deciding where it belongs — package placement, module boundaries, dependency rules, ports and adapters, event-driven core, layering (domain/application/execution/integrations/plugins/ports/persistence/india). Keywords: where to put code, new module, port, adapter, boundary.
 ---
 
 # QuantX Architecture & Code Placement
@@ -31,17 +31,7 @@ Direction: `Applications → Control Services → Domain+Application Ports ← A
 - Market-specific code never lives in universal `domain/` — that is what `india/` is for.
 - Plugin implementations live outside the universal core.
 
-## Ports & adapters pattern
-
-Ports are `@runtime_checkable class X(Protocol):` with `...` bodies and a module docstring stating the boundary. Vendor SDK types and credentials stay outside port modules.
-
-| Port | Path | Adapters |
-|---|---|---|
-| `BrokerPort` | `ports/broker.py` | `plugins/dhan/adapter.py`, `plugins/reference_broker/adapter.py` |
-| `MarketDataPort`, `MarketDataStore` | `ports/market_data.py` | `plugins/dhan/market_data.py`, `persistence/sqlite/market_data.py` |
-| `ExecutionPort`, `LiveExecutionPort` | `execution/ports.py` | `integrations/execution_adapter.py`, `execution/paper/*` |
-| `UnitOfWork`, `ReceiptRepository`, `PersistentIdempotencyStore` | `persistence/unit_of_work.py` | `persistence/sqlite/*` |
-| `InstrumentRegistry` | `domain/instrument_registry.py` | `india/instrument_catalog.py` |
+Port pattern and the full port/adapter table: `references/ports-and-adapters.md`.
 
 ## Placement rules (`docs/architecture/41-current-package-map.md`)
 
@@ -56,14 +46,7 @@ Ports are `@runtime_checkable class X(Protocol):` with `...` bodies and a module
 9. **Never create one giant `utils.py`, `services.py`, or `models.py` for unrelated concerns.**
 10. Place new functionality in the **smallest coherent package**.
 
-## Structural rules (`docs/architecture/40-package-organization-and-module-boundaries.md`)
-
-- One bounded responsibility per package; ports separate from adapters where practical.
-- Tests mirror the source package hierarchy.
-- Compatibility shims are temporary and clearly named (existing shims: `research/data_quality.py`, `research/venue_adapters.py`, `execution/market_data.py`, `execution/market_ports.py`). New code uses target boundaries directly.
-- Migration principle: existing files are moved/split when next modified — no risky repo-wide renames.
-- Avoid repository-wide structural migrations while execution-integrity work is active.
-- Deliberately distinct modules that must NOT be merged: `execution/order_lifecycle.py` vs `execution/receipts/lifecycle.py`.
+Structural rules, compatibility shims, and migration principles: `references/module-boundaries.md`.
 
 ## Design method (contract-gap approach)
 

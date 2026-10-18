@@ -1,6 +1,6 @@
 ---
 name: quantx-repo-auditor
-description: Read-first repository audit before any non-trivial QuantX work — establishes current baseline, branch topology, existing implementations, duplication, stale docs, hidden consumers, and test-count drift. Use before planning or implementing.
+description: Use before planning or implementing non-trivial QuantX work — read-first repository audit: current baseline, branch topology, existing implementations, duplication, stale docs, hidden consumers, and test-count drift.
 metadata:
   quantx/role: audit
 ---

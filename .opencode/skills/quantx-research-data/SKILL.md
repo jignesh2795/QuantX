@@ -1,6 +1,6 @@
 ---
 name: quantx-research-data
-description: Use when working on QuantX historical data, ingestion, datasets, data quality, provenance, point-in-time rules, replay, event replay, experiments, market data storage, candles/quotes, rolls, adjustments, or backtest data. Front-load keywords: research, historical, ingestion, dataset, quality, provenance, replay, point-in-time, candle, OHLCV, backtest data, market data store.
+description: Use when working on QuantX historical data — ingestion, datasets, data quality, provenance, point-in-time rules, replay, experiments, market-data storage, candles/quotes, rolls, adjustments, or backtest data. Keywords: research, historical, ingestion, dataset, provenance, replay, OHLCV.
 ---
 
 # QuantX Research & Market Data

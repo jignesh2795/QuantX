@@ -1,6 +1,6 @@
 ---
 name: quantx-strategy-plugins
-description: Use when writing or registering strategies, Strategy IR, strategy runtime evaluation, StrategyContext, signal/intent validation, strategy registry, or building plugin kinds (broker/market-data/research/risk) in QuantX. Front-load keywords: strategy, StrategyIR, signal, intent, on_market_data, registry, plugin, factory, descriptor.
+description: Use when writing or registering strategies or plugins in QuantX — Strategy IR, strategy runtime evaluation, StrategyContext, signal/intent validation, registry, and plugin kinds (broker/market-data/research/risk). Keywords: strategy, StrategyIR, signal, intent, on_market_data, registry, plugin.
 ---
 
 # QuantX Strategy & Plugin APIs
