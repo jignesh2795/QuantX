@@ -22,13 +22,13 @@ The source analysis below preserves the original audit at the historical source 
 
 The original audits recommended prioritizing LIVE admission, startup-readiness, and post-submit evidence gaps before lower-priority refactoring. That original sequence has since advanced: P0.1 and P0.2 are fixed and merged; P0.3 (#241) remains the open P0 slice. The source-flow analysis below is a historical audit baseline, not a fresh current-main audit.
 
-The source spot-check was performed against current `main` at the SHA above, not only against the earlier `bd5045a` base. It confirms several critical control-flow shapes. The two failure-injection reproductions (F1 and F2) were reported by the first audit; they were **not rerun by this documentation pass**. Claims below distinguish source-confirmed behavior, audit-reported reproductions, and findings that still require broader evidence.
+The source spot-check was performed against the historical audit-base `main` snapshot at the SHA above, not only against the earlier `bd5045a` base. It confirms several critical control-flow shapes at that historical revision. The two failure-injection reproductions (F1 and F2) were reported by the first audit; they were **not rerun by this documentation pass**. Claims below distinguish source-confirmed behavior, audit-reported reproductions, and findings that still require broader evidence.
 
 No LIVE-readiness claim is made. The presence of a `BrokerPort`, a `LIVE` enum value, or a manually assembled `ExecutionOrchestrator` does not establish a production-safe LIVE composition.
 
 ## Evidence classification
 
-- **Source-confirmed:** directly observed in current source at `2ce04cf` and linked to the relevant function or contract below.
+- **Source-confirmed:** directly observed in the historical audit-base source snapshot `2ce04cf` and linked to the relevant function or contract below.
 - **Audit-reported reproduction:** failure injection or test output supplied by one of the two audits; the reproduction has not been independently rerun in this review.
 - **Partially verified / needs bounded audit:** the finding is plausible or partly confirmed, but the relevant builder, all call sites, schema path, or source-tree-wide absence has not yet been independently enumerated. Do not present these as established defects until the stated check is complete.
 
