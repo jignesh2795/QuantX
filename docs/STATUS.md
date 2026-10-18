@@ -40,7 +40,16 @@ The current code does not yet implement this decision: `Contract` embeds an `Ins
 
 ## P0.3 post-submit evidence remediation — implemented (2026-10-18)
 
-P0.3 (issue #241) is implemented on `fix/p03-post-submit-evidence-v1`, based on `main` at `103b7f47ac11813a0d6df9360b2885f9c1b9db1d` (P0.2 integration, PR #244). The change is behavior-describing only here; validation evidence for the exact feature commit is appended after the local validation run and is not claimed in this paragraph.
+P0.3 (issue #241) is implemented on `fix/p03-post-submit-evidence-v1` at feature commit `2cb02ae2100078a3f1e21a3a01d5edbb957c5b75`, based on `main` at `103b7f47ac11813a0d6df9360b2885f9c1b9db1d` (P0.2 integration, PR #244). Changed paths: `src/quantx/application/execution.py`, `src/quantx/execution/submission_preflight.py` (new), `src/quantx/execution/receipts/quarantine.py` (new), `src/quantx/ports/persistence.py`, `src/quantx/persistence/sqlite/submission_quarantine.py` (new), `src/quantx/persistence/sqlite/schema.py`, `src/quantx/persistence/sqlite/__init__.py`, `src/quantx/plugins/dhan/adapter.py`, plus the mirrored regression tests and this documentation.
+
+Local validation was executed by the read-only validation producer (`run_validation.py`) in a detached temporary worktree at the exact feature SHA, with base `103b7f47ac11813a0d6df9360b2885f9c1b9db1d`:
+
+- Default dependency configuration (`uv sync --locked`, then the full producer run bound to the exact head): **OVERALL PASS** — full suite **2,186 passed, 1 skipped** (the known optional-Dhan-extra test); changed-file Ruff check and format **PASS** (10 changed files); strict mypy **PASS**; `git diff --check` **PASS**; tracked-worktree integrity **PASS**.
+- Dhan-extra configuration (`uv sync --locked --extra dhan`, then the full producer run again against the same head and base): **OVERALL PASS** — full suite **2,187 passed, 0 skipped**.
+- Focused persistence/recovery slice (`tests/unit/persistence` plus recovery, reconciliation, and runtime regression files): **240 passed**.
+- Release gate: producer self-test **77 checks PASS**; `release_check.py` against each real producer evidence file reports **OVERALL PASS** for both configurations, with the changed scope vs `origin/main` exactly the 12 intended files. Evidence JSONs and release-gate reports were retained under the local validation temp directory (`%TEMP%\quantx-validation\p03-run1-default.json`, `p03-run2-dhan.json`, plus the two `release-2cb02ae…-*.json` reports).
+
+These are local results produced by the repository's own read-only gate scripts. No GitHub Actions or paid CI was triggered (repository policy), and no broker/LIVE operation was performed. The release-gate PASS does not authenticate evidence files or claim production readiness; the explicit non-claims printed by `release_check.py` apply unchanged.
 
 Implemented behavior:
 
