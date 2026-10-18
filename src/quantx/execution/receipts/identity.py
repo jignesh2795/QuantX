@@ -95,6 +95,20 @@ def validate_receipt_runtime_shape(receipt: object) -> ReceiptIdentityViolation 
         return ReceiptIdentityViolation(
             reason="receipt order status is not a canonical OrderStatus"
         )
+    # An enum-typed instance is not enough: a hostile response can carry an
+    # uninitialized or value-shadowing member whose ``value`` lookup raises
+    # or is not a string. Canonical persistence reads ``.value``, so such a
+    # response must be rejected here, before identity validation and any
+    # canonical write, instead of failing after the broker call.
+    try:
+        outcome_value = receipt.outcome.value
+        order_status_value = receipt.order_status.value
+    except Exception:
+        return ReceiptIdentityViolation(reason="receipt enum members could not be read safely")
+    if not isinstance(outcome_value, str) or not isinstance(order_status_value, str):
+        return ReceiptIdentityViolation(
+            reason="receipt enum members are not canonical string values"
+        )
     if not isinstance(receipt.receipt_id, UUID):
         return ReceiptIdentityViolation(reason="receipt id is not a UUID")
     if not isinstance(receipt.source, str):

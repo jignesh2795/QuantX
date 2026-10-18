@@ -57,6 +57,35 @@ def _validated_optional_text(value: object) -> str | None:
     return text
 
 
+def _safe_getattr(obj: object, name: str) -> object | None:
+    """Read an attribute of untrusted broker data without letting it raise.
+
+    Attribute access on a hostile response object can raise (a property or
+    descriptor that fails instead of returning a value). Such a field is
+    dropped — ``None`` — so the malformed response is still recorded as
+    sanitized, non-authoritative evidence instead of failing the
+    observation write and forcing the admission safety fault.
+    """
+    try:
+        return getattr(obj, name, None)
+    except Exception:
+        return None
+
+
+def _enum_value(value: object) -> str | None:
+    """Read a StrEnum member's value without trusting member state.
+
+    A hostile response can carry an uninitialized or value-shadowing
+    StrEnum instance whose ``value`` lookup raises. Such a field is
+    dropped like any other malformed field instead of failing the
+    observation write.
+    """
+    if not isinstance(value, StrEnum):
+        return None
+    raw = _safe_getattr(value, "value")
+    return raw if isinstance(raw, str) else None
+
+
 @dataclass(frozen=True, slots=True)
 class QuarantinedSubmissionObservation:
     """One sanitized, non-authoritative submission observation.
@@ -123,17 +152,18 @@ class QuarantinedSubmissionObservation:
     ) -> QuarantinedSubmissionObservation:
         """Extract sanitized observation fields from an untrusted receipt.
 
-        Only exactly-typed, bounded values survive; any malformed
-        broker-supplied field is dropped (kept ``None``) so a hostile
-        receipt can never corrupt the durable evidence record. The
-        receipt itself is never stored and never becomes authoritative.
+        Only exactly-typed, bounded values survive; any malformed or
+        raising broker-supplied field access is dropped (kept ``None``)
+        so a hostile receipt can never corrupt — or fail — the durable
+        evidence record. The receipt itself is never stored and never
+        becomes authoritative.
         """
-        source = getattr(receipt, "source", None)
-        broker_order_id = getattr(receipt, "broker_order_id", None)
-        outcome = getattr(receipt, "outcome", None)
-        order_status = getattr(receipt, "order_status", None)
-        outcome_value = outcome.value if isinstance(outcome, StrEnum) else None
-        status_value = order_status.value if isinstance(order_status, StrEnum) else None
+        source = _safe_getattr(receipt, "source")
+        broker_order_id = _safe_getattr(receipt, "broker_order_id")
+        outcome = _safe_getattr(receipt, "outcome")
+        order_status = _safe_getattr(receipt, "order_status")
+        outcome_value = _enum_value(outcome)
+        status_value = _enum_value(order_status)
         return cls(
             observation_id=observation_id,
             kind=kind,

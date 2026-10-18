@@ -18,6 +18,7 @@ from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
 from quantx.execution.receipts.identity import (
+    ReceiptIdentityViolation,
     validate_live_receipt_identity,
     validate_receipt_runtime_shape,
 )
@@ -542,6 +543,20 @@ class ExecutionOrchestrator:
                     ExecutionDispatchStatus.BLOCKED,
                     reason="live execution requires a started ApplicationRuntime",
                 )
+            if self._submission_quarantine is None:
+                # LIVE admission requires the capability that preserves
+                # unresolved submission evidence durably. Establish it here,
+                # beside the other LIVE-only composition prerequisites, so it
+                # is proven before any broker-specific probe (connection,
+                # health, instrument, capabilities), before any durable
+                # reservation, and before broker submission. Without it an
+                # uncertain post-admission outcome would have no durable
+                # evidence path, so the request is denied instead of
+                # degrading silently after the broker call.
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=("live execution requires a durable submission quarantine repository"),
+                )
 
         if not self._trading_gate.allow():
             state = self._trading_gate.state()
@@ -780,20 +795,6 @@ class ExecutionOrchestrator:
                 ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason="live execution requires a durable UnitOfWork",
-                ),
-                check_entries,
-            )
-        if self._submission_quarantine is None:
-            # LIVE admission requires the capability that preserves
-            # unresolved submission evidence durably. Without it, an
-            # uncertain post-admission outcome would leave a pending
-            # reservation with no durable evidence path, so the submission
-            # is denied here — before any reservation or broker contact —
-            # instead of degrading silently after the broker call.
-            return self._with_evidence_prefix(
-                ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason=("live execution requires a durable submission quarantine repository"),
                 ),
                 check_entries,
             )
@@ -1059,11 +1060,19 @@ class ExecutionOrchestrator:
                 reason=f"submission outcome is unknown; reconciliation is required: {exc}",
             )
         # The broker response is untrusted plugin-boundary data: it may be any
-        # runtime object and its enum/identity fields may hold non-canonical
-        # values. Because the external submit may already have started, such a
-        # response must become explicit uncertainty with quarantined evidence —
-        # never an exception escaping the public API, and never authoritative.
-        runtime_violation = validate_receipt_runtime_shape(receipt)
+        # runtime object, its enum/identity fields may hold non-canonical
+        # values, and attribute access itself may raise. Because the external
+        # submit may already have started, such a response must become explicit
+        # uncertainty with quarantined evidence — never an exception escaping
+        # the public API, and never authoritative.
+        try:
+            runtime_violation = validate_receipt_runtime_shape(receipt)
+            receipt_outcome = None if runtime_violation is not None else receipt.outcome
+        except Exception:
+            runtime_violation = ReceiptIdentityViolation(
+                reason="broker response could not be inspected safely"
+            )
+            receipt_outcome = None
         if runtime_violation is not None:
             return self._fail_closed_unknown(
                 request,
@@ -1077,7 +1086,7 @@ class ExecutionOrchestrator:
                 ),
                 quarantine_reason=runtime_violation.reason,
             )
-        if receipt.outcome is ExecutionOutcome.UNKNOWN:
+        if receipt_outcome is ExecutionOutcome.UNKNOWN:
             return self._fail_closed_unknown(
                 request,
                 fingerprint,
@@ -1327,7 +1336,10 @@ class ExecutionOrchestrator:
         """
         receipt_key = "no-receipt"
         if receipt is not None:
-            receipt_id = getattr(receipt, "receipt_id", None)
+            try:
+                receipt_id = getattr(receipt, "receipt_id", None)
+            except Exception:
+                receipt_id = None
             receipt_key = (
                 str(receipt_id) if isinstance(receipt_id, UUID) else "unidentified-receipt"
             )
