@@ -20,8 +20,18 @@ combinations the producer can emit, including the collected-no-tests FAIL
 that can occur with exit 0 and the exit-0 UNKNOWN contradiction/incomplete
 paths); non-finite or negative durations are rejected, while the Ruff
 vacuous-pass shape is preserved; worktree-integrity is produced without an
-exit code. Recomputing verifies internal consistency only; it does not prove
-the evidence was genuinely produced by a test run.
+exit code. On top of shape checks, every PASS-status mandatory record must
+carry the canonical command arguments for its scope (`command-scope`): pytest
+must be exactly ["uv", "run", "pytest"] (targeted runs never satisfy the
+full-suite contract regardless of counts), Ruff must cover exactly the
+recomputed changed-Python-file set with the canonical subcommand and
+`--check` (the vacuous pass is valid only when that set is empty), mypy,
+git-diff-check and worktree-integrity must match their canonical
+invocations, and the evidence base revision must resolve to the same commit
+as the release-gate base so a check run against the wrong base cannot
+establish scope. Recomputing verifies internal consistency only; it does not
+prove the evidence was genuinely produced by a test run, and argv validation
+does not authenticate execution: the evidence file is editable locally.
 Checks tracked-worktree cleanliness and diff-range whitespace, and reports
 PASS / FAIL / UNKNOWN (fail-closed).
 
@@ -81,6 +91,21 @@ CHECK_RECORD_FIELDS: tuple[str, ...] = (
 
 _COMMAND_CHECKS = ("ruff-check", "ruff-format", "mypy", "git-diff-check")
 
+# Canonical producer invocations (run_validation.build_checks). A PASS-status
+# record must carry exactly these arguments; scope mismatches never PASS.
+_CANONICAL_ARGV: dict[str, tuple[str, ...]] = {
+    "pytest": ("uv", "run", "pytest"),
+    "mypy": ("uv", "run", "mypy"),
+    "git-diff-check": ("git", "diff", "--check"),
+    "worktree-integrity": ("git", "status", "--porcelain"),
+}
+_RUFF_PREFIX: dict[str, tuple[str, ...]] = {
+    "ruff-check": ("uv", "run", "ruff", "check"),
+    "ruff-format": ("uv", "run", "ruff", "format", "--check"),
+}
+_RUFF_COUNT_SUMMARY_RE = re.compile(r"^(\d+) changed file\(s\)$")
+_VACUOUS_PASS_SUMMARY = "vacuous pass"
+
 _PYTEST_COUNT_RE = re.compile(
     r"(\d+) (passed|failed|error|errors|skipped|xfailed|xpassed|deselected)"
 )
@@ -106,8 +131,8 @@ NON_CLAIMS = [
     "git-diff-check, worktree-integrity) present exactly once and reporting PASS; the tracked "
     "worktree is clean, and the diff range has no whitespace errors.",
     "PASS does NOT authenticate the evidence: it is an editable local JSON file, and recomputation "
-    "verifies internal consistency only, not that the checks were truly executed. This schema has "
-    "no cryptographic or trusted-runner attestation.",
+    "verifies internal consistency only (including recorded command arguments), not that the "
+    "checks were truly executed. This schema has no cryptographic or trusted-runner attestation.",
     "PASS does NOT prove: production readiness, broker correctness, LIVE trading safety, "
     "or that GitHub Actions executed.",
 ]
@@ -137,6 +162,160 @@ def resolve_head(repo: Path) -> str | None:
 def resolve_rev(repo: Path, rev: str) -> bool:
     proc = git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}")
     return proc is not None and proc.returncode == 0
+
+
+def resolve_rev_sha(repo: Path, rev: str) -> str | None:
+    """Resolve a rev to its commit SHA; None when unresolvable here."""
+    proc = git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}")
+    if proc is None or proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def changed_python_scope(repo: Path, base_sha: str) -> list[str] | None:
+    """Mirror run_validation.changed_files: tracked A/C/M files vs base, .py only."""
+    proc = git(repo, "diff", "--name-only", "--diff-filter=ACMR", base_sha)
+    if proc is None or proc.returncode != 0:
+        return None
+    files = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    return [path for path in files if path.endswith(".py")]
+
+
+def ruff_scope_problems(
+    name: str, argv: list[str], summary: str, expected_py: list[str], base_rev: str
+) -> list[str]:
+    """Validate one Ruff PASS record against the recomputed changed-file scope."""
+    if summary == _VACUOUS_PASS_SUMMARY:
+        if argv:
+            return [f"check {name!r} scope mismatch: vacuous-pass summary with argv {argv!r}"]
+        if expected_py:
+            return [
+                f"check {name!r} scope mismatch: vacuous pass recorded, but "
+                f"{len(expected_py)} changed Python file(s) exist versus base {base_rev!r}"
+            ]
+        return []
+    prefix = list(_RUFF_PREFIX[name])
+    if argv[: len(prefix)] != prefix:
+        return [
+            f"check {name!r} scope mismatch: recorded argv {argv!r} does not match "
+            f"canonical {' '.join(prefix)!r}"
+        ]
+    files = argv[len(prefix) :]
+    if not files:
+        return [
+            f"check {name!r} scope mismatch: no changed files recorded but the "
+            "vacuous-pass shape was not used"
+        ]
+    if sorted(files) != sorted(expected_py):
+        return [
+            f"check {name!r} scope mismatch: recorded file list {files!r} does not "
+            f"match the expected {len(expected_py)} changed Python file(s) versus "
+            f"base {base_rev!r}"
+        ]
+    match = _RUFF_COUNT_SUMMARY_RE.match(summary)
+    if match is None or int(match.group(1)) != len(expected_py):
+        return [
+            f"check {name!r} scope mismatch: summary {summary!r} does not record "
+            f"the validated {len(expected_py)} changed file(s)"
+        ]
+    return []
+
+
+def record_scope_problems(
+    name: str, entry: dict, expected_py: list[str], base_rev: str
+) -> list[str]:
+    """Validate one PASS-status mandatory record's recorded command arguments."""
+    argv = entry.get("argv")
+    summary = entry.get("summary", "")
+    if not isinstance(argv, list) or not all(isinstance(item, str) for item in argv):
+        return [f"check {name!r} scope mismatch: recorded argv is malformed {argv!r}"]
+    if name in ("ruff-check", "ruff-format"):
+        return ruff_scope_problems(name, argv, summary, expected_py, base_rev)
+    canonical = _CANONICAL_ARGV.get(name)
+    if canonical is None:
+        return [f"check {name!r} scope mismatch: no canonical invocation defined"]
+    if tuple(argv) != canonical:
+        diagnostic = (
+            f"; reported test summary {summary!r} is preserved as diagnostics only"
+            if name == "pytest"
+            else ""
+        )
+        return [
+            f"check {name!r} scope mismatch: recorded argv {argv!r} is not the "
+            f"canonical invocation {list(canonical)!r}{diagnostic}"
+        ]
+    return []
+
+
+def command_scope_assessment(
+    repo: Path, base: str, evidence: dict | None
+) -> tuple[str, str, list[str]] | None:
+    """Assess recorded argv against canonical scope; None when no evidence exists.
+
+    Returns (status, summary, problems). UNKNOWN only when scope genuinely
+    cannot be recomputed; an actual scope violation is a specific FAIL.
+    """
+    if evidence is None:
+        return None
+    gate_sha = resolve_rev_sha(repo, base)
+    if gate_sha is None:
+        return UNKNOWN, f"cannot resolve base rev {base!r}; command scope unknown", []
+    raw_base = evidence.get("base_rev")
+    if not isinstance(raw_base, str) or not raw_base:
+        return (
+            FAIL,
+            "scope mismatch: evidence does not record the base revision it validated against",
+            [],
+        )
+    evidence_sha = resolve_rev_sha(repo, raw_base)
+    if evidence_sha is None:
+        return (
+            FAIL,
+            "scope mismatch: evidence base revision does not resolve in this repository",
+            [f"evidence base {raw_base!r}"],
+        )
+    if evidence_sha != gate_sha:
+        return (
+            FAIL,
+            "scope mismatch: evidence was validated against a different base",
+            [
+                f"evidence base {raw_base} ({evidence_sha[:12]}); "
+                f"release-gate base {base} ({gate_sha[:12]})"
+            ],
+        )
+    expected_py = changed_python_scope(repo, gate_sha)
+    if expected_py is None:
+        return UNKNOWN, "cannot recompute changed Python file scope", []
+    problems: list[str] = []
+    seen: set[str] = set()
+    raw_checks = evidence.get("checks")
+    if isinstance(raw_checks, list):
+        for entry in raw_checks:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            if (
+                not isinstance(name, str)
+                or name not in MANDATORY_CHECKS
+                or name in seen
+                or entry.get("status") != PASS
+            ):
+                continue
+            seen.add(name)
+            problems.extend(record_scope_problems(name, entry, expected_py, base))
+    if problems:
+        return (
+            FAIL,
+            f"scope mismatch: {len(problems)} mandatory record(s) violate the canonical "
+            "command contract",
+            problems,
+        )
+    return (
+        PASS,
+        f"canonical command arguments verified for base {gate_sha[:12]} "
+        f"({len(expected_py)} changed Python file(s))",
+        [],
+    )
 
 
 def find_latest_evidence() -> Path | None:
@@ -548,6 +727,11 @@ def evaluate(
                 )
             )
 
+    scope_assessment = command_scope_assessment(repo, base, evidence)
+    if scope_assessment is not None:
+        scope_status, scope_summary, scope_problems = scope_assessment
+        checks.append(check("command-scope", scope_status, scope_summary, scope_problems[:12]))
+
     if expected_head is not None:
         if head is None:
             checks.append(check("expected-head", UNKNOWN, "cannot resolve repository HEAD"))
@@ -701,6 +885,7 @@ def self_test() -> int:
                 "output_tail": "",
             }
             if name == "worktree-integrity":
+                base["argv"] = ["git", "status", "--porcelain"]
                 base["exit_code"] = None
                 base["summary"] = {
                     PASS: "clean tracked tree",
@@ -708,6 +893,7 @@ def self_test() -> int:
                     UNKNOWN: "",
                 }[status]
             elif name == "pytest":
+                base["argv"] = ["uv", "run", "pytest"]
                 if status == PASS:
                     base["summary"] = "2045 passed, 1 skipped"
                 elif status == FAIL:
@@ -718,8 +904,16 @@ def self_test() -> int:
                     base["summary"] = ""
                     base["notes"] = ["skipped by request"]
             elif name in ("ruff-check", "ruff-format"):
-                base["summary"] = "4 changed file(s)"
+                # The fixture repo's base equals HEAD by default: empty scope,
+                # so the producer would emit the vacuous-pass shape.
+                base["argv"] = []
+                base["exit_code"] = None if status == PASS else base["exit_code"]
+                base["summary"] = _VACUOUS_PASS_SUMMARY if status == PASS else base["summary"]
+                base["summary"] = "4 changed file(s)" if status == FAIL else base["summary"]
+            elif name == "mypy":
+                base["argv"] = ["uv", "run", "mypy"]
             elif name == "git-diff-check":
+                base["argv"] = ["git", "diff", "--check"]
                 base["summary"] = (
                     "no whitespace errors" if status == PASS else "whitespace errors found"
                 )
@@ -731,6 +925,7 @@ def self_test() -> int:
                 "schema": EVIDENCE_SCHEMA,
                 "overall": PASS,
                 "head_sha": head,
+                "base_rev": head,
                 "repo": str(tmp),
                 "checks": [record(name) for name in MANDATORY_CHECKS],
             }
@@ -807,15 +1002,20 @@ def self_test() -> int:
                 (f"{command_check} PASS with exit code 1 fails", payload(checks=checks))
             )
         checks = case_checks()
-        checks[1] = record("ruff-check", exit_code=None)
+        checks[1] = record(
+            "ruff-check",
+            exit_code=None,
+            summary="4 changed file(s)",
+            argv=["uv", "run", "ruff", "check", "sample.py"],
+        )
         contradiction_cases.append(
             ("ruff-check PASS without exit code fails", payload(checks=checks))
         )
         checks = case_checks()
-        checks[1] = record("ruff-check", exit_code=0, summary="vacuous pass")
+        checks[1] = record("ruff-check", exit_code=0, summary=_VACUOUS_PASS_SUMMARY, argv=[])
         contradiction_cases.append(("vacuous summary with exit code fails", payload(checks=checks)))
         checks = case_checks()
-        checks[1] = record("ruff-check", FAIL, exit_code=None, summary="vacuous pass")
+        checks[1] = record("ruff-check", FAIL, exit_code=None, summary=_VACUOUS_PASS_SUMMARY)
         contradiction_cases.append(
             ("vacuous summary with FAIL status fails", payload(checks=checks))
         )
@@ -1279,6 +1479,186 @@ def self_test() -> int:
 
         report = evaluate(tmp, valid, None, "no-such-rev")
         check_case("unresolvable base is UNKNOWN", report["overall"] == UNKNOWN)
+
+        # ---- command-scope contract -------------------------------------
+        # The fixture repo gains a second commit so the changed-Python scope
+        # vs the first commit is exactly [second.py]; probes below go through
+        # the real evaluator with temporary evidence files.
+        def scope_status(report: dict) -> str:
+            return next(
+                item["status"] for item in report["checks"] if item["name"] == "command-scope"
+            )
+
+        second = tmp / "second.py"
+        second.write_text("OTHER = 2\n", encoding="utf-8")
+        git(tmp, "add", "second.py")
+        commit2 = git(
+            tmp,
+            "-c",
+            "user.name=QuantX SelfTest",
+            "-c",
+            "user.email=selftest@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "second",
+        )
+        if commit2 is None or commit2.returncode != 0:
+            print("SELF-TEST FAILED: git second commit failed")
+            return 1
+        head2 = resolve_head(tmp)
+        check_case("second head resolved", head2 is not None)
+        assert head2 is not None
+
+        def scoped_record(name: str, **overrides: object) -> dict:
+            data = record(name, **overrides)
+            if name == "ruff-check":
+                data.update(
+                    {
+                        "argv": ["uv", "run", "ruff", "check", "second.py"],
+                        "exit_code": 0,
+                        "summary": "1 changed file(s)",
+                    }
+                )
+            elif name == "ruff-format":
+                data.update(
+                    {
+                        "argv": ["uv", "run", "ruff", "format", "--check", "second.py"],
+                        "exit_code": 0,
+                        "summary": "1 changed file(s)",
+                    }
+                )
+            return data
+
+        def scope_payload(**overrides: object) -> dict:
+            data: dict = {
+                "schema": EVIDENCE_SCHEMA,
+                "overall": PASS,
+                "head_sha": head2,
+                "base_rev": head,
+                "repo": str(tmp),
+                "checks": [scoped_record(name) for name in MANDATORY_CHECKS],
+            }
+            data.update(overrides)
+            return data
+
+        def scoped_checks() -> list[dict]:
+            return [scoped_record(name) for name in MANDATORY_CHECKS]
+
+        canonical = write_case("scope-canonical.json", scope_payload())
+        report = evaluate(tmp, canonical, None, head)
+        check_case("canonical full-suite argv passes with real scope", report["overall"] == PASS)
+
+        scope_reject_cases: list[tuple[str, dict]] = []
+        targeted_counts = (
+            "460 passed",
+            "2045 passed, 1 skipped",
+            "1 passed",
+            "5 deselected, 1234 passed",
+        )
+        for count_summary in targeted_counts:
+            checks = scoped_checks()
+            checks[0] = record(
+                "pytest",
+                argv=["uv", "run", "pytest", "tests/unit/execution/"],
+                summary=count_summary,
+            )
+            scope_reject_cases.append(
+                (
+                    f"targeted pytest with summary {count_summary!r} rejected",
+                    scope_payload(checks=checks),
+                )
+            )
+        for bad_argv in (
+            ["uv", "run"],
+            ["run", "uv", "pytest"],
+            ["uv", "run", "pytest", "-x"],
+            ["pytest"],
+            ["uv", "run", "pytest", "tests/", "--maxfail=1"],
+        ):
+            checks = scoped_checks()
+            checks[0] = record("pytest", argv=bad_argv, summary="460 passed")
+            scope_reject_cases.append(
+                (f"pytest argv {bad_argv!r} rejected", scope_payload(checks=checks))
+            )
+        subset_cases: list[tuple[str, dict]] = []
+        checks = scoped_checks()
+        checks[1] = record(
+            "ruff-check",
+            argv=["uv", "run", "ruff", "check"],
+            exit_code=0,
+            summary="1 changed file(s)",
+        )
+        subset_cases.append(("ruff check file subset rejected", scope_payload(checks=checks)))
+        checks = scoped_checks()
+        checks[1] = record(
+            "ruff-check",
+            argv=["uv", "run", "ruff", "check", "sample.py"],
+            exit_code=0,
+            summary="1 changed file(s)",
+        )
+        subset_cases.append(
+            ("ruff check unrelated file list rejected", scope_payload(checks=checks))
+        )
+        checks = scoped_checks()
+        checks[2] = record(
+            "ruff-format",
+            argv=["uv", "run", "ruff", "format", "second.py"],
+            exit_code=0,
+            summary="1 changed file(s)",
+        )
+        subset_cases.append(("ruff format without --check rejected", scope_payload(checks=checks)))
+        checks = scoped_checks()
+        checks[2] = record(
+            "ruff-format",
+            argv=["uv", "run", "ruff", "format", "--check", "first.py"],
+            exit_code=0,
+            summary="1 changed file(s)",
+        )
+        subset_cases.append(
+            ("ruff format incorrect file list rejected", scope_payload(checks=checks))
+        )
+        checks = scoped_checks()
+        checks[1] = record("ruff-check", exit_code=None, summary=_VACUOUS_PASS_SUMMARY, argv=[])
+        checks[2] = record("ruff-format", exit_code=None, summary=_VACUOUS_PASS_SUMMARY, argv=[])
+        subset_cases.append(
+            ("vacuous ruff pass rejected when scope is non-empty", scope_payload(checks=checks))
+        )
+        for slot, name, bad in (
+            (3, "mypy", ["uv", "run", "mypy", "src", "quantx"]),
+            (4, "git-diff-check", ["git", "diff"]),
+            (5, "worktree-integrity", ["git", "status"]),
+        ):
+            checks = scoped_checks()
+            overrides: dict = {"argv": bad}
+            if name == "worktree-integrity":
+                overrides["exit_code"] = None
+            checks[slot] = record(name, **overrides)
+            subset_cases.append(
+                (f"{name} non-canonical argv rejected", scope_payload(checks=checks))
+            )
+        scope_reject_cases.extend(subset_cases)
+        wrong_base = write_case("scope-wrong-base.json", scope_payload(base_rev=head2))
+        report = evaluate(tmp, wrong_base, None, head)
+        check_case("unrelated evidence base rejected", report["overall"] == FAIL)
+        check_case("wrong-base diagnostic is scope-specific", scope_status(report) == FAIL)
+        no_base = scope_payload()
+        del no_base["base_rev"]
+        path = write_case("scope-no-base.json", no_base)
+        report = evaluate(tmp, path, None, head)
+        check_case("missing evidence base rejected", report["overall"] == FAIL)
+        for case_name, data in scope_reject_cases:
+            path = write_case("scope-reject.json", data)
+            report = evaluate(tmp, path, None, head)
+            is_integrity_fail = integrity_status(report) == FAIL
+            is_scope_fail = scope_status(report) == FAIL
+            check_case(
+                case_name,
+                report["overall"] == FAIL and is_scope_fail and not is_integrity_fail,
+            )
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

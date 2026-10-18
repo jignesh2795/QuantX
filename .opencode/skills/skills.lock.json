@@ -1,6 +1,6 @@
 {
   "schema": "quantx.skills-manifest.v1",
-  "generated_at": "2026-10-17T07:21:45+00:00",
+  "generated_at": "2026-10-17T20:48:04+00:00",
   "files": {
     "quantx-adversarial-review/SKILL.md": "54fa7fcd8090095a179ab837f7d9b79110c6f08b13a9eb7e68abc79728585325",
     "quantx-architecture/SKILL.md": "652ffcdf3392a460dd6356b574a290570cf0b4a7a4253c9fae0e92e2b0250931",
@@ -21,8 +21,8 @@
     "quantx-india-market/references/plugin-registration.md": "286448b0775a28f29092330aaa26cb66ccd388bdf5b2d5c3bed8ba1e6a5d2c41",
     "quantx-migration-consolidation/SKILL.md": "7c353f0cf397054cd8d0da1bb10b6b7d8ecab400aeda2b42cdf64eb2c580ca7a",
     "quantx-operating-model/SKILL.md": "c5fbd5a69b3a65f8025374eea9b66bc33f1523fa094622138d019b5b5bf82d6c",
-    "quantx-release-gate/SKILL.md": "948dc93c4fe9b8c5e8c538ba63ff86534695a234198e9b405db562ad1593eed5",
-    "quantx-release-gate/scripts/release_check.py": "001daea996574fb3dcee50127b729ff02cc0013f2594a2baab462187e80be06e",
+    "quantx-release-gate/SKILL.md": "37b96ef413c646ed7a99129075cceef536c0cde3e5e9170f830ce10f932b071f",
+    "quantx-release-gate/scripts/release_check.py": "df560d37f832c2cbd5ca28c2acb20a2b5ad76aa8b49515fa9c139284bacb0c4e",
     "quantx-repo-auditor/SKILL.md": "2810bfc0b09e4b16c10438f6643f4be558b2536deed95d66e1f3e9feec7e5110",
     "quantx-research-data/SKILL.md": "d4aca41bce336fdf409d913acecd064c38635bad5fbe9c22968fbdd15851f0b7",
     "quantx-risk-policy/SKILL.md": "30088b04ebbb32dad041f5928f27e122e5c9055d567571b90e9db5978c5463e5",
@@ -34,7 +34,7 @@
     "quantx-skills-maintainer/scripts/skill_integrity.py": "e1f99399c89d9027a18ca1f0e624463bd638dfcb01bd6c8f191c3461d363cfe4",
     "quantx-strategy-plugins/SKILL.md": "65e8eaec68c8c8ba2091d9f52b26d27390c6dcd380b97bba14fb4d84a21109fc",
     "quantx-testing/SKILL.md": "f59049fc14adc0e4f4b438b72b1a1117e8b182a3027560bde3bd225778a986b4",
-    "quantx-validation-gate/SKILL.md": "5dd6021083dc7ec4f46835ff0433636a16b3fbc414c2f09a0dc327fe94377c02",
-    "quantx-validation-gate/scripts/run_validation.py": "47637e6015ce3519d8354ac4a17c29644606b3a6d7d13328ce987a8f4ab1f0a6"
+    "quantx-validation-gate/SKILL.md": "0485d6db277cb59f5ad63056d3ee4e5d8915f2347ea0c273689106d1cc610d05",
+    "quantx-validation-gate/scripts/run_validation.py": "6ceee033ac7041257dc9fac88d1318dbc86ac00af89d613b03d7b1871acf897a"
   }
 }
