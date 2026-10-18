@@ -903,7 +903,9 @@ class ExecutionOrchestrator:
         atomically saves the receipt and completes the reservation. Between
         Scope A and the broker call, submit admission is re-checked at the
         gate linearization point, so a block() that returned before admission
-        denies the submission before any broker contact.
+        denies the submission before ``broker.submit()``; the read-only
+        connection/health/instrument/capability observations in ``execute``
+        may already have run and are not undone by the denial.
 
         R0-B scope: only the safety-critical submit/cancel/reconcile broker
         operations carry bounded timeouts. ``broker.health()`` (checked in
@@ -1025,9 +1027,11 @@ class ExecutionOrchestrator:
         # Submit admission boundary (linearization point): re-check the kill
         # switch after the reservation is durable and immediately before the
         # external broker call is admitted. Once block() has returned, any
-        # submission that has not crossed this check is denied here and the
-        # broker is never contacted. An already-admitted in-flight broker call
-        # is never reversed by a later block().
+        # submission that has not crossed this check is denied here and
+        # broker.submit() is never called; the read-only health/instrument/
+        # capability observations in execute may already have run. An
+        # already-admitted in-flight broker call is never reversed by a
+        # later block().
         #
         # The check holds no gate/store lock across broker I/O, so block()
         # never waits for a slow or hung broker call. A denied admission

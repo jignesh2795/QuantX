@@ -73,7 +73,7 @@ Implemented behavior:
 
 Non-claims: no real broker I/O, no LIVE operation, and no GitHub Actions were used; all regression coverage is deterministic and offline. Quarantine evidence is reconciliation input only; no automated reconciliation behavior consumes it yet. The quarantine store is a mandatory LIVE-admission dependency: LIVE compositions without it are blocked before any reservation or broker contact rather than degrading to UNKNOWN-plus-pending-reservation without durable evidence; non-LIVE flows are unaffected.
 
-## Current state — P0.1/P0.2 fixed; P0.3 remains open; QX-04/QX-05/QX-06 designs accepted; QX-08 acceptance complete; QX-09 complete
+## Current state — P0.1/P0.2 fixed; P0.3 implemented on this branch (open in `main`); QX-04/QX-05/QX-06 designs accepted; QX-08 acceptance complete; QX-09 complete
 
 The consolidated LIVE-safety audit is recorded in [architecture/56-live-execution-safety-audit-and-priority.md](architecture/56-live-execution-safety-audit-and-priority.md). Its source analysis is a historical snapshot at `2ce04cf40952124e8b2ef0414cbc4ded9d660292`, not current `main`.
 

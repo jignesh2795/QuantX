@@ -239,11 +239,11 @@ class NotSubmittedResolution:
 
     Unlike :class:`OperatorResolution`, this is not a human decision and no
     human identity is recorded or implied. It records a definite local
-    outcome proven before any broker contact: the trusted adapter raised the
-    typed preflight rejection, so no transport I/O was entered and no
-    ExecutionReceipt may ever exist for this reservation. It is never a
-    broker execution outcome and must never be presented as an operator
-    closure.
+    outcome proven without transport I/O: the trusted adapter raised the
+    typed preflight rejection from local validation, so no transport
+    submission was entered and no ExecutionReceipt may ever exist for this
+    reservation. It is never a broker execution outcome and must never be
+    presented as an operator closure.
     """
 
     client_order_id: UUID

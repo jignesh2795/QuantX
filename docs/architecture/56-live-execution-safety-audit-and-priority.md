@@ -14,13 +14,13 @@
 |---|---|---|
 | P0.1 — durable kill-switch and submit-admission race | **Fixed and merged** | PR [#243](https://github.com/jignesh2795/QuantX/pull/243), merge `6692731e1bcffddcfb189bce8b49d8ab351fdfb2`; issue #239 closed |
 | P0.2 — startup readiness for unresolved recovery | **Fixed and merged** | PR [#244](https://github.com/jignesh2795/QuantX/pull/244), merge `103b7f47ac11813a0d6df9360b2885f9c1b9db1d`; issue #240 closed |
-| P0.3 — post-submit receipt/persistence uncertainty | **Open** | Issue [#241](https://github.com/jignesh2795/QuantX/issues/241) remains open; no fix or merge is claimed |
+| P0.3 — post-submit receipt/persistence uncertainty | **Implemented on branch; open in `main`** | Issue [#241](https://github.com/jignesh2795/QuantX/issues/241) implemented and locally validated on `fix/p03-post-submit-evidence-v1` (draft PR [#247](https://github.com/jignesh2795/QuantX/pull/247)); not merged |
 
 The source analysis below preserves the original audit at the historical source snapshot `2ce04cf40952124e8b2ef0414cbc4ded9d660292`. P0.1 and P0.2 findings below describe pre-fix behavior and must not be read as current behavior. The current remediation status is the table above.
 
 ## Executive decision
 
-The original audits recommended prioritizing LIVE admission, startup-readiness, and post-submit evidence gaps before lower-priority refactoring. That original sequence has since advanced: P0.1 and P0.2 are fixed and merged; P0.3 (#241) remains the open P0 slice. The source-flow analysis below is a historical audit baseline, not a fresh current-main audit.
+The original audits recommended prioritizing LIVE admission, startup-readiness, and post-submit evidence gaps before lower-priority refactoring. That original sequence has since advanced: P0.1 and P0.2 are fixed and merged; P0.3 (#241) is implemented and locally validated on this branch and remains open in `main` until merged. The source-flow analysis below is a historical audit baseline, not a fresh current-main audit.
 
 The source spot-check was performed against the historical audit-base `main` snapshot at the SHA above, not only against the earlier `bd5045a` base. It confirms several critical control-flow shapes at that historical revision. The two failure-injection reproductions (F1 and F2) were reported by the first audit; they were **not rerun by this documentation pass**. Claims below distinguish source-confirmed behavior, audit-reported reproductions, and findings that still require broader evidence.
 
