@@ -38,9 +38,18 @@ The bounded source/test reconciliation now has traceable evidence for every in-s
 
 The current code does not yet implement this decision: `Contract` embeds an `Instrument`, derivative fields are optional, `option_type` is a free string (and lowercase spelling is preserved), and `VersionedInstrumentRule` carries no derivative contract metadata. **Design only; issue #194 remains open for implementation** through catalog/resolution, risk and charges inputs, approved request, fingerprint, serialization/recovery and adapter validation.
 
-## Current state — P0 LIVE-safety remediation active; QX-04/QX-05/QX-06 designs accepted; QX-08 acceptance complete; QX-09 complete
+## Current state — P0.1/P0.2 fixed; P0.3 remains open; QX-04/QX-05/QX-06 designs accepted; QX-08 acceptance complete; QX-09 complete
 
-The consolidated LIVE-safety audit is recorded in [architecture/56-live-execution-safety-audit-and-priority.md](architecture/56-live-execution-safety-audit-and-priority.md), source spot-checked against `main` at `2ce04cf40952124e8b2ef0414cbc4ded9d660292`. Three new P0 remediation slices are open: [#239 durable kill-switch fail-closed/admission race](https://github.com/jignesh2795/QuantX/issues/239), [#240 startup must remain unready for unresolved recovery](https://github.com/jignesh2795/QuantX/issues/240), and [#241 post-submit receipt/persistence uncertainty](https://github.com/jignesh2795/QuantX/issues/241). The audit records source-confirmed behavior separately from the F1/F2 failure injections reported by the first audit and from source-tree-wide claims still requiring broader proof. This documentation pass did not run pytest, Ruff, mypy, or broker/LIVE operations and claims no new validation pass.
+The consolidated LIVE-safety audit is recorded in [architecture/56-live-execution-safety-audit-and-priority.md](architecture/56-live-execution-safety-audit-and-priority.md). Its source analysis is a historical snapshot at `2ce04cf40952124e8b2ef0414cbc4ded9d660292`, not current `main`.
+
+**Current remediation status (2026-10-18):**
+- **P0.1 / #239 — durable kill-switch and submit-admission race:** closed; fixed and merged in PR [#243](https://github.com/jignesh2795/QuantX/pull/243), merge `6692731e1bcffddcfb189bce8b49d8ab351fdfb2`.
+- **P0.2 / #240 — startup readiness with unresolved recovery:** closed; fixed and merged in PR [#244](https://github.com/jignesh2795/QuantX/pull/244), merge `103b7f47ac11813a0d6df9360b2885f9c1b9db1d`.
+- **P0.3 / #241 — post-submit receipt/persistence uncertainty:** remains open; no fix or merge is claimed.
+
+The audit distinguishes source-confirmed findings at its historical baseline from F1/F2 failure injections reported by the first audit and claims that require broader proof. Do not read the pre-fix P0.1/P0.2 narratives as current behavior.
+
+**Post-merge local validation checkpoint — skills hardening (2026-10-18):** operator-reported validation at exact merge commit `9d5a69e6035e0b928a1d17f39d8134bc40d347b9`, using historical first parent `103b7f47ac11813a0d6df9360b2885f9c1b9db1d` as the release-gate base. Dhan-disabled full pytest: **2,176 passed, 1 skipped, 1 warning**; Dhan-enabled full pytest: **2,177 passed**. Changed-file Ruff check/format, strict mypy (190 files), diff checks, validation producer, release gates in both configurations, skill manifest (34/34), skills self-test (11 checks), trigger evaluator/self-test, and validation/release gate self-tests (24/24 and 99/99) were reported passing. These are local results, not GitHub Actions/paid-CI evidence; no broker/LIVE operations were performed. Evidence report path on the operator's machine: `%TEMP%\\quantx-validation\\merge-9d5a69e\\REPORT.md`.
 
 PR #221 merged QX-09 from `feat/qx-09-market-pack-checks-v1` at validated head `7793646e0e3d210e81364d39605ee3383e434723` as merge commit `1e4ebf4f4671e90dcdcafc1cda578182ab39d58b`. The PR covers 15 focused files (+5,746/−229); local validation was reported at the exact feature head, and no GitHub Actions results are claimed. Repository Actions are disabled by project policy.
 
