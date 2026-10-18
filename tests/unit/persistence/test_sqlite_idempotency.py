@@ -36,6 +36,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import (
+    NotSubmittedSource,
     OperatorResolutionAction,
     PendingExecutionContext,
 )
@@ -340,6 +341,64 @@ def test_operator_resolved_context_is_excluded_from_pending_recovery(tmp_path) -
 
         assert store.list_pending_contexts() == ()
         assert store.list_pending_recovery_records() == ()
+
+
+def test_not_submitted_resolution_survives_close_and_reopen(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    client_order_id = uuid4()
+
+    with SqliteDatabase(path) as database:
+        store = SqliteIdempotencyStore(database)
+        store.reserve_or_get(client_order_id, FINGERPRINT, _pending_context(client_order_id))
+        resolution = store.record_not_submitted(
+            client_order_id,
+            FINGERPRINT,
+            source=NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION,
+            reason="preflight rejected the request before submission",
+            recorded_at=RESOLVED_AT,
+        )
+
+    assert resolution.source is NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION
+
+    with SqliteDatabase(path) as reopened:
+        store = SqliteIdempotencyStore(reopened)
+        decision = store.check(client_order_id, FINGERPRINT)
+
+        assert decision.not_submitted_resolution is not None
+        assert (
+            decision.not_submitted_resolution.source
+            is NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION
+        )
+        assert decision.reservation_pending is False
+        assert decision.operator_resolved is False
+        assert store.get_operator_resolution(client_order_id, FINGERPRINT) is None
+        assert (
+            store.get_not_submitted(client_order_id, FINGERPRINT)
+            == decision.not_submitted_resolution
+        )
+        assert store.list_pending_contexts() == ()
+        assert store.list_pending_recovery_records() == ()
+
+        with pytest.raises(ValueError, match="not submitted"):
+            store.complete(client_order_id, FINGERPRINT, uuid4())
+        with pytest.raises(ValueError, match="not submitted"):
+            store.resolve_pending(client_order_id, FINGERPRINT, uuid4())
+        with pytest.raises(ValueError, match="not submitted"):
+            store.resolve_operator(
+                client_order_id,
+                FINGERPRINT,
+                operator_id="operator-1",
+                reason="closed",
+                resolved_at=RESOLVED_AT,
+            )
+        with pytest.raises(ValueError, match="already closed as not submitted"):
+            store.record_not_submitted(
+                client_order_id,
+                FINGERPRINT,
+                source=NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION,
+                reason="preflight rejected the request before submission",
+                recorded_at=RESOLVED_AT,
+            )
 
 
 def test_resolve_pending_persists_receipt_across_reopen(tmp_path) -> None:

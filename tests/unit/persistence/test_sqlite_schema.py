@@ -386,3 +386,45 @@ def test_v5_schema_is_migrated_to_current_version(tmp_path: Path) -> None:
     assert version == SCHEMA_VERSION
     assert "research_experiments" in tables
     assert "research_experiment_runs" in tables
+
+
+def test_v7_schema_is_migrated_to_current_version(tmp_path: Path) -> None:
+    path = tmp_path / "quantx.db"
+    raw = sqlite3.connect(str(path))
+    try:
+        raw.executescript(
+            """
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            );
+            INSERT INTO schema_version (version, applied_at)
+            VALUES (7, '2026-01-01T00:00:00+00:00');
+            CREATE TABLE submission_quarantine_observations (
+                observation_id TEXT PRIMARY KEY,
+                client_order_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                observed_at TEXT NOT NULL
+            );
+            """
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    database = SqliteDatabase(path)
+    try:
+        version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
+        tables = {
+            row[0]
+            for row in database.connection().execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    finally:
+        database.close()
+
+    assert version == SCHEMA_VERSION
+    assert "not_submitted_resolutions" in tables
+    assert "submission_quarantine_observations" in tables

@@ -196,6 +196,26 @@ class _FakeUnitOfWork(UnitOfWork):
             self.rollback()
 
 
+class _FakeSubmissionQuarantine:
+    """In-memory SubmissionQuarantineRepository for LIVE identity tests."""
+
+    def __init__(self) -> None:
+        self._observations: dict = {}
+
+    def record(self, observation) -> None:
+        self._observations[observation.observation_id] = observation
+
+    def get(self, observation_id):
+        return self._observations.get(observation_id)
+
+    def list_by_client_order(self, client_order_id):
+        return tuple(
+            observation
+            for observation in self._observations.values()
+            if observation.client_order_id == client_order_id
+        )
+
+
 def _durable_gate() -> DurableTradingGate:
     return DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True)
 
@@ -251,6 +271,7 @@ def _orchestrator(unit_of_work: _FakeUnitOfWork) -> ExecutionOrchestrator:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        submission_quarantine=_FakeSubmissionQuarantine(),
     )
 
 

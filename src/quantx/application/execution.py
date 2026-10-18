@@ -4,21 +4,31 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.idempotency import PendingExecutionContext
+from quantx.execution.idempotency import NotSubmittedSource, PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
-from quantx.execution.receipts.identity import validate_live_receipt_identity
+from quantx.execution.receipts.identity import (
+    ReceiptIdentityViolation,
+    validate_live_receipt_identity,
+    validate_receipt_runtime_shape,
+)
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+from quantx.execution.receipts.quarantine import (
+    QuarantinedSubmissionObservation,
+    QuarantineObservationKind,
+)
 from quantx.execution.session_guard import SessionExecutionGuard
+from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.execution.trading_gate import TradingGate
 from quantx.persistence import UnitOfWork
 from quantx.ports.broker import BrokerPort
@@ -47,6 +57,7 @@ from quantx.ports.market_checks import (
     select_market_policy,
     trusted_failure_codes,
 )
+from quantx.ports.persistence import SubmissionQuarantineRepository
 
 from .runtime import ApplicationRuntime
 
@@ -67,6 +78,33 @@ class ExecutionResult:
     @property
     def executed(self) -> bool:
         return self.status is ExecutionDispatchStatus.EXECUTED
+
+
+# Static, sanitized observation reasons. Quarantine evidence must never
+# carry raw exception messages or transport payloads, so every record uses
+# one of these fixed, category-owned texts.
+_QUARANTINE_REASONS: dict[QuarantineObservationKind, str] = {
+    QuarantineObservationKind.TRANSPORT_UNCERTAIN: (
+        "transport outcome uncertain after submission may have begun; unresolved"
+    ),
+    QuarantineObservationKind.BROKER_UNKNOWN: (
+        "broker returned an UNKNOWN receipt; unresolved pending reconciliation"
+    ),
+    QuarantineObservationKind.IDENTITY_REJECTED: (
+        "broker receipt identity rejected; retained for reconciliation only"
+    ),
+    QuarantineObservationKind.MALFORMED_RECEIPT: (
+        "broker response outside the canonical receipt contract; retained for reconciliation only"
+    ),
+    QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN: (
+        "canonical receipt persistence failed after the submission may have "
+        "reached the broker; outcome unresolved"
+    ),
+}
+
+
+def _quarantine_reason(kind: QuarantineObservationKind) -> str:
+    return _QUARANTINE_REASONS[kind]
 
 
 def _validated_evidence(
@@ -221,6 +259,7 @@ class ExecutionOrchestrator:
         session_guard: SessionExecutionGuard | None = None,
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
         market_policy: MarketPolicyConfig | None = None,
+        submission_quarantine: SubmissionQuarantineRepository | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._unit_of_work = unit_of_work
@@ -230,6 +269,7 @@ class ExecutionOrchestrator:
         self._session_guard = session_guard
         self._live_risk_evaluator = live_risk_evaluator
         self._market_policy = market_policy or default_market_policy()
+        self._submission_quarantine = submission_quarantine
 
     def _run_market_stage(
         self,
@@ -502,6 +542,20 @@ class ExecutionOrchestrator:
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason="live execution requires a started ApplicationRuntime",
+                )
+            if self._submission_quarantine is None:
+                # LIVE admission requires the capability that preserves
+                # unresolved submission evidence durably. Establish it here,
+                # beside the other LIVE-only composition prerequisites, so it
+                # is proven before any broker-specific probe (connection,
+                # health, instrument, capabilities), before any durable
+                # reservation, and before broker submission. Without it an
+                # uncertain post-admission outcome would have no durable
+                # evidence path, so the request is denied instead of
+                # degrading silently after the broker call.
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=("live execution requires a durable submission quarantine repository"),
                 )
 
         if not self._trading_gate.allow():
@@ -849,7 +903,9 @@ class ExecutionOrchestrator:
         atomically saves the receipt and completes the reservation. Between
         Scope A and the broker call, submit admission is re-checked at the
         gate linearization point, so a block() that returned before admission
-        denies the submission before any broker contact.
+        denies the submission before ``broker.submit()``; the read-only
+        connection/health/instrument/capability observations in ``execute``
+        may already have run and are not undone by the denial.
 
         R0-B scope: only the safety-critical submit/cancel/reconcile broker
         operations carry bounded timeouts. ``broker.health()`` (checked in
@@ -891,6 +947,15 @@ class ExecutionOrchestrator:
                         "reservation was explicitly closed by an operator; "
                         "implicit resubmission is prohibited, "
                         "use a new client_order_id for another attempt"
+                    ),
+                )
+            if existing.not_submitted_resolution is not None:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=(
+                        "reservation was durably closed as not submitted after an "
+                        "adapter preflight rejection; implicit resubmission is "
+                        "prohibited, use a new client_order_id for another attempt"
                     ),
                 )
 
@@ -942,6 +1007,15 @@ class ExecutionOrchestrator:
                             "use a new client_order_id for another attempt"
                         ),
                     )
+                if decision.not_submitted_resolution is not None:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=(
+                            "reservation was durably closed as not submitted after an "
+                            "adapter preflight rejection; implicit resubmission is "
+                            "prohibited, use a new client_order_id for another attempt"
+                        ),
+                    )
                 if not decision.reservation_acquired:
                     return ExecutionResult(
                         ExecutionDispatchStatus.UNKNOWN,
@@ -953,9 +1027,11 @@ class ExecutionOrchestrator:
         # Submit admission boundary (linearization point): re-check the kill
         # switch after the reservation is durable and immediately before the
         # external broker call is admitted. Once block() has returned, any
-        # submission that has not crossed this check is denied here and the
-        # broker is never contacted. An already-admitted in-flight broker call
-        # is never reversed by a later block().
+        # submission that has not crossed this check is denied here and
+        # broker.submit() is never called; the read-only health/instrument/
+        # capability observations in execute may already have run. An
+        # already-admitted in-flight broker call is never reversed by a
+        # later block().
         #
         # The check holds no gate/store lock across broker I/O, so block()
         # never waits for a slow or hung broker call. A denied admission
@@ -972,16 +1048,53 @@ class ExecutionOrchestrator:
         # Broker call happens OUTSIDE the trading-gate lock.
         # Timeout is enforced by the broker adapter; any timeout/exception
         # produces UNKNOWN outcome, never REJECTED, and no automatic retry.
+        # A typed preflight rejection proves the trusted adapter entered no
+        # transport I/O (NOT_SUBMITTED); every other failure after admission
+        # stays SUBMISSION_UNKNOWN and is never retried automatically.
         try:
             receipt = broker.submit(request)
+        except BrokerPreflightRejected as exc:
+            return self._handle_preflight_rejection(request, unit_of_work, fingerprint, exc)
         except Exception as exc:
-            return ExecutionResult(
-                ExecutionDispatchStatus.UNKNOWN,
+            return self._fail_closed_unknown(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.TRANSPORT_UNCERTAIN,
+                receipt=None,
                 reason=f"submission outcome is unknown; reconciliation is required: {exc}",
             )
-        if receipt.outcome is ExecutionOutcome.UNKNOWN:
-            return ExecutionResult(
-                ExecutionDispatchStatus.UNKNOWN,
+        # The broker response is untrusted plugin-boundary data: it may be any
+        # runtime object, its enum/identity fields may hold non-canonical
+        # values, and attribute access itself may raise. Because the external
+        # submit may already have started, such a response must become explicit
+        # uncertainty with quarantined evidence — never an exception escaping
+        # the public API, and never authoritative.
+        try:
+            runtime_violation = validate_receipt_runtime_shape(receipt)
+            receipt_outcome = None if runtime_violation is not None else receipt.outcome
+        except Exception:
+            runtime_violation = ReceiptIdentityViolation(
+                reason="broker response could not be inspected safely"
+            )
+            receipt_outcome = None
+        if runtime_violation is not None:
+            return self._fail_closed_unknown(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.MALFORMED_RECEIPT,
+                receipt=receipt,
+                expose_receipt=False,
+                reason=(
+                    "broker returned a response outside the canonical receipt contract; "
+                    "submission outcome is unknown and reconciliation is required"
+                ),
+                quarantine_reason=runtime_violation.reason,
+            )
+        if receipt_outcome is ExecutionOutcome.UNKNOWN:
+            return self._fail_closed_unknown(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.BROKER_UNKNOWN,
                 receipt=receipt,
                 reason="broker returned an UNKNOWN receipt; reconciliation is required",
             )
@@ -989,28 +1102,275 @@ class ExecutionOrchestrator:
         # the approved request before it can be persisted as authoritative evidence
         # or used to complete the idempotency reservation.  Any mismatch leaves the
         # PENDING reservation intact so that reconciliation can resolve the outcome;
-        # the foreign receipt is discarded without being written to the database.
-        identity_violation = validate_live_receipt_identity(request, receipt)
+        # the foreign receipt is never written to the canonical store, and its
+        # sanitized identity evidence is retained separately for reconciliation.
+        # A residual runtime failure inside the validator is the same class of
+        # untrusted-response fault as a malformed shape: keep it as UNKNOWN.
+        try:
+            identity_violation = validate_live_receipt_identity(request, receipt)
+        except Exception:
+            return self._fail_closed_unknown(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.MALFORMED_RECEIPT,
+                receipt=receipt,
+                expose_receipt=False,
+                reason=(
+                    "broker receipt could not be validated against the approved request; "
+                    "submission outcome is unknown and reconciliation is required"
+                ),
+                quarantine_reason=("receipt failed request-identity validation at runtime"),
+            )
         if identity_violation is not None:
-            return ExecutionResult(
-                ExecutionDispatchStatus.UNKNOWN,
+            return self._fail_closed_unknown(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.IDENTITY_REJECTED,
+                receipt=receipt,
+                expose_receipt=False,
                 reason=(
                     f"broker receipt identity mismatch — keeping reservation pending "
                     f"for reconciliation; {identity_violation.reason}"
                 ),
+                quarantine_reason=identity_violation.reason,
             )
-        with unit_of_work:
-            unit_of_work.receipts.save(receipt)
-            try:
-                unit_of_work.idempotency.complete(client_order_id, fingerprint, receipt.receipt_id)
-            except Exception as exc:
-                return ExecutionResult(
-                    ExecutionDispatchStatus.UNKNOWN,
-                    receipt=receipt,
-                    reason=(
-                        "submission completed; receipt is durable but idempotency completion "
-                        "is uncertain; "
-                        f"reconciliation is required: {exc}"
-                    ),
-                )
+        completion_error: Exception | None = None
+        try:
+            with unit_of_work:
+                unit_of_work.receipts.save(receipt)
+                try:
+                    unit_of_work.idempotency.complete(
+                        client_order_id, fingerprint, receipt.receipt_id
+                    )
+                except Exception as exc:
+                    # Returning inside the with-block exits the transaction
+                    # normally, so the saved receipt still commits while the
+                    # reservation stays pending.
+                    completion_error = exc
+        except Exception as exc:
+            # receipts.save() or the surrounding transaction commit failed
+            # after the broker may have accepted the request: whether the
+            # receipt is durable is itself unknown, so the outcome must
+            # escape as explicit uncertainty, never as a raised exception
+            # implying a known result, and never as a fabricated success.
+            reason = (
+                "post-submit persistence failed; submission outcome is uncertain; "
+                f"reconciliation is required: {type(exc).__name__}"
+            )
+            persistence_failed = self._record_quarantined_evidence(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN,
+                receipt=receipt,
+                reason=_quarantine_reason(QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN),
+            )
+            if persistence_failed:
+                reason = f"{reason}; {self._latch_persistence_safety_fault(type(exc).__name__)}"
+            return ExecutionResult(
+                ExecutionDispatchStatus.UNKNOWN,
+                receipt=receipt,
+                reason=reason,
+            )
+        if completion_error is not None:
+            return ExecutionResult(
+                ExecutionDispatchStatus.UNKNOWN,
+                receipt=receipt,
+                reason=(
+                    "submission completed; receipt is durable but idempotency completion "
+                    "is uncertain; "
+                    f"reconciliation is required: {completion_error}"
+                ),
+            )
         return ExecutionResult(ExecutionDispatchStatus.EXECUTED, receipt=receipt, reason="")
+
+    def _handle_preflight_rejection(
+        self,
+        request: ApprovedExecutionRequest,
+        unit_of_work: UnitOfWork,
+        fingerprint: str,
+        exc: BrokerPreflightRejected,
+    ) -> ExecutionResult:
+        """Close a definitely-not-submitted request durably and report it.
+
+        The trusted adapter proved no transport I/O was entered, so the
+        pending reservation must not linger as a possible external
+        submission. The durable representation is the typed not-submitted
+        resolution (a definite local outcome, never a human operator
+        decision and never a fabricated receipt); a later replay of the
+        same request is then a known local block instead of an ambiguous
+        unknown submission. If the durable closure cannot be persisted,
+        the conservative pending reservation plus an explicit unresolved
+        result is kept for reconciliation.
+        """
+        reason = self._bounded_preflight_reason(exc)
+        try:
+            unit_of_work.idempotency.record_not_submitted(
+                request.order.client_order_id,
+                fingerprint,
+                source=NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION,
+                reason=reason,
+                recorded_at=datetime.now(UTC),
+            )
+        except Exception:
+            return ExecutionResult(
+                ExecutionDispatchStatus.UNKNOWN,
+                reason=(
+                    "preflight rejected the request before submission, but the durable "
+                    "closure of the reservation failed; the outcome is unresolved and "
+                    "reconciliation is required"
+                ),
+            )
+        return ExecutionResult(
+            ExecutionDispatchStatus.BLOCKED,
+            reason=f"submission was not sent: {reason}",
+        )
+
+    @staticmethod
+    def _bounded_preflight_reason(exc: BrokerPreflightRejected) -> str:
+        try:
+            text = " ".join(str(exc).split())
+        except Exception:
+            text = ""
+        if not text:
+            return "preflight validation rejected the request before submission"
+        return text[:300]
+
+    def _fail_closed_unknown(
+        self,
+        request: ApprovedExecutionRequest,
+        fingerprint: str,
+        *,
+        kind: QuarantineObservationKind,
+        receipt: object | None,
+        reason: str,
+        quarantine_reason: str | None = None,
+        expose_receipt: bool = True,
+    ) -> ExecutionResult:
+        """Return explicit uncertainty, attempting durable quarantined evidence.
+
+        Used for every post-admission outcome that is not provably known:
+        transport failure after submission may have begun, a broker
+        UNKNOWN receipt, and identity-mismatched receipts. The
+        reservation stays pending for reconciliation and the request is
+        never retried here. ``receipt`` is the object the sanitized
+        observation is derived from; it is attached to the result only
+        when ``expose_receipt`` is set, so a foreign receipt is never
+        presented as authoritative while still being quarantined. When
+        the evidence cannot be durably recorded, the reusable trading-gate
+        safety fault disables further submission pending reconciliation
+        instead of dropping the uncertainty silently.
+        """
+        persistence_failed = self._record_quarantined_evidence(
+            request,
+            fingerprint,
+            kind=kind,
+            receipt=receipt,
+            reason=quarantine_reason or _quarantine_reason(kind),
+        )
+        if persistence_failed:
+            reason = f"{reason}; {self._latch_persistence_safety_fault(kind.value)}"
+        return ExecutionResult(
+            ExecutionDispatchStatus.UNKNOWN,
+            receipt=(receipt if expose_receipt and isinstance(receipt, ExecutionReceipt) else None),
+            reason=reason,
+        )
+
+    def _record_quarantined_evidence(
+        self,
+        request: ApprovedExecutionRequest,
+        fingerprint: str,
+        *,
+        kind: QuarantineObservationKind,
+        receipt: object | None,
+        reason: str,
+    ) -> bool:
+        """Attempt one sanitized, non-authoritative observation record.
+
+        Returns True when the evidence could not be durably recorded — a
+        configured store that raised, or (defense in depth; unreachable for
+        LIVE after the admission precondition) no store at all. Both mean
+        the system cannot preserve the unresolved submission evidence, so
+        the caller latches the safety fault instead of dropping the
+        uncertainty silently.
+        """
+        recorder = self._submission_quarantine
+        if recorder is None:
+            return True
+        try:
+            observation = QuarantinedSubmissionObservation.from_receipt(
+                observation_id=self._quarantine_observation_id(request, fingerprint, kind, receipt),
+                kind=kind,
+                client_order_id=request.order.client_order_id,
+                request_correlation_id=request.correlation_id,
+                receipt=receipt,
+                reason=self._bounded_quarantine_reason(reason),
+                observed_at=datetime.now(UTC),
+            )
+            recorder.record(observation)
+        except Exception:
+            return True
+        return False
+
+    @staticmethod
+    def _bounded_quarantine_reason(reason: str) -> str:
+        """Bound a quarantine reason to a stored-evidence-safe size.
+
+        Identity-violation diagnostics embed broker-supplied identity values,
+        so a hostile response could otherwise make the reason unbounded. The
+        record is non-authoritative reconciliation evidence: bounding it keeps
+        the store safe without dropping the observation.
+        """
+        text = " ".join(reason.split())
+        if not text:
+            return "unspecified submission uncertainty"
+        return text[:384]
+
+    @staticmethod
+    def _quarantine_observation_id(
+        request: ApprovedExecutionRequest,
+        fingerprint: str,
+        kind: QuarantineObservationKind,
+        receipt: object | None,
+    ) -> UUID:
+        """Derive one stable observation identity per logical uncertainty.
+
+        The identity is deterministic per (kind, request, receipt), so a
+        re-observation of the same unresolved event writes idempotently
+        instead of duplicating evidence.
+        """
+        receipt_key = "no-receipt"
+        if receipt is not None:
+            try:
+                receipt_id = getattr(receipt, "receipt_id", None)
+            except Exception:
+                receipt_id = None
+            receipt_key = (
+                str(receipt_id) if isinstance(receipt_id, UUID) else "unidentified-receipt"
+            )
+        key = (
+            f"quantx:submission-quarantine:{kind.value}:"
+            f"{request.order.client_order_id}:{fingerprint}:{receipt_key}"
+        )
+        return uuid5(NAMESPACE_URL, key)
+
+    def _latch_persistence_safety_fault(self, detail: str) -> str:
+        """Disable further submission pending reconciliation (fail-closed).
+
+        Reuses the existing durable trading-gate fault semantics: a
+        successful durable ``block()`` disables submission across restart,
+        and if the durable write itself fails the gate latches its
+        process-local fail-closed fault so admission stays denied in this
+        process. This is never an independent, fail-open gate.
+        """
+        reason = (
+            "submission evidence persistence failed; submissions are disabled "
+            f"pending reconciliation: {detail}"
+        )
+        try:
+            self._trading_gate.block(reason)
+        except Exception:
+            # The durable block could not be persisted; the gate has
+            # latched its fail-closed fault, so submission stays denied in
+            # this process while the uncertainty is reported.
+            pass
+        return reason

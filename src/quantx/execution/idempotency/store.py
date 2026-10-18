@@ -221,6 +221,48 @@ class OperatorResolution:
             raise ValueError("evidence reference must not be blank")
 
 
+class NotSubmittedSource(StrEnum):
+    """True provenance of a definite NOT_SUBMITTED closure.
+
+    Only a trusted adapter's typed preflight rejection can produce this
+    today. The typed source keeps the durable record machine-distinguishable
+    from a human operator closure instead of relying on a sentinel string
+    inside the operator identity.
+    """
+
+    ADAPTER_PREFLIGHT_REJECTION = "ADAPTER_PREFLIGHT_REJECTION"
+
+
+@dataclass(frozen=True, slots=True)
+class NotSubmittedResolution:
+    """Durable closure of a PENDING reservation as definitively not submitted.
+
+    Unlike :class:`OperatorResolution`, this is not a human decision and no
+    human identity is recorded or implied. It records a definite local
+    outcome proven without transport I/O: the trusted adapter raised the
+    typed preflight rejection from local validation, so no transport
+    submission was entered and no ExecutionReceipt may ever exist for this
+    reservation. It is never a broker execution outcome and must never be
+    presented as an operator closure.
+    """
+
+    client_order_id: UUID
+    request_fingerprint: str
+    source: NotSubmittedSource
+    reason: str
+    recorded_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.request_fingerprint, str) or not self.request_fingerprint.strip():
+            raise ValueError("not-submitted resolution fingerprint must not be empty")
+        if type(self.source) is not NotSubmittedSource:
+            raise ValueError("not-submitted source must be a typed provenance value")
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("not-submitted resolution reason must not be empty")
+        if self.recorded_at.tzinfo is None or self.recorded_at.utcoffset() is None:
+            raise ValueError("recorded_at must be timezone-aware")
+
+
 @dataclass(frozen=True, slots=True)
 class IdempotencyDecision:
     client_order_id: UUID
@@ -231,10 +273,20 @@ class IdempotencyDecision:
     pending_context: PendingExecutionContext | None = None
     operator_resolved: bool = False
     operator_resolution: OperatorResolution | None = None
+    not_submitted_resolution: NotSubmittedResolution | None = None
 
     def __post_init__(self) -> None:
         if self.operator_resolved != (self.operator_resolution is not None):
             raise ValueError("operator-resolved decision requires its resolution record")
+        if self.not_submitted_resolution is not None:
+            if self.reservation_pending:
+                raise ValueError("a not-submitted closure cannot leave the reservation pending")
+            if self.operator_resolution is not None:
+                raise ValueError("operator and not-submitted resolutions are mutually exclusive")
+            if self.not_submitted_resolution.client_order_id != self.client_order_id:
+                raise ValueError("not-submitted decision client_order_id mismatch")
+            if self.not_submitted_resolution.request_fingerprint != self.request_fingerprint:
+                raise ValueError("not-submitted decision fingerprint mismatch")
 
 
 class IdempotencyStore(Protocol):
@@ -274,6 +326,20 @@ class IdempotencyStore(Protocol):
         self, client_order_id: UUID, request_fingerprint: str
     ) -> OperatorResolution | None: ...
 
+    def record_not_submitted(
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        *,
+        source: NotSubmittedSource,
+        reason: str,
+        recorded_at: datetime,
+    ) -> NotSubmittedResolution: ...
+
+    def get_not_submitted(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> NotSubmittedResolution | None: ...
+
     def list_pending_recovery_records(self) -> tuple[PendingExecutionRecoveryRecord, ...]: ...
 
     def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]: ...
@@ -288,6 +354,7 @@ class InMemoryIdempotencyStore:
         self._receipts: dict[UUID, UUID] = {}
         self._contexts: dict[UUID, PendingExecutionContext] = {}
         self._resolutions: dict[UUID, OperatorResolution] = {}
+        self._not_submitted: dict[UUID, NotSubmittedResolution] = {}
 
     def check(self, client_order_id: UUID, request_fingerprint: str) -> IdempotencyDecision:
         with self._lock:
@@ -297,6 +364,12 @@ class InMemoryIdempotencyStore:
             resolution = self._resolutions.get(client_order_id)
             if resolution is not None and resolution.request_fingerprint != request_fingerprint:
                 raise ValueError("client_order_id was reused with a different request")
+            not_submitted = self._not_submitted.get(client_order_id)
+            if (
+                not_submitted is not None
+                and not_submitted.request_fingerprint != request_fingerprint
+            ):
+                raise ValueError("client_order_id was reused with a different request")
             return IdempotencyDecision(
                 client_order_id=client_order_id,
                 request_fingerprint=request_fingerprint,
@@ -305,10 +378,12 @@ class InMemoryIdempotencyStore:
                     existing is not None
                     and client_order_id not in self._receipts
                     and client_order_id not in self._resolutions
+                    and client_order_id not in self._not_submitted
                 ),
                 pending_context=self._contexts.get(client_order_id),
                 operator_resolved=resolution is not None,
                 operator_resolution=resolution,
+                not_submitted_resolution=not_submitted,
             )
 
     def reserve_or_get(
@@ -323,6 +398,7 @@ class InMemoryIdempotencyStore:
                 decision.existing_receipt_id is not None
                 or decision.reservation_pending
                 or decision.operator_resolved
+                or decision.not_submitted_resolution is not None
             ):
                 return decision
             self._fingerprints[client_order_id] = request_fingerprint
@@ -345,6 +421,8 @@ class InMemoryIdempotencyStore:
                 raise ValueError("client_order_id was reused with a different request")
             if client_order_id in self._resolutions:
                 raise ValueError("cannot complete an operator-resolved reservation")
+            if client_order_id in self._not_submitted:
+                raise ValueError("cannot complete a reservation closed as not submitted")
             if client_order_id in self._receipts:
                 raise ValueError("cannot complete an already completed client_order_id")
             self._receipts[client_order_id] = receipt_id
@@ -359,6 +437,8 @@ class InMemoryIdempotencyStore:
             decision = self.check(client_order_id, request_fingerprint)
             if decision.operator_resolved:
                 raise ValueError("cannot resolve an operator-resolved reservation")
+            if decision.not_submitted_resolution is not None:
+                raise ValueError("cannot resolve a reservation closed as not submitted")
             if not decision.reservation_pending:
                 raise ValueError("cannot resolve a non-pending idempotency reservation")
             if self._receipts.get(client_order_id) is not None:
@@ -386,6 +466,8 @@ class InMemoryIdempotencyStore:
                 raise ValueError("cannot operator-resolve a completed reservation")
             if client_order_id in self._resolutions:
                 raise ValueError("reservation is already operator-resolved")
+            if client_order_id in self._not_submitted:
+                raise ValueError("cannot operator-resolve a reservation closed as not submitted")
             resolution = OperatorResolution(
                 client_order_id=client_order_id,
                 request_fingerprint=request_fingerprint,
@@ -409,6 +491,55 @@ class InMemoryIdempotencyStore:
                 raise ValueError("client_order_id was reused with a different request")
             return resolution
 
+    def record_not_submitted(
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        *,
+        source: NotSubmittedSource,
+        reason: str,
+        recorded_at: datetime,
+    ) -> NotSubmittedResolution:
+        """Durably close a PENDING reservation as definitively not submitted.
+
+        Fail-closed: the reservation must exist and still be PENDING, the
+        fingerprint must match, and neither a receipt, an operator closure,
+        nor a prior not-submitted closure may exist. No receipt is created
+        and no human identity is recorded or implied.
+        """
+        with self._lock:
+            existing = self._fingerprints.get(client_order_id)
+            if existing is None:
+                raise ValueError("cannot close an unreserved client_order_id as not submitted")
+            if existing != request_fingerprint:
+                raise ValueError("client_order_id was reused with a different request")
+            if client_order_id in self._receipts:
+                raise ValueError("cannot close a completed reservation as not submitted")
+            if client_order_id in self._resolutions:
+                raise ValueError("reservation is already operator-resolved")
+            if client_order_id in self._not_submitted:
+                raise ValueError("reservation is already closed as not submitted")
+            resolution = NotSubmittedResolution(
+                client_order_id=client_order_id,
+                request_fingerprint=request_fingerprint,
+                source=source,
+                reason=reason,
+                recorded_at=recorded_at,
+            )
+            self._not_submitted[client_order_id] = resolution
+            return resolution
+
+    def get_not_submitted(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> NotSubmittedResolution | None:
+        with self._lock:
+            resolution = self._not_submitted.get(client_order_id)
+            if resolution is None:
+                return None
+            if resolution.request_fingerprint != request_fingerprint:
+                raise ValueError("client_order_id was reused with a different request")
+            return resolution
+
     def list_pending_recovery_records(self) -> tuple[PendingExecutionRecoveryRecord, ...]:
         with self._lock:
             return tuple(
@@ -420,6 +551,7 @@ class InMemoryIdempotencyStore:
                 for client_order_id, context in self._contexts.items()
                 if client_order_id not in self._receipts
                 and client_order_id not in self._resolutions
+                and client_order_id not in self._not_submitted
             )
 
     def list_pending_contexts(self) -> tuple[PendingExecutionContext, ...]:

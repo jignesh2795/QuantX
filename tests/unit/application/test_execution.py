@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from threading import Event, Thread
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -35,9 +36,11 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.idempotency import InMemoryIdempotencyStore
+from quantx.execution.idempotency import InMemoryIdempotencyStore, NotSubmittedSource
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.receipts.quarantine import QuarantineObservationKind
+from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.execution.trading_gate import (
     DurableTradingGate,
     InMemoryTradingGateStateStore,
@@ -76,6 +79,7 @@ from quantx.integrations.reconciliation.positions import (
 from quantx.persistence import ReceiptRepository, UnitOfWork
 from quantx.persistence.sqlite import (
     SqliteDatabase,
+    SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
@@ -220,6 +224,26 @@ class _FakeReceiptRepository(ReceiptRepository):
             if receipt.client_order_id == client_order_id:
                 return receipt
         return None
+
+
+class _FakeSubmissionQuarantine:
+    """In-memory SubmissionQuarantineRepository for non-SQLite LIVE tests."""
+
+    def __init__(self) -> None:
+        self._observations = {}
+
+    def record(self, observation) -> None:
+        self._observations[observation.observation_id] = observation
+
+    def get(self, observation_id):
+        return self._observations.get(observation_id)
+
+    def list_by_client_order(self, client_order_id):
+        return tuple(
+            observation
+            for observation in self._observations.values()
+            if observation.client_order_id == client_order_id
+        )
 
 
 class _FakeUnitOfWork(UnitOfWork):
@@ -387,6 +411,7 @@ def test_live_requires_a_broker() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -406,6 +431,7 @@ def test_live_blocks_account_mismatch() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -424,6 +450,7 @@ def test_live_blocks_connection_mismatch() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -441,6 +468,7 @@ def test_live_blocks_unhealthy_broker() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -467,6 +495,7 @@ def test_live_blocks_missing_required_capability() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -488,6 +517,7 @@ def test_live_blocks_broker_instrument_market_mismatch() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -510,6 +540,7 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -533,6 +564,7 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -565,6 +597,7 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -602,6 +635,7 @@ def test_live_unknown_receipt_preserves_pending_reservation() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -635,6 +669,7 @@ def test_live_unit_of_work_groups_receipt_and_completion() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -675,6 +710,7 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -720,6 +756,7 @@ def test_live_without_application_runtime_is_blocked() -> None:
     result = ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -745,6 +782,7 @@ def test_live_with_unstarted_application_runtime_is_blocked() -> None:
     result = ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -778,6 +816,7 @@ def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
     result = ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1268,6 +1307,7 @@ def test_live_with_malformed_recovery_report_is_blocked_without_submit(
     result = ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1304,6 +1344,7 @@ def test_live_gate_block_not_blocked_by_slow_broker() -> None:
     orchestrator = ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=gate,
+        submission_quarantine=_FakeSubmissionQuarantine(),
         application_runtime=_started_runtime(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
@@ -1349,6 +1390,7 @@ def test_live_without_unit_of_work_is_blocked() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1358,6 +1400,91 @@ def test_live_without_unit_of_work_is_blocked() -> None:
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "durable UnitOfWork" in result.reason
     assert broker.submit_calls == 0
+
+
+class _CountingProbeBroker(FakeBroker):
+    """Broker double with independent counters for every pre-submit probe."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.health_calls = 0
+        self.instrument_calls = 0
+        self.capabilities_calls = 0
+
+    def health(self):
+        self.health_calls += 1
+        return super().health()
+
+    def instrument(self, instrument_id):
+        self.instrument_calls += 1
+        return super().instrument(instrument_id)
+
+    def capabilities(self):
+        self.capabilities_calls += 1
+        return super().capabilities()
+
+
+def test_live_without_submission_quarantine_is_blocked_without_submit() -> None:
+    """LIVE admission requires the durable quarantine capability.
+
+    Without it, an uncertain post-admission outcome could not preserve
+    unresolved submission evidence; the submission is denied at the
+    earliest LIVE admission boundary — before any broker-specific probe
+    (connection, health, instrument, capabilities), before any durable
+    reservation exists, and before the broker can be contacted.
+    """
+    request = _live_request()
+    broker = _CountingProbeBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+    ).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "durable submission quarantine repository" in result.reason
+    assert broker.health_calls == 0
+    assert broker.instrument_calls == 0
+    assert broker.capabilities_calls == 0
+    assert broker.submit_calls == 0
+    fingerprint = request_fingerprint(request)
+    decision = unit_of_work.idempotency.check(request.order.client_order_id, fingerprint)
+    assert decision.reservation_pending is False
+    assert decision.existing_receipt_id is None
+    assert decision.operator_resolved is False
+    assert decision.not_submitted_resolution is None
+    assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+
+
+def test_paper_execution_does_not_require_submission_quarantine() -> None:
+    """The quarantine binding is exactly the LIVE admission boundary."""
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=_FakeUnitOfWork(),
+        trading_gate=_durable_gate(),
+        paper_executor=FakePaperExecutor(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+    )
+    request = _request(ExecutionMode.PAPER)
+    snapshot = Quote(
+        instrument=request.order.instrument,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        ask=Decimal("100"),
+    )
+
+    result = orchestrator.execute(request, snapshot=snapshot)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
 
 
 def test_live_rejects_process_local_trading_gate() -> None:
@@ -1384,6 +1511,7 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1414,6 +1542,7 @@ def _sqlite_setup(tmp_path):
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        submission_quarantine=SqliteSubmissionQuarantineRepository(database),
     )
     return database, unit_of_work, orchestrator
 
@@ -1510,6 +1639,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
             ),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database_a),
         )
         first = orchestrator_a.execute(request, broker=FakeBroker())
         assert first.status is ExecutionDispatchStatus.EXECUTED
@@ -1528,6 +1658,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
             ),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database_b),
         )
         second = orchestrator_b.execute(request, broker=broker_b)
         assert second.status is ExecutionDispatchStatus.EXECUTED
@@ -1574,6 +1705,7 @@ def test_live_without_unit_of_work_does_not_submit() -> None:
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1727,15 +1859,21 @@ def _wait_for_reservation(unit_of_work, request) -> None:
 
 
 def test_live_block_before_submit_admission_denies_without_submit() -> None:
-    """Once block() returns, a reserved-but-unadmitted submission is denied."""
+    """Once block() returns, a reserved-but-unadmitted submission is denied.
+
+    The read-only broker observations (connection, health, instrument) run
+    before the reservation and admission boundary, so the denial contract is
+    exactly "never ``broker.submit()``" — not "never any broker contact".
+    """
     admission_release = Event()
     gate = _AdmissionGatedGate(InMemoryTradingGateStateStore(), admission_release=admission_release)
     unit_of_work = _FakeUnitOfWork()
-    broker = FakeBroker()
+    broker = _CountingProbeBroker()
     orchestrator = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1766,6 +1904,8 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
     result = outcome["result"]
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "trading is blocked: operator emergency stop" in result.reason
+    assert broker.health_calls >= 1
+    assert broker.instrument_calls >= 1
     assert broker.submit_calls == 0
     assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
     decision = unit_of_work.idempotency.check(
@@ -1814,6 +1954,7 @@ def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
+        submission_quarantine=_FakeSubmissionQuarantine(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1848,3 +1989,878 @@ def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
     assert broker.submit_calls == 1
     assert "blocked" not in result.reason.lower()
     assert "cancel" not in result.reason.lower()
+
+
+def _sqlite_setup_with_quarantine(tmp_path):
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    unit_of_work = SqliteUnitOfWork(database)
+    quarantine = SqliteSubmissionQuarantineRepository(database)
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=DurableTradingGate(
+            SqliteTradingGateStateStore(database), default_enabled=True
+        ),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        submission_quarantine=quarantine,
+    )
+    return database, unit_of_work, orchestrator, quarantine
+
+
+def _foreign_receipt(request: ApprovedExecutionRequest) -> ExecutionReceipt:
+    """A well-formed receipt that is not bound to the approved request."""
+    return ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=uuid4(),
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=datetime.now(UTC),
+        simulated=False,
+        source="foreign-broker",
+        broker_order_id="BR-FOREIGN-1",
+        correlation_id="foreign-correlation",
+        order_id=uuid4(),
+        account_id=AccountId("other-account"),
+        connection_id=BrokerConnectionId("other-conn"),
+    )
+
+
+def _unknown_broker_receipt(request: ApprovedExecutionRequest) -> ExecutionReceipt:
+    """A bound receipt whose broker outcome is explicitly UNKNOWN."""
+    return ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.UNKNOWN,
+        order_status=OrderStatus.UNKNOWN,
+        executed_at=datetime.now(UTC),
+        simulated=False,
+        source="fake-broker",
+        broker_order_id="BR-UNKNOWN-1",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
+        order_quantity=request.order.quantity,
+        account_id=request.execution_context.account_id,
+        connection_id=request.execution_context.broker_connection_id,
+    )
+
+
+class _FixedReceiptBroker(FakeBroker):
+    """Broker that returns a fixed receipt instead of a bound accepted one."""
+
+    def __init__(self, receipt: ExecutionReceipt) -> None:
+        super().__init__()
+        self._receipt = receipt
+
+    def submit(self, request):
+        self.submit_calls += 1
+        return self._receipt
+
+
+class _CommitFailingUnitOfWork:
+    """Delegates to a real UnitOfWork; the third clean commit boundary fails.
+
+    The LIVE flow opens three transactions (pre-check, reservation,
+    receipt save + completion); failing only the final commit models a
+    persistence fault exactly after the broker may have accepted.
+    """
+
+    def __init__(self, inner: SqliteUnitOfWork) -> None:
+        self._inner = inner
+        self._clean_exits = 0
+
+    @property
+    def idempotency(self):
+        return self._inner.idempotency
+
+    @property
+    def receipts(self):
+        return self._inner.receipts
+
+    def commit(self) -> None:
+        self._inner.commit()
+
+    def rollback(self) -> None:
+        self._inner.rollback()
+
+    def __enter__(self):
+        self._inner.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if exc_type is None:
+            self._clean_exits += 1
+            if self._clean_exits == 3:
+                failure = RuntimeError("simulated commit boundary failure")
+                self._inner.__exit__(type(failure), failure, failure.__traceback__)
+                raise AssertionError("commit failure was not propagated")
+        self._inner.__exit__(exc_type, exc_value, traceback)
+
+
+def _quarantine_orchestrator(database, *, gate=None):
+    unit_of_work = SqliteUnitOfWork(database)
+    quarantine = SqliteSubmissionQuarantineRepository(database)
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=gate
+        or DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        submission_quarantine=quarantine,
+    )
+    return unit_of_work, quarantine, orchestrator
+
+
+def test_sqlite_receipt_save_failure_is_unknown_with_quarantined_evidence(
+    tmp_path, monkeypatch
+) -> None:
+    database, unit_of_work, orchestrator, quarantine = _sqlite_setup_with_quarantine(tmp_path)
+    try:
+        request = _live_request()
+        broker = FakeBroker()
+
+        def failing_save(receipt):
+            raise RuntimeError("receipt storage unavailable")
+
+        monkeypatch.setattr(unit_of_work.receipts, "save", failing_save)
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert "reconciliation" in result.reason
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN
+        assert observation.source == "fake-broker"
+        assert observation.outcome == "ACCEPTED"
+        assert observation.order_status == "ACCEPTED"
+        assert observation.observed_at.tzinfo is not None
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_sqlite_commit_boundary_failure_is_unknown_not_false_success(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        real_unit_of_work = SqliteUnitOfWork(database)
+        unit_of_work = _CommitFailingUnitOfWork(real_unit_of_work)
+        quarantine = SqliteSubmissionQuarantineRepository(database)
+        orchestrator = ExecutionOrchestrator(
+            application_runtime=_started_runtime(),
+            unit_of_work=unit_of_work,
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
+            market_policy=india_market_policy(
+                session_evaluator=_approving_india_session_evaluator(),
+                rule_evaluator=_approving_india_evaluator(),
+            ),
+            submission_quarantine=quarantine,
+        )
+        request = _live_request()
+        broker = FakeBroker()
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert "uncertain" in result.reason
+        assert "reconciliation" in result.reason
+        assert real_unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = real_unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        assert observations[0].kind is QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_sqlite_completion_failure_receipt_durable_across_reopen(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "quantx.db"
+    request = _live_request()
+    database = SqliteDatabase(path)
+    try:
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
+        broker = FakeBroker()
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("completion unavailable")
+
+        monkeypatch.setattr(unit_of_work.idempotency, "complete", boom)
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is not None
+        assert "reconciliation" in result.reason
+        assert broker.submit_calls == 1
+        persisted = unit_of_work.receipts.get_by_client_order(request.order.client_order_id)
+        assert persisted is not None
+        assert persisted.receipt_id == result.receipt.receipt_id
+        assert quarantine.list_by_client_order(request.order.client_order_id) == ()
+    finally:
+        database.close()
+
+    database_b = SqliteDatabase(path)
+    try:
+        unit_of_work_b, _, orchestrator_b = _quarantine_orchestrator(database_b)
+        persisted = unit_of_work_b.receipts.get_by_client_order(request.order.client_order_id)
+        assert persisted is not None
+        assert persisted.receipt_id == result.receipt.receipt_id
+        decision = unit_of_work_b.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        broker_b = FakeBroker()
+        replay = orchestrator_b.execute(request, broker=broker_b)
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker_b.submit_calls == 0
+    finally:
+        database_b.close()
+
+
+def test_sqlite_foreign_receipt_quarantined_and_survives_restart(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    request = _live_request()
+    database = SqliteDatabase(path)
+    try:
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
+        broker = _FixedReceiptBroker(_foreign_receipt(request))
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert "identity mismatch" in result.reason
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+    database_b = SqliteDatabase(path)
+    try:
+        quarantine_b = SqliteSubmissionQuarantineRepository(database_b)
+        unit_of_work_b = SqliteUnitOfWork(database_b)
+        observations = quarantine_b.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.IDENTITY_REJECTED
+        assert observation.broker_order_id == "BR-FOREIGN-1"
+        assert observation.source == "foreign-broker"
+        assert observation.request_correlation_id == request.correlation_id
+        assert observation.outcome == "ACCEPTED"
+        assert observation.order_status == "ACCEPTED"
+        assert observation.observed_at.tzinfo is not None
+        assert "client_order_id" in observation.reason
+        decision = unit_of_work_b.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+    finally:
+        database_b.close()
+
+
+def test_sqlite_unknown_receipt_quarantined_and_survives_restart(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    request = _live_request()
+    database = SqliteDatabase(path)
+    try:
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
+        broker = _FixedReceiptBroker(_unknown_broker_receipt(request))
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is not None
+        assert result.receipt.outcome is ExecutionOutcome.UNKNOWN
+        assert "broker returned an UNKNOWN receipt" in result.reason
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+    database_b = SqliteDatabase(path)
+    try:
+        quarantine_b = SqliteSubmissionQuarantineRepository(database_b)
+        observations = quarantine_b.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.BROKER_UNKNOWN
+        assert observation.broker_order_id == "BR-UNKNOWN-1"
+        assert observation.source == "fake-broker"
+        assert observation.request_correlation_id == request.correlation_id
+        assert observation.outcome == "UNKNOWN"
+        assert observation.order_status == "UNKNOWN"
+        assert observation.observed_at.tzinfo is not None
+    finally:
+        database_b.close()
+
+
+def test_sqlite_transport_failure_after_send_is_unknown_with_quarantine(tmp_path) -> None:
+    class FailingBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            raise RuntimeError("connection reset mid-flight")
+
+    database, unit_of_work, orchestrator, quarantine = _sqlite_setup_with_quarantine(tmp_path)
+    try:
+        request = _live_request()
+        broker = FailingBroker()
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert broker.submit_calls == 1
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        assert observations[0].kind is QuarantineObservationKind.TRANSPORT_UNCERTAIN
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_dual_persistence_failure_latches_safety_fault_and_blocks_submission(
+    tmp_path, monkeypatch
+) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate_store = SqliteTradingGateStateStore(database)
+        gate = DurableTradingGate(gate_store, default_enabled=True)
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database, gate=gate)
+        request = _live_request()
+        broker = FakeBroker()
+
+        def failing_save(receipt):
+            raise RuntimeError("receipt storage unavailable")
+
+        def failing_record(observation):
+            raise RuntimeError("quarantine storage unavailable")
+
+        monkeypatch.setattr(unit_of_work.receipts, "save", failing_save)
+        monkeypatch.setattr(quarantine, "record", failing_record)
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert "submissions are disabled pending reconciliation" in result.reason
+        assert gate.allow() is False
+        persisted = gate_store.load()
+        assert persisted is not None
+        assert persisted.enabled is False
+        assert broker.submit_calls == 1
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.BLOCKED
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_quarantine_record_failure_latches_fault_without_permissive_path() -> None:
+    """A failing quarantine recorder must not leave a permissive path.
+
+    The uncertainty stays UNKNOWN, the pending reservation stays pending
+    for reconciliation, the safety fault disables further submission, and
+    a replay never resubmits.
+    """
+
+    class FailingQuarantine(_FakeSubmissionQuarantine):
+        def record(self, observation) -> None:
+            raise RuntimeError("quarantine storage unavailable")
+
+    class FailingBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            raise RuntimeError("transport timeout")
+
+    request = _live_request()
+    broker = FailingBroker()
+    unit_of_work = _FakeUnitOfWork()
+    gate = _durable_gate()
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=gate,
+        submission_quarantine=FailingQuarantine(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+    )
+
+    first = orchestrator.execute(request, broker=broker)
+
+    assert first.status is ExecutionDispatchStatus.UNKNOWN
+    assert "submission evidence persistence failed" in first.reason
+    assert "submissions are disabled pending reconciliation" in first.reason
+    assert gate.allow() is False
+    assert broker.submit_calls == 1
+    decision = unit_of_work.idempotency.check(
+        request.order.client_order_id, request_fingerprint(request)
+    )
+    assert decision.reservation_pending
+    assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+
+    replay = orchestrator.execute(request, broker=broker)
+
+    assert replay.status is ExecutionDispatchStatus.BLOCKED
+    assert "trading is blocked" in replay.reason
+    assert broker.submit_calls == 1
+
+
+def test_preflight_rejection_is_typed_not_submitted_without_operator_record() -> None:
+    """A definite preflight rejection is a typed local closure, not a human one."""
+
+    class PreflightRejectingBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            raise BrokerPreflightRejected("order validity DAY/IOC is not supported")
+
+    request = _live_request()
+    broker = PreflightRejectingBroker()
+    unit_of_work = _FakeUnitOfWork()
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+    )
+    fingerprint = request_fingerprint(request)
+
+    first = orchestrator.execute(request, broker=broker)
+
+    assert first.status is ExecutionDispatchStatus.BLOCKED
+    assert "submission was not sent" in first.reason
+    assert broker.submit_calls == 1
+    decision = unit_of_work.idempotency.check(request.order.client_order_id, fingerprint)
+    resolution = decision.not_submitted_resolution
+    assert resolution is not None
+    assert resolution.source is NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION
+    assert decision.reservation_pending is False
+    assert decision.operator_resolved is False
+    assert decision.operator_resolution is None
+    assert (
+        unit_of_work.idempotency.get_operator_resolution(request.order.client_order_id, fingerprint)
+        is None
+    )
+    pending_ids = {
+        record.client_order_id
+        for record in unit_of_work.idempotency.list_pending_recovery_records()
+    }
+    assert str(request.order.client_order_id) not in pending_ids
+
+    replay = orchestrator.execute(request, broker=broker)
+
+    assert replay.status is ExecutionDispatchStatus.BLOCKED
+    assert "durably closed as not submitted" in replay.reason
+    assert broker.submit_calls == 1
+
+
+def test_preflight_rejection_closure_failure_is_unresolved_without_resubmit(monkeypatch) -> None:
+    """If the typed closure cannot be persisted, the outcome stays UNKNOWN.
+
+    The pending reservation is kept for reconciliation; the system never
+    claims a not-submitted closure it could not record and never resubmits.
+    """
+
+    class PreflightRejectingBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            raise BrokerPreflightRejected("order validity DAY/IOC is not supported")
+
+    request = _live_request()
+    broker = PreflightRejectingBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    def failing_record_not_submitted(*args, **kwargs):
+        raise RuntimeError("idempotency storage unavailable")
+
+    monkeypatch.setattr(
+        unit_of_work.idempotency, "record_not_submitted", failing_record_not_submitted
+    )
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+    )
+
+    first = orchestrator.execute(request, broker=broker)
+
+    assert first.status is ExecutionDispatchStatus.UNKNOWN
+    assert "durable closure of the reservation failed" in first.reason
+    assert broker.submit_calls == 1
+    decision = unit_of_work.idempotency.check(
+        request.order.client_order_id, request_fingerprint(request)
+    )
+    assert decision.reservation_pending
+    assert decision.not_submitted_resolution is None
+    assert decision.operator_resolved is False
+
+    replay = orchestrator.execute(request, broker=broker)
+
+    assert replay.status is ExecutionDispatchStatus.UNKNOWN
+    assert broker.submit_calls == 1
+
+
+class _ArbitraryResponseBroker(FakeBroker):
+    """Broker double returning an arbitrary (possibly malformed) response."""
+
+    def __init__(self, response: object) -> None:
+        super().__init__()
+        self._response = response
+
+    def submit(self, request):
+        self.submit_calls += 1
+        return self._response
+
+
+def test_malformed_receipt_shape_after_submit_is_unknown_not_raised(tmp_path) -> None:
+    """A broker response outside the receipt contract cannot escape as an exception.
+
+    Once submission may have reached the broker, a malformed runtime shape
+    must be reported as explicit UNKNOWN with the pending reservation kept
+    and sanitized evidence retained, never as an exception implying a known
+    outcome, and never as an automatic retry.
+    """
+    database, unit_of_work, orchestrator, quarantine = _sqlite_setup_with_quarantine(tmp_path)
+    try:
+        request = _live_request()
+        broker = _ArbitraryResponseBroker(object())
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert "reconciliation" in result.reason
+        assert broker.submit_calls == 1
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.MALFORMED_RECEIPT
+        assert observation.request_correlation_id == request.correlation_id
+        assert observation.broker_order_id is None
+        assert observation.source is None
+        assert observation.outcome is None
+        assert observation.order_status is None
+
+        replay = orchestrator.execute(request, broker=broker)
+
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_malformed_receipt_runtime_enum_is_unknown_and_sanitized(tmp_path) -> None:
+    """A receipt carrying malformed runtime enums never becomes canonical.
+
+    The dataclass accepts arbitrary runtime values, so a hostile or broken
+    adapter can hand back a receipt whose outcome/status are plain strings.
+    That response must be quarantined as malformed evidence, reported
+    UNKNOWN, and kept out of canonical receipts and idempotency completion.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate = DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True)
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database, gate=gate)
+        request = _live_request()
+        malformed = ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=request.order.client_order_id,
+            outcome=cast(ExecutionOutcome, "ACCEPTED"),
+            order_status=cast(OrderStatus, "ACCEPTED"),
+            executed_at=datetime.now(UTC),
+            simulated=False,
+            source="fake-broker",
+            broker_order_id="BR-CORRUPT-1",
+            correlation_id=request.correlation_id,
+            order_id=request.order.client_order_id,
+            order_quantity=request.order.quantity,
+            account_id=request.execution_context.account_id,
+            connection_id=request.execution_context.broker_connection_id,
+        )
+        broker = _ArbitraryResponseBroker(malformed)
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert broker.submit_calls == 1
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.MALFORMED_RECEIPT
+        assert observation.source == "fake-broker"
+        assert observation.broker_order_id == "BR-CORRUPT-1"
+        assert observation.request_correlation_id == request.correlation_id
+        assert observation.outcome is None
+        assert observation.order_status is None
+        # Evidence was retained, so the fail-closed admission fault is not latched.
+        assert gate.allow() is True
+
+        replay = orchestrator.execute(request, broker=broker)
+
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_receipt_serialization_failure_after_submit_is_unknown_with_quarantine(
+    tmp_path,
+) -> None:
+    """A canonical receipt that cannot be serialized is still an explicit UNKNOWN.
+
+    Serialization happens after the broker may have accepted, so the
+    failure must not escape. The pending reservation stays, sanitized
+    evidence is quarantined, and a replay never resubmits.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate = DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True)
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database, gate=gate)
+        request = _live_request()
+        unserializable = ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=request.order.client_order_id,
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=datetime.now(UTC),
+            simulated=False,
+            source="fake-broker",
+            message=cast(str, object()),
+            broker_order_id="BR-UNSERIALIZABLE-1",
+            correlation_id=request.correlation_id,
+            order_id=request.order.client_order_id,
+            order_quantity=request.order.quantity,
+            account_id=request.execution_context.account_id,
+            connection_id=request.execution_context.broker_connection_id,
+        )
+        broker = _ArbitraryResponseBroker(unserializable)
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert "post-submit persistence failed" in result.reason
+        assert broker.submit_calls == 1
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        assert observations[0].kind is QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN
+        assert observations[0].broker_order_id == "BR-UNSERIALIZABLE-1"
+        assert gate.allow() is True
+
+        replay = orchestrator.execute(request, broker=broker)
+
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+class _RaisingOutcomeReceipt(ExecutionReceipt):
+    """Hostile plugin response whose outcome attribute raises on access."""
+
+    @property
+    def outcome(self):
+        raise RuntimeError("hostile attribute access")
+
+
+def test_hostile_receipt_attribute_access_cannot_escape_or_latch_fault(tmp_path) -> None:
+    """A hostile response can neither crash the call nor force a gate latch.
+
+    The response passes ``isinstance(receipt, ExecutionReceipt)`` but raises
+    on attribute access. After the external submit may have started, that
+    must still become explicit UNKNOWN with a sanitized observation (the
+    raising field is dropped), never an exception escaping the public call
+    and never a spurious admission safety-fault latch.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate = DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True)
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database, gate=gate)
+        request = _live_request()
+        hostile = object.__new__(_RaisingOutcomeReceipt)
+        object.__setattr__(hostile, "receipt_id", uuid4())
+        object.__setattr__(hostile, "client_order_id", request.order.client_order_id)
+        object.__setattr__(hostile, "order_status", OrderStatus.ACCEPTED)
+        object.__setattr__(hostile, "source", "fake-broker")
+        object.__setattr__(hostile, "broker_order_id", "BR-HOSTILE-1")
+        broker = _ArbitraryResponseBroker(hostile)
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert broker.submit_calls == 1
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.MALFORMED_RECEIPT
+        assert observation.outcome is None
+        assert observation.order_status == "ACCEPTED"
+        assert observation.source == "fake-broker"
+        assert observation.broker_order_id == "BR-HOSTILE-1"
+        # The observation was recorded, so no spurious admission fault.
+        assert gate.allow() is True
+
+        replay = orchestrator.execute(request, broker=broker)
+
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_uninitialized_enum_receipt_is_malformed_not_persisted(tmp_path) -> None:
+    """An enum-class instance with an unreadable value is not canonical.
+
+    A hostile response can carry a real ``OrderStatus`` class instance whose
+    ``value`` lookup raises (uninitialized member). It passes ``isinstance``
+    but canonical persistence reads ``.value``, so it must be rejected as
+    MALFORMED at the shape boundary — before identity validation and any
+    canonical write — with the observation recorded and no gate latch.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate = DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True)
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database, gate=gate)
+        request = _live_request()
+        receipt = ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=request.order.client_order_id,
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=datetime.now(UTC),
+            simulated=False,
+            source="fake-broker",
+            message="uninitialized enum member",
+            broker_order_id="BR-ENUM-1",
+            correlation_id=request.correlation_id,
+            order_id=request.order.client_order_id,
+            order_quantity=request.order.quantity,
+            account_id=request.execution_context.account_id,
+            connection_id=request.execution_context.broker_connection_id,
+        )
+        object.__setattr__(receipt, "order_status", str.__new__(OrderStatus, "ACCEPTED"))
+        broker = _ArbitraryResponseBroker(receipt)
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert broker.submit_calls == 1
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.MALFORMED_RECEIPT
+        assert observation.order_status is None
+        assert observation.outcome == ExecutionOutcome.ACCEPTED.value
+        assert observation.source == "fake-broker"
+        assert observation.broker_order_id == "BR-ENUM-1"
+        # The observation was recorded, so no spurious admission fault.
+        assert gate.allow() is True
+
+        replay = orchestrator.execute(request, broker=broker)
+
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_quarantined_observations_never_become_authoritative(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
+        foreign_request = _live_request()
+        foreign_result = orchestrator.execute(
+            foreign_request, broker=_FixedReceiptBroker(_foreign_receipt(foreign_request))
+        )
+        assert foreign_result.status is ExecutionDispatchStatus.UNKNOWN
+        unknown_request = _live_request()
+        unknown_result = orchestrator.execute(
+            unknown_request, broker=_FixedReceiptBroker(_unknown_broker_receipt(unknown_request))
+        )
+        assert unknown_result.status is ExecutionDispatchStatus.UNKNOWN
+
+        for request in (foreign_request, unknown_request):
+            assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+            decision = unit_of_work.idempotency.check(
+                request.order.client_order_id, request_fingerprint(request)
+            )
+            assert decision.existing_receipt_id is None
+            assert decision.reservation_pending
+        pending_ids = {
+            record.client_order_id
+            for record in unit_of_work.idempotency.list_pending_recovery_records()
+        }
+        assert str(foreign_request.order.client_order_id) in pending_ids
+        assert str(unknown_request.order.client_order_id) in pending_ids
+        for request in (foreign_request, unknown_request):
+            observations = quarantine.list_by_client_order(request.order.client_order_id)
+            assert len(observations) == 1
+            assert unit_of_work.receipts.get(observations[0].observation_id) is None
+    finally:
+        database.close()

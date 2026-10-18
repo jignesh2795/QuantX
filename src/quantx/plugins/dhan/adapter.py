@@ -15,6 +15,7 @@ from quantx.execution.receipts.models import (
     ExecutionOutcome,
     ExecutionReceipt,
 )
+from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.integrations.brokers import (
     BrokerConnectionRef,
     BrokerDescriptor,
@@ -94,19 +95,31 @@ class DhanBrokerAdapter:
         return None if item is None else item[0]
 
     def submit(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
-        self._validate_connection(request)
-        broker_instrument = self._resolve(request.order.instrument)
-        self._validate_market(broker_instrument[0], broker_instrument[1])
-        wire = build_order_request(
-            instrument_ref=broker_instrument[1],
-            side=request.order.side,
-            order_type=request.order.order_type,
-            quantity=request.order.quantity,
-            limit_price=request.order.limit_price,
-            stop_price=request.order.stop_price,
-            time_in_force=request.order.time_in_force,
-            correlation_id=request.correlation_id,
-        )
+        # Preflight boundary: connection, instrument, market, and wire-request
+        # validation all run before any transport I/O. A failure here is a
+        # deterministic local rejection proven not to have reached the broker,
+        # so it is surfaced through the typed NOT_SUBMITTED contract instead of
+        # an ambiguous post-submission exception.
+        try:
+            self._validate_connection(request)
+            broker_instrument = self._resolve(request.order.instrument)
+            self._validate_market(broker_instrument[0], broker_instrument[1])
+            wire = build_order_request(
+                instrument_ref=broker_instrument[1],
+                side=request.order.side,
+                order_type=request.order.order_type,
+                quantity=request.order.quantity,
+                limit_price=request.order.limit_price,
+                stop_price=request.order.stop_price,
+                time_in_force=request.order.time_in_force,
+                correlation_id=request.correlation_id,
+            )
+        except BrokerPreflightRejected:
+            raise
+        except Exception as exc:
+            raise BrokerPreflightRejected(
+                f"Dhan preflight validation failed before transport submission: {exc}"
+            ) from exc
         try:
             response = self._transport.submit(wire, timeout=self._submit_timeout)
         except DhanTimeoutError as exc:

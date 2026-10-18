@@ -16,12 +16,15 @@ from uuid import UUID
 
 from quantx.execution.idempotency import (
     IdempotencyDecision,
+    NotSubmittedResolution,
+    NotSubmittedSource,
     OperatorResolution,
     OperatorResolutionAction,
     PendingExecutionContext,
     PendingExecutionRecoveryRecord,
 )
 from quantx.execution.ports import ExecutionReceipt
+from quantx.execution.receipts.quarantine import QuarantinedSubmissionObservation
 
 
 class PersistentIdempotencyStore(Protocol):
@@ -57,6 +60,18 @@ class PersistentIdempotencyStore(Protocol):
     def get_operator_resolution(
         self, client_order_id: UUID, request_fingerprint: str
     ) -> OperatorResolution | None: ...
+    def record_not_submitted(
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        *,
+        source: NotSubmittedSource,
+        reason: str,
+        recorded_at: datetime,
+    ) -> NotSubmittedResolution: ...
+    def get_not_submitted(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> NotSubmittedResolution | None: ...
 
     def list_pending_recovery_records(
         self,
@@ -74,6 +89,25 @@ class ReceiptRepository(Protocol):
     def list_by_correlation_id(
         self, correlation_id: UUID | str
     ) -> tuple[ExecutionReceipt, ...]: ...
+
+
+class SubmissionQuarantineRepository(Protocol):
+    """Non-authoritative durable evidence store for uncertain submissions.
+
+    Quarantined observations are separate from authoritative receipts and
+    from canonical accounting/lifecycle calculations. They never satisfy
+    idempotency completion and are never returned as canonical receipts;
+    they exist so uncertain or rejected submission evidence survives for
+    reconciliation. Writes are idempotent on the stable observation
+    identity: re-recording an identical observation is a no-op, and a
+    conflicting payload for the same identity fails closed.
+    """
+
+    def record(self, observation: QuarantinedSubmissionObservation) -> None: ...
+    def get(self, observation_id: UUID) -> QuarantinedSubmissionObservation | None: ...
+    def list_by_client_order(
+        self, client_order_id: UUID | str
+    ) -> tuple[QuarantinedSubmissionObservation, ...]: ...
 
 
 class UnitOfWork(Protocol):
@@ -103,5 +137,6 @@ class UnitOfWork(Protocol):
 __all__ = [
     "PersistentIdempotencyStore",
     "ReceiptRepository",
+    "SubmissionQuarantineRepository",
     "UnitOfWork",
 ]

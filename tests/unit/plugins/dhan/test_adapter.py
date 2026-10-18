@@ -32,11 +32,14 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.execution.idempotency import NotSubmittedSource
+from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.receipts.models import (
     ExecutionEvidenceKind,
     ExecutionOutcome,
     ExecutionReceipt,
 )
+from quantx.execution.receipts.quarantine import QuarantineObservationKind
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
@@ -49,6 +52,7 @@ from quantx.india.session_calendar import (
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.persistence.sqlite import (
     SqliteDatabase,
+    SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
@@ -58,7 +62,12 @@ from quantx.plugins.dhan import (
     InMemoryDhanTransport,
 )
 from quantx.plugins.dhan.mapping import dhan_correlation_id
-from quantx.plugins.dhan.models import DhanFundsSnapshot, DhanPositionsSnapshot
+from quantx.plugins.dhan.models import (
+    DhanFundsSnapshot,
+    DhanOrderRequest,
+    DhanOrderResponse,
+    DhanPositionsSnapshot,
+)
 
 
 def _instrument() -> Instrument:
@@ -427,6 +436,7 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             application_runtime=_started_runtime(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
@@ -557,3 +567,132 @@ def test_adapter_rejects_non_positive_read_timeout() -> None:
     for bad in bad_values:
         with pytest.raises(ValueError, match="_read_timeout"):
             replace(_adapter(), _read_timeout=bad)
+
+
+def _quarantine_orchestrator(database) -> ExecutionOrchestrator:
+    return ExecutionOrchestrator(
+        unit_of_work=SqliteUnitOfWork(database),
+        trading_gate=DurableTradingGate(
+            SqliteTradingGateStateStore(database), default_enabled=True
+        ),
+        application_runtime=_started_runtime(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+    )
+
+
+def test_dhan_preflight_failure_is_known_not_submitted_with_durable_closure(tmp_path) -> None:
+    """A wire-request validation failure before transport is NOT_SUBMITTED.
+
+    The outcome is a known local block with a durably closed reservation —
+    never an ambiguous possible external submission, never a fabricated
+    human operator decision — and no transport call is made, on the first
+    attempt or any replay.
+    """
+    transport = InMemoryDhanTransport()
+    adapter = _adapter(transport)
+    path = tmp_path / "quantx.db"
+    database = SqliteDatabase(path)
+    try:
+        unit_of_work = SqliteUnitOfWork(database)
+        orchestrator = _quarantine_orchestrator(database)
+        request = _request(time_in_force=TimeInForce.GTC)
+        fingerprint = request_fingerprint(request)
+        result = orchestrator.execute(request, broker=adapter)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "submission was not sent" in result.reason
+        assert transport.submitted == ()
+        decision = unit_of_work.idempotency.check(request.order.client_order_id, fingerprint)
+        assert decision.operator_resolved is False
+        assert decision.operator_resolution is None
+        assert decision.reservation_pending is False
+        resolution = decision.not_submitted_resolution
+        assert resolution is not None
+        assert resolution.source is NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION
+        assert "DAY/IOC" in resolution.reason
+        assert resolution.request_fingerprint == fingerprint
+        assert (
+            unit_of_work.idempotency.get_operator_resolution(
+                request.order.client_order_id, fingerprint
+            )
+            is None
+        )
+        pending_ids = {
+            record.client_order_id
+            for record in unit_of_work.idempotency.list_pending_recovery_records()
+        }
+        assert str(request.order.client_order_id) not in pending_ids
+    finally:
+        database.close()
+
+    database_b = SqliteDatabase(path)
+    try:
+        unit_of_work_b = SqliteUnitOfWork(database_b)
+        transport_b = InMemoryDhanTransport()
+        orchestrator_b = _quarantine_orchestrator(database_b)
+        replay = orchestrator_b.execute(request, broker=_adapter(transport_b))
+        assert replay.status is ExecutionDispatchStatus.BLOCKED
+        assert "durably closed as not submitted" in replay.reason
+        assert transport_b.submitted == ()
+        decision_b = unit_of_work_b.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision_b.operator_resolved is False
+        assert decision_b.reservation_pending is False
+        assert decision_b.not_submitted_resolution is not None
+    finally:
+        database_b.close()
+
+
+def test_dhan_transport_failure_after_send_is_unknown_quarantined_and_not_retried(tmp_path) -> None:
+    """A transport failure after submission may have begun stays UNKNOWN.
+
+    The uncertainty is quarantined for reconciliation, the reservation
+    stays pending, and no replay automatically resubmits.
+    """
+
+    class MidFlightFailureTransport(InMemoryDhanTransport):
+        def __init__(self) -> None:
+            super().__init__()
+            self.submit_attempts = 0
+
+        def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse:
+            self.submit_attempts += 1
+            raise RuntimeError("connection reset mid-flight")
+
+    transport = MidFlightFailureTransport()
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        unit_of_work = SqliteUnitOfWork(database)
+        quarantine = SqliteSubmissionQuarantineRepository(database)
+        orchestrator = _quarantine_orchestrator(database)
+        adapter = _adapter(transport)
+        request = _request()
+        result = orchestrator.execute(request, broker=adapter)
+
+        # The Dhan adapter normalizes a mid-flight transport failure into an
+        # UNKNOWN receipt; the orchestrator reports uncertainty and keeps
+        # that receipt out of the canonical store.
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is not None
+        assert result.receipt.outcome is ExecutionOutcome.UNKNOWN
+        assert "broker returned an UNKNOWN receipt" in result.reason
+        assert transport.submit_attempts == 1
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        assert observations[0].kind is QuarantineObservationKind.BROKER_UNKNOWN
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+
+        replay = orchestrator.execute(request, broker=adapter)
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert transport.submit_attempts == 1
+    finally:
+        database.close()

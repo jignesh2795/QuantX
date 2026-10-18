@@ -50,6 +50,7 @@ from quantx.india.session_calendar import (
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.persistence.sqlite import (
     SqliteDatabase,
+    SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
@@ -688,6 +689,7 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             application_runtime=_started_runtime(),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             live_risk_evaluator=_evaluator(limits=_limits(max_order_notional=Decimal("1"))),
         )
         request = _request()
@@ -732,6 +734,7 @@ def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             application_runtime=_started_runtime(),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             live_risk_evaluator=_evaluator(),
         )
         result = orchestrator.execute(_request(), broker=_adapter(transport))
@@ -756,6 +759,7 @@ def test_upstream_approve_cannot_bypass_authoritative_risk(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             application_runtime=_started_runtime(),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             live_risk_evaluator=_evaluator(
                 limits=_limits(max_daily_loss=Decimal("1")),
                 snapshot=_snapshot(daily_pnl=Decimal("-100")),
@@ -792,6 +796,7 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             application_runtime=_started_runtime(),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             live_risk_evaluator=exploding,
         )
         result = orchestrator.execute(_request(), broker=_adapter(transport))
