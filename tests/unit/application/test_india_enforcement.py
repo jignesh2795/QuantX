@@ -64,6 +64,7 @@ from quantx.integrations.brokers import (
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteReceiptRepository,
+    SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
@@ -207,6 +208,7 @@ def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
             session_evaluator=session_evaluator,
             rule_evaluator=rule_evaluator,
         ),
+        submission_quarantine=SqliteSubmissionQuarantineRepository(database),
         **overrides,
     )
 

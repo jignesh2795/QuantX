@@ -13,7 +13,7 @@ from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.idempotency import PendingExecutionContext
+from quantx.execution.idempotency import NotSubmittedSource, PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
@@ -777,6 +777,20 @@ class ExecutionOrchestrator:
                 ),
                 check_entries,
             )
+        if self._submission_quarantine is None:
+            # LIVE admission requires the capability that preserves
+            # unresolved submission evidence durably. Without it, an
+            # uncertain post-admission outcome would leave a pending
+            # reservation with no durable evidence path, so the submission
+            # is denied here — before any reservation or broker contact —
+            # instead of degrading silently after the broker call.
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=("live execution requires a durable submission quarantine repository"),
+                ),
+                check_entries,
+            )
         if self._live_risk_evaluator is not None:
             try:
                 live_risk = self._live_risk_evaluator(request)
@@ -926,6 +940,15 @@ class ExecutionOrchestrator:
                         "use a new client_order_id for another attempt"
                     ),
                 )
+            if existing.not_submitted_resolution is not None:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=(
+                        "reservation was durably closed as not submitted after an "
+                        "adapter preflight rejection; implicit resubmission is "
+                        "prohibited, use a new client_order_id for another attempt"
+                    ),
+                )
 
         # The permit is acquired before creating the pending reservation.
         # The lock is released BEFORE the broker call so that block() cannot
@@ -973,6 +996,15 @@ class ExecutionOrchestrator:
                             "reservation was explicitly closed by an operator; "
                             "implicit resubmission is prohibited, "
                             "use a new client_order_id for another attempt"
+                        ),
+                    )
+                if decision.not_submitted_resolution is not None:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=(
+                            "reservation was durably closed as not submitted after an "
+                            "adapter preflight rejection; implicit resubmission is "
+                            "prohibited, use a new client_order_id for another attempt"
                         ),
                     )
                 if not decision.reservation_acquired:
@@ -1108,22 +1140,22 @@ class ExecutionOrchestrator:
 
         The trusted adapter proved no transport I/O was entered, so the
         pending reservation must not linger as a possible external
-        submission. The narrowly scoped durable representation reuses the
-        existing operator-resolution contract (a system-owned closure, no
-        fabricated receipt); a later replay of the same request is then a
-        known local block instead of an ambiguous unknown submission. If
-        the durable closure cannot be persisted, the conservative pending
-        reservation plus an explicit unresolved result is kept for
-        reconciliation.
+        submission. The durable representation is the typed not-submitted
+        resolution (a definite local outcome, never a human operator
+        decision and never a fabricated receipt); a later replay of the
+        same request is then a known local block instead of an ambiguous
+        unknown submission. If the durable closure cannot be persisted,
+        the conservative pending reservation plus an explicit unresolved
+        result is kept for reconciliation.
         """
         reason = self._bounded_preflight_reason(exc)
         try:
-            unit_of_work.idempotency.resolve_operator(
+            unit_of_work.idempotency.record_not_submitted(
                 request.order.client_order_id,
                 fingerprint,
-                operator_id="orchestrator:preflight-rejection",
+                source=NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION,
                 reason=reason,
-                resolved_at=datetime.now(UTC),
+                recorded_at=datetime.now(UTC),
             )
         except Exception:
             return ExecutionResult(
@@ -1200,15 +1232,16 @@ class ExecutionOrchestrator:
     ) -> bool:
         """Attempt one sanitized, non-authoritative observation record.
 
-        Returns True only when the quarantine store was configured but
-        could not durably record the evidence. A missing store means no
-        quarantine persistence is available for this composition; the
-        returned UNKNOWN result and the pending reservation still carry
-        the uncertainty to the caller and to recovery.
+        Returns True when the evidence could not be durably recorded — a
+        configured store that raised, or (defense in depth; unreachable for
+        LIVE after the admission precondition) no store at all. Both mean
+        the system cannot preserve the unresolved submission evidence, so
+        the caller latches the safety fault instead of dropping the
+        uncertainty silently.
         """
         recorder = self._submission_quarantine
         if recorder is None:
-            return False
+            return True
         try:
             observation = QuarantinedSubmissionObservation.from_receipt(
                 observation_id=self._quarantine_observation_id(request, fingerprint, kind, receipt),

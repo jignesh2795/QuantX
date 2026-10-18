@@ -32,6 +32,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.execution.idempotency import NotSubmittedSource
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.receipts.models import (
     ExecutionEvidenceKind,
@@ -435,6 +436,7 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             application_runtime=_started_runtime(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
@@ -586,8 +588,9 @@ def test_dhan_preflight_failure_is_known_not_submitted_with_durable_closure(tmp_
     """A wire-request validation failure before transport is NOT_SUBMITTED.
 
     The outcome is a known local block with a durably closed reservation —
-    never an ambiguous possible external submission — and no transport
-    call is made, on the first attempt or any replay.
+    never an ambiguous possible external submission, never a fabricated
+    human operator decision — and no transport call is made, on the first
+    attempt or any replay.
     """
     transport = InMemoryDhanTransport()
     adapter = _adapter(transport)
@@ -597,18 +600,32 @@ def test_dhan_preflight_failure_is_known_not_submitted_with_durable_closure(tmp_
         unit_of_work = SqliteUnitOfWork(database)
         orchestrator = _quarantine_orchestrator(database)
         request = _request(time_in_force=TimeInForce.GTC)
+        fingerprint = request_fingerprint(request)
         result = orchestrator.execute(request, broker=adapter)
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
         assert "submission was not sent" in result.reason
         assert transport.submitted == ()
-        decision = unit_of_work.idempotency.check(
-            request.order.client_order_id, request_fingerprint(request)
-        )
-        assert decision.operator_resolved
+        decision = unit_of_work.idempotency.check(request.order.client_order_id, fingerprint)
+        assert decision.operator_resolved is False
+        assert decision.operator_resolution is None
         assert decision.reservation_pending is False
-        assert decision.operator_resolution is not None
-        assert "DAY/IOC" in decision.operator_resolution.reason
+        resolution = decision.not_submitted_resolution
+        assert resolution is not None
+        assert resolution.source is NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION
+        assert "DAY/IOC" in resolution.reason
+        assert resolution.request_fingerprint == fingerprint
+        assert (
+            unit_of_work.idempotency.get_operator_resolution(
+                request.order.client_order_id, fingerprint
+            )
+            is None
+        )
+        pending_ids = {
+            record.client_order_id
+            for record in unit_of_work.idempotency.list_pending_recovery_records()
+        }
+        assert str(request.order.client_order_id) not in pending_ids
     finally:
         database.close()
 
@@ -619,13 +636,14 @@ def test_dhan_preflight_failure_is_known_not_submitted_with_durable_closure(tmp_
         orchestrator_b = _quarantine_orchestrator(database_b)
         replay = orchestrator_b.execute(request, broker=_adapter(transport_b))
         assert replay.status is ExecutionDispatchStatus.BLOCKED
-        assert "explicitly closed by an operator" in replay.reason
+        assert "durably closed as not submitted" in replay.reason
         assert transport_b.submitted == ()
         decision_b = unit_of_work_b.idempotency.check(
             request.order.client_order_id, request_fingerprint(request)
         )
-        assert decision_b.operator_resolved
+        assert decision_b.operator_resolved is False
         assert decision_b.reservation_pending is False
+        assert decision_b.not_submitted_resolution is not None
     finally:
         database_b.close()
 

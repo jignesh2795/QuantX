@@ -39,6 +39,7 @@ from quantx.india.session_calendar import (
 from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
 from quantx.persistence.sqlite import (
     SqliteDatabase,
+    SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
@@ -223,6 +224,7 @@ def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> Non
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             application_runtime=_started_runtime(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),

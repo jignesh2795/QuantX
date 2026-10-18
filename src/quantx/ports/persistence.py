@@ -16,6 +16,8 @@ from uuid import UUID
 
 from quantx.execution.idempotency import (
     IdempotencyDecision,
+    NotSubmittedResolution,
+    NotSubmittedSource,
     OperatorResolution,
     OperatorResolutionAction,
     PendingExecutionContext,
@@ -58,6 +60,18 @@ class PersistentIdempotencyStore(Protocol):
     def get_operator_resolution(
         self, client_order_id: UUID, request_fingerprint: str
     ) -> OperatorResolution | None: ...
+    def record_not_submitted(
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        *,
+        source: NotSubmittedSource,
+        reason: str,
+        recorded_at: datetime,
+    ) -> NotSubmittedResolution: ...
+    def get_not_submitted(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> NotSubmittedResolution | None: ...
 
     def list_pending_recovery_records(
         self,

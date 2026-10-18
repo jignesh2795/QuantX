@@ -8,6 +8,8 @@ from uuid import UUID
 
 from quantx.execution.idempotency import (
     IdempotencyDecision,
+    NotSubmittedResolution,
+    NotSubmittedSource,
     OperatorResolution,
     OperatorResolutionAction,
     PendingExecutionContext,
@@ -65,12 +67,37 @@ class SqliteIdempotencyStore:
             evidence_reference=evidence_reference,
         )
 
+    def _not_submitted(
+        self,
+        connection: sqlite3.Connection,
+        client_order_id: UUID,
+        request_fingerprint: str,
+    ) -> NotSubmittedResolution | None:
+        row = connection.execute(
+            "SELECT fingerprint, source, reason, recorded_at FROM not_submitted_resolutions "
+            "WHERE client_order_id = ?",
+            (str(client_order_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        fingerprint, source, reason, recorded_at = row
+        if fingerprint != request_fingerprint:
+            raise ValueError("client_order_id was reused with a different request")
+        return NotSubmittedResolution(
+            client_order_id=client_order_id,
+            request_fingerprint=fingerprint,
+            source=NotSubmittedSource(source),
+            reason=reason,
+            recorded_at=datetime.fromisoformat(recorded_at),
+        )
+
     def _decision(
         self,
         client_order_id: UUID,
         request_fingerprint: str,
         row: tuple[str, str | None, str | None] | None,
         resolution: OperatorResolution | None = None,
+        not_submitted: NotSubmittedResolution | None = None,
     ) -> IdempotencyDecision:
         if row is None:
             return IdempotencyDecision(
@@ -81,6 +108,8 @@ class SqliteIdempotencyStore:
         if fingerprint != request_fingerprint:
             raise ValueError("client_order_id was reused with a different request")
         if resolution is not None and resolution.request_fingerprint != request_fingerprint:
+            raise ValueError("client_order_id was reused with a different request")
+        if not_submitted is not None and not_submitted.request_fingerprint != request_fingerprint:
             raise ValueError("client_order_id was reused with a different request")
         context = (
             self._decode_context(
@@ -95,10 +124,11 @@ class SqliteIdempotencyStore:
             client_order_id=client_order_id,
             request_fingerprint=request_fingerprint,
             existing_receipt_id=UUID(receipt_id) if receipt_id is not None else None,
-            reservation_pending=receipt_id is None and resolution is None,
+            reservation_pending=receipt_id is None and resolution is None and not_submitted is None,
             pending_context=context,
             operator_resolved=resolution is not None,
             operator_resolution=resolution,
+            not_submitted_resolution=not_submitted,
         )
 
     def check(self, client_order_id: UUID, request_fingerprint: str) -> IdempotencyDecision:
@@ -109,7 +139,8 @@ class SqliteIdempotencyStore:
                 (str(client_order_id),),
             ).fetchone()
             resolution = self._resolution(connection, client_order_id, request_fingerprint)
-        return self._decision(client_order_id, request_fingerprint, row, resolution)
+            not_submitted = self._not_submitted(connection, client_order_id, request_fingerprint)
+        return self._decision(client_order_id, request_fingerprint, row, resolution, not_submitted)
 
     def reserve_or_get(
         self,
@@ -150,7 +181,8 @@ class SqliteIdempotencyStore:
                     pending_context=pending_context,
                 )
             resolution = self._resolution(connection, client_order_id, request_fingerprint)
-        return self._decision(client_order_id, request_fingerprint, row, resolution)
+            not_submitted = self._not_submitted(connection, client_order_id, request_fingerprint)
+        return self._decision(client_order_id, request_fingerprint, row, resolution, not_submitted)
 
     def complete(
         self,
@@ -171,6 +203,8 @@ class SqliteIdempotencyStore:
                 raise ValueError("client_order_id was reused with a different request")
             if self._resolution(connection, client_order_id, request_fingerprint) is not None:
                 raise ValueError("cannot complete an operator-resolved reservation")
+            if self._not_submitted(connection, client_order_id, request_fingerprint) is not None:
+                raise ValueError("cannot complete a reservation closed as not submitted")
             if existing is not None:
                 raise ValueError("cannot complete an already completed client_order_id")
             connection.execute(
@@ -198,6 +232,8 @@ class SqliteIdempotencyStore:
                 raise ValueError("client_order_id was reused with a different request")
             if self._resolution(connection, client_order_id, request_fingerprint) is not None:
                 raise ValueError("cannot resolve an operator-resolved reservation")
+            if self._not_submitted(connection, client_order_id, request_fingerprint) is not None:
+                raise ValueError("cannot resolve a reservation closed as not submitted")
             if existing is not None:
                 raise ValueError("cannot resolve a non-pending idempotency reservation")
             connection.execute(
@@ -248,6 +284,8 @@ class SqliteIdempotencyStore:
                 raise ValueError("cannot operator-resolve a completed reservation")
             if self._resolution(connection, client_order_id, request_fingerprint) is not None:
                 raise ValueError("reservation is already operator-resolved")
+            if self._not_submitted(connection, client_order_id, request_fingerprint) is not None:
+                raise ValueError("cannot operator-resolve a reservation closed as not submitted")
             connection.execute(
                 "INSERT INTO operator_resolutions "
                 "(client_order_id, fingerprint, operator_id, reason, resolved_at, "
@@ -272,6 +310,68 @@ class SqliteIdempotencyStore:
         with self._database.transaction() as connection:
             return self._resolution(connection, client_order_id, request_fingerprint)
 
+    def record_not_submitted(
+        self,
+        client_order_id: UUID,
+        request_fingerprint: str,
+        *,
+        source: NotSubmittedSource,
+        reason: str,
+        recorded_at: datetime,
+    ) -> NotSubmittedResolution:
+        """Atomically close a PENDING reservation as definitely not submitted.
+
+        The reservation check and the typed insert share one transaction and
+        perform no broker calls. Completed, operator-resolved, or already
+        not-submitted reservations fail closed without overwriting history,
+        and no ExecutionReceipt is created. No human operator identity is
+        recorded or implied.
+        """
+        resolution = NotSubmittedResolution(
+            client_order_id=client_order_id,
+            request_fingerprint=request_fingerprint,
+            source=source,
+            reason=reason,
+            recorded_at=recorded_at,
+        )
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT fingerprint, receipt_id FROM idempotency_reservations "
+                "WHERE client_order_id = ?",
+                (str(client_order_id),),
+            ).fetchone()
+            if row is None:
+                raise ValueError("cannot close an unreserved client_order_id as not submitted")
+            fingerprint, existing = row
+            if fingerprint != request_fingerprint:
+                raise ValueError("client_order_id was reused with a different request")
+            if existing is not None:
+                raise ValueError("cannot close a completed reservation as not submitted")
+            if self._resolution(connection, client_order_id, request_fingerprint) is not None:
+                raise ValueError("reservation is already operator-resolved")
+            if self._not_submitted(connection, client_order_id, request_fingerprint) is not None:
+                raise ValueError("reservation is already closed as not submitted")
+            connection.execute(
+                "INSERT INTO not_submitted_resolutions "
+                "(client_order_id, fingerprint, source, reason, recorded_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(client_order_id),
+                    request_fingerprint,
+                    resolution.source.value,
+                    resolution.reason,
+                    resolution.recorded_at.isoformat(),
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+        return resolution
+
+    def get_not_submitted(
+        self, client_order_id: UUID, request_fingerprint: str
+    ) -> NotSubmittedResolution | None:
+        with self._database.transaction() as connection:
+            return self._not_submitted(connection, client_order_id, request_fingerprint)
+
     def list_pending_recovery_records(self) -> tuple[PendingExecutionRecoveryRecord, ...]:
         with self._database.transaction() as connection:
             rows = connection.execute(
@@ -280,6 +380,8 @@ class SqliteIdempotencyStore:
                 "WHERE receipt_id IS NULL AND pending_context_json IS NOT NULL "
                 "AND client_order_id NOT IN "
                 "(SELECT client_order_id FROM operator_resolutions) "
+                "AND client_order_id NOT IN "
+                "(SELECT client_order_id FROM not_submitted_resolutions) "
                 "ORDER BY created_at"
             ).fetchall()
         records = []

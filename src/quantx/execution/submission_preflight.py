@@ -22,7 +22,8 @@ LIVE boundary, and the orchestrator must never conflate them:
 The typed exception is deliberately a ``ValueError`` so existing
 adapter-contract callers that reject invalid requests keep working; the
 orchestrator is the only consumer that treats it as the NOT_SUBMITTED
-proof and durably closes the pending reservation as not-submitted.
+proof and durably closes the pending reservation as a typed
+not-submitted closure (never as a human operator decision).
 """
 
 from __future__ import annotations
@@ -34,8 +35,9 @@ class BrokerPreflightRejected(ValueError):
     Contract: the raising adapter must have entered no external transport
     call for the request. The orchestrator reports the outcome as a known
     local block (never an ambiguous remote submission), durably closes the
-    pending reservation through the existing operator-resolution contract,
-    and never fabricates a broker receipt or retries the request.
+    pending reservation through the typed not-submitted resolution
+    contract, and never fabricates a broker receipt, a human operator
+    identity, or a retry of the request.
     """
 
 
