@@ -6,6 +6,7 @@ from .idempotency import SqliteIdempotencyStore
 from .market_data import SqliteMarketDataStore
 from .receipts import SqliteReceiptRepository, receipt_from_payload, receipt_to_payload
 from .research import SqliteResearchRunRepository, SqliteResearchStore
+from .submission_quarantine import SqliteSubmissionQuarantineRepository
 from .trading_gate import SqliteTradingGateStateStore
 from .unit_of_work import SqliteUnitOfWork
 
@@ -17,6 +18,7 @@ __all__ = [
     "SqliteReceiptRepository",
     "SqliteResearchRunRepository",
     "SqliteResearchStore",
+    "SqliteSubmissionQuarantineRepository",
     "SqliteTradingGateStateStore",
     "SqliteUnitOfWork",
     "receipt_from_payload",

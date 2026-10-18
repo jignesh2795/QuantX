@@ -38,6 +38,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.receipts.quarantine import QuarantineObservationKind
 from quantx.execution.trading_gate import (
     DurableTradingGate,
     InMemoryTradingGateStateStore,
@@ -76,6 +77,7 @@ from quantx.integrations.reconciliation.positions import (
 from quantx.persistence import ReceiptRepository, UnitOfWork
 from quantx.persistence.sqlite import (
     SqliteDatabase,
+    SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
@@ -1848,3 +1850,428 @@ def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
     assert broker.submit_calls == 1
     assert "blocked" not in result.reason.lower()
     assert "cancel" not in result.reason.lower()
+
+
+def _sqlite_setup_with_quarantine(tmp_path):
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    unit_of_work = SqliteUnitOfWork(database)
+    quarantine = SqliteSubmissionQuarantineRepository(database)
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=DurableTradingGate(
+            SqliteTradingGateStateStore(database), default_enabled=True
+        ),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        submission_quarantine=quarantine,
+    )
+    return database, unit_of_work, orchestrator, quarantine
+
+
+def _foreign_receipt(request: ApprovedExecutionRequest) -> ExecutionReceipt:
+    """A well-formed receipt that is not bound to the approved request."""
+    return ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=uuid4(),
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=datetime.now(UTC),
+        simulated=False,
+        source="foreign-broker",
+        broker_order_id="BR-FOREIGN-1",
+        correlation_id="foreign-correlation",
+        order_id=uuid4(),
+        account_id=AccountId("other-account"),
+        connection_id=BrokerConnectionId("other-conn"),
+    )
+
+
+def _unknown_broker_receipt(request: ApprovedExecutionRequest) -> ExecutionReceipt:
+    """A bound receipt whose broker outcome is explicitly UNKNOWN."""
+    return ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.UNKNOWN,
+        order_status=OrderStatus.UNKNOWN,
+        executed_at=datetime.now(UTC),
+        simulated=False,
+        source="fake-broker",
+        broker_order_id="BR-UNKNOWN-1",
+        correlation_id=request.correlation_id,
+        order_id=request.order.client_order_id,
+        order_quantity=request.order.quantity,
+        account_id=request.execution_context.account_id,
+        connection_id=request.execution_context.broker_connection_id,
+    )
+
+
+class _FixedReceiptBroker(FakeBroker):
+    """Broker that returns a fixed receipt instead of a bound accepted one."""
+
+    def __init__(self, receipt: ExecutionReceipt) -> None:
+        super().__init__()
+        self._receipt = receipt
+
+    def submit(self, request):
+        self.submit_calls += 1
+        return self._receipt
+
+
+class _CommitFailingUnitOfWork:
+    """Delegates to a real UnitOfWork; the third clean commit boundary fails.
+
+    The LIVE flow opens three transactions (pre-check, reservation,
+    receipt save + completion); failing only the final commit models a
+    persistence fault exactly after the broker may have accepted.
+    """
+
+    def __init__(self, inner: SqliteUnitOfWork) -> None:
+        self._inner = inner
+        self._clean_exits = 0
+
+    @property
+    def idempotency(self):
+        return self._inner.idempotency
+
+    @property
+    def receipts(self):
+        return self._inner.receipts
+
+    def commit(self) -> None:
+        self._inner.commit()
+
+    def rollback(self) -> None:
+        self._inner.rollback()
+
+    def __enter__(self):
+        self._inner.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if exc_type is None:
+            self._clean_exits += 1
+            if self._clean_exits == 3:
+                failure = RuntimeError("simulated commit boundary failure")
+                self._inner.__exit__(type(failure), failure, failure.__traceback__)
+                raise AssertionError("commit failure was not propagated")
+        self._inner.__exit__(exc_type, exc_value, traceback)
+
+
+def _quarantine_orchestrator(database, *, gate=None):
+    unit_of_work = SqliteUnitOfWork(database)
+    quarantine = SqliteSubmissionQuarantineRepository(database)
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=gate
+        or DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        submission_quarantine=quarantine,
+    )
+    return unit_of_work, quarantine, orchestrator
+
+
+def test_sqlite_receipt_save_failure_is_unknown_with_quarantined_evidence(
+    tmp_path, monkeypatch
+) -> None:
+    database, unit_of_work, orchestrator, quarantine = _sqlite_setup_with_quarantine(tmp_path)
+    try:
+        request = _live_request()
+        broker = FakeBroker()
+
+        def failing_save(receipt):
+            raise RuntimeError("receipt storage unavailable")
+
+        monkeypatch.setattr(unit_of_work.receipts, "save", failing_save)
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert "reconciliation" in result.reason
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN
+        assert observation.source == "fake-broker"
+        assert observation.outcome == "ACCEPTED"
+        assert observation.order_status == "ACCEPTED"
+        assert observation.observed_at.tzinfo is not None
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_sqlite_commit_boundary_failure_is_unknown_not_false_success(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        real_unit_of_work = SqliteUnitOfWork(database)
+        unit_of_work = _CommitFailingUnitOfWork(real_unit_of_work)
+        quarantine = SqliteSubmissionQuarantineRepository(database)
+        orchestrator = ExecutionOrchestrator(
+            application_runtime=_started_runtime(),
+            unit_of_work=unit_of_work,
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
+            market_policy=india_market_policy(
+                session_evaluator=_approving_india_session_evaluator(),
+                rule_evaluator=_approving_india_evaluator(),
+            ),
+            submission_quarantine=quarantine,
+        )
+        request = _live_request()
+        broker = FakeBroker()
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert "uncertain" in result.reason
+        assert "reconciliation" in result.reason
+        assert real_unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = real_unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        assert observations[0].kind is QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_sqlite_completion_failure_receipt_durable_across_reopen(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "quantx.db"
+    request = _live_request()
+    database = SqliteDatabase(path)
+    try:
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
+        broker = FakeBroker()
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("completion unavailable")
+
+        monkeypatch.setattr(unit_of_work.idempotency, "complete", boom)
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is not None
+        assert "reconciliation" in result.reason
+        assert broker.submit_calls == 1
+        persisted = unit_of_work.receipts.get_by_client_order(request.order.client_order_id)
+        assert persisted is not None
+        assert persisted.receipt_id == result.receipt.receipt_id
+        assert quarantine.list_by_client_order(request.order.client_order_id) == ()
+    finally:
+        database.close()
+
+    database_b = SqliteDatabase(path)
+    try:
+        unit_of_work_b, _, orchestrator_b = _quarantine_orchestrator(database_b)
+        persisted = unit_of_work_b.receipts.get_by_client_order(request.order.client_order_id)
+        assert persisted is not None
+        assert persisted.receipt_id == result.receipt.receipt_id
+        decision = unit_of_work_b.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        broker_b = FakeBroker()
+        replay = orchestrator_b.execute(request, broker=broker_b)
+        assert replay.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker_b.submit_calls == 0
+    finally:
+        database_b.close()
+
+
+def test_sqlite_foreign_receipt_quarantined_and_survives_restart(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    request = _live_request()
+    database = SqliteDatabase(path)
+    try:
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
+        broker = _FixedReceiptBroker(_foreign_receipt(request))
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert "identity mismatch" in result.reason
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+    database_b = SqliteDatabase(path)
+    try:
+        quarantine_b = SqliteSubmissionQuarantineRepository(database_b)
+        unit_of_work_b = SqliteUnitOfWork(database_b)
+        observations = quarantine_b.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.IDENTITY_REJECTED
+        assert observation.broker_order_id == "BR-FOREIGN-1"
+        assert observation.source == "foreign-broker"
+        assert observation.request_correlation_id == request.correlation_id
+        assert observation.outcome == "ACCEPTED"
+        assert observation.order_status == "ACCEPTED"
+        assert observation.observed_at.tzinfo is not None
+        assert "client_order_id" in observation.reason
+        decision = unit_of_work_b.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+    finally:
+        database_b.close()
+
+
+def test_sqlite_unknown_receipt_quarantined_and_survives_restart(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    request = _live_request()
+    database = SqliteDatabase(path)
+    try:
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
+        broker = _FixedReceiptBroker(_unknown_broker_receipt(request))
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is not None
+        assert result.receipt.outcome is ExecutionOutcome.UNKNOWN
+        assert "broker returned an UNKNOWN receipt" in result.reason
+        assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        assert decision.existing_receipt_id is None
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+    database_b = SqliteDatabase(path)
+    try:
+        quarantine_b = SqliteSubmissionQuarantineRepository(database_b)
+        observations = quarantine_b.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        observation = observations[0]
+        assert observation.kind is QuarantineObservationKind.BROKER_UNKNOWN
+        assert observation.broker_order_id == "BR-UNKNOWN-1"
+        assert observation.source == "fake-broker"
+        assert observation.request_correlation_id == request.correlation_id
+        assert observation.outcome == "UNKNOWN"
+        assert observation.order_status == "UNKNOWN"
+        assert observation.observed_at.tzinfo is not None
+    finally:
+        database_b.close()
+
+
+def test_sqlite_transport_failure_after_send_is_unknown_with_quarantine(tmp_path) -> None:
+    class FailingBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            raise RuntimeError("connection reset mid-flight")
+
+    database, unit_of_work, orchestrator, quarantine = _sqlite_setup_with_quarantine(tmp_path)
+    try:
+        request = _live_request()
+        broker = FailingBroker()
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert result.receipt is None
+        assert broker.submit_calls == 1
+        observations = quarantine.list_by_client_order(request.order.client_order_id)
+        assert len(observations) == 1
+        assert observations[0].kind is QuarantineObservationKind.TRANSPORT_UNCERTAIN
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.UNKNOWN
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_dual_persistence_failure_latches_safety_fault_and_blocks_submission(
+    tmp_path, monkeypatch
+) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        gate_store = SqliteTradingGateStateStore(database)
+        gate = DurableTradingGate(gate_store, default_enabled=True)
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database, gate=gate)
+        request = _live_request()
+        broker = FakeBroker()
+
+        def failing_save(receipt):
+            raise RuntimeError("receipt storage unavailable")
+
+        def failing_record(observation):
+            raise RuntimeError("quarantine storage unavailable")
+
+        monkeypatch.setattr(unit_of_work.receipts, "save", failing_save)
+        monkeypatch.setattr(quarantine, "record", failing_record)
+        result = orchestrator.execute(request, broker=broker)
+        assert result.status is ExecutionDispatchStatus.UNKNOWN
+        assert "submissions are disabled pending reconciliation" in result.reason
+        assert gate.allow() is False
+        persisted = gate_store.load()
+        assert persisted is not None
+        assert persisted.enabled is False
+        assert broker.submit_calls == 1
+        second = orchestrator.execute(request, broker=broker)
+        assert second.status is ExecutionDispatchStatus.BLOCKED
+        assert broker.submit_calls == 1
+    finally:
+        database.close()
+
+
+def test_quarantined_observations_never_become_authoritative(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
+        foreign_request = _live_request()
+        foreign_result = orchestrator.execute(
+            foreign_request, broker=_FixedReceiptBroker(_foreign_receipt(foreign_request))
+        )
+        assert foreign_result.status is ExecutionDispatchStatus.UNKNOWN
+        unknown_request = _live_request()
+        unknown_result = orchestrator.execute(
+            unknown_request, broker=_FixedReceiptBroker(_unknown_broker_receipt(unknown_request))
+        )
+        assert unknown_result.status is ExecutionDispatchStatus.UNKNOWN
+
+        for request in (foreign_request, unknown_request):
+            assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+            decision = unit_of_work.idempotency.check(
+                request.order.client_order_id, request_fingerprint(request)
+            )
+            assert decision.existing_receipt_id is None
+            assert decision.reservation_pending
+        pending_ids = {
+            record.client_order_id
+            for record in unit_of_work.idempotency.list_pending_recovery_records()
+        }
+        assert str(foreign_request.order.client_order_id) in pending_ids
+        assert str(unknown_request.order.client_order_id) in pending_ids
+        for request in (foreign_request, unknown_request):
+            observations = quarantine.list_by_client_order(request.order.client_order_id)
+            assert len(observations) == 1
+            assert unit_of_work.receipts.get(observations[0].observation_id) is None
+    finally:
+        database.close()

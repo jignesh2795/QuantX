@@ -22,6 +22,7 @@ from quantx.execution.idempotency import (
     PendingExecutionRecoveryRecord,
 )
 from quantx.execution.ports import ExecutionReceipt
+from quantx.execution.receipts.quarantine import QuarantinedSubmissionObservation
 
 
 class PersistentIdempotencyStore(Protocol):
@@ -76,6 +77,25 @@ class ReceiptRepository(Protocol):
     ) -> tuple[ExecutionReceipt, ...]: ...
 
 
+class SubmissionQuarantineRepository(Protocol):
+    """Non-authoritative durable evidence store for uncertain submissions.
+
+    Quarantined observations are separate from authoritative receipts and
+    from canonical accounting/lifecycle calculations. They never satisfy
+    idempotency completion and are never returned as canonical receipts;
+    they exist so uncertain or rejected submission evidence survives for
+    reconciliation. Writes are idempotent on the stable observation
+    identity: re-recording an identical observation is a no-op, and a
+    conflicting payload for the same identity fails closed.
+    """
+
+    def record(self, observation: QuarantinedSubmissionObservation) -> None: ...
+    def get(self, observation_id: UUID) -> QuarantinedSubmissionObservation | None: ...
+    def list_by_client_order(
+        self, client_order_id: UUID | str
+    ) -> tuple[QuarantinedSubmissionObservation, ...]: ...
+
+
 class UnitOfWork(Protocol):
     """Application-owned transaction boundary for execution persistence.
 
@@ -103,5 +123,6 @@ class UnitOfWork(Protocol):
 __all__ = [
     "PersistentIdempotencyStore",
     "ReceiptRepository",
+    "SubmissionQuarantineRepository",
     "UnitOfWork",
 ]

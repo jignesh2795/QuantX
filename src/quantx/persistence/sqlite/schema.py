@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _SCHEMA_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -59,6 +59,20 @@ CREATE TABLE IF NOT EXISTS trading_gate_state (
     reason TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )
+"""
+
+_SUBMISSION_QUARANTINE_TABLE = """
+CREATE TABLE IF NOT EXISTS submission_quarantine (
+    observation_id TEXT PRIMARY KEY,
+    client_order_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL
+)
+"""
+
+_SUBMISSION_QUARANTINE_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_submission_quarantine_client_order
+ON submission_quarantine (client_order_id)
 """
 
 _MARKET_CANDLES_TABLE = """
@@ -219,6 +233,8 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
     connection.execute(_RECEIPTS_CLIENT_ORDER_INDEX)
     connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
     connection.execute(_TRADING_GATE_TABLE)
+    connection.execute(_SUBMISSION_QUARANTINE_TABLE)
+    connection.execute(_SUBMISSION_QUARANTINE_INDEX)
     _create_market_tables(connection)
     _create_research_tables(connection)
     _create_experiment_tables(connection)
@@ -254,6 +270,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
             )
         connection.execute(_TRADING_GATE_TABLE)
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
+        connection.execute(_SUBMISSION_QUARANTINE_TABLE)
+        connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         _create_market_tables(connection)
         _create_research_tables(connection)
         _create_experiment_tables(connection)
@@ -269,6 +287,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
         _create_research_tables(connection)
         _create_experiment_tables(connection)
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
+        connection.execute(_SUBMISSION_QUARANTINE_TABLE)
+        connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 2",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -280,6 +300,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
         _create_research_tables(connection)
         _create_experiment_tables(connection)
         connection.execute(_OPERATOR_RESOLUTIONS_TABLE)
+        connection.execute(_SUBMISSION_QUARANTINE_TABLE)
+        connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 3",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -290,6 +312,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
     if version == 4:
         _create_research_tables(connection)
         _create_experiment_tables(connection)
+        connection.execute(_SUBMISSION_QUARANTINE_TABLE)
+        connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 4",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -299,8 +323,20 @@ def init_schema(connection: sqlite3.Connection) -> None:
 
     if version == 5:
         _create_experiment_tables(connection)
+        connection.execute(_SUBMISSION_QUARANTINE_TABLE)
+        connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 5",
+            (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
+        )
+        connection.commit()
+        return
+
+    if version == 6:
+        connection.execute(_SUBMISSION_QUARANTINE_TABLE)
+        connection.execute(_SUBMISSION_QUARANTINE_INDEX)
+        connection.execute(
+            "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 6",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
         )
         connection.commit()

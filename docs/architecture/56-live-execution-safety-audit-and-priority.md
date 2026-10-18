@@ -59,6 +59,8 @@ LIVE readiness requires a completed recovery report with no unresolved or failed
 
 ### P0.3 — Post-submit persistence exceptions and non-authoritative receipt evidence
 
+**Remediation status (2026-10-18):** implemented on `fix/p03-post-submit-evidence-v1` (issue #241). Post-submit `receipts.save()` and transaction-commit failures now return an explicit UNKNOWN result instead of escaping, leaving the reservation pending; the typed preflight boundary (`BrokerPreflightRejected`) proves deterministic adapter rejections before transport I/O and durably closes the reservation through the existing operator-resolution contract, while every other post-admission failure stays SUBMISSION_UNKNOWN; UNKNOWN and identity-mismatched receipts are never canonical but are retained as sanitized, non-authoritative observations in a separate durable quarantine store (`submission_quarantine`, SQLite schema v7); and when both canonical receipt persistence and quarantine evidence persistence fail, the reusable durable trading-gate fault disables further submission pending reconciliation. The pre-fix narrative below is retained as the audit record; current behavior is defined by the implementation and its regression tests.
+
 **Source-confirmed at current main**
 
 `src/quantx/application/execution.py::ExecutionOrchestrator._execute_live_transactional` commits the PENDING reservation before the broker call. It catches exceptions from `broker.submit()` and returns UNKNOWN, but the later `unit_of_work.receipts.save(receipt)` call is outside that submit-exception handler. If persistence raises after the broker accepted, the exception can escape the public execution call while the reservation remains PENDING.
@@ -88,6 +90,8 @@ The current orchestrator permits `live_risk_evaluator` and `session_guard` to be
 **Required direction:** define one explicit LIVE composition/factory that requires durable gate state, recovery-backed startup, a risk evaluator with non-empty required limits, current position/account/market evidence, a session guard, identity-bound approved requests, durable persistence, and reconciliation wiring. Missing required configuration must fail construction/readiness, not degrade to optional protection. Do not enable LIVE by introducing a convenience factory that omits a guard.
 
 ### F6 — Local preflight rejection is conflated with ambiguous external submission
+
+**Remediation status (2026-10-18):** the typed preflight-versus-submission boundary required by issue #241 is implemented as part of P0.3 on `fix/p03-post-submit-evidence-v1`. This resolves the earlier sequencing conflict: issue #241's acceptance requirement (deterministic local rejection must not be represented as an ambiguous remote submission) is satisfied in the P0.3 change itself, superseding the "separate slice after P0.1–P0.3" ordering recorded below. `DhanBrokerAdapter` proves its connection, instrument, market, and wire-request checks happen before transport I/O by raising the typed `BrokerPreflightRejected` (`quantx.execution.submission_preflight`); the orchestrator reports the known local block and closes the pending reservation durably via the existing operator-resolution contract without fabricating a receipt. Remaining F6 scope — strategy-intent identity deduplication and pending-recovery deterministic ordering (the non-preflight remainder of remediation step 7) — is deferred to a separate slice.
 
 **Source-confirmed at current main**
 
@@ -158,7 +162,7 @@ The order below resolves the merged audits into narrow slices. Each numbered sou
 4. **LIVE composition and approval binding.** Make required evaluator, limits, session, gate, persistence, recovery and evidence-cut requirements mandatory; bind the approval to request identity/fingerprint and evaluation evidence before any submit.
 5. **Risk-reducing operations.** Define reduce-only/cancel-all/flatten semantics, policy triggers and safe behavior after a risk trip. Do not treat this as permission to make compensating orders automatically.
 6. **Ongoing reconciliation.** Add a bounded periodic reconciliation lifecycle for mid-session UNKNOWNs and position/account drift, with no auto-resubmit.
-7. **Preflight/identity determinism.** Distinguish definitely-not-submitted local failures from ambiguous external calls; then settle strategy-intent identity and pending-recovery deterministic ordering.
+7. **Preflight/identity determinism.** The typed preflight/external-boundary half of this step moved into P0.3 per issue #241's explicit acceptance requirement (see the F6 remediation status above); strategy-intent identity and pending-recovery deterministic ordering remain a separate slice.
 8. **Layering and platform gaps.** After QX-04/#193 and QX-05/#194 contract ownership, continue QX-07/#181 with the import graph. Then measured package coverage (#182), API/clock/charges/money work, Dhan transport coverage, conformance schemas, and release/onboarding hygiene.
 
 The comparison supplied refers to an **F3** item in the first-audit priority list without restating that finding's exact invariant or reproducer. Do not guess what F3 means or silently fold it into P0.1; link the original first-audit record and add its concrete failing test before assigning its remediation.
