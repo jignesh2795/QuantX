@@ -1,24 +1,34 @@
 # LIVE Execution Safety Audit and Remediation Priority
 
-**Status:** Active audit / remediation plan (2026-10-16)
+**Status:** Historical audit baseline; current remediation tracked below (updated 2026-10-18)
 
-**Current source reviewed:** `main` at `2ce04cf40952124e8b2ef0414cbc4ded9d660292`
+**Source snapshot reviewed:** `main` at `2ce04cf40952124e8b2ef0414cbc4ded9d660292` (historical audit baseline; not current HEAD).
 
 **Earlier comparison base:** `bd5045ab6fa81c7ca6fb4503116a7ef12695adf5`
 
 **Tracker:** [#207 — QuantX adversarial code review](https://github.com/jignesh2795/QuantX/issues/207)
 
+## Current remediation status (as of 2026-10-18)
+
+| Slice | Current status | Evidence |
+|---|---|---|
+| P0.1 — durable kill-switch and submit-admission race | **Fixed and merged** | PR [#243](https://github.com/jignesh2795/QuantX/pull/243), merge `6692731e1bcffddcfb189bce8b49d8ab351fdfb2`; issue #239 closed |
+| P0.2 — startup readiness for unresolved recovery | **Fixed and merged** | PR [#244](https://github.com/jignesh2795/QuantX/pull/244), merge `103b7f47ac11813a0d6df9360b2885f9c1b9db1d`; issue #240 closed |
+| P0.3 — post-submit receipt/persistence uncertainty | **Open** | Issue [#241](https://github.com/jignesh2795/QuantX/issues/241) remains open; no fix or merge is claimed |
+
+The source analysis below preserves the original audit at the historical source snapshot `2ce04cf40952124e8b2ef0414cbc4ded9d660292`. P0.1 and P0.2 findings below describe pre-fix behavior and must not be read as current behavior. The current remediation status is the table above.
+
 ## Executive decision
 
-The consolidated Claude Sonnet audits should change execution order. **Do not start package-boundary refactoring or continue lower-priority API/market-realism work while the newly identified LIVE admission, startup-readiness, and post-submit evidence gaps remain unaddressed.** First land deterministic regression tests for the three P0 slices, then fix each slice in isolation and validate at the exact final commit.
+The original audits recommended prioritizing LIVE admission, startup-readiness, and post-submit evidence gaps before lower-priority refactoring. That original sequence has since advanced: P0.1 and P0.2 are fixed and merged; P0.3 (#241) remains the open P0 slice. The source-flow analysis below is a historical audit baseline, not a fresh current-main audit.
 
-The source spot-check was performed against current `main` at the SHA above, not only against the earlier `bd5045a` base. It confirms several critical control-flow shapes. The two failure-injection reproductions (F1 and F2) were reported by the first audit; they were **not rerun by this documentation pass**. Claims below distinguish source-confirmed behavior, audit-reported reproductions, and findings that still require broader evidence.
+The source spot-check was performed against the historical audit-base `main` snapshot at the SHA above, not only against the earlier `bd5045a` base. It confirms several critical control-flow shapes at that historical revision. The two failure-injection reproductions (F1 and F2) were reported by the first audit; they were **not rerun by this documentation pass**. Claims below distinguish source-confirmed behavior, audit-reported reproductions, and findings that still require broader evidence.
 
 No LIVE-readiness claim is made. The presence of a `BrokerPort`, a `LIVE` enum value, or a manually assembled `ExecutionOrchestrator` does not establish a production-safe LIVE composition.
 
 ## Evidence classification
 
-- **Source-confirmed:** directly observed in current source at `2ce04cf` and linked to the relevant function or contract below.
+- **Source-confirmed:** directly observed in the historical audit-base source snapshot `2ce04cf` and linked to the relevant function or contract below.
 - **Audit-reported reproduction:** failure injection or test output supplied by one of the two audits; the reproduction has not been independently rerun in this review.
 - **Partially verified / needs bounded audit:** the finding is plausible or partly confirmed, but the relevant builder, all call sites, schema path, or source-tree-wide absence has not yet been independently enumerated. Do not present these as established defects until the stated check is complete.
 
@@ -26,9 +36,9 @@ No LIVE-readiness claim is made. The presence of a `BrokerPort`, a `LIVE` enum v
 
 ### P0.1 — Durable kill-switch failure and submission admission race
 
-**Remediation status (2026-10-17):** fixed and merged in PR #243 (commits `a75ad3c`, `9e961d0`, `f2db0d8`, skills sync `7dd4640`). The pre-fix narrative below is retained as the audit record; do not read it as current behavior. P0.2 and P0.3 remain open.
+**Remediation status (2026-10-17):** fixed and merged in PR #243 (commits `a75ad3c`, `9e961d0`, `f2db0d8`, skills sync `7dd4640`). The pre-fix narrative below is retained as the audit record; do not read it as current behavior. P0.2 was subsequently fixed and merged in PR #244; P0.3 (#241) remains open.
 
-**Source-confirmed at current main**
+**Source-confirmed at audit baseline `2ce04cf40952124e8b2ef0414cbc4ded9d660292`**
 
 - `src/quantx/execution/trading_gate.py::DurableTradingGate.block` persists the disabled state before updating the local state. If `state_store.save()` raises, the local update is not performed.
 - `DurableTradingGate.allow()` reloads persistent state. If a failed block write leaves an older persisted enabled state, a subsequent `allow()` can read that enabled state.
@@ -47,7 +57,9 @@ A failed persistence operation must never leave the process permissive. Once `bl
 
 ### P0.2 — Startup ignores a non-raising recovery report
 
-**Source-confirmed at current main**
+**Remediation status (2026-10-17):** fixed and merged in PR #244 (merge commit `103b7f47ac11813a0d6df9360b2885f9c1b9db1d`); issue #240 is closed. The analysis below documents the pre-fix behavior at the historical audit baseline and is retained for traceability.
+
+**Source-confirmed at audit baseline `2ce04cf40952124e8b2ef0414cbc4ded9d660292`**
 
 `src/quantx/application/runtime.py::ApplicationRuntime.start` calls the configured `StartupRecoveryHook.run()` and sets `_started = True` whenever that call returns. It does not inspect the returned `PendingRecoveryRun` counters. `src/quantx/application/pending_recovery.py::PendingExecutionRecoveryRunner.run` intentionally isolates per-record failures as result records, so recovery can return normally while one or more submissions remain unresolved.
 
@@ -61,9 +73,11 @@ LIVE readiness requires a completed recovery report with no unresolved or failed
 
 ### P0.3 — Post-submit persistence exceptions and non-authoritative receipt evidence
 
-**Remediation status (2026-10-18):** implemented on `fix/p03-post-submit-evidence-v1` at feature commit `2cb02ae2100078a3f1e21a3a01d5edbb957c5b75` with follow-up hardening at `092f8075f559ef68d78ecdc94444c63187a74d48` (issue #241). Post-submit `receipts.save()` and transaction-commit failures now return an explicit UNKNOWN result instead of escaping, leaving the reservation pending; the typed preflight boundary (`BrokerPreflightRejected`) proves deterministic adapter rejections before transport I/O and durably closes the reservation through the typed not-submitted resolution contract (`NotSubmittedResolution`, `not_submitted_resolutions`, SQLite schema v8; no human operator identity is recorded or implied), while every other post-admission failure stays SUBMISSION_UNKNOWN; a durable submission quarantine repository is a mandatory LIVE-admission precondition (fail-closed before any reservation or broker contact), and UNKNOWN and identity-mismatched receipts are never canonical but are retained as sanitized, non-authoritative observations in that separate durable quarantine store (`submission_quarantine`); and when both canonical receipt persistence and quarantine evidence persistence fail, the reusable durable trading-gate fault disables further submission pending reconciliation. The pre-fix narrative below is retained as the audit record; current behavior is defined by the implementation and its regression tests. Publication sync (2026-10-18): the branch was merged with `main` at `9d5a69e6035e0b928a1d17f39d8134bc40d347b9` (merge commit `8f73fb880e324ab346d2f5bbac6f2727413f03db`) without rewriting history, and fully revalidated at that exact merge SHA against that base; `docs/STATUS.md` records the revalidation evidence. Malformed-response hardening (2026-10-18, commit `1c86dd874b357eae54d28ea3fb6b2a13917e33ad`): a broker response outside the canonical receipt contract — wrong runtime type or a non-canonical enum/identity value inside the receipt dataclass — previously raised out of the public LIVE execution call after the external submit may have started. `validate_receipt_runtime_shape` now rejects it before any attribute trust, and the orchestrator returns explicit UNKNOWN with a sanitized `MALFORMED_RECEIPT` quarantine observation, the PENDING reservation intact, and no retry; residual runtime failures inside request-identity validation are classified the same way. This closes the "malformed receipt enum/runtime shape/serialization" regression that the earlier P0.3 tests did not cover; `docs/STATUS.md` records the exact validation evidence. Admission-ordering correction (2026-10-18, commit `1b2aec52901b4e8bbb62bcd5662863ad3b1bfcdc`): the missing-quarantine admission check moved to the earliest LIVE boundary — before the trading gate, market-policy evaluation, and every broker probe (connection/health/instrument/capabilities), and before any reservation or submission — instead of after the capability probes; accompanying audit hardening rejects uninitialized/value-shadowing enum members before canonical persistence and converts raising attribute access on a hostile response into the same quarantined MALFORMED UNKNOWN instead of an escape or a safety-fault latch. `docs/STATUS.md` records the exact validation evidence.
+**Remediation status (2026-10-18):** implemented and locally validated on `fix/p03-post-submit-evidence-v1` (draft PR [#247](https://github.com/jignesh2795/QuantX/pull/247)) at feature commit `2cb02ae2100078a3f1e21a3a01d5edbb957c5b75` with follow-up hardening at `092f8075f559ef68d78ecdc94444c63187a74d48` (issue #241); issue #241 remains open in `main` until this branch is reviewed and merged, and no merge or production claim is made here. Post-submit `receipts.save()` and transaction-commit failures now return an explicit UNKNOWN result instead of escaping, leaving the reservation pending; the typed preflight boundary (`BrokerPreflightRejected`) proves deterministic adapter rejections before transport I/O and durably closes the reservation through the typed not-submitted resolution contract (`NotSubmittedResolution`, `not_submitted_resolutions`, SQLite schema v8; no human operator identity is recorded or implied), while every other post-admission failure stays SUBMISSION_UNKNOWN; a durable submission quarantine repository is a mandatory LIVE-admission precondition (fail-closed before any reservation or broker contact), and UNKNOWN and identity-mismatched receipts are never canonical but are retained as sanitized, non-authoritative observations in that separate durable quarantine store (`submission_quarantine`); and when both canonical receipt persistence and quarantine evidence persistence fail, the reusable durable trading-gate fault disables further submission pending reconciliation. The pre-fix narrative below is retained as the audit record; current behavior is defined by the implementation and its regression tests. Publication sync (2026-10-18): the branch was merged with `main` at `9d5a69e6035e0b928a1d17f39d8134bc40d347b9` (merge commit `8f73fb880e324ab346d2f5bbac6f2727413f03db`) without rewriting history, and fully revalidated at that exact merge SHA against that base; `docs/STATUS.md` records the revalidation evidence. Malformed-response hardening (2026-10-18, commit `1c86dd874b357eae54d28ea3fb6b2a13917e33ad`): a broker response outside the canonical receipt contract — wrong runtime type or a non-canonical enum/identity value inside the receipt dataclass — previously raised out of the public LIVE execution call after the external submit may have started. `validate_receipt_runtime_shape` now rejects it before any attribute trust, and the orchestrator returns explicit UNKNOWN with a sanitized `MALFORMED_RECEIPT` quarantine observation, the PENDING reservation intact, and no retry; residual runtime failures inside request-identity validation are classified the same way. This closes the "malformed receipt enum/runtime shape/serialization" regression that the earlier P0.3 tests did not cover; `docs/STATUS.md` records the exact validation evidence. Admission-ordering correction (2026-10-18, commit `1b2aec52901b4e8bbb62bcd5662863ad3b1bfcdc`): the missing-quarantine admission check moved to the earliest LIVE boundary — before the trading gate, market-policy evaluation, and every broker probe (connection/health/instrument/capabilities), and before any reservation or submission — instead of after the capability probes; accompanying audit hardening rejects uninitialized/value-shadowing enum members before canonical persistence and converts raising attribute access on a hostile response into the same quarantined MALFORMED UNKNOWN instead of an escape or a safety-fault latch. `docs/STATUS.md` records the exact validation evidence.
 
-**Source-confirmed at current main**
+**Second publication sync (2026-10-18):** the branch was merged again with `main` at `77c6b4dfb7690b2e7ce2b5cadaa17d030fa0479c` (PR #248, skills-manifest hardening) without rewriting history; that delta again touched no `src/` or `tests/` files. Conflict resolution preserved both `main`'s P0.1/P0.2 historical framing and the P0.3 implementation records above.
+
+**Source-confirmed at audit baseline `2ce04cf40952124e8b2ef0414cbc4ded9d660292`**
 
 `src/quantx/application/execution.py::ExecutionOrchestrator._execute_live_transactional` commits the PENDING reservation before the broker call. It catches exceptions from `broker.submit()` and returns UNKNOWN, but the later `unit_of_work.receipts.save(receipt)` call is outside that submit-exception handler. If persistence raises after the broker accepted, the exception can escape the public execution call while the reservation remains PENDING.
 
@@ -79,7 +93,7 @@ Once the external submit may have occurred, later receipt-storage/serialization/
 
 ### Approval is not bound to the approved request
 
-**Source-confirmed at current main**
+**Source-confirmed at audit baseline `2ce04cf40952124e8b2ef0414cbc4ded9d660292`**
 
 `src/quantx/domain/execution_request.py::ApprovedExecutionRequest.__post_init__` verifies that `risk_result.decision is RiskDecision.APPROVE`, and checks LIVE connection/policy presence. The request type does not bind that approval to a canonical request fingerprint, a resolved risk snapshot identity, or the evaluation timestamp. An approval object can therefore be reused/assembled without evidence in the value that it was evaluated for those exact request semantics and that evidence cut.
 
@@ -95,7 +109,7 @@ The current orchestrator permits `live_risk_evaluator` and `session_guard` to be
 
 **Remediation status (2026-10-18):** the typed preflight-versus-submission boundary required by issue #241 is implemented as part of P0.3 on `fix/p03-post-submit-evidence-v1` at feature commit `2cb02ae2100078a3f1e21a3a01d5edbb957c5b75` with follow-up hardening at `092f8075f559ef68d78ecdc94444c63187a74d48`. This resolves the earlier sequencing conflict: issue #241's acceptance requirement (deterministic local rejection must not be represented as an ambiguous remote submission) is satisfied in the P0.3 change itself, superseding the "separate slice after P0.1–P0.3" ordering recorded below. `DhanBrokerAdapter` proves its connection, instrument, market, and wire-request checks happen before transport I/O by raising the typed `BrokerPreflightRejected` (`quantx.execution.submission_preflight`); the orchestrator reports the known local block and closes the pending reservation durably via the typed not-submitted resolution contract (`NotSubmittedResolution`, SQLite schema v8) without fabricating a receipt or a human operator identity. Remaining F6 scope — strategy-intent identity deduplication and pending-recovery deterministic ordering (the non-preflight remainder of remediation step 7) — is deferred to a separate slice.
 
-**Source-confirmed at current main**
+**Source-confirmed at audit baseline `2ce04cf40952124e8b2ef0414cbc4ded9d660292`**
 
 `DhanBrokerAdapter.submit()` performs connection, canonical-instrument, market and order-request mapping checks before calling the transport. The orchestrator currently catches a broad exception from `broker.submit()` and returns UNKNOWN for all such exceptions. The adapter contract does not give the orchestrator a typed distinction between a definite pre-I/O rejection and an ambiguous failure after a submit may have reached the broker.
 
@@ -156,7 +170,7 @@ These are not comparable until their exact SHA, optional-Dhan-extra state, comma
 
 ## Ordered remediation plan
 
-The order below resolves the merged audits into narrow slices. Each numbered source-fix slice begins with failing regression tests at an exact base SHA, then its behavior change, then the same tests and full local gates at the final SHA.
+This is the original remediation sequence recorded on 2026-10-16, not a list of still-open work. P0.1 and P0.2 are now closed; P0.3 remains open as noted above. The original sequence was: each source-fix slice begins with failing regression tests at an exact base SHA, then its behavior change, then the same tests and full local gates at the final SHA.
 
 1. **P0.1 — durable kill-switch.** Add red tests for persistence-write fail-open, initially-enabled default, and a submit-vs-block interleaving. Fix in [#239](https://github.com/jignesh2795/QuantX/issues/239).
 2. **P0.2 — startup readiness.** Add red tests for pending/failed return reports (not only raised exceptions); make readiness false until every required recovery result is definitive. Fix in [#240](https://github.com/jignesh2795/QuantX/issues/240).
@@ -185,4 +199,4 @@ The comparison supplied refers to an **F3** item in the first-audit priority lis
 - QX-08/#196 is closed and acceptance traceability is recorded in the top of `docs/STATUS.md`; remove stale lower-page “next step” text rather than reopening it.
 - QX-04/#193 and QX-05/#194 have accepted design decisions in ADR-011/ADR-012 but their implementation issues remain open. Defer QX-07/#181's source package moves until those request/contract ownership decisions are implemented.
 - QX-06/#195 is closed for design only under ADR-010; multi-leg implementation remains gated on canonical leg semantics and aggregate risk/persistence support.
-- This audit is a triage and acceptance contract, not an implementation-validation report. The three P0 issues above are open; no code fix or current-main test pass is claimed by this document.
+- This historical audit is a triage and acceptance contract, not itself an implementation-validation report. At the time of the audit all three P0 issues were open; as of 2026-10-18, #239 and #240 are closed by PRs #243 and #244, while #241 remains open. This documentation reconciliation does not claim a new source-level code fix or broker/LIVE validation.
