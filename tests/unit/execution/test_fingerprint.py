@@ -1,5 +1,6 @@
 """Focused tests for canonical request fingerprinting."""
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -19,6 +20,12 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency.fingerprint import _canonical_decimal, request_fingerprint
 
+NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+
+
+def _effect_cut(effect: PositionEffect | None) -> datetime | None:
+    return NOW if effect in {PositionEffect.CLOSE, PositionEffect.AUTO} else None
+
 
 def _request(
     *,
@@ -29,6 +36,7 @@ def _request(
     product: ProductCode | None = None,
     position_effect: PositionEffect | None = None,
     effective_position_effect: PositionEffect | None = None,
+    position_evidence_cut: datetime | None = None,
     market_pack_id: str | None = None,
     rule_version: str | None = None,
 ) -> ApprovedExecutionRequest:
@@ -62,6 +70,7 @@ def _request(
         product=product,
         position_effect=position_effect,
         effective_position_effect=effective_position_effect,
+        position_evidence_cut=position_evidence_cut,
     )
 
 
@@ -107,15 +116,19 @@ def test_identity_fields_are_excluded_from_fingerprint() -> None:
     assert request_fingerprint(first_request) == request_fingerprint(second_request)
 
 
+def _product_request(product: str) -> ApprovedExecutionRequest:
+    return _request(product=ProductCode(product), market_pack_id="india-equity", rule_version="v1")
+
+
 def test_different_products_have_different_fingerprints() -> None:
-    assert request_fingerprint(_request(product=ProductCode("CNC"))) != request_fingerprint(
-        _request(product=ProductCode("INTRADAY"))
+    assert request_fingerprint(_product_request("CNC")) != request_fingerprint(
+        _product_request("MIS")
     )
 
 
 def test_same_product_has_stable_fingerprint() -> None:
-    assert request_fingerprint(_request(product=ProductCode("CNC"))) == request_fingerprint(
-        _request(product=ProductCode("CNC"))
+    assert request_fingerprint(_product_request("CNC")) == request_fingerprint(
+        _product_request("CNC")
     )
 
 
@@ -134,10 +147,12 @@ def test_different_requested_effects_have_different_fingerprints(
     first_request = _request(
         position_effect=first,
         effective_position_effect=PositionEffect.OPEN if first is PositionEffect.AUTO else None,
+        position_evidence_cut=_effect_cut(first),
     )
     second_request = _request(
         position_effect=second,
         effective_position_effect=PositionEffect.OPEN if second is PositionEffect.AUTO else None,
+        position_evidence_cut=_effect_cut(second),
     )
     assert request_fingerprint(first_request) != request_fingerprint(second_request)
 
@@ -146,12 +161,28 @@ def test_different_resolved_auto_effects_have_different_fingerprints() -> None:
     open_request = _request(
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.OPEN,
+        position_evidence_cut=NOW,
     )
     close_request = _request(
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.CLOSE,
+        position_evidence_cut=NOW,
     )
     assert request_fingerprint(open_request) != request_fingerprint(close_request)
+
+
+def test_different_position_evidence_cuts_have_different_fingerprints() -> None:
+    first = _request(
+        position_effect=PositionEffect.AUTO,
+        effective_position_effect=PositionEffect.OPEN,
+        position_evidence_cut=NOW,
+    )
+    second = _request(
+        position_effect=PositionEffect.AUTO,
+        effective_position_effect=PositionEffect.OPEN,
+        position_evidence_cut=datetime(2026, 1, 5, 10, 1, tzinfo=UTC),
+    )
+    assert request_fingerprint(first) != request_fingerprint(second)
 
 
 def test_rule_identity_changes_fingerprint() -> None:

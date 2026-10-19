@@ -111,6 +111,7 @@ class ExecutionLifecycle:
             product=request.product,
             position_effect=request.position_effect,
             effective_position_effect=request.effective_position_effect,
+            position_evidence_cut=request.position_evidence_cut,
         )
 
     def continuation_quantity(self, requested_quantity: Decimal | None = None) -> Decimal:

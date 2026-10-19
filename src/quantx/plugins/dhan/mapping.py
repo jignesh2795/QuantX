@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
@@ -55,9 +56,34 @@ def dhan_correlation_id(correlation_id: str) -> str:
 _SUPPORTED_DHAN_PRODUCTS: set[str] = {"CNC", "INTRADAY", "MARGIN", "MTF"}
 
 
-def dhan_product_type(product_code: ProductCode | None, instrument_ref: DhanInstrumentRef) -> str:
+def dhan_product_type(
+    product_code: ProductCode | None,
+    instrument_ref: DhanInstrumentRef,
+    product_map: Mapping[str, str] | None = None,
+) -> str:
+    """Translate the approved neutral product into a Dhan wire value.
+
+    Explicit products require a verified adapter-supplied mapping; there is
+    no implicit identity mapping from neutral codes to Dhan wire codes. When
+    the request omits a product, the instrument reference's documented
+    default is the explicit legacy compatibility path.
+    """
     if product_code is not None:
-        normalized = product_code.value.strip().upper()
+        if product_map is None:
+            raise ValueError(
+                f"no configured Dhan product mapping for product {product_code.value!r}"
+            )
+        key = product_code.value.strip().upper()
+        normalized_map: dict[str, str] = {}
+        for map_key, map_value in product_map.items():
+            normalized_key = map_key.strip().upper()
+            if normalized_key in normalized_map:
+                raise ValueError(f"duplicate Dhan product map key: {normalized_key}")
+            normalized_map[normalized_key] = map_value.strip().upper()
+        mapped = normalized_map.get(key)
+        if mapped is None:
+            raise ValueError(f"unsupported Dhan product for this instrument/segment: {key}")
+        normalized = mapped
     else:
         # Explicit compatibility default for legacy callers without a selected
         # product: the instrument reference's documented default, not a global
@@ -79,6 +105,7 @@ def build_order_request(
     time_in_force: TimeInForce,
     correlation_id: str,
     product_code: ProductCode | None = None,
+    product_map: Mapping[str, str] | None = None,
 ) -> DhanOrderRequest:
     if quantity != quantity.to_integral_value():
         raise ValueError("Dhan regular orders require integral quantities")
@@ -89,7 +116,7 @@ def build_order_request(
         transaction_type=dhan_side(side),
         quantity=int(quantity),
         order_type=dhan_order_type(order_type),
-        product_type=dhan_product_type(product_code, instrument_ref),
+        product_type=dhan_product_type(product_code, instrument_ref, product_map),
         price=limit_price if limit_price is not None else Decimal("0"),
         trigger_price=stop_price if stop_price is not None else Decimal("0"),
         validity=dhan_time_in_force(time_in_force),

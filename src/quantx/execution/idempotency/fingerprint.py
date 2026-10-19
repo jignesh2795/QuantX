@@ -34,7 +34,12 @@ def _json_value(value: object) -> object:
 
 
 def request_fingerprint(request: ApprovedExecutionRequest) -> str:
-    """Hash execution-relevant fields, excluding client-order identity and timestamps."""
+    """Hash execution-relevant fields, excluding client-order identity.
+
+    Wall-clock construction timestamps stay excluded. The position-evidence
+    cut is not a construction timestamp: it is the approval evidence the
+    resolved effect is bound to, so it participates in identity.
+    """
     payload = {
         "instrument": str(request.order.instrument),
         "side": request.order.side.value,
@@ -67,6 +72,11 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
         ),
         "market_pack_id": request.execution_context.market_pack_id,
         "rule_version": request.execution_context.rule_version,
+        "position_evidence_cut": (
+            None
+            if request.position_evidence_cut is None
+            else request.position_evidence_cut.isoformat()
+        ),
     }
     canonical = json.dumps(_json_value(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

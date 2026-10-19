@@ -195,22 +195,26 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="india",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=InstrumentId("NSE", "TCS"),
         side=OrderSide.BUY,
         quantity=Decimal("10"),
-        product=ProductCode("INTRADAY"),
+        product=ProductCode("MIS"),
         position_effect=PositionEffect.AUTO,
         execution_context=context,
     )
+    evidence_cut = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
     request = ApprovedExecutionRequest(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),
-        product=ProductCode("INTRADAY"),
+        product=ProductCode("MIS"),
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.OPEN,
+        position_evidence_cut=evidence_cut,
     )
     lifecycle = ExecutionLifecycle(
         request.order.client_order_id,
@@ -225,11 +229,12 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
     )
 
     assert child.order.client_order_id != request.order.client_order_id
-    assert child.order.product == ProductCode("INTRADAY")
+    assert child.order.product == ProductCode("MIS")
     assert child.order.position_effect is PositionEffect.AUTO
-    assert child.product == ProductCode("INTRADAY")
+    assert child.product == ProductCode("MIS")
     assert child.position_effect is PositionEffect.AUTO
     assert child.effective_position_effect is PositionEffect.OPEN
+    assert child.position_evidence_cut == evidence_cut
 
 
 def _receipt_with_status(

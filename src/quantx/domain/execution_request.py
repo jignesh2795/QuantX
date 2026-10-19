@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 from .deployment import ExecutionContext, ExecutionMode
@@ -25,6 +26,7 @@ class ApprovedExecutionRequest:
     product: ProductCode | None = None
     position_effect: PositionEffect | None = None
     effective_position_effect: PositionEffect | None = None
+    position_evidence_cut: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.required_margin < 0:
@@ -38,6 +40,11 @@ class ApprovedExecutionRequest:
                 raise ValueError("live execution requires an approved execution policy")
         if self.product is not None and not str(self.product).strip():
             raise ValueError("approved request product must be non-empty when specified")
+        if self.product is not None:
+            if not (self.execution_context.market_pack_id or "").strip():
+                raise ValueError("an explicit product requires a market-pack id")
+            if not (self.execution_context.rule_version or "").strip():
+                raise ValueError("an explicit product requires a market-pack rule version")
         if self.order.product is not None:
             if self.product is None:
                 raise ValueError(
@@ -61,14 +68,37 @@ class ApprovedExecutionRequest:
                 raise ValueError(
                     "approved request position effect does not match the order position effect"
                 )
-        if self.position_effect == PositionEffect.AUTO:
+        if self.effective_position_effect is not None:
+            if self.effective_position_effect not in {
+                PositionEffect.OPEN,
+                PositionEffect.CLOSE,
+            }:
+                raise ValueError("resolved position effect must be OPEN or CLOSE")
+            if self.position_effect not in {PositionEffect.AUTO, PositionEffect.CLOSE}:
+                raise ValueError(
+                    "an effective position effect is only valid for AUTO or CLOSE requests"
+                )
+            if self.position_effect is PositionEffect.CLOSE and (
+                self.effective_position_effect is not PositionEffect.CLOSE
+            ):
+                raise ValueError("CLOSE position effect cannot resolve to OPEN")
+        if self.position_effect is PositionEffect.AUTO:
             if self.effective_position_effect is None:
                 raise ValueError(
                     "AUTO position effect requires a resolved effective effect (OPEN or CLOSE) "
                     "before approval"
                 )
-            if self.effective_position_effect not in {PositionEffect.OPEN, PositionEffect.CLOSE}:
-                raise ValueError("resolved AUTO effect must be OPEN or CLOSE")
+        if self.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
+            if self.position_evidence_cut is None:
+                raise ValueError(
+                    f"{self.position_effect.value} position effect requires the position "
+                    "evidence cut used for approval"
+                )
+        if self.position_evidence_cut is not None and (
+            self.position_evidence_cut.tzinfo is None
+            or self.position_evidence_cut.utcoffset() is None
+        ):
+            raise ValueError("position evidence cut must be timezone-aware")
 
     @property
     def correlation_id(self) -> str:
@@ -84,6 +114,8 @@ class PendingExecutionRecoveryRequest:
     parent_client_order_id: str | None = None
     product: ProductCode | None = None
     position_effect: PositionEffect | None = None
+    effective_position_effect: PositionEffect | None = None
+    position_evidence_cut: datetime | None = None
 
     @property
     def correlation_id(self) -> str:

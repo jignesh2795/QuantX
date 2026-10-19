@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from types import MappingProxyType
 from uuid import uuid4
 
 from quantx.domain.enums import OrderStatus
@@ -52,6 +54,7 @@ class DhanBrokerAdapter:
     _read_timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
     _capabilities: CapabilitySet = DHAN_CAPABILITIES
     _adapter_version: str = "dhan-0.1"
+    _product_map: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         if self._connection.broker_id != "dhan":
@@ -64,6 +67,18 @@ class DhanBrokerAdapter:
         ):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise ValueError(f"{name} must be a positive number")
+        if self._product_map is not None:
+            normalized: dict[str, str] = {}
+            for neutral, wire in self._product_map.items():
+                if not isinstance(neutral, str) or not neutral.strip():
+                    raise ValueError("Dhan product map keys must be non-empty strings")
+                if not isinstance(wire, str) or not wire.strip():
+                    raise ValueError("Dhan product map values must be non-empty strings")
+                key = neutral.strip().upper()
+                if key in normalized:
+                    raise ValueError(f"duplicate Dhan product map key: {key}")
+                normalized[key] = wire.strip().upper()
+            object.__setattr__(self, "_product_map", MappingProxyType(normalized))
 
     @property
     def descriptor(self) -> BrokerDescriptor:
@@ -91,7 +106,7 @@ class DhanBrokerAdapter:
         instrument_ref: DhanInstrumentRef,
     ) -> None:
         try:
-            dhan_product_type(request.product, instrument_ref)
+            dhan_product_type(request.product, instrument_ref, self._product_map)
         except ValueError as exc:
             if request.product is None:
                 raise BrokerPreflightRejected(
@@ -133,6 +148,7 @@ class DhanBrokerAdapter:
                 time_in_force=request.order.time_in_force,
                 correlation_id=request.correlation_id,
                 product_code=request.product,
+                product_map=self._product_map,
             )
         except BrokerPreflightRejected:
             raise

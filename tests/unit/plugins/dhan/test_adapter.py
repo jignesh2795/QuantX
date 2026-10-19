@@ -94,6 +94,9 @@ def _request(
     position_effect: PositionEffect | None = None,
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
+    pack_identity = (
+        {} if product is None else {"market_pack_id": "india", "rule_version": "india-products-v1"}
+    )
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -101,6 +104,7 @@ def _request(
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=mode,
+        **pack_identity,
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -171,7 +175,14 @@ def _started_runtime() -> ApplicationRuntime:
     return runtime
 
 
-def _adapter(transport: InMemoryDhanTransport | None = None) -> DhanBrokerAdapter:
+_PRODUCT_MAP = {"CNC": "CNC", "MIS": "INTRADAY", "NRML": "MARGIN"}
+
+
+def _adapter(
+    transport: InMemoryDhanTransport | None = None,
+    *,
+    product_map: dict[str, str] | None = _PRODUCT_MAP,
+) -> DhanBrokerAdapter:
     instrument = _instrument()
     connection = BrokerConnectionRef(
         AccountId("acct-1"),
@@ -196,6 +207,7 @@ def _adapter(transport: InMemoryDhanTransport | None = None) -> DhanBrokerAdapte
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _product_map=product_map,
     )
 
 
@@ -219,7 +231,7 @@ def test_submit_translates_to_dhan_and_returns_normalized_receipt() -> None:
 
 def test_submit_uses_explicit_request_product_over_instrument_default() -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
-    receipt = _adapter(transport).submit(_request(product=ProductCode("INTRADAY")))
+    receipt = _adapter(transport).submit(_request(product=ProductCode("MIS")))
 
     assert receipt.outcome is ExecutionOutcome.ACCEPTED
     assert transport.submitted[0].product_type == "INTRADAY"
@@ -227,7 +239,7 @@ def test_submit_uses_explicit_request_product_over_instrument_default() -> None:
 
 def test_distinct_products_produce_distinct_wire_values_and_fingerprints() -> None:
     first = _request(product=ProductCode("CNC"))
-    second = _request(product=ProductCode("INTRADAY"))
+    second = _request(product=ProductCode("MIS"))
     first_transport = InMemoryDhanTransport(response_status="PENDING")
     second_transport = InMemoryDhanTransport(response_status="PENDING")
 
@@ -239,11 +251,20 @@ def test_distinct_products_produce_distinct_wire_values_and_fingerprints() -> No
     assert request_fingerprint(first) != request_fingerprint(second)
 
 
+def test_explicit_product_requires_configured_mapping_before_transport() -> None:
+    transport = InMemoryDhanTransport()
+
+    with pytest.raises(BrokerPreflightRejected, match="unsupported product"):
+        _adapter(transport, product_map=None).submit(_request(product=ProductCode("MIS")))
+
+    assert not transport.submitted
+
+
 def test_submit_rejects_unsupported_product_before_transport() -> None:
     transport = InMemoryDhanTransport()
 
     with pytest.raises(BrokerPreflightRejected, match="unsupported product"):
-        _adapter(transport).submit(_request(product=ProductCode("DELIVERY")))
+        _adapter(transport).submit(_request(product=ProductCode("MTF")))
 
     assert not transport.submitted
 

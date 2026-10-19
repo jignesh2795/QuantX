@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -9,7 +10,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import OrderSide, PositionEffect
+from quantx.domain.enums import OrderSide, OrderType, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
@@ -17,8 +18,17 @@ from quantx.domain.orders import Order
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 
+NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+PACK = {"market_pack_id": "india", "rule_version": "india-products-v1"}
 
-def _context(mode: ExecutionMode, connection_id=None) -> ExecutionContext:
+
+def _context(
+    mode: ExecutionMode,
+    connection_id=None,
+    *,
+    market_pack_id: str | None = None,
+    rule_version: str | None = None,
+) -> ExecutionContext:
     return ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -26,14 +36,14 @@ def _context(mode: ExecutionMode, connection_id=None) -> ExecutionContext:
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=connection_id,
         execution_mode=mode,
+        market_pack_id=market_pack_id,
+        rule_version=rule_version,
     )
 
 
 def test_order_is_derived_from_intent() -> None:
     intent = TradeIntent(
-        instrument=__import__(
-            "quantx.domain.value_objects", fromlist=["InstrumentId"]
-        ).InstrumentId("NSE", "TCS"),
+        instrument=InstrumentId("NSE", "TCS"),
         side=OrderSide.BUY,
         quantity=Decimal("10"),
         execution_context=_context(ExecutionMode.PAPER),
@@ -46,11 +56,9 @@ def test_order_is_derived_from_intent() -> None:
 
 def test_live_execution_requires_broker_connection() -> None:
     order = Order(
-        instrument=__import__(
-            "quantx.domain.value_objects", fromlist=["InstrumentId"]
-        ).InstrumentId("NSE", "TCS"),
+        instrument=InstrumentId("NSE", "TCS"),
         side=OrderSide.BUY,
-        order_type=__import__("quantx.domain.enums", fromlist=["OrderType"]).OrderType.MARKET,
+        order_type=OrderType.MARKET,
         quantity=Decimal("1"),
     )
     approved = RiskResult(RiskDecision.APPROVE, "approved")
@@ -59,64 +67,97 @@ def test_live_execution_requires_broker_connection() -> None:
 
 
 def test_build_order_from_intent_preserves_product_and_position_effect() -> None:
-    context = _context(ExecutionMode.PAPER)
+    context = _context(ExecutionMode.PAPER, **PACK)
     intent = TradeIntent(
         instrument=InstrumentId("NSE", "TCS"),
         side=OrderSide.BUY,
         quantity=Decimal("10"),
-        product=ProductCode("INTRADAY"),
+        product=ProductCode("MIS"),
         position_effect=PositionEffect.OPEN,
         execution_context=context,
     )
     order = build_order_from_intent(intent)
-    assert order.product == ProductCode("INTRADAY")
+    assert order.product == ProductCode("MIS")
     assert order.position_effect is PositionEffect.OPEN
+
+
+def _order(
+    *,
+    side: OrderSide = OrderSide.BUY,
+    product: ProductCode | None = None,
+    position_effect: PositionEffect | None = None,
+) -> Order:
+    return Order(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=side,
+        order_type=OrderType.MARKET,
+        quantity=Decimal("1"),
+        product=product,
+        position_effect=position_effect,
+    )
 
 
 def _paper_request(
     order: Order,
     *,
+    product: ProductCode | None = None,
     position_effect: PositionEffect | None = None,
     effective_position_effect: PositionEffect | None = None,
+    position_evidence_cut: datetime | None = None,
+    market_pack_id: str | None = PACK["market_pack_id"],
+    rule_version: str | None = PACK["rule_version"],
 ) -> ApprovedExecutionRequest:
     return ApprovedExecutionRequest(
         order=order,
-        execution_context=_context(ExecutionMode.PAPER),
+        execution_context=_context(
+            ExecutionMode.PAPER,
+            market_pack_id=market_pack_id,
+            rule_version=rule_version,
+        ),
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
-        product=order.product,
+        product=order.product if product is None else product,
         position_effect=position_effect,
         effective_position_effect=effective_position_effect,
+        position_evidence_cut=position_evidence_cut,
     )
+
+
+def test_explicit_product_requires_market_pack_identity() -> None:
+    order = _order(product=ProductCode("CNC"))
+    with pytest.raises(ValueError, match="requires a market-pack id"):
+        _paper_request(order, market_pack_id=None, rule_version=None)
+    with pytest.raises(ValueError, match="requires a market-pack rule version"):
+        _paper_request(order, market_pack_id="india", rule_version=None)
 
 
 def test_auto_position_effect_requires_resolved_effective_effect() -> None:
-    order = build_order_from_intent(
-        TradeIntent(
-            instrument=InstrumentId("NSE", "TCS"),
-            side=OrderSide.BUY,
-            quantity=Decimal("10"),
-            position_effect=PositionEffect.AUTO,
-            execution_context=_context(ExecutionMode.PAPER),
-        )
-    )
+    order = _order(position_effect=PositionEffect.AUTO)
     with pytest.raises(ValueError, match="AUTO position effect requires"):
-        _paper_request(order, position_effect=PositionEffect.AUTO)
+        _paper_request(
+            order,
+            position_effect=PositionEffect.AUTO,
+            position_evidence_cut=NOW,
+        )
 
 
 def test_auto_position_effect_rejects_unresolved_effective_value() -> None:
-    order = build_order_from_intent(
-        TradeIntent(
-            instrument=InstrumentId("NSE", "TCS"),
-            side=OrderSide.BUY,
-            quantity=Decimal("10"),
-            execution_context=_context(ExecutionMode.PAPER),
-        )
-    )
-    with pytest.raises(ValueError, match="resolved AUTO effect"):
+    order = _order(position_effect=PositionEffect.AUTO)
+    with pytest.raises(ValueError, match="resolved position effect must be OPEN or CLOSE"):
         _paper_request(
             order,
             position_effect=PositionEffect.AUTO,
             effective_position_effect=PositionEffect.AUTO,
+            position_evidence_cut=NOW,
+        )
+
+
+def test_auto_requires_the_position_evidence_cut() -> None:
+    order = _order(position_effect=PositionEffect.AUTO)
+    with pytest.raises(ValueError, match="requires the position evidence cut"):
+        _paper_request(
+            order,
+            position_effect=PositionEffect.AUTO,
+            effective_position_effect=PositionEffect.OPEN,
         )
 
 
@@ -124,34 +165,67 @@ def test_auto_position_effect_rejects_unresolved_effective_value() -> None:
 def test_auto_position_effect_accepts_resolved_open_or_close(
     effective: PositionEffect,
 ) -> None:
-    order = build_order_from_intent(
-        TradeIntent(
-            instrument=InstrumentId("NSE", "TCS"),
-            side=OrderSide.BUY,
-            quantity=Decimal("10"),
-            execution_context=_context(ExecutionMode.PAPER),
-        )
-    )
+    order = _order(position_effect=PositionEffect.AUTO)
     request = _paper_request(
         order,
         position_effect=PositionEffect.AUTO,
         effective_position_effect=effective,
+        position_evidence_cut=NOW,
     )
     assert request.position_effect is PositionEffect.AUTO
     assert request.effective_position_effect is effective
+    assert request.position_evidence_cut == NOW
+
+
+def test_close_requires_the_position_evidence_cut() -> None:
+    order = _order(side=OrderSide.SELL, position_effect=PositionEffect.CLOSE)
+    with pytest.raises(ValueError, match="requires the position evidence cut"):
+        _paper_request(order, position_effect=PositionEffect.CLOSE)
+
+
+def test_close_cannot_resolve_to_open() -> None:
+    order = _order(side=OrderSide.SELL, position_effect=PositionEffect.CLOSE)
+    with pytest.raises(ValueError, match="cannot resolve to OPEN"):
+        _paper_request(
+            order,
+            position_effect=PositionEffect.CLOSE,
+            effective_position_effect=PositionEffect.OPEN,
+            position_evidence_cut=NOW,
+        )
+
+
+def test_effective_effect_is_only_valid_for_auto_or_close() -> None:
+    order = _order(position_effect=PositionEffect.OPEN)
+    with pytest.raises(ValueError, match="only valid for AUTO or CLOSE"):
+        _paper_request(
+            order,
+            position_effect=PositionEffect.OPEN,
+            effective_position_effect=PositionEffect.OPEN,
+            position_evidence_cut=NOW,
+        )
+
+
+def test_position_evidence_cut_must_be_timezone_aware() -> None:
+    order = _order(side=OrderSide.SELL, position_effect=PositionEffect.CLOSE)
+    with pytest.raises(ValueError, match="evidence cut must be timezone-aware"):
+        _paper_request(
+            order,
+            position_effect=PositionEffect.CLOSE,
+            position_evidence_cut=datetime(2026, 1, 5, 10, 0),
+        )
 
 
 def test_explicit_position_effect_and_product_are_preserved() -> None:
-    order = build_order_from_intent(
-        TradeIntent(
-            instrument=InstrumentId("NSE", "TCS"),
-            side=OrderSide.SELL,
-            quantity=Decimal("10"),
-            product=ProductCode("CNC"),
-            position_effect=PositionEffect.CLOSE,
-            execution_context=_context(ExecutionMode.PAPER),
-        )
+    order = _order(
+        side=OrderSide.SELL,
+        product=ProductCode("CNC"),
+        position_effect=PositionEffect.CLOSE,
     )
-    request = _paper_request(order, position_effect=PositionEffect.CLOSE)
+    request = _paper_request(
+        order,
+        position_effect=PositionEffect.CLOSE,
+        position_evidence_cut=NOW,
+    )
     assert request.product == ProductCode("CNC")
     assert request.position_effect is PositionEffect.CLOSE
+    assert request.position_evidence_cut == NOW

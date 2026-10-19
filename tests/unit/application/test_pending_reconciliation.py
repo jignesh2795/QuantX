@@ -421,17 +421,20 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
         side=OrderSide.BUY,
         quantity=Decimal("2"),
         order_type=OrderType.MARKET,
-        product=ProductCode("INTRADAY"),
-        position_effect=PositionEffect.OPEN,
+        product=ProductCode("MIS"),
+        position_effect=PositionEffect.AUTO,
         execution_context=context,
     )
+    evidence_cut = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
     request = ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
-        product=ProductCode("INTRADAY"),
-        position_effect=PositionEffect.OPEN,
+        product=ProductCode("MIS"),
+        position_effect=PositionEffect.AUTO,
+        effective_position_effect=PositionEffect.OPEN,
+        position_evidence_cut=evidence_cut,
     )
     fingerprint = request_fingerprint(request)
 
@@ -441,12 +444,18 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
     recovery_request = restored.to_recovery_request()
 
     assert restored.request_fingerprint == fingerprint
-    assert restored.order.product == ProductCode("INTRADAY")
-    assert restored.order.position_effect is PositionEffect.OPEN
+    assert restored.order.product == ProductCode("MIS")
+    assert restored.order.position_effect is PositionEffect.AUTO
+    assert restored.product == ProductCode("MIS")
+    assert restored.position_effect is PositionEffect.AUTO
+    assert restored.effective_position_effect is PositionEffect.OPEN
+    assert restored.position_evidence_cut == evidence_cut
     assert restored.execution_context.market_pack_id == "india-equity"
     assert restored.execution_context.rule_version == "rules-v1"
-    assert recovery_request.product == ProductCode("INTRADAY")
-    assert recovery_request.position_effect is PositionEffect.OPEN
+    assert recovery_request.product == ProductCode("MIS")
+    assert recovery_request.position_effect is PositionEffect.AUTO
+    assert recovery_request.effective_position_effect is PositionEffect.OPEN
+    assert recovery_request.position_evidence_cut == evidence_cut
     assert recovery_request.execution_context.market_pack_id == "india-equity"
     assert recovery_request.execution_context.rule_version == "rules-v1"
 

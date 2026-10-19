@@ -35,12 +35,21 @@ class PendingExecutionContext:
     order: Order
     execution_context: ExecutionContext
     parent_client_order_id: str | None = None
+    product: ProductCode | None = None
+    position_effect: PositionEffect | None = None
+    effective_position_effect: PositionEffect | None = None
+    position_evidence_cut: datetime | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_fingerprint, str) or not self.request_fingerprint.strip():
             raise ValueError("pending execution context fingerprint must not be empty")
         if self.execution_context.execution_mode is not ExecutionMode.LIVE:
             raise ValueError("pending execution context must describe LIVE execution")
+        if self.position_evidence_cut is not None and (
+            self.position_evidence_cut.tzinfo is None
+            or self.position_evidence_cut.utcoffset() is None
+        ):
+            raise ValueError("position evidence cut must be timezone-aware")
 
     @classmethod
     def from_request(
@@ -53,6 +62,10 @@ class PendingExecutionContext:
             order=request.order,
             execution_context=request.execution_context,
             parent_client_order_id=request.parent_client_order_id,
+            product=request.product,
+            position_effect=request.position_effect,
+            effective_position_effect=request.effective_position_effect,
+            position_evidence_cut=request.position_evidence_cut,
         )
 
     def to_recovery_request(self) -> PendingExecutionRecoveryRequest:
@@ -60,8 +73,10 @@ class PendingExecutionContext:
             order=self.order,
             execution_context=self.execution_context,
             parent_client_order_id=self.parent_client_order_id,
-            product=self.order.product,
-            position_effect=self.order.position_effect,
+            product=self.product,
+            position_effect=self.position_effect,
+            effective_position_effect=self.effective_position_effect,
+            position_evidence_cut=self.position_evidence_cut,
         )
 
     def to_json(self) -> str:
@@ -112,6 +127,20 @@ class PendingExecutionContext:
             },
             "parent_client_order_id": (
                 None if self.parent_client_order_id is None else str(self.parent_client_order_id)
+            ),
+            "product": None if self.product is None else str(self.product),
+            "position_effect": (
+                None if self.position_effect is None else self.position_effect.value
+            ),
+            "effective_position_effect": (
+                None
+                if self.effective_position_effect is None
+                else self.effective_position_effect.value
+            ),
+            "position_evidence_cut": (
+                None
+                if self.position_evidence_cut is None
+                else self.position_evidence_cut.isoformat()
             ),
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -177,11 +206,23 @@ class PendingExecutionContext:
                 rule_version=context_data.get("rule_version"),
             )
             parent = payload["parent_client_order_id"]
+            product_value = payload.get("product")
+            effect_value = payload.get("position_effect")
+            effective_value = payload.get("effective_position_effect")
+            cut_value = payload.get("position_evidence_cut")
             return cls(
                 request_fingerprint=payload["request_fingerprint"],
                 order=order,
                 execution_context=context,
                 parent_client_order_id=parent,
+                product=ProductCode(product_value) if product_value else order.product,
+                position_effect=(
+                    PositionEffect(effect_value) if effect_value else order.position_effect
+                ),
+                effective_position_effect=(
+                    PositionEffect(effective_value) if effective_value else None
+                ),
+                position_evidence_cut=(datetime.fromisoformat(cut_value) if cut_value else None),
             )
         except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid pending execution context") from exc
