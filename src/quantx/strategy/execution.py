@@ -21,7 +21,7 @@ from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
 from quantx.domain.position_effect import PositionEvidence, resolve_position_effect
-from quantx.domain.product_selection import ProductSelectionPolicy
+from quantx.domain.product_selection import ProductSelectionPolicy, resolve_request_product
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction
 
@@ -119,60 +119,74 @@ class StrategyExecutionPreparer:
         if effective_reference is None:
             effective_reference = self._event_reference_price(event)
 
+        # Resolution is part of preparation, not submission. Product and
+        # position effect are fixed here, before the final risk/policy
+        # decision, and the approved request is built from exactly these
+        # immutable values. A failure stops approval and every later side
+        # effect; no component resolves them again at broker submission.
+        product, context = resolve_request_product(
+            context,
+            explicit_product=intent.product,
+            policy=self._product_selection,
+        )
+        resolved_intent = replace(intent, product=product, execution_context=context)
+        order = build_order_from_intent(resolved_intent)
+
+        effective_position_effect: PositionEffect | None = None
+        position_evidence_cut: datetime | None = None
+        evidence: PositionEvidence | None = None
+        evidence_max_age: timedelta | None = None
+        if resolved_intent.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
+            evidence = position_evidence
+            evidence_max_age = position_evidence_max_age
+            if evidence_max_age is None:
+                raise ValueError(
+                    f"{resolved_intent.position_effect.value} position effect requires a "
+                    "position evidence freshness policy"
+                )
+            resolution = resolve_position_effect(
+                order,
+                evidence=evidence,
+                max_evidence_age=evidence_max_age,
+            )
+            effective_position_effect = resolution.effective
+            position_evidence_cut = resolution.evidence_cut
+        elif position_evidence is not None or position_evidence_max_age is not None:
+            raise ValueError("position evidence is only valid for AUTO or CLOSE position effects")
+
         risk = self._risk_engine.evaluate(
-            intent,
+            resolved_intent,
             RiskContext(
                 instrument=instrument,
                 financial_state=financial_state,
                 broker_constraints=broker_constraints,
                 reference_price=effective_reference,
+                product=product,
+                effective_position_effect=effective_position_effect,
+                market_pack_id=context.market_pack_id,
+                rule_version=context.rule_version,
             ),
         )
         if risk.decision is not RiskDecision.APPROVE:
             return StrategyExecutionPreparation(decision, risk, None, None)
 
-        policy = self._policy_engine.evaluate(intent, policy_context or PolicyContext())
+        policy = self._policy_engine.evaluate(resolved_intent, policy_context or PolicyContext())
         if not policy.approved:
             return StrategyExecutionPreparation(decision, risk, policy, None)
-
-        order = build_order_from_intent(intent)
-        effective_position_effect: PositionEffect | None = None
-        position_evidence_cut: datetime | None = None
-        if intent.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
-            if position_evidence_max_age is None:
-                raise ValueError(
-                    f"{intent.position_effect.value} position effect requires a position "
-                    "evidence freshness policy"
-                )
-            resolution = resolve_position_effect(
-                order,
-                evidence=position_evidence,
-                max_evidence_age=position_evidence_max_age,
-            )
-            effective_position_effect = resolution.effective
-            position_evidence_cut = resolution.evidence_cut
 
         request = ApprovedExecutionRequest(
             order=order,
             execution_context=context,
             risk_result=risk,
             policy_result=policy,
-            required_margin=intent.required_margin,
-            product=intent.product,
-            position_effect=intent.position_effect,
+            required_margin=resolved_intent.required_margin,
+            product=product,
+            position_effect=resolved_intent.position_effect,
             effective_position_effect=effective_position_effect,
             position_evidence_cut=position_evidence_cut,
-            position_evidence=position_evidence,
-            position_evidence_max_age=position_evidence_max_age,
+            position_evidence=evidence,
+            position_evidence_max_age=evidence_max_age,
         )
-        if request.product is None and self._product_selection is not None:
-            product = self._product_selection.resolve(context.market)
-            context = replace(
-                context,
-                market_pack_id=self._product_selection.market_pack_id,
-                rule_version=self._product_selection.rule_version,
-            )
-            request = replace(request, product=product, execution_context=context)
         return StrategyExecutionPreparation(decision, risk, policy, request)
 
     @staticmethod

@@ -50,6 +50,7 @@ from quantx.execution.trading_gate import (
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
 from quantx.india.market_checks import india_market_policy
+from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
 from quantx.india.session_calendar import (
     IndiaSessionDecision,
     IndiaSessionPermission,
@@ -254,8 +255,8 @@ class _FakeSubmissionQuarantine:
 
 
 class _FakeUnitOfWork(UnitOfWork):
-    def __init__(self) -> None:
-        self._store = InMemoryIdempotencyStore()
+    def __init__(self, store: InMemoryIdempotencyStore | None = None) -> None:
+        self._store = store or InMemoryIdempotencyStore()
         self._repository = _FakeReceiptRepository()
         self.committed = False
         self.rolled_back = False
@@ -2871,3 +2872,98 @@ def test_quarantined_observations_never_become_authoritative(tmp_path) -> None:
             assert unit_of_work.receipts.get(observations[0].observation_id) is None
     finally:
         database.close()
+
+
+class _CountingIdempotencyStore(InMemoryIdempotencyStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reserve_calls = 0
+        self.check_calls = 0
+
+    def reserve_or_get(self, *args, **kwargs):
+        self.reserve_calls += 1
+        return super().reserve_or_get(*args, **kwargs)
+
+    def check(self, *args, **kwargs):
+        self.check_calls += 1
+        return super().check(*args, **kwargs)
+
+
+class _CountingGate(DurableTradingGate):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.allow_calls = 0
+        self.permit_calls = 0
+        self.admit_calls = 0
+
+    def allow(self) -> bool:
+        self.allow_calls += 1
+        return super().allow()
+
+    def submission_permit(self):
+        self.permit_calls += 1
+        return super().submission_permit()
+
+    def admit_submission(self) -> bool:
+        self.admit_calls += 1
+        return super().admit_submission()
+
+
+def test_live_unresolved_product_blocks_before_gate_reservation_and_broker() -> None:
+    """The LIVE unresolved-product guard is a real control-path regression.
+
+    It must run before gate acquisition, any durable idempotency reservation,
+    and any broker probe or submission.
+    """
+    store = _CountingIdempotencyStore()
+    unit_of_work = _FakeUnitOfWork(store)
+    gate = _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
+    broker = FakeBroker(connection_id=BrokerConnectionId("conn-1"))
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=_instrument().market,
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("1"),
+        order_type=OrderType.MARKET,
+        required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
+        execution_context=context,
+    )
+    request = ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+    )
+
+    result = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        trading_gate=gate,
+        application_runtime=_started_runtime(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
+    ).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "resolved product" in result.reason
+    assert gate.allow_calls == 0
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert store.reserve_calls == 0
+    assert store.check_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.committed is False
+
+
+def test_orchestrator_does_not_resolve_products_at_submission_time() -> None:
+    """The dispatcher consumes approved semantics; it never resolves them."""
+    with pytest.raises(TypeError):
+        ExecutionOrchestrator(
+            paper_executor=FakePaperExecutor(),
+            product_selection=INDIA_EQUITY_PRODUCT_SELECTION,  # type: ignore[call-arg]
+        )

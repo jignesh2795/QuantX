@@ -22,6 +22,7 @@ from quantx.domain.finance import AccountFinancialState
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle, MarketDataEvent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext
+from quantx.domain.product_selection import ProductSelectionPolicy
 from quantx.domain.risk import PreTradeRiskEngine
 from quantx.execution.paper.executor import PaperExecutionOutcome, PaperOrderExecutor
 from quantx.execution.paper.fills import MarketSnapshot
@@ -137,6 +138,7 @@ class StrategyRehearsalSession:
         risk_engine: PreTradeRiskEngine | None = None,
         policy_engine: ExecutionPolicyEngine | None = None,
         policy_context: PolicyContext | None = None,
+        product_selection: ProductSelectionPolicy,
     ) -> None:
         if deployment.execution_mode is not ExecutionMode.PAPER:
             raise ValueError("strategy rehearsal admits PAPER deployments only")
@@ -149,10 +151,14 @@ class StrategyRehearsalSession:
         self._deployment = deployment
         self._strategy_ir = strategy_ir
         self._evaluation = StrategyEvaluationService(registry.resolve(strategy_ir))
+        # The owning composition must name its versioned market-pack product
+        # policy explicitly; this seam cannot silently prepare an unresolved
+        # request that only fails later at submission.
         self._preparer = StrategyExecutionPreparer(
             instrument_registry,
             risk_engine=risk_engine,
             policy_engine=policy_engine,
+            product_selection=product_selection,
         )
         self._paper_executor = paper_executor
         self._financial_state = financial_state

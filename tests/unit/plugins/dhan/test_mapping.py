@@ -113,7 +113,7 @@ def test_distinct_products_for_same_instrument_map_to_distinct_wire_values() -> 
     product_map = {"CNC": "CNC", "MIS": "INTRADAY"}
 
     def wire(product: str) -> str:
-        return dhan_product_type(ProductCode(product), _ref(), product_map)
+        return dhan_product_type(ProductCode(product), product_map=product_map)
 
     assert wire("CNC") == "CNC"
     assert wire("MIS") == "INTRADAY"
@@ -121,27 +121,27 @@ def test_distinct_products_for_same_instrument_map_to_distinct_wire_values() -> 
 
 
 def test_product_mapping_normalizes_case_and_surrounding_space() -> None:
-    assert dhan_product_type(ProductCode(" cnc "), _ref(), {"cnc": " cnc "}) == "CNC"
+    assert dhan_product_type(ProductCode(" cnc "), product_map={"cnc": " cnc "}) == "CNC"
 
 
 def test_explicit_product_requires_configured_mapping() -> None:
     with pytest.raises(ValueError, match="no configured Dhan product mapping"):
-        dhan_product_type(ProductCode("CNC"), _ref())
+        dhan_product_type(ProductCode("CNC"))
 
 
 def test_unsupported_product_is_rejected() -> None:
     with pytest.raises(ValueError, match="unsupported Dhan product"):
-        dhan_product_type(ProductCode("DELIVERY"), _ref(), {"CNC": "CNC"})
+        dhan_product_type(ProductCode("DELIVERY"), product_map={"CNC": "CNC"})
 
 
 def test_unsupported_mapped_wire_value_is_rejected() -> None:
-    with pytest.raises(ValueError, match="unsupported Dhan product"):
-        dhan_product_type(ProductCode("CNC"), _ref(), {"CNC": "NOT_A_DHAN_PRODUCT"})
+    with pytest.raises(ValueError, match="configured Dhan product map value is not supported"):
+        dhan_product_type(ProductCode("CNC"), product_map={"CNC": "NOT_A_DHAN_PRODUCT"})
 
 
 def test_absent_product_is_rejected_without_instrument_reference_fallback() -> None:
     with pytest.raises(ValueError, match="resolved approved product"):
-        dhan_product_type(None, _ref())
+        dhan_product_type(None)
     with pytest.raises(ValueError, match="resolved approved product"):
         build_order_request(
             instrument_ref=_ref(),
@@ -180,3 +180,18 @@ def test_dhan_timestamp_defaults_to_ist_when_timezone_is_omitted() -> None:
     assert parsed is not None
     assert parsed.utcoffset() == ZoneInfo("Asia/Kolkata").utcoffset(datetime(2026, 1, 1, 10))
     assert parsed.isoformat().endswith("+05:30")
+
+
+def test_product_mapping_is_adapter_wide_and_makes_no_instrument_specific_claim() -> None:
+    """The configured map is the adapter's only product-support authority.
+
+    There is no per-instrument/segment product map, so a rejection must not
+    claim instrument-specific validation that the adapter never performed.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        dhan_product_type(ProductCode("DELIVERY"), product_map={"CNC": "CNC"})
+
+    message = str(excinfo.value)
+    assert "instrument/segment" not in message
+    assert "configured map" in message
+    assert dhan_product_type(ProductCode("CNC"), product_map={"CNC": "CNC"}) == "CNC"

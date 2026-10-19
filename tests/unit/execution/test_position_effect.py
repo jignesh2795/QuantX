@@ -225,3 +225,24 @@ def test_evidence_cannot_be_observed_after_the_cut() -> None:
             evidence_cut=NOW,
             matched=True,
         )
+
+
+def test_evidence_match_authority_must_be_a_real_boolean() -> None:
+    for invalid in ("true", 1, None):
+        with pytest.raises(ValueError, match="matched must be boolean"):
+            PositionEvidence(
+                instrument=INSTRUMENT,
+                quantity=Decimal("5"),
+                observed_at=NOW,
+                evidence_cut=NOW,
+                matched=invalid,  # type: ignore[arg-type]
+            )
+
+
+def test_open_rejects_evidence_symmetrically_with_the_request_contract() -> None:
+    with pytest.raises(ValueError, match="only valid for AUTO or CLOSE"):
+        resolve_position_effect(
+            _order(effect=PositionEffect.OPEN),
+            evidence=_evidence("5"),
+            max_evidence_age=MAX_AGE,
+        )

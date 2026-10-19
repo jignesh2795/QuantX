@@ -20,7 +20,13 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
+from quantx.domain.enums import (
+    AssetClass,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    PositionEffect,
+)
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
     build_order_from_intent,
@@ -36,7 +42,13 @@ from quantx.domain.instruments import (
 from quantx.domain.market_data import Candle, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyContext, PolicyDecision, PolicyResult
-from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.position_effect import PositionEvidence
+from quantx.domain.product_selection import (
+    ProductSelectionError,
+    ProductSelectionPolicy,
+    ProductSelectionRule,
+)
+from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import (
     SignalAction,
     StrategyDefinition,
@@ -45,7 +57,7 @@ from quantx.domain.strategy import (
     StrategySignal,
     TimerRequest,
 )
-from quantx.domain.value_objects import InstrumentId, Money
+from quantx.domain.value_objects import InstrumentId, Money, ProductCode
 from quantx.execution.charges import (
     ChargeBreakdown,
     ChargeCalculationContext,
@@ -56,6 +68,7 @@ from quantx.execution.historical_account_state import HistoricalAccountStateSnap
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.paper_session import PaperSession
+from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
 from quantx.persistence import ReceiptRepository
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.provenance import (
@@ -2945,3 +2958,177 @@ def test_strategy_context_uses_tracker_snapshot_not_financial_state_input() -> N
     assert snapshot.valuation_evidence == ()
     assert not hasattr(snapshot, "available_cash")
     assert not hasattr(snapshot, "blocked_cash")
+
+
+class _RecordingRiskEngine:
+    def __init__(self) -> None:
+        self.intents: list[TradeIntent] = []
+        self.contexts: list[RiskContext] = []
+
+    def evaluate(self, intent: TradeIntent, context: RiskContext) -> RiskResult:
+        self.intents.append(intent)
+        self.contexts.append(context)
+        return PreTradeRiskEngine().evaluate(intent, context)
+
+
+def test_backtest_resolves_omitted_product_before_risk_approval() -> None:
+    instrument = _instrument()
+    context = _context()
+    risk = _RecordingRiskEngine()
+
+    def strategy(frame):
+        if frame.index != 0:
+            return StrategyResult(
+                StrategySignal(
+                    StrategyId("buy-once"),
+                    "1",
+                    instrument.instrument_id,
+                    SignalAction.HOLD,
+                    1.0,
+                    generated_at=frame.observation.timestamp,
+                ),
+                None,
+            )
+        signal = StrategySignal(
+            StrategyId("buy-once"),
+            "1",
+            instrument.instrument_id,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            execution_context=context,
+            strategy_id="buy-once",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        risk_engine=risk,
+        product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
+    ).run(
+        series=_series(),
+        strategy=strategy,
+        financial_state=_financial_state(),
+    )
+
+    assert result.executed_count == 1
+    assert len(risk.contexts) == 1
+    assert risk.contexts[0].product == ProductCode("CNC")
+    assert risk.contexts[0].market_pack_id == "india-equity"
+    assert risk.contexts[0].rule_version == "india-products-v1"
+    assert risk.intents[0].product == ProductCode("CNC")
+
+
+def test_backtest_resolves_auto_effect_before_risk_approval() -> None:
+    instrument = _instrument()
+    context = _context()
+    risk = _RecordingRiskEngine()
+    cut = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    evidence = PositionEvidence(
+        instrument=instrument.instrument_id,
+        quantity=Decimal("3"),
+        observed_at=cut,
+        evidence_cut=cut,
+        matched=True,
+    )
+
+    def strategy(frame):
+        if frame.index != 0:
+            return StrategyResult(
+                StrategySignal(
+                    StrategyId("close-once"),
+                    "1",
+                    instrument.instrument_id,
+                    SignalAction.HOLD,
+                    1.0,
+                    generated_at=frame.observation.timestamp,
+                ),
+                None,
+            )
+        signal = StrategySignal(
+            StrategyId("close-once"),
+            "1",
+            instrument.instrument_id,
+            SignalAction.SELL,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=instrument.instrument_id,
+            side=OrderSide.SELL,
+            quantity=Decimal("1"),
+            position_effect=PositionEffect.AUTO,
+            execution_context=context,
+            strategy_id="close-once",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    result = DeterministicBacktestService(
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        risk_engine=risk,
+        product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
+    ).run(
+        series=_series(),
+        strategy=strategy,
+        financial_state=_financial_state(),
+        position_evidence=evidence,
+        position_evidence_max_age=timedelta(minutes=5),
+    )
+
+    assert result.executed_count == 1
+    assert risk.contexts[0].effective_position_effect is PositionEffect.CLOSE
+
+
+def test_backtest_resolution_failure_prevents_risk_and_execution() -> None:
+    instrument = _instrument()
+    context = _context()
+    risk = _RecordingRiskEngine()
+    bse_only = ProductSelectionPolicy(
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+        rules=(
+            ProductSelectionRule(
+                MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"),
+                ProductCode("CNC"),
+            ),
+        ),
+    )
+
+    def strategy(frame):
+        signal = StrategySignal(
+            StrategyId("buy-once"),
+            "1",
+            instrument.instrument_id,
+            SignalAction.BUY,
+            1.0,
+            generated_at=frame.observation.timestamp,
+        )
+        intent = TradeIntent(
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            execution_context=context,
+            strategy_id="buy-once",
+            strategy_version="1",
+        )
+        return StrategyResult(signal, intent)
+
+    with pytest.raises(ProductSelectionError, match="no versioned default product"):
+        DeterministicBacktestService(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            risk_engine=risk,
+            product_selection=bse_only,
+        ).run(
+            series=_series(),
+            strategy=strategy,
+            financial_state=_financial_state(),
+        )
+
+    assert risk.contexts == []

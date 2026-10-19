@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
@@ -32,6 +32,18 @@ def _json_value(value: object) -> object:
             for key, item in sorted(value.items(), key=lambda x: str(x[0]))
         }
     return value
+
+
+def _canonical_datetime(value: datetime) -> str:
+    """Render one instant deterministically regardless of its UTC offset.
+
+    Evidence cuts are instants, not wall-clock spellings: the same instant
+    observed as ``+05:30`` or ``Z`` must fingerprint identically. Fixed
+    microsecond precision also keeps replay/serialization round-trips stable.
+    """
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("fingerprint timestamps must be timezone-aware")
+    return value.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _timedelta_microseconds(value: object) -> int | None:
@@ -84,7 +96,7 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
         "position_evidence_cut": (
             None
             if request.position_evidence_cut is None
-            else request.position_evidence_cut.isoformat()
+            else _canonical_datetime(request.position_evidence_cut)
         ),
         "position_evidence": (
             None
@@ -92,8 +104,8 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
             else {
                 "instrument": str(request.position_evidence.instrument),
                 "quantity": request.position_evidence.quantity,
-                "observed_at": request.position_evidence.observed_at.isoformat(),
-                "evidence_cut": request.position_evidence.evidence_cut.isoformat(),
+                "observed_at": _canonical_datetime(request.position_evidence.observed_at),
+                "evidence_cut": _canonical_datetime(request.position_evidence.evidence_cut),
                 "matched": request.position_evidence.matched,
             }
         ),

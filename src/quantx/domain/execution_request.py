@@ -71,6 +71,13 @@ class ApprovedExecutionRequest:
                 raise ValueError(
                     "approved request position effect does not match the order position effect"
                 )
+        elif self.position_effect is not None:
+            # Symmetric with the branch above: the order is the executed
+            # contract, so the approved request may not claim an effect the
+            # order does not carry.
+            raise ValueError(
+                "approved request position effect requires the order to carry the same effect"
+            )
         if self.effective_position_effect is not None:
             if self.effective_position_effect not in {
                 PositionEffect.OPEN,

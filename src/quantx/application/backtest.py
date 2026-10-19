@@ -33,7 +33,7 @@ from quantx.domain.policy import (
     PolicyResult,
 )
 from quantx.domain.position_effect import PositionEvidence, resolve_position_effect
-from quantx.domain.product_selection import ProductSelectionPolicy
+from quantx.domain.product_selection import ProductSelectionPolicy, resolve_request_product
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
@@ -1059,6 +1059,71 @@ class DeterministicBacktestService:
 
             failure_identity = f"{timestamp}:{frame.observation.instrument}"
             try:
+                # Pre-approval resolution: product and position effect are
+                # fixed before risk/policy, then used unchanged to build the
+                # approved request. No later stage resolves them again.
+                product, resolved_context = resolve_request_product(
+                    intent.execution_context,
+                    explicit_product=intent.product,
+                    policy=self._product_selection,
+                )
+                resolved_intent = replace(
+                    intent,
+                    product=product,
+                    execution_context=resolved_context,
+                )
+                # The order always carries the explicit replay occurrence time,
+                # including on the caller-supplied engine path: the wall-clock
+                # default must never reach replay evidence, and the service must
+                # not silently rewrite the caller's own execution clock.
+                order = replace(
+                    build_order_from_intent(resolved_intent),
+                    created_at=frame.observation.timestamp,
+                )
+                effective_position_effect: PositionEffect | None = None
+                position_evidence_cut: datetime | None = None
+                evidence: PositionEvidence | None = None
+                evidence_max_age: timedelta | None = None
+                if resolved_intent.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
+                    evidence = position_evidence
+                    evidence_max_age = position_evidence_max_age
+                    if evidence_max_age is None:
+                        raise ValueError(
+                            f"{resolved_intent.position_effect.value} position effect "
+                            "requires a position evidence freshness policy"
+                        )
+                    resolution = resolve_position_effect(
+                        order,
+                        evidence=evidence,
+                        max_evidence_age=evidence_max_age,
+                    )
+                    effective_position_effect = resolution.effective
+                    position_evidence_cut = resolution.evidence_cut
+                elif position_evidence is not None or position_evidence_max_age is not None:
+                    raise ValueError(
+                        "position evidence is only valid for AUTO or CLOSE position effects"
+                    )
+            except Exception as exc:
+                if not qx08_active:
+                    raise
+                fault = callback_fault("approval_resolution", failure_identity, exc)
+                callback_faults.append(fault)
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        f"pre-commit approval resolution failed: {fault.message}",
+                        (fault,),
+                    )
+                )
+                continue
+            intent = resolved_intent
+            try:
                 risk = self._risk_engine.evaluate(
                     intent,
                     RiskContext(
@@ -1066,6 +1131,10 @@ class DeterministicBacktestService:
                         financial_state=financial_state,
                         broker_constraints=broker_constraints,
                         reference_price=_reference_price(frame.observation.snapshot),
+                        product=product,
+                        effective_position_effect=effective_position_effect,
+                        market_pack_id=resolved_context.market_pack_id,
+                        rule_version=resolved_context.rule_version,
                     ),
                 )
             except Exception as exc:
@@ -1167,52 +1236,20 @@ class DeterministicBacktestService:
 
             if simulation_clock is not None:
                 simulation_clock.set_time(frame.observation.timestamp)
-            # The order always carries the explicit replay occurrence time,
-            # including on the caller-supplied engine path: the wall-clock
-            # default must never reach replay evidence, and the service must
-            # not silently rewrite the caller's own execution clock.
-            order = replace(
-                build_order_from_intent(intent),
-                created_at=frame.observation.timestamp,
-            )
-            effective_position_effect: PositionEffect | None = None
-            position_evidence_cut: datetime | None = None
-            if intent.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
-                if position_evidence_max_age is None:
-                    raise ValueError(
-                        f"{intent.position_effect.value} position effect requires a position "
-                        "evidence freshness policy"
-                    )
-                resolution = resolve_position_effect(
-                    order,
-                    evidence=position_evidence,
-                    max_evidence_age=position_evidence_max_age,
-                )
-                effective_position_effect = resolution.effective
-                position_evidence_cut = resolution.evidence_cut
+            # Build the request from exactly the resolved semantics risk and
+            # policy evaluated; nothing here re-resolves a product or effect.
             request: ApprovedExecutionRequest = ApprovedExecutionRequest(
                 order=order,
-                execution_context=intent.execution_context,
+                execution_context=resolved_context,
                 risk_result=risk,
                 policy_result=policy,
-                product=intent.product,
+                product=product,
                 position_effect=intent.position_effect,
                 effective_position_effect=effective_position_effect,
                 position_evidence_cut=position_evidence_cut,
-                position_evidence=position_evidence,
-                position_evidence_max_age=position_evidence_max_age,
+                position_evidence=evidence,
+                position_evidence_max_age=evidence_max_age,
             )
-            if request.product is None and self._product_selection is not None:
-                context = replace(
-                    request.execution_context,
-                    market_pack_id=self._product_selection.market_pack_id,
-                    rule_version=self._product_selection.rule_version,
-                )
-                request = replace(
-                    request,
-                    product=self._product_selection.resolve(context.market),
-                    execution_context=context,
-                )
             try:
                 engine_time = self._require_engine_time_coherent(
                     execution_engine, frame.observation.timestamp

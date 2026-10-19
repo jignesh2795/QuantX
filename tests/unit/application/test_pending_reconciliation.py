@@ -26,12 +26,14 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.position_effect import PositionEvidence
+from quantx.domain.product_selection import resolve_request_product
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
+from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
 from quantx.integrations.reconciliation import (
     AccountFinancialState,
     OrderObservation,
@@ -934,3 +936,77 @@ def test_default_pending_reconciliation_requires_scoped_broker_order(tmp_path) -
         assert SqliteReceiptRepository(database).get_by_client_order(order_id) is None
     finally:
         database.close()
+
+
+def test_pending_context_preserves_canonical_default_product_and_rule_identity() -> None:
+    """The composition-supplied default survives durable request semantics.
+
+    A LIVE request whose product was omitted resolves through the canonical
+    India pack before approval; serialization/recovery must preserve the
+    resolved product, rule identity, effective effect, and evidence cut
+    without re-resolving or falling back to instrument identity.
+    """
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+    )
+    product, resolved_context = resolve_request_product(
+        context,
+        explicit_product=None,
+        policy=INDIA_EQUITY_PRODUCT_SELECTION,
+    )
+    assert product == ProductCode("CNC")
+    assert resolved_context.market_pack_id == "india-equity"
+    assert resolved_context.rule_version == "india-products-v1"
+
+    evidence_cut = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+    evidence = PositionEvidence(
+        instrument=InstrumentId("NSE", "TCS"),
+        quantity=Decimal("0"),
+        observed_at=evidence_cut,
+        evidence_cut=evidence_cut,
+        matched=True,
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        product=product,
+        position_effect=PositionEffect.AUTO,
+        execution_context=resolved_context,
+    )
+    request = ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=resolved_context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
+        position_effect=PositionEffect.AUTO,
+        effective_position_effect=PositionEffect.OPEN,
+        position_evidence_cut=evidence_cut,
+        position_evidence=evidence,
+        position_evidence_max_age=timedelta(minutes=5),
+    )
+    fingerprint = request_fingerprint(request)
+
+    restored = PendingExecutionContext.from_json(
+        PendingExecutionContext.from_request(request, fingerprint).to_json()
+    )
+    recovery_request = restored.to_recovery_request()
+
+    assert restored.request_fingerprint == fingerprint
+    assert restored.product == ProductCode("CNC")
+    assert restored.order.product == ProductCode("CNC")
+    assert restored.execution_context.market_pack_id == "india-equity"
+    assert restored.execution_context.rule_version == "india-products-v1"
+    assert restored.effective_position_effect is PositionEffect.OPEN
+    assert restored.position_evidence_cut == evidence_cut
+    assert restored.position_evidence == evidence
+    assert recovery_request.product == ProductCode("CNC")
+    assert recovery_request.execution_context.market_pack_id == "india-equity"
+    assert recovery_request.execution_context.rule_version == "india-products-v1"

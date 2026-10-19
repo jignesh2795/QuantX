@@ -100,13 +100,9 @@ class DhanBrokerAdapter:
         if context.broker_connection_id != self._connection.connection_id:
             raise ValueError("Dhan adapter connection does not match execution request connection")
 
-    def _validate_product(
-        self,
-        request: ApprovedExecutionRequest,
-        instrument_ref: DhanInstrumentRef,
-    ) -> None:
+    def _validate_product(self, request: ApprovedExecutionRequest) -> None:
         try:
-            dhan_product_type(request.product, instrument_ref, self._product_map)
+            dhan_product_type(request.product, product_map=self._product_map)
         except ValueError as exc:
             if request.product is None:
                 raise BrokerPreflightRejected(
@@ -137,7 +133,7 @@ class DhanBrokerAdapter:
             self._validate_connection(request)
             broker_instrument = self._resolve(request.order.instrument)
             self._validate_market(broker_instrument[0], broker_instrument[1])
-            self._validate_product(request, broker_instrument[1])
+            self._validate_product(request)
             wire = build_order_request(
                 instrument_ref=broker_instrument[1],
                 side=request.order.side,

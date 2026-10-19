@@ -1,9 +1,10 @@
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
-from quantx.domain.accounts import AccountId
+from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -11,7 +12,7 @@ from quantx.domain.deployment import (
     StrategyDeployment,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide
+from quantx.domain.enums import AssetClass, OrderSide, PositionEffect
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import (
@@ -23,13 +24,22 @@ from quantx.domain.instruments import (
 )
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext
+from quantx.domain.position_effect import PositionEvidence
+from quantx.domain.product_selection import (
+    ProductSelectionError,
+    ProductSelectionPolicy,
+    ProductSelectionRule,
+)
+from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskResult
 from quantx.domain.strategy import (
     SignalAction,
     StrategyId,
     StrategyResult,
     StrategySignal,
 )
-from quantx.domain.value_objects import Money
+from quantx.domain.value_objects import Money, ProductCode
+from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
 from quantx.strategy.deployment import StrategyExecutionDecision
 from quantx.strategy.execution import StrategyExecutionPreparer
 
@@ -78,25 +88,31 @@ def _decision(
     quantity: Decimal = Decimal("10"),
     required_margin: Decimal = Decimal("1000"),
     required_capabilities: frozenset[str] = frozenset(),
+    side: OrderSide = OrderSide.BUY,
+    product: ProductCode | None = None,
+    position_effect: PositionEffect | None = None,
+    context: ExecutionContext | None = None,
 ) -> StrategyExecutionDecision:
     event = _event()
     signal = StrategySignal(
         strategy_id=StrategyId("buy-and-hold"),
         strategy_version="1",
         instrument=event.instrument,
-        action=SignalAction.BUY,
+        action=SignalAction.BUY if side is OrderSide.BUY else SignalAction.SELL,
         confidence=1.0,
         generated_at=event.timestamp,
     )
     intent = TradeIntent(
         instrument=event.instrument,
-        side=OrderSide.BUY,
+        side=side,
         quantity=quantity,
         required_margin=required_margin,
         required_capabilities=required_capabilities,
         strategy_id="buy-and-hold",
         strategy_version="1",
-        execution_context=_execution_context(),
+        product=product,
+        position_effect=position_effect,
+        execution_context=context or _execution_context(),
     )
     return StrategyExecutionDecision(
         deployment=_deployment(),
@@ -116,7 +132,12 @@ def _financial_state() -> AccountFinancialState:
     )
 
 
-def _preparer() -> StrategyExecutionPreparer:
+def _preparer(
+    *,
+    risk_engine=None,
+    policy_engine=None,
+    product_selection=None,
+) -> StrategyExecutionPreparer:
     instrument = Instrument(
         InstrumentId("NSE", "TCS"),
         "TCS",
@@ -126,7 +147,12 @@ def _preparer() -> StrategyExecutionPreparer:
         Decimal("0.05"),
         Decimal("1"),
     )
-    return StrategyExecutionPreparer(InMemoryInstrumentRegistry((instrument,)))
+    return StrategyExecutionPreparer(
+        InMemoryInstrumentRegistry((instrument,)),
+        risk_engine=risk_engine,
+        policy_engine=policy_engine,
+        product_selection=product_selection,
+    )
 
 
 def test_preparer_rejects_disabled_deployment() -> None:
@@ -299,3 +325,189 @@ def test_preparer_returns_no_request_for_non_executable_result() -> None:
     assert result.risk_result is None
     assert result.policy_result is None
     assert result.request is None
+
+
+class _RecordingRiskEngine:
+    """Spy risk engine: records exactly what was submitted for approval."""
+
+    def __init__(self) -> None:
+        self.intents: list[TradeIntent] = []
+        self.contexts: list[RiskContext] = []
+
+    def evaluate(self, intent: TradeIntent, context: RiskContext) -> RiskResult:
+        self.intents.append(intent)
+        self.contexts.append(context)
+        return PreTradeRiskEngine().evaluate(intent, context)
+
+
+class _RecordingPolicyEngine:
+    def __init__(self) -> None:
+        self.intents: list[TradeIntent] = []
+
+    def evaluate(self, intent: TradeIntent, context: PolicyContext):
+        self.intents.append(intent)
+        return ExecutionPolicyEngine().evaluate(intent, context)
+
+
+def _close_or_auto_evidence(quantity: str = "5") -> PositionEvidence:
+    cut = _event().timestamp
+    return PositionEvidence(
+        instrument=_event().instrument,
+        quantity=Decimal(quantity),
+        observed_at=cut,
+        evidence_cut=cut,
+        matched=True,
+    )
+
+
+def test_preparer_resolves_omitted_product_before_risk_approval() -> None:
+    risk = _RecordingRiskEngine()
+    policy = _RecordingPolicyEngine()
+
+    result = _preparer(
+        risk_engine=risk,
+        policy_engine=policy,
+        product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
+    ).prepare(_decision(), _event(), _financial_state())
+
+    assert result.request is not None
+    assert len(risk.contexts) == 1
+    assert risk.contexts[0].product == ProductCode("CNC")
+    assert risk.contexts[0].market_pack_id == "india-equity"
+    assert risk.contexts[0].rule_version == "india-products-v1"
+    assert risk.intents[0].product == ProductCode("CNC")
+    assert policy.intents[0].product == ProductCode("CNC")
+    assert result.request.product == ProductCode("CNC")
+    assert result.request.execution_context.market_pack_id == "india-equity"
+    assert result.request.execution_context.rule_version == "india-products-v1"
+
+
+def test_preparer_explicit_product_is_not_replaced_by_policy_default() -> None:
+    risk = _RecordingRiskEngine()
+    explicit_context = replace(
+        _execution_context(),
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+    decoy_policy = ProductSelectionPolicy(
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+        rules=(ProductSelectionRule(_market(), ProductCode("MIS")),),
+    )
+
+    result = _preparer(
+        risk_engine=risk,
+        product_selection=decoy_policy,
+    ).prepare(
+        _decision(product=ProductCode("CNC"), context=explicit_context),
+        _event(),
+        _financial_state(),
+    )
+
+    assert result.request is not None
+    assert result.request.product == ProductCode("CNC")
+    assert risk.contexts[0].product == ProductCode("CNC")
+    assert risk.intents[0].product == ProductCode("CNC")
+
+
+def test_preparer_resolves_auto_effect_before_risk_approval() -> None:
+    risk = _RecordingRiskEngine()
+
+    result = _preparer(
+        risk_engine=risk,
+        product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
+    ).prepare(
+        _decision(
+            side=OrderSide.SELL,
+            quantity=Decimal("2"),
+            position_effect=PositionEffect.AUTO,
+        ),
+        _event(),
+        _financial_state(),
+        position_evidence=_close_or_auto_evidence("5"),
+        position_evidence_max_age=timedelta(minutes=5),
+    )
+
+    assert result.request is not None
+    assert risk.contexts[0].effective_position_effect is PositionEffect.CLOSE
+    assert result.request.effective_position_effect is PositionEffect.CLOSE
+    assert result.request.position_evidence_cut == _event().timestamp
+    assert result.request.position_effect is PositionEffect.AUTO
+
+
+def test_preparer_live_omitted_product_stops_before_risk() -> None:
+    risk = _RecordingRiskEngine()
+    live_context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=_market(),
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+    )
+    live_deployment = replace(_deployment(), execution_mode=ExecutionMode.LIVE)
+    decision = _decision(context=live_context)
+    live_decision = StrategyExecutionDecision(
+        live_deployment,
+        StrategyResult(decision.result.signal, decision.result.intent),
+    )
+
+    with pytest.raises(ProductSelectionError, match="live execution requires a resolved product"):
+        _preparer(risk_engine=risk).prepare(live_decision, _event(), _financial_state())
+
+    assert risk.contexts == []
+
+
+def test_preparer_unresolvable_market_stops_before_risk() -> None:
+    risk = _RecordingRiskEngine()
+    bse_only = ProductSelectionPolicy(
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+        rules=(
+            ProductSelectionRule(
+                MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"),
+                ProductCode("CNC"),
+            ),
+        ),
+    )
+
+    with pytest.raises(ProductSelectionError, match="no versioned default product"):
+        _preparer(risk_engine=risk, product_selection=bse_only).prepare(
+            _decision(), _event(), _financial_state()
+        )
+
+    assert risk.contexts == []
+
+
+def test_preparer_conflicting_pack_identity_stops_before_risk() -> None:
+    risk = _RecordingRiskEngine()
+    conflicting = replace(
+        _execution_context(),
+        market_pack_id="other-pack",
+        rule_version="india-products-v1",
+    )
+
+    with pytest.raises(ProductSelectionError, match="market-pack id conflicts"):
+        _preparer(
+            risk_engine=risk,
+            product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
+        ).prepare(
+            _decision(context=conflicting),
+            _event(),
+            _financial_state(),
+        )
+
+    assert risk.contexts == []
+
+
+def test_preparer_explicit_product_without_identity_stops_before_risk() -> None:
+    risk = _RecordingRiskEngine()
+
+    with pytest.raises(ProductSelectionError, match="market-pack id"):
+        _preparer(risk_engine=risk).prepare(
+            _decision(product=ProductCode("CNC")),
+            _event(),
+            _financial_state(),
+        )
+
+    assert risk.contexts == []

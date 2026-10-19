@@ -58,10 +58,14 @@ _SUPPORTED_DHAN_PRODUCTS: set[str] = {"CNC", "INTRADAY", "MARGIN", "MTF"}
 
 def dhan_product_type(
     product_code: ProductCode | None,
-    instrument_ref: DhanInstrumentRef | None = None,
+    *,
     product_map: Mapping[str, str] | None = None,
 ) -> str:
     """Translate the already-resolved approved product into a Dhan wire value.
+
+    The mapping is adapter-wide, not instrument-specific: support is decided
+    by the configured neutral-to-wire map alone, and no error message claims
+    per-instrument or per-segment product support the adapter does not verify.
 
     There is no instrument-identity fallback: an omitted product is rejected
     here, and the caller must resolve it through a versioned market-pack
@@ -85,10 +89,10 @@ def dhan_product_type(
         normalized_map[normalized_key] = map_value.strip().upper()
     mapped = normalized_map.get(key)
     if mapped is None:
-        raise ValueError(f"unsupported Dhan product for this instrument/segment: {key}")
+        raise ValueError(f"unsupported Dhan product: {key} is absent from the configured map")
     normalized = mapped
     if normalized not in _SUPPORTED_DHAN_PRODUCTS:
-        raise ValueError(f"unsupported Dhan product for this instrument/segment: {normalized}")
+        raise ValueError(f"configured Dhan product map value is not supported: {normalized}")
     return normalized
 
 
@@ -114,7 +118,7 @@ def build_order_request(
         transaction_type=dhan_side(side),
         quantity=int(quantity),
         order_type=dhan_order_type(order_type),
-        product_type=dhan_product_type(product_code, instrument_ref, product_map),
+        product_type=dhan_product_type(product_code, product_map=product_map),
         price=limit_price if limit_price is not None else Decimal("0"),
         trigger_price=stop_price if stop_price is not None else Decimal("0"),
         validity=dhan_time_in_force(time_in_force),

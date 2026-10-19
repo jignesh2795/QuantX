@@ -340,3 +340,20 @@ def test_explicit_position_effect_and_product_are_preserved() -> None:
     assert request.position_effect is PositionEffect.CLOSE
     assert request.position_evidence_cut == NOW
     assert request.position_evidence == evidence
+
+
+def test_request_position_effect_must_match_the_order_contract() -> None:
+    order = _order()
+    with pytest.raises(ValueError, match="requires the order to carry"):
+        _paper_request(order, position_effect=PositionEffect.OPEN)
+
+
+def test_open_order_cannot_smuggle_position_evidence_through_the_request() -> None:
+    order = _order(position_effect=PositionEffect.OPEN)
+    with pytest.raises(ValueError, match="only valid for AUTO or CLOSE"):
+        _paper_request(
+            order,
+            position_effect=PositionEffect.OPEN,
+            position_evidence=_evidence("5"),
+            position_evidence_cut=NOW,
+        )

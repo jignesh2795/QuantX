@@ -1,6 +1,6 @@
 """Focused tests for canonical request fingerprinting."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -19,7 +19,11 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.position_effect import PositionEvidence
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
-from quantx.execution.idempotency.fingerprint import _canonical_decimal, request_fingerprint
+from quantx.execution.idempotency.fingerprint import (
+    _canonical_datetime,
+    _canonical_decimal,
+    request_fingerprint,
+)
 
 NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
 MAX_AGE = timedelta(minutes=5)
@@ -222,3 +226,35 @@ def test_rule_identity_changes_fingerprint() -> None:
     base_fingerprint = request_fingerprint(base)
     assert request_fingerprint(next_version) != base_fingerprint
     assert request_fingerprint(other_pack) != base_fingerprint
+
+
+def test_equivalent_position_effect_instants_share_a_fingerprint() -> None:
+    utc_cut = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+    ist = timezone(timedelta(hours=5, minutes=30))
+    ist_cut = utc_cut.astimezone(ist)
+
+    first = _request(
+        quantity=Decimal("5"),
+        position_effect=PositionEffect.CLOSE,
+        effective_position_effect=PositionEffect.CLOSE,
+        position_evidence_cut=utc_cut,
+        position_evidence=_evidence("-5", cut=utc_cut),
+    )
+    second = _request(
+        quantity=Decimal("5"),
+        position_effect=PositionEffect.CLOSE,
+        effective_position_effect=PositionEffect.CLOSE,
+        position_evidence_cut=ist_cut,
+        position_evidence=_evidence("-5", cut=ist_cut),
+    )
+
+    assert request_fingerprint(first) == request_fingerprint(second)
+
+
+def test_canonical_datetime_normalizes_offsets_and_rejects_naive_values() -> None:
+    utc_cut = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+    ist_cut = utc_cut.astimezone(timezone(timedelta(hours=5, minutes=30)))
+
+    assert _canonical_datetime(utc_cut) == _canonical_datetime(ist_cut)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _canonical_datetime(datetime(2026, 1, 5, 10, 0))

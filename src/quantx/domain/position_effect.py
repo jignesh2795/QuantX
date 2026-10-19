@@ -40,6 +40,10 @@ class PositionEvidence:
             or not self.quantity.is_finite()
         ):
             raise ValueError("position evidence quantity must be a finite Decimal")
+        # Reconciliation authority is a typed contract: a truthy string or
+        # integer must never stand in for the boolean match decision.
+        if not isinstance(self.matched, bool):
+            raise ValueError("position evidence matched must be boolean")
         for name in ("observed_at", "evidence_cut"):
             value = getattr(self, name)
             if value.tzinfo is None or value.utcoffset() is None:
@@ -79,6 +83,11 @@ def resolve_position_effect(
 
     requested = order.position_effect
     if requested is None or requested is PositionEffect.OPEN:
+        # Symmetric with the approved-request contract: evidence is only
+        # meaningful for CLOSE/AUTO. Accepting and ignoring it here would let
+        # a caller believe OPEN was reconciled against unsupported evidence.
+        if evidence is not None:
+            raise ValueError("position evidence is only valid for AUTO or CLOSE position effects")
         return PositionEffectResolution(requested, requested, None)
     if requested not in {PositionEffect.CLOSE, PositionEffect.AUTO}:
         raise ValueError("position_effect must be OPEN, CLOSE, AUTO, or None")

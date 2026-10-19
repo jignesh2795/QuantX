@@ -1,12 +1,15 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
+
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.enums import OrderStatus
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
+from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
 from quantx.persistence import ReceiptRepository
 
 
@@ -327,3 +330,14 @@ def test_live_coordinator_blocks_even_if_idempotency_reports_acquired(monkeypatc
     assert result.status is PreconditionsStatus.BLOCKED
     assert "ExecutionOrchestrator" in result.reasons[0]
     assert calls == 0
+
+
+def test_coordinator_does_not_resolve_products_at_submission_time() -> None:
+    """Resolution belongs to the pre-approval seam, never the submit boundary."""
+    with pytest.raises(TypeError):
+        ExecutionTransactionCoordinator(
+            idempotency=InMemoryIdempotencyStore(),
+            preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
+            submit=lambda _: None,  # type: ignore[arg-type,return-value]
+            product_selection=INDIA_EQUITY_PRODUCT_SELECTION,  # type: ignore[call-arg]
+        )

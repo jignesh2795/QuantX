@@ -71,6 +71,7 @@ from quantx.execution.paper.profile import (
     OrderBookSnapshot,
     SlippageModel,
 )
+from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
@@ -193,6 +194,7 @@ def _session(
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         paper_executor=_executor(held),
         financial_state=_financial_state(),
+        product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
     )
     return session, held
 
@@ -288,6 +290,7 @@ def test_session_rejects_non_paper_deployment(mode: ExecutionMode) -> None:
             instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
             paper_executor=_executor(accounting),
             financial_state=_financial_state(),
+            product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
         )
 
 
@@ -301,6 +304,7 @@ def test_session_rejects_disabled_deployment() -> None:
             instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
             paper_executor=_executor(accounting),
             financial_state=_financial_state(),
+            product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
         )
 
 
@@ -314,6 +318,7 @@ def test_session_rejects_unknown_strategy() -> None:
             instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
             paper_executor=_executor(accounting),
             financial_state=_financial_state(),
+            product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
         )
 
 
@@ -448,6 +453,7 @@ def test_missing_instrument_metadata_is_recorded_as_blocked() -> None:
         instrument_registry=InMemoryInstrumentRegistry(()),
         paper_executor=_executor(accounting),
         financial_state=_financial_state(),
+        product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
     )
     result = session.run(_inputs(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
 

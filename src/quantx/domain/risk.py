@@ -18,11 +18,11 @@ from .constraints import (
     evaluate_broker_constraint,
     evaluate_capital,
 )
-from .enums import OrderSide
+from .enums import OrderSide, PositionEffect
 from .finance import AccountFinancialState, BrokerConstraint
 from .instruments import Instrument
 from .order_intents import TradeIntent
-from .value_objects import Money, Quantity
+from .value_objects import Money, ProductCode, Quantity
 
 
 class RiskDecision(StrEnum):
@@ -33,10 +33,22 @@ class RiskDecision(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class RiskContext:
+    """Inputs one risk evaluation may depend on.
+
+    ``product``, ``effective_position_effect``, ``market_pack_id`` and
+    ``rule_version`` carry the *already resolved* pre-approval semantics. Risk
+    never resolves them itself and never falls back to instrument identity;
+    it validates that the supplied resolution is internally coherent.
+    """
+
     instrument: Instrument
     financial_state: AccountFinancialState
     broker_constraints: tuple[BrokerConstraint, ...] = ()
     reference_price: Decimal | None = None
+    product: ProductCode | None = None
+    effective_position_effect: PositionEffect | None = None
+    market_pack_id: str | None = None
+    rule_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,12 +148,46 @@ def _order_value(intent: TradeIntent, context: RiskContext) -> Decimal | None:
     return intent.quantity * context.reference_price * context.instrument.multiplier
 
 
+def _resolution_violation(intent: TradeIntent, context: RiskContext) -> str | None:
+    """Reject incoherent resolved semantics without inventing a fallback.
+
+    Only supplied resolution is checked. A caller that supplies no product or
+    effective effect is not asserting a resolution, so the legacy bare risk
+    contract is unchanged.
+    """
+    if context.product is not None:
+        if intent.product is not None and intent.product != context.product:
+            return "resolved product does not match the intent product"
+        if not (context.market_pack_id or "").strip():
+            return "a resolved product requires a market-pack id"
+        if not (context.rule_version or "").strip():
+            return "a resolved product requires a market-pack rule version"
+    if context.effective_position_effect is not None:
+        if intent.position_effect is not PositionEffect.CLOSE and (
+            intent.position_effect is not PositionEffect.AUTO
+        ):
+            return "a resolved effective effect requires a CLOSE or AUTO request"
+        if (
+            intent.position_effect is PositionEffect.CLOSE
+            and context.effective_position_effect is not PositionEffect.CLOSE
+        ):
+            return "CLOSE position effect cannot resolve to OPEN"
+    return None
+
+
 class PreTradeRiskEngine:
     """Evaluate whether a TradeIntent may proceed to order construction."""
 
     def evaluate(self, intent: TradeIntent, context: RiskContext) -> RiskResult:
         if intent.execution_context is None:
             return RiskResult(RiskDecision.REJECT, "execution context is required")
+
+        resolution_violation = _resolution_violation(intent, context)
+        if resolution_violation is not None:
+            return RiskResult(
+                RiskDecision.REJECT,
+                f"RISK_STATE_INCONSISTENT: {resolution_violation}",
+            )
 
         required_margin = Money(
             intent.required_margin,
