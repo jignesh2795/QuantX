@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
 from quantx.application.strategy_preflight import assess_backtest_event_time_support
 from quantx.domain.clock import SimulatedClock
 from quantx.domain.deployment import ExecutionContext, ExecutionMode
-from quantx.domain.enums import OrderSide, OrderStatus, OrderType
+from quantx.domain.enums import OrderSide, OrderStatus, OrderType, PositionEffect
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
     build_order_from_intent,
@@ -32,6 +32,8 @@ from quantx.domain.policy import (
     PolicyDecision,
     PolicyResult,
 )
+from quantx.domain.position_effect import PositionEvidence, resolve_position_effect
+from quantx.domain.product_selection import ProductSelectionPolicy
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
@@ -478,12 +480,14 @@ class DeterministicBacktestService:
         policy_engine: ExecutionPolicyEngine | None = None,
         execution_engine: PaperExecutionEngine | None = None,
         accounting: FillAccounting | None = None,
+        product_selection: ProductSelectionPolicy | None = None,
     ) -> None:
         self._instrument_registry = instrument_registry
         self._risk_engine = risk_engine or PreTradeRiskEngine()
         self._policy_engine = policy_engine or ExecutionPolicyEngine()
         self._execution_engine = execution_engine
         self._accounting_override = accounting
+        self._product_selection = product_selection
 
     @staticmethod
     def _validate_strategy_result(strategy_result: StrategyResult, frame: ReplayFrame) -> None:
@@ -614,6 +618,8 @@ class DeterministicBacktestService:
             AccountStateSamplingPolicy.EXACT_CURRENT
         ),
         provenance: ResearchProvenance | None = None,
+        position_evidence: PositionEvidence | None = None,
+        position_evidence_max_age: timedelta | None = None,
     ) -> BacktestResult:
         """Run replay; bind the explicit context only to bare QX-08 strategy intents.
 
@@ -1169,6 +1175,21 @@ class DeterministicBacktestService:
                 build_order_from_intent(intent),
                 created_at=frame.observation.timestamp,
             )
+            effective_position_effect: PositionEffect | None = None
+            position_evidence_cut: datetime | None = None
+            if intent.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
+                if position_evidence_max_age is None:
+                    raise ValueError(
+                        f"{intent.position_effect.value} position effect requires a position "
+                        "evidence freshness policy"
+                    )
+                resolution = resolve_position_effect(
+                    order,
+                    evidence=position_evidence,
+                    max_evidence_age=position_evidence_max_age,
+                )
+                effective_position_effect = resolution.effective
+                position_evidence_cut = resolution.evidence_cut
             request: ApprovedExecutionRequest = ApprovedExecutionRequest(
                 order=order,
                 execution_context=intent.execution_context,
@@ -1176,7 +1197,22 @@ class DeterministicBacktestService:
                 policy_result=policy,
                 product=intent.product,
                 position_effect=intent.position_effect,
+                effective_position_effect=effective_position_effect,
+                position_evidence_cut=position_evidence_cut,
+                position_evidence=position_evidence,
+                position_evidence_max_age=position_evidence_max_age,
             )
+            if request.product is None and self._product_selection is not None:
+                context = replace(
+                    request.execution_context,
+                    market_pack_id=self._product_selection.market_pack_id,
+                    rule_version=self._product_selection.rule_version,
+                )
+                request = replace(
+                    request,
+                    product=self._product_selection.resolve(context.market),
+                    execution_context=context,
+                )
             try:
                 engine_time = self._require_engine_time_coherent(
                     execution_engine, frame.observation.timestamp

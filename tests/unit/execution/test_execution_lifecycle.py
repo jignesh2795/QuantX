@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -116,8 +116,6 @@ def test_continuation_cannot_exceed_evidenced_remainder() -> None:
 
 
 def test_partial_continuation_executes_remaining_quantity_with_parent_correlation() -> None:
-    from datetime import UTC, datetime
-
     from quantx.domain.accounts import AccountId
     from quantx.domain.clock import FixedClock
     from quantx.domain.deployment import (
@@ -186,6 +184,7 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
     from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
     from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
     from quantx.domain.order_intents import TradeIntent
+    from quantx.domain.position_effect import PositionEvidence
     from quantx.domain.risk import RiskDecision, RiskResult
 
     context = ExecutionContext(
@@ -207,6 +206,13 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
         execution_context=context,
     )
     evidence_cut = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+    evidence = PositionEvidence(
+        instrument=InstrumentId("NSE", "TCS"),
+        quantity=Decimal("0"),
+        observed_at=evidence_cut,
+        evidence_cut=evidence_cut,
+        matched=True,
+    )
     request = ApprovedExecutionRequest(
         build_order_from_intent(intent),
         context,
@@ -215,6 +221,8 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.OPEN,
         position_evidence_cut=evidence_cut,
+        position_evidence=evidence,
+        position_evidence_max_age=timedelta(minutes=5),
     )
     lifecycle = ExecutionLifecycle(
         request.order.client_order_id,
@@ -235,6 +243,8 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
     assert child.position_effect is PositionEffect.AUTO
     assert child.effective_position_effect is PositionEffect.OPEN
     assert child.position_evidence_cut == evidence_cut
+    assert child.position_evidence == evidence
+    assert child.position_evidence_max_age == timedelta(minutes=5)
 
 
 def _receipt_with_status(

@@ -61,7 +61,6 @@ def _instrument_ref() -> DhanInstrumentRef:
         security_id="1333",
         exchange_segment="NSE_EQ",
         trading_symbol="TCS",
-        product_type="CNC",
     )
 
 

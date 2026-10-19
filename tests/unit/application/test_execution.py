@@ -36,6 +36,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import InMemoryIdempotencyStore, NotSubmittedSource
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
@@ -106,6 +107,7 @@ def _request(
     required_capabilities: frozenset[str] = frozenset(),
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
+    live = mode is ExecutionMode.LIVE
     context = ExecutionContext(
         account_id=account_id or AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -113,7 +115,10 @@ def _request(
         market=instrument.market,
         broker_connection_id=connection_id,
         execution_mode=mode,
+        market_pack_id="india" if live else None,
+        rule_version="india-products-v1" if live else None,
     )
+    product = ProductCode("CNC") if live else None
     intent = TradeIntent(
         instrument=instrument.instrument_id,
         side=OrderSide.BUY,
@@ -121,12 +126,14 @@ def _request(
         order_type=OrderType.MARKET,
         execution_context=context,
         required_capabilities=required_capabilities,
+        product=product,
     )
     return ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
     )
 
 

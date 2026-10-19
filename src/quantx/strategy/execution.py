@@ -9,16 +9,19 @@ adapters can share the same preparation semantics.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from quantx.domain.deployment import ExecutionContext, StrategyDeployment
-from quantx.domain.enums import OrderSide
+from quantx.domain.enums import OrderSide, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
+from quantx.domain.position_effect import PositionEvidence, resolve_position_effect
+from quantx.domain.product_selection import ProductSelectionPolicy
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction
 
@@ -69,10 +72,12 @@ class StrategyExecutionPreparer:
         *,
         risk_engine: PreTradeRiskEngine | None = None,
         policy_engine: ExecutionPolicyEngine | None = None,
+        product_selection: ProductSelectionPolicy | None = None,
     ) -> None:
         self._instrument_registry = instrument_registry
         self._risk_engine = risk_engine or PreTradeRiskEngine()
         self._policy_engine = policy_engine or ExecutionPolicyEngine()
+        self._product_selection = product_selection
 
     def prepare(
         self,
@@ -83,6 +88,8 @@ class StrategyExecutionPreparer:
         policy_context: PolicyContext | None = None,
         broker_constraints: tuple[BrokerConstraint, ...] = (),
         reference_price: Decimal | None = None,
+        position_evidence: PositionEvidence | None = None,
+        position_evidence_max_age: timedelta | None = None,
     ) -> StrategyExecutionPreparation:
         self._validate_decision(decision, event)
         intent = decision.result.intent
@@ -128,15 +135,44 @@ class StrategyExecutionPreparer:
         if not policy.approved:
             return StrategyExecutionPreparation(decision, risk, policy, None)
 
+        order = build_order_from_intent(intent)
+        effective_position_effect: PositionEffect | None = None
+        position_evidence_cut: datetime | None = None
+        if intent.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
+            if position_evidence_max_age is None:
+                raise ValueError(
+                    f"{intent.position_effect.value} position effect requires a position "
+                    "evidence freshness policy"
+                )
+            resolution = resolve_position_effect(
+                order,
+                evidence=position_evidence,
+                max_evidence_age=position_evidence_max_age,
+            )
+            effective_position_effect = resolution.effective
+            position_evidence_cut = resolution.evidence_cut
+
         request = ApprovedExecutionRequest(
-            order=build_order_from_intent(intent),
+            order=order,
             execution_context=context,
             risk_result=risk,
             policy_result=policy,
             required_margin=intent.required_margin,
             product=intent.product,
             position_effect=intent.position_effect,
+            effective_position_effect=effective_position_effect,
+            position_evidence_cut=position_evidence_cut,
+            position_evidence=position_evidence,
+            position_evidence_max_age=position_evidence_max_age,
         )
+        if request.product is None and self._product_selection is not None:
+            product = self._product_selection.resolve(context.market)
+            context = replace(
+                context,
+                market_pack_id=self._product_selection.market_pack_id,
+                rule_version=self._product_selection.rule_version,
+            )
+            request = replace(request, product=product, execution_context=context)
         return StrategyExecutionPreparation(decision, risk, policy, request)
 
     @staticmethod

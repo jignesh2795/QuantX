@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from .deployment import ExecutionContext, ExecutionMode
@@ -11,6 +11,7 @@ from .enums import PositionEffect
 from .order_intents import TradeIntent
 from .orders import Order
 from .policy import PolicyResult
+from .position_effect import PositionEvidence, resolve_position_effect
 from .risk import RiskDecision, RiskResult
 from .value_objects import ProductCode
 
@@ -27,6 +28,8 @@ class ApprovedExecutionRequest:
     position_effect: PositionEffect | None = None
     effective_position_effect: PositionEffect | None = None
     position_evidence_cut: datetime | None = None
+    position_evidence: PositionEvidence | None = None
+    position_evidence_max_age: timedelta | None = None
 
     def __post_init__(self) -> None:
         if self.required_margin < 0:
@@ -94,11 +97,33 @@ class ApprovedExecutionRequest:
                     f"{self.position_effect.value} position effect requires the position "
                     "evidence cut used for approval"
                 )
-        if self.position_evidence_cut is not None and (
-            self.position_evidence_cut.tzinfo is None
-            or self.position_evidence_cut.utcoffset() is None
+            if self.position_evidence is None:
+                raise ValueError(
+                    f"{self.position_effect.value} position effect requires the authoritative "
+                    "position evidence used for approval"
+                )
+            if self.position_evidence_max_age is None:
+                raise ValueError(
+                    f"{self.position_effect.value} position effect requires a position "
+                    "evidence freshness policy"
+                )
+            resolution = resolve_position_effect(
+                self.order,
+                evidence=self.position_evidence,
+                max_evidence_age=self.position_evidence_max_age,
+            )
+            if resolution.evidence_cut != self.position_evidence_cut:
+                raise ValueError("position evidence cut does not match the resolved evidence cut")
+            if resolution.effective is not self.effective_position_effect:
+                raise ValueError(
+                    "effective position effect does not match the resolved position effect"
+                )
+        elif (
+            self.position_evidence_cut is not None
+            or self.position_evidence is not None
+            or self.position_evidence_max_age is not None
         ):
-            raise ValueError("position evidence cut must be timezone-aware")
+            raise ValueError("position evidence is only valid for AUTO or CLOSE position effects")
 
     @property
     def correlation_id(self) -> str:
@@ -116,6 +141,8 @@ class PendingExecutionRecoveryRequest:
     position_effect: PositionEffect | None = None
     effective_position_effect: PositionEffect | None = None
     position_evidence_cut: datetime | None = None
+    position_evidence: PositionEvidence | None = None
+    position_evidence_max_age: timedelta | None = None
 
     @property
     def correlation_id(self) -> str:

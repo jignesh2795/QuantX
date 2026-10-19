@@ -24,7 +24,6 @@ def _ref() -> DhanInstrumentRef:
         security_id="1333",
         exchange_segment="NSE_EQ",
         trading_symbol="TCS",
-        product_type="CNC",
     )
 
 
@@ -62,6 +61,8 @@ def test_build_order_request_preserves_decimal_order_values() -> None:
         stop_price=None,
         time_in_force=TimeInForce.DAY,
         correlation_id=str(uuid4()),
+        product_code=ProductCode("CNC"),
+        product_map={"CNC": "CNC"},
     )
 
     assert request.security_id == "1333"
@@ -90,7 +91,7 @@ def test_build_order_request_rejects_fractional_quantity() -> None:
         )
 
 
-def test_explicit_product_overrides_instrument_reference_default() -> None:
+def test_explicit_product_maps_to_dhan_wire_value() -> None:
     request = build_order_request(
         instrument_ref=_ref(),
         side=OrderSide.BUY,
@@ -105,7 +106,7 @@ def test_explicit_product_overrides_instrument_reference_default() -> None:
     )
 
     assert request.product_type == "INTRADAY"
-    assert _ref().product_type == "CNC"
+    assert not hasattr(_ref(), "product_type")
 
 
 def test_distinct_products_for_same_instrument_map_to_distinct_wire_values() -> None:
@@ -138,19 +139,20 @@ def test_unsupported_mapped_wire_value_is_rejected() -> None:
         dhan_product_type(ProductCode("CNC"), _ref(), {"CNC": "NOT_A_DHAN_PRODUCT"})
 
 
-def test_absent_product_uses_instrument_reference_compatibility_default() -> None:
-    assert dhan_product_type(None, _ref()) == "CNC"
-    request = build_order_request(
-        instrument_ref=_ref(),
-        side=OrderSide.BUY,
-        order_type=OrderType.MARKET,
-        quantity=Decimal("1"),
-        limit_price=None,
-        stop_price=None,
-        time_in_force=TimeInForce.DAY,
-        correlation_id="abc",
-    )
-    assert request.product_type == "CNC"
+def test_absent_product_is_rejected_without_instrument_reference_fallback() -> None:
+    with pytest.raises(ValueError, match="resolved approved product"):
+        dhan_product_type(None, _ref())
+    with pytest.raises(ValueError, match="resolved approved product"):
+        build_order_request(
+            instrument_ref=_ref(),
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("1"),
+            limit_price=None,
+            stop_price=None,
+            time_in_force=TimeInForce.DAY,
+            correlation_id="abc",
+        )
 
 
 @pytest.mark.parametrize(

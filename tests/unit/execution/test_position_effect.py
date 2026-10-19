@@ -9,8 +9,8 @@ import pytest
 
 from quantx.domain.enums import OrderSide, OrderType, PositionEffect
 from quantx.domain.orders import Order
+from quantx.domain.position_effect import PositionEvidence, resolve_position_effect
 from quantx.domain.value_objects import InstrumentId
-from quantx.execution.position_effect import PositionEvidence, resolve_position_effect
 
 NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
 MAX_AGE = timedelta(minutes=5)

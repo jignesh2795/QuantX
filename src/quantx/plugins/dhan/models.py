@@ -27,23 +27,19 @@ class DhanCredentials:
 class DhanInstrumentRef:
     """Broker-specific instrument mapping for one canonical QuantX instrument.
 
-    ``product_type`` is retained only as the explicit legacy compatibility
-    default for callers that omit an approved product. It is not the per-order
-    product authority; approved request products are mapped and validated by
-    ``mapping.dhan_product_type``.
+    Instrument identity carries no per-order product. The approved request
+    product is the sole authority and is mapped by ``mapping.dhan_product_type``.
     """
 
     security_id: str
     exchange_segment: str
     trading_symbol: str
-    product_type: str
 
     def __post_init__(self) -> None:
         for name, value in (
             ("security_id", self.security_id),
             ("exchange_segment", self.exchange_segment),
             ("trading_symbol", self.trading_symbol),
-            ("product_type", self.product_type),
         ):
             if not value.strip():
                 raise ValueError(f"{name} must not be empty")

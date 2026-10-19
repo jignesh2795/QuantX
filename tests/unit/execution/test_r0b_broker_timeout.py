@@ -34,6 +34,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.receipts.models import ExecutionOutcome
 from quantx.execution.trading_gate import DurableTradingGate
@@ -197,6 +198,8 @@ def _request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -206,12 +209,14 @@ def _request() -> ApprovedExecutionRequest:
         time_in_force=TimeInForce.DAY,
         required_capabilities=frozenset({"ORDER_SUBMISSION"}),
         execution_context=context,
+        product=ProductCode("CNC"),
     )
     return ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("CNC"),
     )
 
 
@@ -238,7 +243,6 @@ def _adapter(
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },
@@ -246,6 +250,7 @@ def _adapter(
         _submit_timeout=submit_timeout,
         _cancel_timeout=cancel_timeout,
         _reconcile_timeout=reconcile_timeout,
+        _product_map={"CNC": "CNC"},
     )
 
 
@@ -608,7 +613,7 @@ def test_host_config_rejects_invalid_timeouts(tmp_path) -> None:
         "account_id": AccountId("acct-1"),
         "connection_id": BrokerConnectionId("conn-1"),
         "market_context_id": "NSE_EQ",
-        "instruments": ((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC")),),
+        "instruments": ((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
         "transport": InMemoryDhanTransport(),
     }
 
@@ -649,7 +654,7 @@ def test_host_config_accepts_valid_timeouts(tmp_path) -> None:
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
         market_context_id="NSE_EQ",
-        instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC")),),
+        instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
         transport=InMemoryDhanTransport(),
         submit_timeout_seconds=10.0,
         cancel_timeout_seconds=5.0,
@@ -673,7 +678,7 @@ def test_host_close_shuts_down_transport(tmp_path) -> None:
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
         market_context_id="NSE_EQ",
-        instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC")),),
+        instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
         transport=transport,
         submit_timeout_seconds=5.0,
         cancel_timeout_seconds=5.0,

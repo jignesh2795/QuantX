@@ -113,7 +113,6 @@ def _adapter(
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },
@@ -122,6 +121,7 @@ def _adapter(
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _product_map={"CNC": "CNC"},
     )
 
 

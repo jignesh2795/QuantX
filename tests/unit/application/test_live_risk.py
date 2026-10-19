@@ -36,7 +36,7 @@ from quantx.domain.risk import (
     RiskResult,
     RiskSnapshot,
 )
-from quantx.domain.value_objects import Money
+from quantx.domain.value_objects import Money, ProductCode
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
@@ -107,6 +107,8 @@ def _execution_context() -> ExecutionContext:
         market=_market(),
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india",
+        rule_version="india-products-v1",
     )
 
 
@@ -118,6 +120,7 @@ def _intent(**overrides) -> TradeIntent:
         "required_margin": Decimal("1000"),
         "required_capabilities": frozenset({"ORDER_SUBMISSION"}),
         "execution_context": _execution_context(),
+        "product": ProductCode("CNC"),
     }
     values.update(overrides)
     return TradeIntent(**values)
@@ -171,6 +174,7 @@ def _request() -> ApprovedExecutionRequest:
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "upstream approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("CNC"),
     )
 
 
@@ -183,13 +187,14 @@ def _adapter(transport: InMemoryDhanTransport) -> DhanBrokerAdapter:
         _instruments={
             instrument.instrument_id: (
                 instrument,
-                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
+                DhanInstrumentRef("1333", "NSE_EQ", "TCS"),
             )
         },
         _transport=transport,
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _product_map={"CNC": "CNC"},
     )
 
 

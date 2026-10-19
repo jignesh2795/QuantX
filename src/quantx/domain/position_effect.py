@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from quantx.domain.enums import OrderSide, PositionEffect
-from quantx.domain.orders import Order
-from quantx.domain.value_objects import InstrumentId
+from .enums import OrderSide, PositionEffect
+from .orders import Order
+from .value_objects import InstrumentId
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +72,8 @@ def resolve_position_effect(
     otherwise resolves to OPEN; an oversized reducing AUTO order fails
     closed rather than reversing.
     """
+    if not isinstance(max_evidence_age, timedelta):
+        raise ValueError("max_evidence_age must be a timedelta")
     if max_evidence_age < timedelta(0):
         raise ValueError("max_evidence_age cannot be negative")
 

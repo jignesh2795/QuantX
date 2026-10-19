@@ -58,37 +58,35 @@ _SUPPORTED_DHAN_PRODUCTS: set[str] = {"CNC", "INTRADAY", "MARGIN", "MTF"}
 
 def dhan_product_type(
     product_code: ProductCode | None,
-    instrument_ref: DhanInstrumentRef,
+    instrument_ref: DhanInstrumentRef | None = None,
     product_map: Mapping[str, str] | None = None,
 ) -> str:
-    """Translate the approved neutral product into a Dhan wire value.
+    """Translate the already-resolved approved product into a Dhan wire value.
 
-    Explicit products require a verified adapter-supplied mapping; there is
-    no implicit identity mapping from neutral codes to Dhan wire codes. When
-    the request omits a product, the instrument reference's documented
-    default is the explicit legacy compatibility path.
+    There is no instrument-identity fallback: an omitted product is rejected
+    here, and the caller must resolve it through a versioned market-pack
+    selection policy before submission. Explicit products require a verified
+    adapter-supplied mapping; there is no implicit identity mapping from
+    neutral codes to Dhan wire codes.
     """
-    if product_code is not None:
-        if product_map is None:
-            raise ValueError(
-                f"no configured Dhan product mapping for product {product_code.value!r}"
-            )
-        key = product_code.value.strip().upper()
-        normalized_map: dict[str, str] = {}
-        for map_key, map_value in product_map.items():
-            normalized_key = map_key.strip().upper()
-            if normalized_key in normalized_map:
-                raise ValueError(f"duplicate Dhan product map key: {normalized_key}")
-            normalized_map[normalized_key] = map_value.strip().upper()
-        mapped = normalized_map.get(key)
-        if mapped is None:
-            raise ValueError(f"unsupported Dhan product for this instrument/segment: {key}")
-        normalized = mapped
-    else:
-        # Explicit compatibility default for legacy callers without a selected
-        # product: the instrument reference's documented default, not a global
-        # default and never inferred from the symbol or adapter capability.
-        normalized = instrument_ref.product_type.strip().upper()
+    if product_code is None:
+        raise ValueError(
+            "Dhan product mapping requires a resolved approved product; "
+            "instrument references carry no product default"
+        )
+    if product_map is None:
+        raise ValueError(f"no configured Dhan product mapping for product {product_code.value!r}")
+    key = product_code.value.strip().upper()
+    normalized_map: dict[str, str] = {}
+    for map_key, map_value in product_map.items():
+        normalized_key = map_key.strip().upper()
+        if normalized_key in normalized_map:
+            raise ValueError(f"duplicate Dhan product map key: {normalized_key}")
+        normalized_map[normalized_key] = map_value.strip().upper()
+    mapped = normalized_map.get(key)
+    if mapped is None:
+        raise ValueError(f"unsupported Dhan product for this instrument/segment: {key}")
+    normalized = mapped
     if normalized not in _SUPPORTED_DHAN_PRODUCTS:
         raise ValueError(f"unsupported Dhan product for this instrument/segment: {normalized}")
     return normalized

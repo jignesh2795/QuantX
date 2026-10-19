@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import timedelta
 from decimal import Decimal
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
@@ -31,6 +32,14 @@ def _json_value(value: object) -> object:
             for key, item in sorted(value.items(), key=lambda x: str(x[0]))
         }
     return value
+
+
+def _timedelta_microseconds(value: object) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, timedelta):
+        raise TypeError("position evidence max age must be a timedelta or None")
+    return (value.days * 86_400 + value.seconds) * 1_000_000 + value.microseconds
 
 
 def request_fingerprint(request: ApprovedExecutionRequest) -> str:
@@ -76,6 +85,20 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
             None
             if request.position_evidence_cut is None
             else request.position_evidence_cut.isoformat()
+        ),
+        "position_evidence": (
+            None
+            if request.position_evidence is None
+            else {
+                "instrument": str(request.position_evidence.instrument),
+                "quantity": request.position_evidence.quantity,
+                "observed_at": request.position_evidence.observed_at.isoformat(),
+                "evidence_cut": request.position_evidence.evidence_cut.isoformat(),
+                "matched": request.position_evidence.matched,
+            }
+        ),
+        "position_evidence_max_age_microseconds": _timedelta_microseconds(
+            request.position_evidence_max_age
         ),
     }
     canonical = json.dumps(_json_value(payload), sort_keys=True, separators=(",", ":"))

@@ -39,6 +39,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.trading_gate import DurableTradingGate, InMemoryTradingGateStateStore
 from quantx.integrations.brokers import BrokerConnectionRef, CapabilitySet
 from quantx.ports.market_checks import (
@@ -82,6 +83,7 @@ def _request(
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
     market = market or instrument.market
+    live = mode is ExecutionMode.LIVE
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -89,19 +91,24 @@ def _request(
         market=market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=mode,
+        market_pack_id="test-pack" if live else None,
+        rule_version="test-rules-v1" if live else None,
     )
+    product = ProductCode("DEFAULT") if live else None
     intent = TradeIntent(
         instrument=instrument.instrument_id,
         side=OrderSide.BUY,
         quantity=Decimal("1"),
         order_type=OrderType.MARKET,
         execution_context=context,
+        product=product,
     )
     return ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
     )
 
 
@@ -319,6 +326,8 @@ def _us_request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="test-pack",
+        rule_version="test-rules-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -326,12 +335,14 @@ def _us_request() -> ApprovedExecutionRequest:
         quantity=Decimal("1"),
         order_type=OrderType.MARKET,
         execution_context=context,
+        product=ProductCode("DEFAULT"),
     )
     return ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("DEFAULT"),
     )
 
 
@@ -502,6 +513,8 @@ def test_unknown_region_string_fails_closed() -> None:
         market=foreign,
         broker_connection_id=request.execution_context.broker_connection_id,
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="test-pack",
+        rule_version="test-rules-v1",
     )
     intent = TradeIntent(
         instrument=request.order.instrument,
@@ -509,12 +522,14 @@ def test_unknown_region_string_fails_closed() -> None:
         quantity=Decimal("1"),
         order_type=OrderType.MARKET,
         execution_context=context,
+        product=ProductCode("DEFAULT"),
     )
     foreign_request = ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("DEFAULT"),
     )
     result = orchestrator.execute(foreign_request)
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -533,6 +548,8 @@ def test_unknown_family_string_fails_closed() -> None:
         market=foreign,
         broker_connection_id=request.execution_context.broker_connection_id,
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="test-pack",
+        rule_version="test-rules-v1",
     )
     intent = TradeIntent(
         instrument=request.order.instrument,
@@ -540,12 +557,14 @@ def test_unknown_family_string_fails_closed() -> None:
         quantity=Decimal("1"),
         order_type=OrderType.MARKET,
         execution_context=context,
+        product=ProductCode("DEFAULT"),
     )
     foreign_request = ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("DEFAULT"),
     )
     orchestrator = _live_orchestrator()
     result = orchestrator.execute(foreign_request)

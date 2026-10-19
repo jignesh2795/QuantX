@@ -12,6 +12,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
+from quantx.domain.product_selection import ProductSelectionError, ProductSelectionPolicy
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import NotSubmittedSource, PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
@@ -260,6 +261,7 @@ class ExecutionOrchestrator:
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
         market_policy: MarketPolicyConfig | None = None,
         submission_quarantine: SubmissionQuarantineRepository | None = None,
+        product_selection: ProductSelectionPolicy | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._unit_of_work = unit_of_work
@@ -270,6 +272,7 @@ class ExecutionOrchestrator:
         self._live_risk_evaluator = live_risk_evaluator
         self._market_policy = market_policy or default_market_policy()
         self._submission_quarantine = submission_quarantine
+        self._product_selection = product_selection
 
     def _run_market_stage(
         self,
@@ -521,6 +524,34 @@ class ExecutionOrchestrator:
         broker: BrokerPort | None = None,
     ) -> ExecutionResult:
         mode = request.execution_context.execution_mode
+        resolved_product = getattr(request, "product", None)
+
+        # An omitted product may only be resolved by an explicit, versioned
+        # market-pack policy. LIVE has no legacy default: without a resolved
+        # product it is denied here, before any gate, reservation, or broker
+        # call. Non-live modes keep absent distinct (no broker product).
+        if resolved_product is None and self._product_selection is not None:
+            try:
+                product = self._product_selection.resolve(request.execution_context.market)
+            except ProductSelectionError as exc:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"product selection unresolved: {exc}",
+                )
+            context = replace(
+                request.execution_context,
+                market_pack_id=self._product_selection.market_pack_id,
+                rule_version=self._product_selection.rule_version,
+            )
+            request = replace(request, product=product, execution_context=context)
+        elif mode is ExecutionMode.LIVE and resolved_product is None:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=(
+                    "live execution requires a resolved product from a versioned "
+                    "market-pack selection policy"
+                ),
+            )
 
         if mode is ExecutionMode.LIVE:
             if not self._trading_gate_explicit:

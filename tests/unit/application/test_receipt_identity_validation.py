@@ -52,6 +52,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
@@ -114,6 +115,8 @@ def _live_request(
         market=instrument.market,
         broker_connection_id=connection_id or _CONNECTION_ID,
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -121,12 +124,14 @@ def _live_request(
         quantity=quantity,
         order_type=OrderType.MARKET,
         execution_context=context,
+        product=ProductCode("CNC"),
     )
     return ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("CNC"),
     )
 
 

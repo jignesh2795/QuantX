@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from threading import RLock
@@ -24,7 +24,14 @@ from quantx.domain.execution_request import (
 )
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.orders import Order
+from quantx.domain.position_effect import PositionEvidence
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId, ProductCode
+
+
+def _timedelta_microseconds(value: timedelta | None) -> int | None:
+    if value is None:
+        return None
+    return (value.days * 86_400 + value.seconds) * 1_000_000 + value.microseconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +46,8 @@ class PendingExecutionContext:
     position_effect: PositionEffect | None = None
     effective_position_effect: PositionEffect | None = None
     position_evidence_cut: datetime | None = None
+    position_evidence: PositionEvidence | None = None
+    position_evidence_max_age: timedelta | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_fingerprint, str) or not self.request_fingerprint.strip():
@@ -66,6 +75,8 @@ class PendingExecutionContext:
             position_effect=request.position_effect,
             effective_position_effect=request.effective_position_effect,
             position_evidence_cut=request.position_evidence_cut,
+            position_evidence=request.position_evidence,
+            position_evidence_max_age=request.position_evidence_max_age,
         )
 
     def to_recovery_request(self) -> PendingExecutionRecoveryRequest:
@@ -77,6 +88,8 @@ class PendingExecutionContext:
             position_effect=self.position_effect,
             effective_position_effect=self.effective_position_effect,
             position_evidence_cut=self.position_evidence_cut,
+            position_evidence=self.position_evidence,
+            position_evidence_max_age=self.position_evidence_max_age,
         )
 
     def to_json(self) -> str:
@@ -141,6 +154,21 @@ class PendingExecutionContext:
                 None
                 if self.position_evidence_cut is None
                 else self.position_evidence_cut.isoformat()
+            ),
+            "position_evidence": (
+                None
+                if self.position_evidence is None
+                else {
+                    "instrument_venue": self.position_evidence.instrument.venue,
+                    "instrument_symbol": self.position_evidence.instrument.symbol,
+                    "quantity": str(self.position_evidence.quantity),
+                    "observed_at": self.position_evidence.observed_at.isoformat(),
+                    "evidence_cut": self.position_evidence.evidence_cut.isoformat(),
+                    "matched": self.position_evidence.matched,
+                }
+            ),
+            "position_evidence_max_age_microseconds": _timedelta_microseconds(
+                self.position_evidence_max_age
             ),
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -210,6 +238,26 @@ class PendingExecutionContext:
             effect_value = payload.get("position_effect")
             effective_value = payload.get("effective_position_effect")
             cut_value = payload.get("position_evidence_cut")
+            evidence_value = payload.get("position_evidence")
+            max_age_value = payload.get("position_evidence_max_age_microseconds")
+            evidence = None
+            if evidence_value is not None:
+                if not isinstance(evidence_value, dict):
+                    raise ValueError("pending position evidence must be an object")
+                matched = evidence_value["matched"]
+                if not isinstance(matched, bool):
+                    raise ValueError("pending position evidence matched must be boolean")
+                evidence = PositionEvidence(
+                    instrument=InstrumentId(
+                        evidence_value["instrument_venue"],
+                        evidence_value["instrument_symbol"],
+                    ),
+                    quantity=Decimal(evidence_value["quantity"]),
+                    observed_at=datetime.fromisoformat(evidence_value["observed_at"]),
+                    evidence_cut=datetime.fromisoformat(evidence_value["evidence_cut"]),
+                    matched=matched,
+                )
+            max_age = None if max_age_value is None else timedelta(microseconds=int(max_age_value))
             return cls(
                 request_fingerprint=payload["request_fingerprint"],
                 order=order,
@@ -223,6 +271,8 @@ class PendingExecutionContext:
                     PositionEffect(effective_value) if effective_value else None
                 ),
                 position_evidence_cut=(datetime.fromisoformat(cut_value) if cut_value else None),
+                position_evidence=evidence,
+                position_evidence_max_age=max_age,
             )
         except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid pending execution context") from exc

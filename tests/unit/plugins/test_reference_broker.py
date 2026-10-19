@@ -26,6 +26,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
@@ -65,6 +66,7 @@ def _instrument() -> Instrument:
 
 def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequest:
     instrument = _instrument()
+    live = mode is ExecutionMode.LIVE
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -72,18 +74,23 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=mode,
+        market_pack_id="india" if live else None,
+        rule_version="india-products-v1" if live else None,
     )
+    product = ProductCode("CNC") if live else None
     intent = TradeIntent(
         instrument=instrument.instrument_id,
         side=OrderSide.BUY,
         quantity=Decimal("2"),
         execution_context=context,
+        product=product,
     )
     return ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
     )
 
 

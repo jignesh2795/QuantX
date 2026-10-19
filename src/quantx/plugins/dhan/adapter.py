@@ -110,8 +110,8 @@ class DhanBrokerAdapter:
         except ValueError as exc:
             if request.product is None:
                 raise BrokerPreflightRejected(
-                    "instrument reference has unsupported default product: "
-                    f"{instrument_ref.product_type}"
+                    "Dhan submission requires an approved resolved product; "
+                    "instrument references carry no product default"
                 ) from exc
             raise BrokerPreflightRejected(
                 f"unsupported product for Dhan adapter: {request.product.value}"

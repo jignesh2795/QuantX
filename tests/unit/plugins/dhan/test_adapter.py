@@ -72,6 +72,8 @@ from quantx.plugins.dhan.models import (
     DhanPositionsSnapshot,
 )
 
+_DEFAULT_PRODUCT = ProductCode("CNC")
+
 
 def _instrument() -> Instrument:
     return Instrument(
@@ -90,7 +92,7 @@ def _request(
     mode: ExecutionMode = ExecutionMode.LIVE,
     order_type: OrderType = OrderType.MARKET,
     time_in_force: TimeInForce = TimeInForce.DAY,
-    product: ProductCode | None = None,
+    product: ProductCode | None = _DEFAULT_PRODUCT,
     position_effect: PositionEffect | None = None,
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
@@ -199,7 +201,6 @@ def _adapter(
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },
@@ -229,7 +230,7 @@ def test_submit_translates_to_dhan_and_returns_normalized_receipt() -> None:
     assert transport.submitted[0].correlation_id == dhan_correlation_id(request.correlation_id)
 
 
-def test_submit_uses_explicit_request_product_over_instrument_default() -> None:
+def test_submit_uses_resolved_request_product() -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     receipt = _adapter(transport).submit(_request(product=ProductCode("MIS")))
 
@@ -269,46 +270,17 @@ def test_submit_rejects_unsupported_product_before_transport() -> None:
     assert not transport.submitted
 
 
-def test_legacy_request_without_product_uses_instrument_compatibility_default() -> None:
+def test_request_without_resolved_product_is_rejected_before_transport() -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
 
-    _adapter(transport).submit(_request())
-
-    assert transport.submitted[0].product_type == "CNC"
-
-
-def test_instrument_reference_with_unsupported_legacy_default_is_rejected() -> None:
-    transport = InMemoryDhanTransport()
-    instrument = _instrument()
-    connection = BrokerConnectionRef(
-        AccountId("acct-1"),
-        BrokerConnectionId("conn-1"),
-        "dhan",
-        "NSE_EQ",
-    )
-    adapter = DhanBrokerAdapter(
-        _connection=connection,
-        _instruments={
-            instrument.instrument_id: (
-                instrument,
-                DhanInstrumentRef(
-                    security_id="1333",
-                    exchange_segment="NSE_EQ",
-                    trading_symbol="TCS",
-                    product_type="DELIVERY",
-                ),
-            )
-        },
-        _transport=transport,
-        _submit_timeout=5.0,
-        _cancel_timeout=5.0,
-        _reconcile_timeout=5.0,
-    )
-
-    with pytest.raises(BrokerPreflightRejected, match="unsupported default product"):
-        adapter.submit(_request())
+    with pytest.raises(BrokerPreflightRejected, match="resolved product"):
+        _adapter(transport).submit(_request(product=None))
 
     assert not transport.submitted
+
+
+def test_instrument_reference_carries_no_product_default() -> None:
+    assert not hasattr(_adapter()._instruments[_instrument().instrument_id][1], "product_type")
 
 
 def test_submit_rejects_wrong_account_for_bound_connection() -> None:
@@ -516,7 +488,6 @@ def test_market_segment_mismatch_is_rejected() -> None:
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },

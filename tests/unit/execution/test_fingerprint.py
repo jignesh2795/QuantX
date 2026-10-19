@@ -1,6 +1,6 @@
 """Focused tests for canonical request fingerprinting."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -16,15 +16,23 @@ from quantx.domain.enums import OrderSide, OrderType, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.position_effect import PositionEvidence
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency.fingerprint import _canonical_decimal, request_fingerprint
 
 NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+MAX_AGE = timedelta(minutes=5)
 
 
-def _effect_cut(effect: PositionEffect | None) -> datetime | None:
-    return NOW if effect in {PositionEffect.CLOSE, PositionEffect.AUTO} else None
+def _evidence(quantity: str = "0", *, cut: datetime = NOW) -> PositionEvidence:
+    return PositionEvidence(
+        instrument=InstrumentId("NSE", "TCS"),
+        quantity=Decimal(quantity),
+        observed_at=NOW - timedelta(minutes=1),
+        evidence_cut=cut,
+        matched=True,
+    )
 
 
 def _request(
@@ -33,10 +41,12 @@ def _request(
     order_type: OrderType = OrderType.MARKET,
     limit_price: Decimal | None = None,
     stop_price: Decimal | None = None,
+    side: OrderSide = OrderSide.BUY,
     product: ProductCode | None = None,
     position_effect: PositionEffect | None = None,
     effective_position_effect: PositionEffect | None = None,
     position_evidence_cut: datetime | None = None,
+    position_evidence: PositionEvidence | None = None,
     market_pack_id: str | None = None,
     rule_version: str | None = None,
 ) -> ApprovedExecutionRequest:
@@ -52,7 +62,7 @@ def _request(
     )
     intent = TradeIntent(
         instrument=InstrumentId("NSE", "TCS"),
-        side=OrderSide.BUY,
+        side=side,
         quantity=quantity,
         order_type=order_type,
         limit_price=limit_price,
@@ -71,6 +81,8 @@ def _request(
         position_effect=position_effect,
         effective_position_effect=effective_position_effect,
         position_evidence_cut=position_evidence_cut,
+        position_evidence=position_evidence,
+        position_evidence_max_age=MAX_AGE if position_evidence is not None else None,
     )
 
 
@@ -144,16 +156,26 @@ def test_different_requested_effects_have_different_fingerprints(
     first: PositionEffect | None,
     second: PositionEffect | None,
 ) -> None:
-    first_request = _request(
-        position_effect=first,
-        effective_position_effect=PositionEffect.OPEN if first is PositionEffect.AUTO else None,
-        position_evidence_cut=_effect_cut(first),
-    )
-    second_request = _request(
-        position_effect=second,
-        effective_position_effect=PositionEffect.OPEN if second is PositionEffect.AUTO else None,
-        position_evidence_cut=_effect_cut(second),
-    )
+    def effect_request(effect: PositionEffect | None) -> ApprovedExecutionRequest:
+        if effect is PositionEffect.CLOSE:
+            return _request(
+                side=OrderSide.SELL,
+                position_effect=effect,
+                effective_position_effect=PositionEffect.CLOSE,
+                position_evidence_cut=NOW,
+                position_evidence=_evidence("10"),
+            )
+        if effect is PositionEffect.AUTO:
+            return _request(
+                position_effect=effect,
+                effective_position_effect=PositionEffect.OPEN,
+                position_evidence_cut=NOW,
+                position_evidence=_evidence("0"),
+            )
+        return _request(position_effect=effect)
+
+    first_request = effect_request(first)
+    second_request = effect_request(second)
     assert request_fingerprint(first_request) != request_fingerprint(second_request)
 
 
@@ -162,25 +184,31 @@ def test_different_resolved_auto_effects_have_different_fingerprints() -> None:
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.OPEN,
         position_evidence_cut=NOW,
+        position_evidence=_evidence("0"),
     )
     close_request = _request(
+        side=OrderSide.SELL,
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.CLOSE,
         position_evidence_cut=NOW,
+        position_evidence=_evidence("10"),
     )
     assert request_fingerprint(open_request) != request_fingerprint(close_request)
 
 
 def test_different_position_evidence_cuts_have_different_fingerprints() -> None:
+    later = datetime(2026, 1, 5, 10, 1, tzinfo=UTC)
     first = _request(
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.OPEN,
         position_evidence_cut=NOW,
+        position_evidence=_evidence("0", cut=NOW),
     )
     second = _request(
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.OPEN,
-        position_evidence_cut=datetime(2026, 1, 5, 10, 1, tzinfo=UTC),
+        position_evidence_cut=later,
+        position_evidence=_evidence("0", cut=later),
     )
     assert request_fingerprint(first) != request_fingerprint(second)
 

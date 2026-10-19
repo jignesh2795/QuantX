@@ -43,6 +43,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
@@ -151,6 +152,8 @@ def _request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -160,12 +163,14 @@ def _request() -> ApprovedExecutionRequest:
         time_in_force=TimeInForce.DAY,
         required_capabilities=frozenset({"ORDER_SUBMISSION"}),
         execution_context=context,
+        product=ProductCode("CNC"),
     )
     return ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("CNC"),
     )
 
 
@@ -216,13 +221,14 @@ def _adapter(transport: InMemoryDhanTransport) -> DhanBrokerAdapter:
         _instruments={
             instrument.instrument_id: (
                 instrument,
-                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
+                DhanInstrumentRef("1333", "NSE_EQ", "TCS"),
             )
         },
         _transport=transport,
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _product_map={"CNC": "CNC"},
     )
 
 

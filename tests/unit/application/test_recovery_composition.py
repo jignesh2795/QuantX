@@ -31,6 +31,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.integrations.account_registry import AccountConnectionRegistry, RegisteredConnection
@@ -75,6 +76,8 @@ def _context(account: str = "acct-1", connection: str = "conn-1") -> ExecutionCo
         market=_instrument().market,
         broker_connection_id=BrokerConnectionId(connection),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india",
+        rule_version="india-products-v1",
     )
 
 
@@ -91,12 +94,14 @@ def _approved(
         order_type=OrderType.MARKET,
         time_in_force=TimeInForce.DAY,
         execution_context=context,
+        product=ProductCode("CNC"),
     )
     return ApprovedExecutionRequest(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),
         PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("CNC"),
     )
 
 
@@ -120,7 +125,6 @@ def _dhan_adapter(
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },
@@ -128,6 +132,7 @@ def _dhan_adapter(
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _product_map={"CNC": "CNC"},
     )
 
 

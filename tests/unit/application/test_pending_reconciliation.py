@@ -1,7 +1,7 @@
 """Integration tests for pending-execution reconciliation over real SQLite."""
 
 import inspect
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from threading import Barrier, Lock, Thread
 from uuid import uuid4
@@ -25,6 +25,7 @@ from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
+from quantx.domain.position_effect import PositionEvidence
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
@@ -426,6 +427,13 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
         execution_context=context,
     )
     evidence_cut = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+    evidence = PositionEvidence(
+        instrument=InstrumentId("NSE", "TCS"),
+        quantity=Decimal("0"),
+        observed_at=evidence_cut,
+        evidence_cut=evidence_cut,
+        matched=True,
+    )
     request = ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
@@ -435,6 +443,8 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.OPEN,
         position_evidence_cut=evidence_cut,
+        position_evidence=evidence,
+        position_evidence_max_age=timedelta(minutes=5),
     )
     fingerprint = request_fingerprint(request)
 
@@ -450,12 +460,16 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
     assert restored.position_effect is PositionEffect.AUTO
     assert restored.effective_position_effect is PositionEffect.OPEN
     assert restored.position_evidence_cut == evidence_cut
+    assert restored.position_evidence == evidence
+    assert restored.position_evidence_max_age == timedelta(minutes=5)
     assert restored.execution_context.market_pack_id == "india-equity"
     assert restored.execution_context.rule_version == "rules-v1"
     assert recovery_request.product == ProductCode("MIS")
     assert recovery_request.position_effect is PositionEffect.AUTO
     assert recovery_request.effective_position_effect is PositionEffect.OPEN
     assert recovery_request.position_evidence_cut == evidence_cut
+    assert recovery_request.position_evidence == evidence
+    assert recovery_request.position_evidence_max_age == timedelta(minutes=5)
     assert recovery_request.execution_context.market_pack_id == "india-equity"
     assert recovery_request.execution_context.rule_version == "rules-v1"
 

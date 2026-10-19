@@ -429,7 +429,7 @@ def test_dhan_adapter_composes_with_filesystem_catalog_and_sqlite_store(tmp_path
         _instruments={
             INSTRUMENT: (
                 instrument,
-                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
+                DhanInstrumentRef("1333", "NSE_EQ", "TCS"),
             )
         },
         _transport=InMemoryDhanTransport(candle_snapshots={("1333", "NSE_EQ"): snapshots}),

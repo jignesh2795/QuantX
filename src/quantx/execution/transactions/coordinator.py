@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.product_selection import ProductSelectionError, ProductSelectionPolicy
 from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionReceipt
@@ -32,11 +33,13 @@ class ExecutionTransactionCoordinator:
         preconditions: Callable[[ApprovedExecutionRequest], PreconditionsResult],
         submit: Callable[[ApprovedExecutionRequest], ExecutionReceipt],
         receipt_repository: ReceiptRepository | None = None,
+        product_selection: ProductSelectionPolicy | None = None,
     ) -> None:
         self._idempotency = idempotency
         self._preconditions = preconditions
         self._submit = submit
         self._receipt_repository = receipt_repository
+        self._product_selection = product_selection
 
     def execute(self, request: ApprovedExecutionRequest) -> TransactionResult:
         mode = getattr(
@@ -44,6 +47,21 @@ class ExecutionTransactionCoordinator:
             "execution_mode",
             None,
         )
+
+        if getattr(request, "product", None) is None and self._product_selection is not None:
+            try:
+                product = self._product_selection.resolve(request.execution_context.market)
+            except ProductSelectionError as exc:
+                return TransactionResult(
+                    PreconditionsStatus.BLOCKED,
+                    reasons=(f"product selection unresolved: {exc}",),
+                )
+            context = replace(
+                request.execution_context,
+                market_pack_id=self._product_selection.market_pack_id,
+                rule_version=self._product_selection.rule_version,
+            )
+            request = replace(request, product=product, execution_context=context)
 
         preflight = self._preconditions(request)
         if not preflight.can_execute:
