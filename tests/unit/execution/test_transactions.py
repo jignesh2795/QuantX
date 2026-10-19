@@ -341,3 +341,39 @@ def test_coordinator_does_not_resolve_products_at_submission_time() -> None:
             submit=lambda _: None,  # type: ignore[arg-type,return-value]
             product_selection=INDIA_EQUITY_PRODUCT_SELECTION,  # type: ignore[call-arg]
         )
+
+
+def test_coordinator_forwards_resolved_semantics_without_resolving(monkeypatch) -> None:
+    """The submit boundary consumes the approved product verbatim.
+
+    It neither synthesizes a product for an absent one nor replaces one that
+    the pre-approval seam already resolved.
+    """
+    monkeypatch.setattr(
+        "quantx.execution.transactions.coordinator.request_fingerprint",
+        lambda _: "fingerprint-a",
+    )
+    client_order_id = uuid4()
+    submitted = []
+
+    def submit(request):
+        submitted.append(request)
+        return _receipt(client_order_id)
+
+    coordinator = ExecutionTransactionCoordinator(
+        idempotency=InMemoryIdempotencyStore(),
+        preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
+        submit=submit,
+    )
+    resolved_product = object()
+    request = _request(client_order_id)
+    request.execution_context = type(
+        "ExecutionContext", (), {"execution_mode": ExecutionMode.PAPER}
+    )()
+    request.product = resolved_product
+
+    result = coordinator.execute(request)
+
+    assert result.status is PreconditionsStatus.READY
+    assert submitted == [request]
+    assert submitted[0].product is resolved_product
