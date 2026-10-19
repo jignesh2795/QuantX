@@ -98,6 +98,8 @@ class ExecutionLifecycle:
             strategy_id=request.order.strategy_id,
             strategy_version=request.order.strategy_version,
             required_capabilities=request.order.required_capabilities,
+            product=request.order.product,
+            position_effect=request.order.position_effect,
         )
         return ApprovedExecutionRequest(
             order=child_order,
@@ -106,6 +108,9 @@ class ExecutionLifecycle:
             policy_result=policy_result,
             required_margin=required_margin,
             parent_client_order_id=str(self.client_order_id),
+            product=request.product,
+            position_effect=request.position_effect,
+            effective_position_effect=request.effective_position_effect,
         )
 
     def continuation_quantity(self, requested_quantity: Decimal | None = None) -> Decimal:

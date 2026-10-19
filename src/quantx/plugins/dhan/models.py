@@ -25,7 +25,13 @@ class DhanCredentials:
 
 @dataclass(frozen=True, slots=True)
 class DhanInstrumentRef:
-    """Broker-specific instrument mapping for one canonical QuantX instrument."""
+    """Broker-specific instrument mapping for one canonical QuantX instrument.
+
+    ``product_type`` is retained only as the explicit legacy compatibility
+    default for callers that omit an approved product. It is not the per-order
+    product authority; approved request products are mapped and validated by
+    ``mapping.dhan_product_type``.
+    """
 
     security_id: str
     exchange_segment: str

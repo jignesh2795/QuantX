@@ -35,6 +35,12 @@ class OrderStatus(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class PositionEffect(StrEnum):
+    OPEN = "OPEN"
+    CLOSE = "CLOSE"
+    AUTO = "AUTO"
+
+
 class AssetClass(StrEnum):
     EQUITY = "EQUITY"
     ETF = "ETF"

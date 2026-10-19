@@ -6,10 +6,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from quantx.domain.enums import OrderSide, OrderType, TimeInForce
+from quantx.domain.value_objects import ProductCode
 from quantx.plugins.dhan.mapping import (
     build_order_request,
     dhan_correlation_id,
     dhan_order_type,
+    dhan_product_type,
     dhan_time_in_force,
     normalize_status,
     parse_dhan_timestamp,
@@ -86,6 +88,56 @@ def test_build_order_request_rejects_fractional_quantity() -> None:
             time_in_force=TimeInForce.DAY,
             correlation_id="abc",
         )
+
+
+def test_explicit_product_overrides_instrument_reference_default() -> None:
+    request = build_order_request(
+        instrument_ref=_ref(),
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Decimal("1"),
+        limit_price=None,
+        stop_price=None,
+        time_in_force=TimeInForce.DAY,
+        correlation_id="abc",
+        product_code=ProductCode("INTRADAY"),
+    )
+
+    assert request.product_type == "INTRADAY"
+    assert _ref().product_type == "CNC"
+
+
+def test_distinct_products_for_same_instrument_map_to_distinct_wire_values() -> None:
+    def wire(product: str) -> str:
+        return dhan_product_type(ProductCode(product), _ref())
+
+    assert wire("CNC") == "CNC"
+    assert wire("INTRADAY") == "INTRADAY"
+    assert wire("CNC") != wire("INTRADAY")
+
+
+def test_product_mapping_normalizes_case_and_surrounding_space() -> None:
+    assert dhan_product_type(ProductCode(" cnc "), _ref()) == "CNC"
+
+
+def test_unsupported_product_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported Dhan product"):
+        dhan_product_type(ProductCode("DELIVERY"), _ref())
+
+
+def test_absent_product_uses_instrument_reference_compatibility_default() -> None:
+    assert dhan_product_type(None, _ref()) == "CNC"
+    request = build_order_request(
+        instrument_ref=_ref(),
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Decimal("1"),
+        limit_price=None,
+        stop_price=None,
+        time_in_force=TimeInForce.DAY,
+        correlation_id="abc",
+    )
+    assert request.product_type == "CNC"
 
 
 @pytest.mark.parametrize(

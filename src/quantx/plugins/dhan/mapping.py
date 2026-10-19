@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
+from quantx.domain.value_objects import ProductCode
 
 from .models import DhanInstrumentRef, DhanOrderRequest, DhanPayload
 
@@ -51,6 +52,22 @@ def dhan_correlation_id(correlation_id: str) -> str:
     return hashlib.sha256(correlation_id.encode("utf-8")).hexdigest()[:30]
 
 
+_SUPPORTED_DHAN_PRODUCTS: set[str] = {"CNC", "INTRADAY", "MARGIN", "MTF"}
+
+
+def dhan_product_type(product_code: ProductCode | None, instrument_ref: DhanInstrumentRef) -> str:
+    if product_code is not None:
+        normalized = product_code.value.strip().upper()
+    else:
+        # Explicit compatibility default for legacy callers without a selected
+        # product: the instrument reference's documented default, not a global
+        # default and never inferred from the symbol or adapter capability.
+        normalized = instrument_ref.product_type.strip().upper()
+    if normalized not in _SUPPORTED_DHAN_PRODUCTS:
+        raise ValueError(f"unsupported Dhan product for this instrument/segment: {normalized}")
+    return normalized
+
+
 def build_order_request(
     *,
     instrument_ref: DhanInstrumentRef,
@@ -61,6 +78,7 @@ def build_order_request(
     stop_price: Decimal | None,
     time_in_force: TimeInForce,
     correlation_id: str,
+    product_code: ProductCode | None = None,
 ) -> DhanOrderRequest:
     if quantity != quantity.to_integral_value():
         raise ValueError("Dhan regular orders require integral quantities")
@@ -71,7 +89,7 @@ def build_order_request(
         transaction_type=dhan_side(side),
         quantity=int(quantity),
         order_type=dhan_order_type(order_type),
-        product_type=instrument_ref.product_type,
+        product_type=dhan_product_type(product_code, instrument_ref),
         price=limit_price if limit_price is not None else Decimal("0"),
         trigger_price=stop_price if stop_price is not None else Decimal("0"),
         validity=dhan_time_in_force(time_in_force),

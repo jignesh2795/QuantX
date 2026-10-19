@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from .deployment import ExecutionContext, ExecutionMode
+from .enums import PositionEffect
 from .order_intents import TradeIntent
 from .orders import Order
 from .policy import PolicyResult
 from .risk import RiskDecision, RiskResult
+from .value_objects import ProductCode
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +22,9 @@ class ApprovedExecutionRequest:
     policy_result: PolicyResult | None = None
     required_margin: Decimal = Decimal("0")
     parent_client_order_id: str | None = None
+    product: ProductCode | None = None
+    position_effect: PositionEffect | None = None
+    effective_position_effect: PositionEffect | None = None
 
     def __post_init__(self) -> None:
         if self.required_margin < 0:
@@ -31,6 +36,39 @@ class ApprovedExecutionRequest:
                 raise ValueError("live execution requires a broker connection")
             if self.policy_result is None or not self.policy_result.approved:
                 raise ValueError("live execution requires an approved execution policy")
+        if self.product is not None and not str(self.product).strip():
+            raise ValueError("approved request product must be non-empty when specified")
+        if self.order.product is not None:
+            if self.product is None:
+                raise ValueError(
+                    "approved request must identify the resolved product when the order "
+                    "specifies one"
+                )
+            if self.product != self.order.product:
+                raise ValueError("approved request product does not match the order product")
+        if self.position_effect is not None and self.position_effect not in {
+            PositionEffect.OPEN,
+            PositionEffect.CLOSE,
+            PositionEffect.AUTO,
+        }:
+            raise ValueError("position_effect must be OPEN, CLOSE, AUTO, or None")
+        if self.order.position_effect is not None:
+            if self.position_effect is None:
+                raise ValueError(
+                    "approved request must carry the requested position effect from the order"
+                )
+            if self.position_effect is not self.order.position_effect:
+                raise ValueError(
+                    "approved request position effect does not match the order position effect"
+                )
+        if self.position_effect == PositionEffect.AUTO:
+            if self.effective_position_effect is None:
+                raise ValueError(
+                    "AUTO position effect requires a resolved effective effect (OPEN or CLOSE) "
+                    "before approval"
+                )
+            if self.effective_position_effect not in {PositionEffect.OPEN, PositionEffect.CLOSE}:
+                raise ValueError("resolved AUTO effect must be OPEN or CLOSE")
 
     @property
     def correlation_id(self) -> str:
@@ -44,6 +82,8 @@ class PendingExecutionRecoveryRequest:
     order: Order
     execution_context: ExecutionContext
     parent_client_order_id: str | None = None
+    product: ProductCode | None = None
+    position_effect: PositionEffect | None = None
 
     @property
     def correlation_id(self) -> str:
@@ -63,4 +103,6 @@ def build_order_from_intent(intent: TradeIntent) -> Order:
         strategy_id=intent.strategy_id,
         strategy_version=intent.strategy_version,
         required_capabilities=intent.required_capabilities,
+        product=intent.product,
+        position_effect=intent.position_effect,
     )

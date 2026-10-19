@@ -17,14 +17,14 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
+from quantx.domain.enums import OrderSide, OrderStatus, OrderType, PositionEffect, TimeInForce
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
     PendingExecutionRecoveryRequest,
 )
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.orders import Order
-from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
+from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId, ProductCode
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +60,8 @@ class PendingExecutionContext:
             order=self.order,
             execution_context=self.execution_context,
             parent_client_order_id=self.parent_client_order_id,
+            product=self.order.product,
+            position_effect=self.order.position_effect,
         )
 
     def to_json(self) -> str:
@@ -86,6 +88,10 @@ class PendingExecutionContext:
                 "strategy_id": self.order.strategy_id,
                 "strategy_version": self.order.strategy_version,
                 "required_capabilities": sorted(self.order.required_capabilities),
+                "product": None if self.order.product is None else str(self.order.product),
+                "position_effect": (
+                    None if self.order.position_effect is None else self.order.position_effect.value
+                ),
             },
             "execution_context": {
                 "account_id": self.execution_context.account_id.value,
@@ -101,6 +107,8 @@ class PendingExecutionContext:
                     else self.execution_context.broker_connection_id.value
                 ),
                 "execution_mode": self.execution_context.execution_mode.value,
+                "market_pack_id": self.execution_context.market_pack_id,
+                "rule_version": self.execution_context.rule_version,
             },
             "parent_client_order_id": (
                 None if self.parent_client_order_id is None else str(self.parent_client_order_id)
@@ -142,6 +150,12 @@ class PendingExecutionContext:
                 strategy_id=order_data["strategy_id"],
                 strategy_version=order_data["strategy_version"],
                 required_capabilities=frozenset(order_data["required_capabilities"]),
+                product=ProductCode(order_data["product"]) if order_data.get("product") else None,
+                position_effect=(
+                    PositionEffect(order_data["position_effect"])
+                    if order_data.get("position_effect")
+                    else None
+                ),
             )
             context = ExecutionContext(
                 account_id=AccountId(context_data["account_id"]),
@@ -159,6 +173,8 @@ class PendingExecutionContext:
                     else BrokerConnectionId(context_data["broker_connection_id"])
                 ),
                 execution_mode=ExecutionMode(context_data["execution_mode"]),
+                market_pack_id=context_data.get("market_pack_id"),
+                rule_version=context_data.get("rule_version"),
             )
             parent = payload["parent_client_order_id"]
             return cls(

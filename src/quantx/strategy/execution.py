@@ -134,6 +134,8 @@ class StrategyExecutionPreparer:
             risk_result=risk,
             policy_result=policy,
             required_margin=intent.required_margin,
+            product=intent.product,
+            position_effect=intent.position_effect,
         )
         return StrategyExecutionPreparation(decision, risk, policy, request)
 

@@ -1174,6 +1174,8 @@ class DeterministicBacktestService:
                 execution_context=intent.execution_context,
                 risk_result=risk,
                 policy_result=policy,
+                product=intent.product,
+                position_effect=intent.position_effect,
             )
             try:
                 engine_time = self._require_engine_time_coherent(

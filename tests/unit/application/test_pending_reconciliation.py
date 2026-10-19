@@ -19,14 +19,14 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import OrderSide, OrderStatus, OrderType
+from quantx.domain.enums import OrderSide, OrderStatus, OrderType, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.domain.value_objects import InstrumentId
+from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
@@ -403,6 +403,52 @@ def test_pending_context_round_trip_reconstructs_recovery_request() -> None:
     assert recovery_request.order == request.order
     assert recovery_request.execution_context == request.execution_context
     assert recovery_request.correlation_id == request.correlation_id
+
+
+def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="rules-v1",
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        product=ProductCode("INTRADAY"),
+        position_effect=PositionEffect.OPEN,
+        execution_context=context,
+    )
+    request = ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("INTRADAY"),
+        position_effect=PositionEffect.OPEN,
+    )
+    fingerprint = request_fingerprint(request)
+
+    restored = PendingExecutionContext.from_json(
+        PendingExecutionContext.from_request(request, fingerprint).to_json()
+    )
+    recovery_request = restored.to_recovery_request()
+
+    assert restored.request_fingerprint == fingerprint
+    assert restored.order.product == ProductCode("INTRADAY")
+    assert restored.order.position_effect is PositionEffect.OPEN
+    assert restored.execution_context.market_pack_id == "india-equity"
+    assert restored.execution_context.rule_version == "rules-v1"
+    assert recovery_request.product == ProductCode("INTRADAY")
+    assert recovery_request.position_effect is PositionEffect.OPEN
+    assert recovery_request.execution_context.market_pack_id == "india-equity"
+    assert recovery_request.execution_context.rule_version == "rules-v1"
 
 
 def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> None:

@@ -4,9 +4,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from quantx.domain.enums import OrderSide, OrderStatus
+from quantx.domain.enums import OrderSide, OrderStatus, PositionEffect
 from quantx.domain.orders import Fill
-from quantx.domain.value_objects import InstrumentId
+from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.receipts import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 
@@ -173,6 +173,63 @@ def test_partial_continuation_executes_remaining_quantity_with_parent_correlatio
     assert receipt.client_order_id != request.order.client_order_id
     assert receipt.correlation_id == str(request.order.client_order_id)
     assert receipt.filled_quantity == Decimal("6")
+
+
+def test_continuation_preserves_product_and_resolved_effect() -> None:
+    from quantx.domain.accounts import AccountId
+    from quantx.domain.deployment import (
+        ExecutionContext,
+        ExecutionMode,
+        PortfolioId,
+        StrategyDeploymentId,
+    )
+    from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+    from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
+    from quantx.domain.order_intents import TradeIntent
+    from quantx.domain.risk import RiskDecision, RiskResult
+
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("p-1"),
+        deployment_id=StrategyDeploymentId("d-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=None,
+        execution_mode=ExecutionMode.PAPER,
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("10"),
+        product=ProductCode("INTRADAY"),
+        position_effect=PositionEffect.AUTO,
+        execution_context=context,
+    )
+    request = ApprovedExecutionRequest(
+        build_order_from_intent(intent),
+        context,
+        RiskResult(RiskDecision.APPROVE, "approved"),
+        product=ProductCode("INTRADAY"),
+        position_effect=PositionEffect.AUTO,
+        effective_position_effect=PositionEffect.OPEN,
+    )
+    lifecycle = ExecutionLifecycle(
+        request.order.client_order_id,
+        Decimal("10"),
+        Decimal("4"),
+        OrderStatus.PARTIALLY_FILLED,
+    )
+
+    child = lifecycle.continuation_request(
+        request,
+        risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
+    )
+
+    assert child.order.client_order_id != request.order.client_order_id
+    assert child.order.product == ProductCode("INTRADAY")
+    assert child.order.position_effect is PositionEffect.AUTO
+    assert child.product == ProductCode("INTRADAY")
+    assert child.position_effect is PositionEffect.AUTO
+    assert child.effective_position_effect is PositionEffect.OPEN
 
 
 def _receipt_with_status(

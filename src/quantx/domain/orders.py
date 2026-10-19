@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from .enums import OrderSide, OrderStatus, OrderType, TimeInForce
-from .value_objects import InstrumentId
+from .enums import OrderSide, OrderStatus, OrderType, PositionEffect, TimeInForce
+from .value_objects import InstrumentId, ProductCode
 
 
 def utc_now() -> datetime:
@@ -34,6 +34,8 @@ class Order:
     strategy_id: str | None = None
     strategy_version: str | None = None
     required_capabilities: frozenset[str] = frozenset()
+    product: ProductCode | None = None
+    position_effect: PositionEffect | None = None
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:
@@ -46,6 +48,14 @@ class Order:
             raise ValueError("required capabilities must not contain empty values")
         if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
             raise ValueError("created_at must be timezone-aware")
+        if self.product is not None and (not str(self.product).strip()):
+            raise ValueError("order product must have a non-empty value when specified")
+        if self.position_effect is not None and self.position_effect not in {
+            PositionEffect.OPEN,
+            PositionEffect.CLOSE,
+            PositionEffect.AUTO,
+        }:
+            raise ValueError("position_effect must be OPEN, CLOSE, AUTO, or None")
 
     @property
     def is_terminal(self) -> bool:

@@ -19,6 +19,7 @@ from quantx.domain.enums import (
     OrderSide,
     OrderStatus,
     OrderType,
+    PositionEffect,
     TimeInForce,
 )
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
@@ -32,6 +33,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import NotSubmittedSource
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.receipts.models import (
@@ -40,6 +42,7 @@ from quantx.execution.receipts.models import (
     ExecutionReceipt,
 )
 from quantx.execution.receipts.quarantine import QuarantineObservationKind
+from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
@@ -87,6 +90,8 @@ def _request(
     mode: ExecutionMode = ExecutionMode.LIVE,
     order_type: OrderType = OrderType.MARKET,
     time_in_force: TimeInForce = TimeInForce.DAY,
+    product: ProductCode | None = None,
+    position_effect: PositionEffect | None = None,
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
     context = ExecutionContext(
@@ -106,6 +111,8 @@ def _request(
         limit_price=Decimal("100") if order_type is OrderType.LIMIT else None,
         stop_price=Decimal("99") if order_type in {OrderType.STOP, OrderType.STOP_LIMIT} else None,
         required_capabilities=frozenset({"ORDER_SUBMISSION"}),
+        product=product,
+        position_effect=position_effect,
         execution_context=context,
     )
     return ApprovedExecutionRequest(
@@ -113,6 +120,8 @@ def _request(
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
+        position_effect=position_effect,
     )
 
 
@@ -206,6 +215,79 @@ def test_submit_translates_to_dhan_and_returns_normalized_receipt() -> None:
     assert transport.submitted[0].exchange_segment == "NSE_EQ"
     assert transport.submitted[0].product_type == "CNC"
     assert transport.submitted[0].correlation_id == dhan_correlation_id(request.correlation_id)
+
+
+def test_submit_uses_explicit_request_product_over_instrument_default() -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    receipt = _adapter(transport).submit(_request(product=ProductCode("INTRADAY")))
+
+    assert receipt.outcome is ExecutionOutcome.ACCEPTED
+    assert transport.submitted[0].product_type == "INTRADAY"
+
+
+def test_distinct_products_produce_distinct_wire_values_and_fingerprints() -> None:
+    first = _request(product=ProductCode("CNC"))
+    second = _request(product=ProductCode("INTRADAY"))
+    first_transport = InMemoryDhanTransport(response_status="PENDING")
+    second_transport = InMemoryDhanTransport(response_status="PENDING")
+
+    _adapter(first_transport).submit(first)
+    _adapter(second_transport).submit(second)
+
+    assert first_transport.submitted[0].product_type == "CNC"
+    assert second_transport.submitted[0].product_type == "INTRADAY"
+    assert request_fingerprint(first) != request_fingerprint(second)
+
+
+def test_submit_rejects_unsupported_product_before_transport() -> None:
+    transport = InMemoryDhanTransport()
+
+    with pytest.raises(BrokerPreflightRejected, match="unsupported product"):
+        _adapter(transport).submit(_request(product=ProductCode("DELIVERY")))
+
+    assert not transport.submitted
+
+
+def test_legacy_request_without_product_uses_instrument_compatibility_default() -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+
+    _adapter(transport).submit(_request())
+
+    assert transport.submitted[0].product_type == "CNC"
+
+
+def test_instrument_reference_with_unsupported_legacy_default_is_rejected() -> None:
+    transport = InMemoryDhanTransport()
+    instrument = _instrument()
+    connection = BrokerConnectionRef(
+        AccountId("acct-1"),
+        BrokerConnectionId("conn-1"),
+        "dhan",
+        "NSE_EQ",
+    )
+    adapter = DhanBrokerAdapter(
+        _connection=connection,
+        _instruments={
+            instrument.instrument_id: (
+                instrument,
+                DhanInstrumentRef(
+                    security_id="1333",
+                    exchange_segment="NSE_EQ",
+                    trading_symbol="TCS",
+                    product_type="DELIVERY",
+                ),
+            )
+        },
+        _transport=transport,
+        _submit_timeout=5.0,
+        _cancel_timeout=5.0,
+        _reconcile_timeout=5.0,
+    )
+
+    with pytest.raises(BrokerPreflightRejected, match="unsupported default product"):
+        adapter.submit(_request())
+
+    assert not transport.submitted
 
 
 def test_submit_rejects_wrong_account_for_bound_connection() -> None:

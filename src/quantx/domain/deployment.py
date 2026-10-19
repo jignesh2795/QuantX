@@ -101,3 +101,5 @@ class ExecutionContext:
     market: MarketContext
     broker_connection_id: BrokerConnectionId | None
     execution_mode: ExecutionMode
+    market_pack_id: str | None = None
+    rule_version: str | None = None

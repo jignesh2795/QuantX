@@ -56,6 +56,17 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
         ),
         "execution_mode": request.execution_context.execution_mode.value,
         "required_capabilities": sorted(request.order.required_capabilities),
+        "product": None if request.product is None else str(request.product),
+        "position_effect": (
+            None if request.position_effect is None else request.position_effect.value
+        ),
+        "effective_position_effect": (
+            None
+            if request.effective_position_effect is None
+            else request.effective_position_effect.value
+        ),
+        "market_pack_id": request.execution_context.market_pack_id,
+        "rule_version": request.execution_context.rule_version,
     }
     canonical = json.dumps(_json_value(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
