@@ -32,7 +32,12 @@ from quantx.domain.policy import (
     PolicyDecision,
     PolicyResult,
 )
-from quantx.domain.position_effect import PositionEvidence, resolve_position_effect
+from quantx.domain.position_effect import (
+    PositionEffectPolicy,
+    PositionEvidence,
+    resolve_absent_position_effect,
+    resolve_position_effect,
+)
 from quantx.domain.product_selection import ProductSelectionPolicy, resolve_request_product
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
@@ -481,6 +486,7 @@ class DeterministicBacktestService:
         execution_engine: PaperExecutionEngine | None = None,
         accounting: FillAccounting | None = None,
         product_selection: ProductSelectionPolicy | None = None,
+        position_effect_policy: PositionEffectPolicy | None = None,
     ) -> None:
         self._instrument_registry = instrument_registry
         self._risk_engine = risk_engine or PreTradeRiskEngine()
@@ -488,6 +494,7 @@ class DeterministicBacktestService:
         self._execution_engine = execution_engine
         self._accounting_override = accounting
         self._product_selection = product_selection
+        self._position_effect_policy = position_effect_policy
 
     @staticmethod
     def _validate_strategy_result(strategy_result: StrategyResult, frame: ReplayFrame) -> None:
@@ -1084,6 +1091,7 @@ class DeterministicBacktestService:
                 position_evidence_cut: datetime | None = None
                 evidence: PositionEvidence | None = None
                 evidence_max_age: timedelta | None = None
+                approval: datetime | None = None
                 if resolved_intent.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
                     evidence = position_evidence
                     evidence_max_age = position_evidence_max_age
@@ -1092,17 +1100,37 @@ class DeterministicBacktestService:
                             f"{resolved_intent.position_effect.value} position effect "
                             "requires a position evidence freshness policy"
                         )
+                    # The replay frame's occurrence time is the approval
+                    # instant: freshness is judged at the same clock the
+                    # strategy observed, never at wall-clock run time.
+                    approval = frame.observation.timestamp
                     resolution = resolve_position_effect(
                         order,
                         evidence=evidence,
                         max_evidence_age=evidence_max_age,
+                        approval_instant=approval,
                     )
                     effective_position_effect = resolution.effective
                     position_evidence_cut = resolution.evidence_cut
-                elif position_evidence is not None or position_evidence_max_age is not None:
-                    raise ValueError(
-                        "position evidence is only valid for AUTO or CLOSE position effects"
-                    )
+                else:
+                    if position_evidence is not None or position_evidence_max_age is not None:
+                        raise ValueError(
+                            "position evidence is only valid for AUTO or CLOSE position effects"
+                        )
+                    if resolved_intent.position_effect is None:
+                        # An absent effect is not a universal default: it
+                        # resolves only through the versioned market-pack
+                        # policy, which binds its rule identity onto the
+                        # execution context used by risk and the request.
+                        resolution, resolved_context = resolve_absent_position_effect(
+                            resolved_context,
+                            product=product,
+                            policy=self._position_effect_policy,
+                        )
+                        effective_position_effect = resolution.effective
+                        resolved_intent = replace(
+                            resolved_intent, execution_context=resolved_context
+                        )
             except Exception as exc:
                 if not qx08_active:
                     raise
@@ -1249,6 +1277,7 @@ class DeterministicBacktestService:
                 position_evidence_cut=position_evidence_cut,
                 position_evidence=evidence,
                 position_evidence_max_age=evidence_max_age,
+                position_effect_approval_instant=approval,
             )
             try:
                 engine_time = self._require_engine_time_coherent(

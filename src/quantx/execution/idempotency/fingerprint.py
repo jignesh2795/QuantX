@@ -58,8 +58,9 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
     """Hash execution-relevant fields, excluding client-order identity.
 
     Wall-clock construction timestamps stay excluded. The position-evidence
-    cut is not a construction timestamp: it is the approval evidence the
-    resolved effect is bound to, so it participates in identity.
+    cut and the approval instant are not construction timestamps: they are
+    the approval evidence the resolved effect is bound to, so they
+    participate in identity.
     """
     payload = {
         "instrument": str(request.order.instrument),
@@ -97,6 +98,11 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
             None
             if request.position_evidence_cut is None
             else _canonical_datetime(request.position_evidence_cut)
+        ),
+        "position_effect_approval_instant": (
+            None
+            if request.position_effect_approval_instant is None
+            else _canonical_datetime(request.position_effect_approval_instant)
         ),
         "position_evidence": (
             None

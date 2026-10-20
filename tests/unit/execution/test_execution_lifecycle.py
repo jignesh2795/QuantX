@@ -223,6 +223,7 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
         position_evidence_cut=evidence_cut,
         position_evidence=evidence,
         position_evidence_max_age=timedelta(minutes=5),
+        position_effect_approval_instant=evidence_cut,
     )
     lifecycle = ExecutionLifecycle(
         request.order.client_order_id,
@@ -245,6 +246,7 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
     assert child.position_evidence_cut == evidence_cut
     assert child.position_evidence == evidence
     assert child.position_evidence_max_age == timedelta(minutes=5)
+    assert child.position_effect_approval_instant == evidence_cut
 
 
 def _receipt_with_status(

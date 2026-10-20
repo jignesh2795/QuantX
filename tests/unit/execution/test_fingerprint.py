@@ -51,6 +51,7 @@ def _request(
     effective_position_effect: PositionEffect | None = None,
     position_evidence_cut: datetime | None = None,
     position_evidence: PositionEvidence | None = None,
+    position_effect_approval_instant: datetime | None = NOW,
     market_pack_id: str | None = None,
     rule_version: str | None = None,
 ) -> ApprovedExecutionRequest:
@@ -76,6 +77,11 @@ def _request(
         execution_context=context,
     )
     order = build_order_from_intent(intent)
+    instant = (
+        position_effect_approval_instant
+        if position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}
+        else None
+    )
     return ApprovedExecutionRequest(
         order,
         context,
@@ -87,6 +93,7 @@ def _request(
         position_evidence_cut=position_evidence_cut,
         position_evidence=position_evidence,
         position_evidence_max_age=MAX_AGE if position_evidence is not None else None,
+        position_effect_approval_instant=instant,
     )
 
 
@@ -207,12 +214,34 @@ def test_different_position_evidence_cuts_have_different_fingerprints() -> None:
         effective_position_effect=PositionEffect.OPEN,
         position_evidence_cut=NOW,
         position_evidence=_evidence("0", cut=NOW),
+        position_effect_approval_instant=later,
     )
     second = _request(
         position_effect=PositionEffect.AUTO,
         effective_position_effect=PositionEffect.OPEN,
         position_evidence_cut=later,
         position_evidence=_evidence("0", cut=later),
+        position_effect_approval_instant=later,
+    )
+    assert request_fingerprint(first) != request_fingerprint(second)
+
+
+def test_different_approval_instants_have_different_fingerprints() -> None:
+    later = datetime(2026, 1, 5, 10, 1, tzinfo=UTC)
+    first = _request(
+        quantity=Decimal("5"),
+        position_effect=PositionEffect.CLOSE,
+        effective_position_effect=PositionEffect.CLOSE,
+        position_evidence_cut=NOW,
+        position_evidence=_evidence("-5", cut=NOW),
+    )
+    second = _request(
+        quantity=Decimal("5"),
+        position_effect=PositionEffect.CLOSE,
+        effective_position_effect=PositionEffect.CLOSE,
+        position_evidence_cut=NOW,
+        position_evidence=_evidence("-5", cut=NOW),
+        position_effect_approval_instant=later,
     )
     assert request_fingerprint(first) != request_fingerprint(second)
 

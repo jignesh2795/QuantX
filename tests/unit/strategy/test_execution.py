@@ -39,7 +39,10 @@ from quantx.domain.strategy import (
     StrategySignal,
 )
 from quantx.domain.value_objects import Money, ProductCode
-from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
+from quantx.india.market_pack import (
+    INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    INDIA_EQUITY_PRODUCT_SELECTION,
+)
 from quantx.strategy.deployment import StrategyExecutionDecision
 from quantx.strategy.execution import StrategyExecutionPreparer
 
@@ -152,6 +155,7 @@ def _preparer(
         risk_engine=risk_engine,
         policy_engine=policy_engine,
         product_selection=product_selection,
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
     )
 
 
@@ -297,7 +301,10 @@ def test_preparer_rejects_intent_strategy_identity_mismatch() -> None:
 
 def test_preparer_rejects_missing_instrument_metadata() -> None:
     with pytest.raises(ValueError, match="instrument metadata"):
-        StrategyExecutionPreparer(InMemoryInstrumentRegistry()).prepare(
+        StrategyExecutionPreparer(
+            InMemoryInstrumentRegistry(),
+            position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        ).prepare(
             _decision(),
             _event(),
             _financial_state(),
@@ -392,7 +399,13 @@ def test_preparer_explicit_product_is_not_replaced_by_policy_default() -> None:
     decoy_policy = ProductSelectionPolicy(
         market_pack_id="india-equity",
         rule_version="india-products-v1",
-        rules=(ProductSelectionRule(_market(), ProductCode("MIS")),),
+        rules=(
+            ProductSelectionRule(
+                _market(),
+                ProductCode("MIS"),
+                frozenset({ProductCode("MIS"), ProductCode("CNC")}),
+            ),
+        ),
     )
 
     result = _preparer(
@@ -426,6 +439,7 @@ def test_preparer_resolves_auto_effect_before_risk_approval() -> None:
         _financial_state(),
         position_evidence=_close_or_auto_evidence("5"),
         position_evidence_max_age=timedelta(minutes=5),
+        approval_instant=_event().timestamp,
     )
 
     assert result.request is not None
@@ -500,14 +514,16 @@ def test_preparer_conflicting_pack_identity_stops_before_risk() -> None:
     assert risk.contexts == []
 
 
-def test_preparer_explicit_product_without_identity_stops_before_risk() -> None:
+def test_preparer_explicit_product_without_versioned_policy_stops_before_risk() -> None:
     risk = _RecordingRiskEngine()
 
-    with pytest.raises(ProductSelectionError, match="market-pack id"):
+    with pytest.raises(ProductSelectionError, match="requires a versioned market-pack"):
         _preparer(risk_engine=risk).prepare(
             _decision(product=ProductCode("CNC")),
             _event(),
             _financial_state(),
         )
+
+    assert risk.contexts == []
 
     assert risk.contexts == []

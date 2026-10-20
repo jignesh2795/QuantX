@@ -125,9 +125,17 @@ def _paper_request(
     position_evidence_cut: datetime | None = None,
     position_evidence: PositionEvidence | None = None,
     position_evidence_max_age: timedelta | None = MAX_AGE,
+    position_effect_approval_instant: datetime | None = NOW,
     market_pack_id: str | None = PACK["market_pack_id"],
     rule_version: str | None = PACK["rule_version"],
 ) -> ApprovedExecutionRequest:
+    requested_effect = order.position_effect if position_effect is None else position_effect
+    if requested_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
+        max_age = position_evidence_max_age
+        instant = position_effect_approval_instant
+    else:
+        max_age = None
+        instant = None
     return ApprovedExecutionRequest(
         order=order,
         execution_context=_context(
@@ -137,11 +145,12 @@ def _paper_request(
         ),
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         product=order.product if product is None else product,
-        position_effect=position_effect,
+        position_effect=requested_effect,
         effective_position_effect=effective_position_effect,
         position_evidence_cut=position_evidence_cut,
         position_evidence=position_evidence,
-        position_evidence_max_age=position_evidence_max_age,
+        position_evidence_max_age=max_age,
+        position_effect_approval_instant=instant,
     )
 
 
@@ -357,3 +366,93 @@ def test_open_order_cannot_smuggle_position_evidence_through_the_request() -> No
             position_evidence=_evidence("5"),
             position_evidence_cut=NOW,
         )
+
+
+def test_request_product_requires_the_order_to_carry_it() -> None:
+    order = _order()
+    with pytest.raises(ValueError, match="requires the order to carry the same product"):
+        _paper_request(order, product=ProductCode("CNC"))
+
+
+def test_resolved_product_must_match_the_order_product() -> None:
+    order = _order(product=ProductCode("CNC"))
+    with pytest.raises(ValueError, match="does not match the order product"):
+        _paper_request(order, product=ProductCode("MIS"))
+
+
+def test_close_requires_the_approval_instant() -> None:
+    order = _order(side=OrderSide.SELL, position_effect=PositionEffect.CLOSE)
+    with pytest.raises(ValueError, match="requires the approval instant"):
+        _paper_request(
+            order,
+            position_effect=PositionEffect.CLOSE,
+            effective_position_effect=PositionEffect.CLOSE,
+            position_evidence_cut=NOW,
+            position_evidence=_evidence("10"),
+            position_effect_approval_instant=None,
+        )
+
+
+def test_approval_instant_must_be_timezone_aware() -> None:
+    order = _order(side=OrderSide.SELL, position_effect=PositionEffect.CLOSE)
+    naive = datetime(2026, 1, 5, 10, 0)
+    with pytest.raises(ValueError, match="approval instant must be timezone-aware"):
+        _paper_request(
+            order,
+            position_effect=PositionEffect.CLOSE,
+            effective_position_effect=PositionEffect.CLOSE,
+            position_evidence_cut=NOW,
+            position_evidence=_evidence("10"),
+            position_effect_approval_instant=naive,
+        )
+
+
+def test_evidence_observed_after_the_approval_instant_is_rejected() -> None:
+    order = _order(side=OrderSide.SELL, position_effect=PositionEffect.CLOSE)
+    future = NOW + timedelta(minutes=1)
+    with pytest.raises(ValueError, match="observed after the approval instant"):
+        _paper_request(
+            order,
+            position_effect=PositionEffect.CLOSE,
+            effective_position_effect=PositionEffect.CLOSE,
+            position_evidence_cut=future,
+            position_evidence=_evidence("10", observed_at=future, cut=future),
+            position_effect_approval_instant=NOW,
+        )
+
+
+def test_open_request_cannot_carry_an_approval_instant() -> None:
+    order = _order(position_effect=PositionEffect.OPEN)
+    with pytest.raises(ValueError, match="only valid for AUTO or CLOSE"):
+        ApprovedExecutionRequest(
+            order=order,
+            execution_context=_context(ExecutionMode.PAPER, **PACK),
+            risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+            product=order.product,
+            position_effect=PositionEffect.OPEN,
+            position_effect_approval_instant=NOW,
+        )
+
+
+def test_absent_position_effect_resolved_to_open_requires_pack_identity() -> None:
+    order = _order()
+    with pytest.raises(ValueError, match="resolved to OPEN requires a market-pack id"):
+        _paper_request(
+            order,
+            effective_position_effect=PositionEffect.OPEN,
+            market_pack_id=None,
+            rule_version=None,
+        )
+
+
+def test_absent_position_effect_may_resolve_to_open_with_pack_identity() -> None:
+    order = _order()
+    request = _paper_request(order, effective_position_effect=PositionEffect.OPEN)
+    assert request.position_effect is None
+    assert request.effective_position_effect is PositionEffect.OPEN
+
+
+def test_absent_position_effect_cannot_resolve_to_close() -> None:
+    order = _order()
+    with pytest.raises(ValueError, match="may only resolve to OPEN"):
+        _paper_request(order, effective_position_effect=PositionEffect.CLOSE)

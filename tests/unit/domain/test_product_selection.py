@@ -44,11 +44,23 @@ def _context(
     )
 
 
-def _policy(*, default: str = "CNC") -> ProductSelectionPolicy:
+def _policy(
+    *,
+    default: str = "CNC",
+    supported: tuple[str, ...] | None = None,
+) -> ProductSelectionPolicy:
+    if supported is None:
+        rule = ProductSelectionRule(NSE_EQUITY, ProductCode(default))
+    else:
+        rule = ProductSelectionRule(
+            NSE_EQUITY,
+            ProductCode(default),
+            frozenset(ProductCode(product) for product in supported),
+        )
     return ProductSelectionPolicy(
         market_pack_id="india-equity",
         rule_version="india-products-v1",
-        rules=(ProductSelectionRule(NSE_EQUITY, ProductCode(default)),),
+        rules=(rule,),
     )
 
 
@@ -109,6 +121,37 @@ def test_rule_rejects_an_invalid_default() -> None:
         ProductSelectionRule("NSE", ProductCode("CNC"))  # type: ignore[arg-type]
 
 
+def test_rule_requires_a_default_or_supported_products() -> None:
+    with pytest.raises(ValueError, match="requires a default product or supported products"):
+        ProductSelectionRule(NSE_EQUITY)
+
+
+def test_rule_supported_products_must_be_a_frozenset() -> None:
+    with pytest.raises(ValueError, match="must be a frozenset"):
+        ProductSelectionRule(
+            NSE_EQUITY,
+            ProductCode("CNC"),
+            {ProductCode("CNC")},  # type: ignore[arg-type]
+        )
+
+
+def test_rule_default_must_be_supported() -> None:
+    with pytest.raises(ValueError, match="default product must be one of the supported"):
+        ProductSelectionRule(
+            NSE_EQUITY,
+            ProductCode("CNC"),
+            frozenset({ProductCode("MIS")}),
+        )
+
+
+def test_default_only_rule_supports_exactly_its_default() -> None:
+    rule = ProductSelectionRule(NSE_EQUITY, ProductCode("CNC"))
+
+    assert rule.effective_supported_products == frozenset({ProductCode("CNC")})
+    assert rule.supports(ProductCode("CNC"))
+    assert not rule.supports(ProductCode("MIS"))
+
+
 def test_omitted_product_resolves_and_binds_pack_identity() -> None:
     product, context = resolve_request_product(_context(), explicit_product=None, policy=_policy())
 
@@ -140,26 +183,74 @@ def test_omitted_product_fails_closed_when_policy_has_no_rule() -> None:
         )
 
 
-def test_explicit_product_is_preserved_verbatim() -> None:
+def test_explicit_supported_product_is_preserved_verbatim() -> None:
     context = _context(market_pack_id="india-equity", rule_version="india-products-v1")
     product, resolved = resolve_request_product(
         context,
         explicit_product=ProductCode("MIS"),
-        policy=_policy(default="CNC"),
+        policy=_policy(default="CNC", supported=("CNC", "MIS")),
     )
 
     assert product == ProductCode("MIS")
     assert resolved == context
 
 
-def test_explicit_product_requires_its_own_pack_identity() -> None:
-    with pytest.raises(ProductSelectionError, match="market-pack id"):
+def test_explicit_product_requires_a_supporting_policy() -> None:
+    with pytest.raises(ProductSelectionError, match="requires a versioned market-pack"):
         resolve_request_product(_context(), explicit_product=ProductCode("MIS"), policy=None)
-    with pytest.raises(ProductSelectionError, match="rule version"):
+
+
+def test_explicit_product_forwarded_identity_does_not_replace_the_policy() -> None:
+    with pytest.raises(ProductSelectionError, match="requires a versioned market-pack"):
         resolve_request_product(
-            _context(market_pack_id="india-equity"),
+            _context(market_pack_id="india-equity", rule_version="india-products-v1"),
             explicit_product=ProductCode("MIS"),
             policy=None,
+        )
+
+
+def test_explicit_product_must_be_supported_by_its_market_rule() -> None:
+    with pytest.raises(ProductSelectionError, match="is not supported for market"):
+        resolve_request_product(
+            _context(),
+            explicit_product=ProductCode("MIS"),
+            policy=_policy(default="CNC"),
+        )
+
+
+def test_explicit_product_binds_the_policy_identity() -> None:
+    product, resolved = resolve_request_product(
+        _context(),
+        explicit_product=ProductCode("MIS"),
+        policy=_policy(default="CNC", supported=("CNC", "MIS")),
+    )
+
+    assert product == ProductCode("MIS")
+    assert resolved.market_pack_id == "india-equity"
+    assert resolved.rule_version == "india-products-v1"
+
+
+def test_explicit_product_conflicting_policy_identity_is_rejected() -> None:
+    with pytest.raises(ProductSelectionError, match="market-pack id conflicts"):
+        resolve_request_product(
+            _context(market_pack_id="other-pack"),
+            explicit_product=ProductCode("MIS"),
+            policy=_policy(default="CNC", supported=("CNC", "MIS")),
+        )
+    with pytest.raises(ProductSelectionError, match="rule version conflicts"):
+        resolve_request_product(
+            _context(rule_version="other-version"),
+            explicit_product=ProductCode("MIS"),
+            policy=_policy(default="CNC", supported=("CNC", "MIS")),
+        )
+
+
+def test_explicit_product_type_is_strict() -> None:
+    with pytest.raises(ProductSelectionError, match="explicit product must be a ProductCode"):
+        resolve_request_product(
+            _context(),
+            explicit_product="MIS",  # type: ignore[arg-type]
+            policy=_policy(),
         )
 
 

@@ -139,6 +139,13 @@ def _recovery_request(request: ApprovedExecutionRequest) -> PendingExecutionReco
         order=request.order,
         execution_context=request.execution_context,
         parent_client_order_id=request.parent_client_order_id,
+        product=request.product,
+        position_effect=request.position_effect,
+        effective_position_effect=request.effective_position_effect,
+        position_evidence_cut=request.position_evidence_cut,
+        position_evidence=request.position_evidence,
+        position_evidence_max_age=request.position_evidence_max_age,
+        position_effect_approval_instant=request.position_effect_approval_instant,
     )
 
 

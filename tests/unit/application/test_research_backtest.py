@@ -14,6 +14,7 @@ from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, M
 from quantx.domain.market_data import Quote
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
+from quantx.india.market_pack import INDIA_EQUITY_POSITION_EFFECT_POLICY
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.replay import ReplayFrame
 from quantx.research.result import ResearchRunSpec, ResultQuality
@@ -101,7 +102,8 @@ def _service(
 ) -> ResearchBacktestApplicationService:
     lifecycle = ResearchRunApplicationService(repository=repository, clock=clock)
     backtest = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     )
     return ResearchBacktestApplicationService(
         lifecycle=lifecycle,

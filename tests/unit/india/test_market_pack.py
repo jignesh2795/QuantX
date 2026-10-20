@@ -4,18 +4,44 @@ from __future__ import annotations
 
 import pytest
 
+from quantx.domain.accounts import AccountId
+from quantx.domain.deployment import (
+    ExecutionContext,
+    ExecutionMode,
+    PortfolioId,
+    StrategyDeploymentId,
+)
+from quantx.domain.enums import AssetClass
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
+from quantx.domain.position_effect import (
+    PositionEffectPolicyError,
+    resolve_absent_position_effect,
+)
 from quantx.domain.product_selection import ProductSelectionError
 from quantx.domain.value_objects import ProductCode
 from quantx.india.domain import ProductType
+from quantx.india.execution_rules import india_supported_products
 from quantx.india.market_pack import (
     INDIA_EQUITY_COMPATIBILITY_PRODUCT,
     INDIA_EQUITY_MARKET_PACK_ID,
+    INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
     INDIA_EQUITY_RULE_VERSION,
+    INDIA_EQUITY_SUPPORTED_PRODUCTS,
 )
 
 NSE_CASH_EQUITY = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
+
+
+def _context(market: MarketContext = NSE_CASH_EQUITY) -> ExecutionContext:
+    return ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("p-1"),
+        deployment_id=StrategyDeploymentId("d-1"),
+        market=market,
+        broker_connection_id=None,
+        execution_mode=ExecutionMode.PAPER,
+    )
 
 
 def test_canonical_policy_has_stable_identity() -> None:
@@ -44,3 +70,56 @@ def test_canonical_policy_does_not_invent_defaults_for_other_contexts() -> None:
 
 def test_canonical_default_is_the_india_pack_vocabulary() -> None:
     assert INDIA_EQUITY_COMPATIBILITY_PRODUCT.value in {product.value for product in ProductType}
+
+
+def test_supported_products_match_the_india_universal_matrix() -> None:
+    assert INDIA_EQUITY_SUPPORTED_PRODUCTS == frozenset(
+        {ProductCode("CNC"), ProductCode("DELIVERY"), ProductCode("MIS")}
+    )
+
+
+def test_supported_products_are_derived_from_the_execution_rule_matrix() -> None:
+    assert INDIA_EQUITY_SUPPORTED_PRODUCTS == frozenset(
+        ProductCode(product.value) for product in india_supported_products(AssetClass.EQUITY)
+    )
+    assert india_supported_products(AssetClass.EQUITY) == frozenset(
+        {ProductType.CNC, ProductType.DELIVERY, ProductType.MIS}
+    )
+    assert india_supported_products(AssetClass.FUTURE) == frozenset(
+        {ProductType.NRML, ProductType.MIS}
+    )
+
+
+def test_explicit_supported_product_is_validated_by_the_canonical_policy() -> None:
+    resolved = INDIA_EQUITY_PRODUCT_SELECTION.resolve_explicit(NSE_CASH_EQUITY, ProductCode("MIS"))
+
+    assert resolved == ProductCode("MIS")
+
+
+def test_explicit_unsupported_product_fails_closed() -> None:
+    with pytest.raises(ProductSelectionError, match="is not supported for market"):
+        INDIA_EQUITY_PRODUCT_SELECTION.resolve_explicit(NSE_CASH_EQUITY, ProductCode("NRML"))
+
+
+def test_canonical_position_effect_policy_is_not_applicable_for_nse_equity() -> None:
+    resolution, context = resolve_absent_position_effect(
+        _context(),
+        product=INDIA_EQUITY_COMPATIBILITY_PRODUCT,
+        policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    )
+
+    assert resolution.effective is None
+    assert resolution.evidence_cut is None
+    assert context.market_pack_id == INDIA_EQUITY_MARKET_PACK_ID
+    assert context.rule_version == INDIA_EQUITY_RULE_VERSION
+
+
+def test_canonical_position_effect_policy_does_not_invent_rules_for_other_contexts() -> None:
+    bse_equity = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN")
+
+    with pytest.raises(PositionEffectPolicyError, match="no versioned position-effect rule"):
+        resolve_absent_position_effect(
+            _context(bse_equity),
+            product=None,
+            policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        )

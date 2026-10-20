@@ -114,6 +114,7 @@ class ExecutionLifecycle:
             position_evidence_cut=request.position_evidence_cut,
             position_evidence=request.position_evidence,
             position_evidence_max_age=request.position_evidence_max_age,
+            position_effect_approval_instant=request.position_effect_approval_instant,
         )
 
     def continuation_quantity(self, requested_quantity: Decimal | None = None) -> Decimal:

@@ -1,6 +1,7 @@
 """Integration tests for pending-execution reconciliation over real SQLite."""
 
 import inspect
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from threading import Barrier, Lock, Thread
@@ -408,7 +409,7 @@ def test_pending_context_round_trip_reconstructs_recovery_request() -> None:
     assert recovery_request.correlation_id == request.correlation_id
 
 
-def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
+def _auto_effect_request() -> ApprovedExecutionRequest:
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -436,7 +437,7 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
         evidence_cut=evidence_cut,
         matched=True,
     )
-    request = ApprovedExecutionRequest(
+    return ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
@@ -447,8 +448,15 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
         position_evidence_cut=evidence_cut,
         position_evidence=evidence,
         position_evidence_max_age=timedelta(minutes=5),
+        position_effect_approval_instant=evidence_cut,
     )
+
+
+def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
+    request = _auto_effect_request()
     fingerprint = request_fingerprint(request)
+    evidence_cut = request.position_evidence_cut
+    evidence = request.position_evidence
 
     restored = PendingExecutionContext.from_json(
         PendingExecutionContext.from_request(request, fingerprint).to_json()
@@ -464,6 +472,7 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
     assert restored.position_evidence_cut == evidence_cut
     assert restored.position_evidence == evidence
     assert restored.position_evidence_max_age == timedelta(minutes=5)
+    assert restored.position_effect_approval_instant == evidence_cut
     assert restored.execution_context.market_pack_id == "india-equity"
     assert restored.execution_context.rule_version == "rules-v1"
     assert recovery_request.product == ProductCode("MIS")
@@ -472,8 +481,72 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
     assert recovery_request.position_evidence_cut == evidence_cut
     assert recovery_request.position_evidence == evidence
     assert recovery_request.position_evidence_max_age == timedelta(minutes=5)
+    assert recovery_request.position_effect_approval_instant == evidence_cut
     assert recovery_request.execution_context.market_pack_id == "india-equity"
     assert recovery_request.execution_context.rule_version == "rules-v1"
+
+
+def _product_and_effect_request() -> ApprovedExecutionRequest:
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        product=ProductCode("MIS"),
+        position_effect=PositionEffect.OPEN,
+        execution_context=context,
+    )
+    return ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("MIS"),
+        position_effect=PositionEffect.OPEN,
+    )
+
+
+def test_pending_context_from_json_rejects_missing_product_symmetry() -> None:
+    request = _product_and_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("product")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def test_pending_context_from_json_rejects_missing_effect_symmetry() -> None:
+    request = _product_and_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("position_effect")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def test_pending_context_from_json_rejects_effect_payload_without_instant() -> None:
+    request = _auto_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("position_effect_approval_instant")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
 
 
 def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> None:
@@ -991,6 +1064,7 @@ def test_pending_context_preserves_canonical_default_product_and_rule_identity()
         position_evidence_cut=evidence_cut,
         position_evidence=evidence,
         position_evidence_max_age=timedelta(minutes=5),
+        position_effect_approval_instant=evidence_cut,
     )
     fingerprint = request_fingerprint(request)
 
@@ -1007,6 +1081,8 @@ def test_pending_context_preserves_canonical_default_product_and_rule_identity()
     assert restored.effective_position_effect is PositionEffect.OPEN
     assert restored.position_evidence_cut == evidence_cut
     assert restored.position_evidence == evidence
+    assert restored.position_effect_approval_instant == evidence_cut
     assert recovery_request.product == ProductCode("CNC")
+    assert recovery_request.position_effect_approval_instant == evidence_cut
     assert recovery_request.execution_context.market_pack_id == "india-equity"
     assert recovery_request.execution_context.rule_version == "india-products-v1"

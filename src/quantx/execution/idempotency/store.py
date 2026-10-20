@@ -21,6 +21,8 @@ from quantx.domain.enums import OrderSide, OrderStatus, OrderType, PositionEffec
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
     PendingExecutionRecoveryRequest,
+    validate_order_product_symmetry,
+    validate_position_effect_fields,
 )
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.orders import Order
@@ -48,17 +50,28 @@ class PendingExecutionContext:
     position_evidence_cut: datetime | None = None
     position_evidence: PositionEvidence | None = None
     position_evidence_max_age: timedelta | None = None
+    position_effect_approval_instant: datetime | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_fingerprint, str) or not self.request_fingerprint.strip():
             raise ValueError("pending execution context fingerprint must not be empty")
         if self.execution_context.execution_mode is not ExecutionMode.LIVE:
             raise ValueError("pending execution context must describe LIVE execution")
-        if self.position_evidence_cut is not None and (
-            self.position_evidence_cut.tzinfo is None
-            or self.position_evidence_cut.utcoffset() is None
-        ):
-            raise ValueError("position evidence cut must be timezone-aware")
+        validate_order_product_symmetry(
+            self.order,
+            self.product,
+            execution_context=self.execution_context,
+        )
+        validate_position_effect_fields(
+            self.order,
+            execution_context=self.execution_context,
+            position_effect=self.position_effect,
+            effective_position_effect=self.effective_position_effect,
+            position_evidence_cut=self.position_evidence_cut,
+            position_evidence=self.position_evidence,
+            position_evidence_max_age=self.position_evidence_max_age,
+            position_effect_approval_instant=self.position_effect_approval_instant,
+        )
 
     @classmethod
     def from_request(
@@ -77,6 +90,7 @@ class PendingExecutionContext:
             position_evidence_cut=request.position_evidence_cut,
             position_evidence=request.position_evidence,
             position_evidence_max_age=request.position_evidence_max_age,
+            position_effect_approval_instant=request.position_effect_approval_instant,
         )
 
     def to_recovery_request(self) -> PendingExecutionRecoveryRequest:
@@ -90,6 +104,7 @@ class PendingExecutionContext:
             position_evidence_cut=self.position_evidence_cut,
             position_evidence=self.position_evidence,
             position_evidence_max_age=self.position_evidence_max_age,
+            position_effect_approval_instant=self.position_effect_approval_instant,
         )
 
     def to_json(self) -> str:
@@ -154,6 +169,11 @@ class PendingExecutionContext:
                 None
                 if self.position_evidence_cut is None
                 else self.position_evidence_cut.isoformat()
+            ),
+            "position_effect_approval_instant": (
+                None
+                if self.position_effect_approval_instant is None
+                else self.position_effect_approval_instant.isoformat()
             ),
             "position_evidence": (
                 None
@@ -258,21 +278,23 @@ class PendingExecutionContext:
                     matched=matched,
                 )
             max_age = None if max_age_value is None else timedelta(microseconds=int(max_age_value))
+            instant_value = payload.get("position_effect_approval_instant")
             return cls(
                 request_fingerprint=payload["request_fingerprint"],
                 order=order,
                 execution_context=context,
                 parent_client_order_id=parent,
-                product=ProductCode(product_value) if product_value else order.product,
-                position_effect=(
-                    PositionEffect(effect_value) if effect_value else order.position_effect
-                ),
+                product=ProductCode(product_value) if product_value else None,
+                position_effect=PositionEffect(effect_value) if effect_value else None,
                 effective_position_effect=(
                     PositionEffect(effective_value) if effective_value else None
                 ),
                 position_evidence_cut=(datetime.fromisoformat(cut_value) if cut_value else None),
                 position_evidence=evidence,
                 position_evidence_max_age=max_age,
+                position_effect_approval_instant=(
+                    datetime.fromisoformat(instant_value) if instant_value else None
+                ),
             )
         except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid pending execution context") from exc

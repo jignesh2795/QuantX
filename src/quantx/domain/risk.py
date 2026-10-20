@@ -153,7 +153,9 @@ def _resolution_violation(intent: TradeIntent, context: RiskContext) -> str | No
 
     Only supplied resolution is checked. A caller that supplies no product or
     effective effect is not asserting a resolution, so the legacy bare risk
-    contract is unchanged.
+    contract is unchanged. An absent position effect may only resolve through
+    a documented, versioned market-pack rule: to OPEN, with the rule identity
+    supplied, or to no effective effect at all.
     """
     if context.product is not None:
         if intent.product is not None and intent.product != context.product:
@@ -163,10 +165,22 @@ def _resolution_violation(intent: TradeIntent, context: RiskContext) -> str | No
         if not (context.rule_version or "").strip():
             return "a resolved product requires a market-pack rule version"
     if context.effective_position_effect is not None:
-        if intent.position_effect is not PositionEffect.CLOSE and (
-            intent.position_effect is not PositionEffect.AUTO
-        ):
-            return "a resolved effective effect requires a CLOSE or AUTO request"
+        if context.effective_position_effect not in {
+            PositionEffect.OPEN,
+            PositionEffect.CLOSE,
+        }:
+            return "a resolved effective position effect must be OPEN or CLOSE"
+        if intent.position_effect is PositionEffect.OPEN:
+            return "an explicit OPEN request cannot carry a resolved effective effect"
+        if intent.position_effect is None:
+            if context.effective_position_effect is not PositionEffect.OPEN:
+                return "an absent position effect may only resolve to OPEN"
+            if not (context.market_pack_id or "").strip():
+                return "an absent position effect resolved to OPEN requires a market-pack id"
+            if not (context.rule_version or "").strip():
+                return (
+                    "an absent position effect resolved to OPEN requires a market-pack rule version"
+                )
         if (
             intent.position_effect is PositionEffect.CLOSE
             and context.effective_position_effect is not PositionEffect.CLOSE
