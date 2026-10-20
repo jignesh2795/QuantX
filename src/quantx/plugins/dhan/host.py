@@ -13,6 +13,7 @@ domain or application packages.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +40,7 @@ from quantx.integrations.brokers import BrokerConnectionRef
 
 from .adapter import DhanBrokerAdapter
 from .market_data import DhanMarketDataAdapter
+from .mapping import normalize_dhan_product_map
 from .models import DhanCredentials, DhanInstrumentRef
 from .recovery import build_dhan_recovery_provider
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanSDKTransport, DhanTransport
@@ -71,6 +73,7 @@ class DhanHostConfig:
     cancel_timeout_seconds: float
     reconcile_timeout_seconds: float
     policy_verifier: MarketPackPolicyVerifier
+    product_map: Mapping[str, str]
     read_timeout_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS
     credentials: DhanCredentials | None = None
     transport: DhanTransport | None = None
@@ -93,6 +96,11 @@ class DhanHostConfig:
             raise ValueError("host instruments contain a duplicate instrument id")
         if (self.credentials is None) == (self.transport is None):
             raise ValueError("host requires exactly one of credentials or transport")
+        try:
+            product_map = normalize_dhan_product_map(self.product_map)
+        except ValueError as exc:
+            raise ValueError(f"invalid Dhan product map: {exc}") from exc
+        object.__setattr__(self, "product_map", product_map)
         for name, value in (
             ("submit_timeout_seconds", self.submit_timeout_seconds),
             ("cancel_timeout_seconds", self.cancel_timeout_seconds),
@@ -182,6 +190,7 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         _cancel_timeout=config.cancel_timeout_seconds,
         _reconcile_timeout=config.reconcile_timeout_seconds,
         _read_timeout=config.read_timeout_seconds,
+        _product_map=config.product_map,
     )
     market_data = DhanMarketDataAdapter(_instruments=instrument_map, _transport=transport)
 

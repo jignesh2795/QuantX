@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from types import MappingProxyType
 from uuid import uuid4
 
 from quantx.domain.enums import OrderStatus
@@ -34,6 +33,7 @@ from .mapping import (
     build_order_request,
     dhan_correlation_id,
     dhan_product_type,
+    normalize_dhan_product_map,
     normalize_status,
     parse_dhan_timestamp,
 )
@@ -68,17 +68,9 @@ class DhanBrokerAdapter:
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise ValueError(f"{name} must be a positive number")
         if self._product_map is not None:
-            normalized: dict[str, str] = {}
-            for neutral, wire in self._product_map.items():
-                if not isinstance(neutral, str) or not neutral.strip():
-                    raise ValueError("Dhan product map keys must be non-empty strings")
-                if not isinstance(wire, str) or not wire.strip():
-                    raise ValueError("Dhan product map values must be non-empty strings")
-                key = neutral.strip().upper()
-                if key in normalized:
-                    raise ValueError(f"duplicate Dhan product map key: {key}")
-                normalized[key] = wire.strip().upper()
-            object.__setattr__(self, "_product_map", MappingProxyType(normalized))
+            object.__setattr__(
+                self, "_product_map", normalize_dhan_product_map(self._product_map)
+            )
 
     @property
     def descriptor(self) -> BrokerDescriptor:

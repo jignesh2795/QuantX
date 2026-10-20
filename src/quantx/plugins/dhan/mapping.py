@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from types import MappingProxyType
 from zoneinfo import ZoneInfo
 
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
@@ -56,6 +57,29 @@ def dhan_correlation_id(correlation_id: str) -> str:
 _SUPPORTED_DHAN_PRODUCTS: set[str] = {"CNC", "INTRADAY", "MARGIN", "MTF"}
 
 
+def normalize_dhan_product_map(product_map: Mapping[str, str]) -> Mapping[str, str]:
+    """Validate and freeze an explicit neutral-to-Dhan product mapping."""
+    if not isinstance(product_map, Mapping):
+        raise ValueError("Dhan product map must be a mapping")
+    if not product_map:
+        raise ValueError("Dhan product map must not be empty")
+
+    normalized: dict[str, str] = {}
+    for neutral, wire in product_map.items():
+        if not isinstance(neutral, str) or not neutral.strip():
+            raise ValueError("Dhan product map keys must be non-empty strings")
+        if not isinstance(wire, str) or not wire.strip():
+            raise ValueError("Dhan product map values must be non-empty strings")
+        key = neutral.strip().upper()
+        if key in normalized:
+            raise ValueError(f"duplicate Dhan product map key: {key}")
+        value = wire.strip().upper()
+        if value not in _SUPPORTED_DHAN_PRODUCTS:
+            raise ValueError(f"configured Dhan product map value is not supported: {value}")
+        normalized[key] = value
+    return MappingProxyType(normalized)
+
+
 def dhan_product_type(
     product_code: ProductCode | None,
     *,
@@ -81,19 +105,11 @@ def dhan_product_type(
     if product_map is None:
         raise ValueError(f"no configured Dhan product mapping for product {product_code.value!r}")
     key = product_code.value.strip().upper()
-    normalized_map: dict[str, str] = {}
-    for map_key, map_value in product_map.items():
-        normalized_key = map_key.strip().upper()
-        if normalized_key in normalized_map:
-            raise ValueError(f"duplicate Dhan product map key: {normalized_key}")
-        normalized_map[normalized_key] = map_value.strip().upper()
+    normalized_map = normalize_dhan_product_map(product_map)
     mapped = normalized_map.get(key)
     if mapped is None:
         raise ValueError(f"unsupported Dhan product: {key} is absent from the configured map")
-    normalized = mapped
-    if normalized not in _SUPPORTED_DHAN_PRODUCTS:
-        raise ValueError(f"configured Dhan product map value is not supported: {normalized}")
-    return normalized
+    return mapped
 
 
 def build_order_request(
