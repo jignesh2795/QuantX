@@ -24,7 +24,6 @@ NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
 PACK = {"market_pack_id": "india", "rule_version": "india-products-v1"}
 MAX_AGE = timedelta(minutes=5)
 MARKET = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
-SUPPORTED_PRODUCTS = frozenset({ProductCode("CNC"), ProductCode("DELIVERY"), ProductCode("MIS")})
 
 
 def _product_resolution(
@@ -38,7 +37,6 @@ def _product_resolution(
         product=product,
         market_pack_id=market_pack_id,
         rule_version=rule_version,
-        supported_products=SUPPORTED_PRODUCTS,
     )
 
 
@@ -212,7 +210,7 @@ def test_explicit_product_requires_market_pack_identity() -> None:
     with pytest.raises(ValueError, match="requires a market-pack id"):
         _paper_request(order, market_pack_id=None, rule_version=None)
     with pytest.raises(ValueError, match="requires a market-pack rule version"):
-        _paper_request(order, market_pack_id="india", rule_version=None)
+        _paper_request(order, market_pack_id="india-equity", rule_version=None)
 
 
 def test_auto_position_effect_requires_resolved_effective_effect() -> None:

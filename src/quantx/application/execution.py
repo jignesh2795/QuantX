@@ -12,6 +12,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import NotSubmittedSource, PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
@@ -260,6 +261,7 @@ class ExecutionOrchestrator:
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
         market_policy: MarketPolicyConfig | None = None,
         submission_quarantine: SubmissionQuarantineRepository | None = None,
+        policy_verifier: MarketPackPolicyVerifier,
     ) -> None:
         self._paper_executor = paper_executor
         self._unit_of_work = unit_of_work
@@ -270,6 +272,27 @@ class ExecutionOrchestrator:
         self._live_risk_evaluator = live_risk_evaluator
         self._market_policy = market_policy or default_market_policy()
         self._submission_quarantine = submission_quarantine
+        self._policy_verifier = policy_verifier
+
+    def _verify_request_proofs(self, request: ApprovedExecutionRequest) -> str | None:
+        """Return a blocking reason when the request's proofs are not authentic.
+
+        An approved request carries claims about the resolved product and the
+        permitted absent position effect. The claims prove nothing on their
+        own, so this boundary re-derives them from the versioned market-pack
+        policies the deployment composes as canonical configuration. A request
+        that cannot be verified is denied before any gate, reservation, or
+        broker contact.
+        """
+        try:
+            self._policy_verifier.verify_request(request)
+        except Exception as exc:
+            try:
+                reason = f"request policy verification failed: {exc}"
+            except Exception:
+                reason = "request policy verification failed"
+            return reason
+        return None
 
     def _run_market_stage(
         self,
@@ -521,6 +544,17 @@ class ExecutionOrchestrator:
         broker: BrokerPort | None = None,
     ) -> ExecutionResult:
         mode = request.execution_context.execution_mode
+
+        # The request's product and position-effect claims are verified
+        # against the deployment's canonical versioned market-pack policies
+        # before anything else happens: an unverifiable claim is denied here,
+        # before any gate, reservation, or broker call.
+        verification_failure = self._verify_request_proofs(request)
+        if verification_failure is not None:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=verification_failure,
+            )
 
         # Submission is not a resolution point. An approved request must
         # already carry the product the pre-approval seam resolved; LIVE has no
@@ -847,6 +881,12 @@ class ExecutionOrchestrator:
     ) -> ExecutionResult:
         """Continue a partial paper execution through the control plane."""
         mode = request.execution_context.execution_mode
+        verification_failure = self._verify_request_proofs(request)
+        if verification_failure is not None:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=verification_failure,
+            )
         if not self._trading_gate.allow():
             state = self._trading_gate.state()
             return ExecutionResult(

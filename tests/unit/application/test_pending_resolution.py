@@ -71,7 +71,7 @@ from quantx.persistence.sqlite import (
 )
 from quantx.persistence.sqlite.schema import SCHEMA_VERSION
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
-from tests.unit._execution_request_proofs import approved_request
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 CHECKED_AT = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 RESOLVED_AT = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
@@ -153,7 +153,7 @@ def _request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
-        market_pack_id="india",
+        market_pack_id="india-equity",
         rule_version="india-products-v1",
     )
     intent = TradeIntent(
@@ -262,6 +262,7 @@ def _orchestrator(database, unit_of_work) -> ExecutionOrchestrator:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_rule_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
 
@@ -716,6 +717,7 @@ def test_recovery_never_invokes_operator_resolution(tmp_path) -> None:
         run = PendingExecutionRecoveryRunner(
             unit_of_work=unit_of_work,
             provider_resolver=lambda _: UnknownProvider(),
+            policy_verifier=policy_verifier(),
         ).run(checked_at=CHECKED_AT)
 
         assert run.attempted == 1
@@ -986,6 +988,7 @@ def test_recovery_skips_operator_resolved(tmp_path) -> None:
         run = PendingExecutionRecoveryRunner(
             unit_of_work=unit_of_work,
             provider_resolver=lambda _: UnknownProvider(),
+            policy_verifier=policy_verifier(),
         ).run(checked_at=CHECKED_AT)
 
         assert run.attempted == 0

@@ -163,7 +163,12 @@ def test_omitted_product_resolves_and_binds_pack_identity() -> None:
     assert result.resolution.market == NSE_EQUITY
     assert result.resolution.market_pack_id == "india-equity"
     assert result.resolution.rule_version == "india-products-v1"
-    assert result.resolution.supported_products == frozenset({ProductCode("CNC")})
+    assert result.resolution.to_payload() == {
+        "market": NSE_EQUITY.to_payload(),
+        "product": "CNC",
+        "market_pack_id": "india-equity",
+        "rule_version": "india-products-v1",
+    }
 
 
 def test_omitted_product_without_policy_stays_absent_for_simulated_modes() -> None:
@@ -202,9 +207,8 @@ def test_explicit_supported_product_is_preserved_verbatim() -> None:
     assert result.context == context
     assert result.resolution is not None
     assert result.resolution.product == ProductCode("MIS")
-    assert result.resolution.supported_products == frozenset(
-        {ProductCode("CNC"), ProductCode("MIS")}
-    )
+    assert result.resolution.market_pack_id == "india-equity"
+    assert result.resolution.rule_version == "india-products-v1"
 
 
 def test_explicit_product_requires_a_supporting_policy() -> None:

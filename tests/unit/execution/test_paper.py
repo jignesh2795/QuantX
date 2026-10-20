@@ -44,8 +44,8 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=BrokerConnectionId("paper-1") if mode is ExecutionMode.LIVE else None,
         execution_mode=mode,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=InstrumentId("NSE", "TCS"),

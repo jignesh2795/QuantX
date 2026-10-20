@@ -20,6 +20,7 @@ from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.position_effect import (
     AbsentPositionEffectResolution,
     PositionEffectPolicy,
@@ -221,6 +222,18 @@ class StrategyExecutionPreparer:
             product_resolution=product_resolution,
             position_effect_policy_resolution=position_evidence_policy_resolution,
         )
+        # The request carries claims about the resolved product and the
+        # permitted absent effect. They are re-derived here from the very
+        # versioned policies that produced them, so a request never leaves
+        # the pre-approval seam with a claim its own policies do not support.
+        MarketPackPolicyVerifier(
+            product_selection_policies=(
+                () if self._product_selection is None else (self._product_selection,)
+            ),
+            position_effect_policies=(
+                () if self._position_effect_policy is None else (self._position_effect_policy,)
+            ),
+        ).verify_request(request)
         return StrategyExecutionPreparation(decision, risk, policy, request)
 
     @staticmethod

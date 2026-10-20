@@ -70,7 +70,7 @@ from quantx.persistence.sqlite import (
     SqliteUnitOfWork,
 )
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
-from tests.unit._execution_request_proofs import approved_request
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
 
@@ -112,7 +112,7 @@ def _request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
-        market_pack_id="india",
+        market_pack_id="india-equity",
         rule_version="india-products-v1",
     )
     intent = TradeIntent(
@@ -217,6 +217,7 @@ def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
         ),
         submission_quarantine=SqliteSubmissionQuarantineRepository(database),
         **overrides,
+        policy_verifier=policy_verifier(),
     )
 
 
@@ -588,7 +589,7 @@ def _us_request() -> tuple[ApprovedExecutionRequest, Instrument]:
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
         market_pack_id="test-pack",
-        rule_version="test-rules-v1",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=us_instrument.instrument_id,

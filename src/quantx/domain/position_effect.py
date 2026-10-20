@@ -273,6 +273,49 @@ class PositionEffectPolicy:
             f"{market.venue}/{market.family.value} and product {product_label}"
         )
 
+    def verify_resolution(self, resolution: AbsentPositionEffectResolution) -> None:
+        """Fail closed unless this policy permits the absence a claim names.
+
+        The claim itself proves nothing: any caller can write one. This check
+        re-derives the permitted absence from the trusted, versioned policy —
+        the rule scope, the product it applies to, and whether the rule is a
+        declared not-applicable rule or a documented default — so a claim that
+        names a different market pack, a different rule version, a product
+        scope the policy does not cover, or a not-applicable effect the policy
+        never declared is rejected.
+        """
+        if not isinstance(resolution, AbsentPositionEffectResolution):
+            raise PositionEffectPolicyError(
+                "position-effect policy resolution has an unsupported type"
+            )
+        if resolution.market_pack_id != self.market_pack_id:
+            raise PositionEffectPolicyError(
+                "position-effect policy resolution market-pack id does not match the policy"
+            )
+        if resolution.rule_version != self.rule_version:
+            raise PositionEffectPolicyError(
+                "position-effect policy resolution rule version does not match the policy"
+            )
+        rule = self.resolve(resolution.market, resolution.product)
+        if rule.product != resolution.rule_product:
+            raise PositionEffectPolicyError(
+                "position-effect policy resolution rule scope does not match the policy rule"
+            )
+        if rule.not_applicable:
+            if not resolution.not_applicable or resolution.effective is not None:
+                raise PositionEffectPolicyError(
+                    "the policy rule declares no applicable position effect"
+                )
+            return
+        if resolution.not_applicable:
+            raise PositionEffectPolicyError(
+                "the policy rule declares a default position effect, not an absent one"
+            )
+        if resolution.effective is not rule.default_effect:
+            raise PositionEffectPolicyError(
+                "position-effect policy resolution does not match the policy default effect"
+            )
+
 
 def resolve_absent_position_effect(
     context: ExecutionContext,

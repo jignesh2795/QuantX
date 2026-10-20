@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.integrations.account_registry import AccountConnectionRegistry
 from quantx.integrations.brokers import BrokerAdapter
@@ -130,6 +131,7 @@ def build_application_runtime(
     fill_provider: FillProvider | None = None,
     evidence_policy: DefinitiveEvidencePolicy | None = None,
     refresh_policy: RefreshPolicy | None = None,
+    policy_verifier: MarketPackPolicyVerifier,
 ) -> ApplicationRuntime:
     """Compose durable recovery infrastructure into the one-shot startup runtime.
 
@@ -151,6 +153,7 @@ def build_application_runtime(
         fill_provider=fill_provider,
         evidence_policy=evidence_policy,
         refresh_policy=refresh_policy,
+        policy_verifier=policy_verifier,
     )
     return ApplicationRuntime(pending_recovery=runner)
 

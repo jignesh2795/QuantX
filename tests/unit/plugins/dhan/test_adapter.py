@@ -32,6 +32,7 @@ from quantx.domain.instruments import (
 )
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
+from quantx.domain.product_selection import ProductSelectionResolution
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import NotSubmittedSource
@@ -71,7 +72,7 @@ from quantx.plugins.dhan.models import (
     DhanOrderResponse,
     DhanPositionsSnapshot,
 )
-from tests.unit._execution_request_proofs import approved_request
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 _DEFAULT_PRODUCT = ProductCode("CNC")
 
@@ -94,10 +95,10 @@ def _request(
     order_type: OrderType = OrderType.MARKET,
     time_in_force: TimeInForce = TimeInForce.DAY,
     product: ProductCode | None = _DEFAULT_PRODUCT,
-    position_effect: PositionEffect | None = None,
+    position_effect: PositionEffect | None = PositionEffect.OPEN,
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
-    pack_identity = {"market_pack_id": "india", "rule_version": "india-products-v1"}
+    pack_identity = {"market_pack_id": "india-equity", "rule_version": "india-products-v1"}
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -120,8 +121,20 @@ def _request(
         position_effect=position_effect,
         execution_context=context,
     )
+    order = build_order_from_intent(intent)
+    if product is None:
+        # A request that never resolved a product: it carries no product and
+        # no product proof, so the adapter's own product guard is what must
+        # reject it before any transport call.
+        return ApprovedExecutionRequest(
+            order=order,
+            execution_context=context,
+            risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+            policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+            position_effect=position_effect,
+        )
     return approved_request(
-        order=build_order_from_intent(intent),
+        order=order,
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
@@ -260,11 +273,56 @@ def test_explicit_product_requires_configured_mapping_before_transport() -> None
     assert not transport.submitted
 
 
+def _request_with_unauthenticated_product(product: ProductCode) -> ApprovedExecutionRequest:
+    """Build a request whose product claim no versioned pack supports.
+
+    The market pack rejects such a product before execution, so the request
+    is written directly here: the adapter's own product guard must still
+    refuse it before any transport call.
+    """
+    instrument = _instrument()
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=instrument.market,
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+    intent = TradeIntent(
+        instrument=instrument.instrument_id,
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.DAY,
+        required_capabilities=frozenset({"ORDER_SUBMISSION"}),
+        product=product,
+        position_effect=PositionEffect.OPEN,
+        execution_context=context,
+    )
+    return ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
+        position_effect=PositionEffect.OPEN,
+        product_resolution=ProductSelectionResolution(
+            market=instrument.market,
+            product=product,
+            market_pack_id="india-equity",
+            rule_version="india-products-v1",
+        ),
+    )
+
+
 def test_submit_rejects_unsupported_product_before_transport() -> None:
     transport = InMemoryDhanTransport()
 
     with pytest.raises(BrokerPreflightRejected, match="unsupported product"):
-        _adapter(transport).submit(_request(product=ProductCode("MTF")))
+        _adapter(transport).submit(_request_with_unauthenticated_product(ProductCode("MTF")))
 
     assert not transport.submitted
 
@@ -515,6 +573,7 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
             ),
+            policy_verifier=policy_verifier(),
         ).execute(_request(), broker=adapter)
     finally:
         database.close()
@@ -654,6 +713,7 @@ def _quarantine_orchestrator(database) -> ExecutionOrchestrator:
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+        policy_verifier=policy_verifier(),
     )
 
 

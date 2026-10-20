@@ -29,7 +29,7 @@ from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.lifecycle import ExecutionLifecycleService
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
-from tests.unit._execution_request_proofs import approved_request
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 
 def _instrument() -> Instrument:
@@ -54,8 +54,8 @@ def _request(quantity: str = "10") -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     order = Order(
         instrument=instrument.instrument_id,
@@ -147,7 +147,10 @@ class _ReceiptRepository:
 
 def _service(request: ApprovedExecutionRequest, receipt: ExecutionReceipt, port: _PaperPort):
     repository = _ReceiptRepository((receipt,))
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     return ExecutionContinuationService(lifecycle, dispatcher)
 
@@ -223,7 +226,7 @@ def test_continuation_rejects_when_parent_is_complete() -> None:
 
 def test_continuation_requires_authoritative_reconciliation() -> None:
     request = _request()
-    dispatcher = ExecutionDispatcher()
+    dispatcher = ExecutionDispatcher(policy_verifier=policy_verifier())
     lifecycle = ExecutionLifecycleService(dispatcher)
     service = ExecutionContinuationService(lifecycle, dispatcher)
 

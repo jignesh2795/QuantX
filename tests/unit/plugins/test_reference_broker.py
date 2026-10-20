@@ -49,7 +49,7 @@ from quantx.plugins.reference_broker import (
     ReferenceBrokerAdapter,
 )
 from quantx.ports.broker import BrokerPort
-from tests.unit._execution_request_proofs import approved_request
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 
 def _instrument() -> Instrument:
@@ -75,7 +75,7 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=mode,
-        market_pack_id="india",
+        market_pack_id="india-equity",
         rule_version="india-products-v1",
     )
     product = ProductCode("CNC") if live else None
@@ -238,6 +238,7 @@ def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> Non
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
             ),
+            policy_verifier=policy_verifier(),
         ).execute(request, broker=adapter)
     finally:
         database.close()

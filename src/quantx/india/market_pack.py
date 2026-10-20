@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from quantx.domain.enums import AssetClass
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.position_effect import PositionEffectPolicy, PositionEffectRule
 from quantx.domain.product_selection import ProductSelectionPolicy, ProductSelectionRule
 from quantx.domain.value_objects import ProductCode
@@ -80,11 +81,20 @@ INDIA_EQUITY_POSITION_EFFECT_POLICY = PositionEffectPolicy(
     ),
 )
 
+# The canonical verifier for this pack: the versioned rules a deployment
+# trusts when it authenticates a request's product and position-effect
+# claims. It holds no vocabulary of its own; the rules stay above.
+INDIA_EQUITY_POLICY_VERIFIER = MarketPackPolicyVerifier(
+    product_selection_policies=(INDIA_EQUITY_PRODUCT_SELECTION,),
+    position_effect_policies=(INDIA_EQUITY_POSITION_EFFECT_POLICY,),
+)
+
 
 __all__ = [
     "INDIA_EQUITY_COMPATIBILITY_PRODUCT",
     "INDIA_EQUITY_MARKET",
     "INDIA_EQUITY_MARKET_PACK_ID",
+    "INDIA_EQUITY_POLICY_VERIFIER",
     "INDIA_EQUITY_POSITION_EFFECT_POLICY",
     "INDIA_EQUITY_PRODUCT_SELECTION",
     "INDIA_EQUITY_RULE_VERSION",

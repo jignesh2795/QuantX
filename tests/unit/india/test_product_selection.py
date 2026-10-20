@@ -62,7 +62,7 @@ def _request(product: ProductCode | None) -> ApprovedExecutionRequest:
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
-        market_pack_id="india",
+        market_pack_id="india-equity",
         rule_version="india-products-v1",
     )
     intent = TradeIntent(
@@ -73,6 +73,16 @@ def _request(product: ProductCode | None) -> ApprovedExecutionRequest:
         position_effect=PositionEffect.OPEN,
         execution_context=context,
     )
+    if product is None:
+        # An absent product stays absent: no product default is invented for
+        # it, and the explicit effect keeps the request constructible without
+        # a product proof.
+        return ApprovedExecutionRequest(
+            order=build_order_from_intent(intent),
+            execution_context=context,
+            risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+            position_effect=PositionEffect.OPEN,
+        )
     return approved_request(
         build_order_from_intent(intent),
         context,

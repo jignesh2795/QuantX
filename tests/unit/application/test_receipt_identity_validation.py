@@ -77,7 +77,7 @@ from quantx.integrations.brokers import (
     CapabilitySet,
 )
 from quantx.persistence import ReceiptRepository, UnitOfWork
-from tests.unit._execution_request_proofs import approved_request
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 # ---------------------------------------------------------------------------
 # Shared fixtures / factory helpers
@@ -116,7 +116,7 @@ def _live_request(
         market=instrument.market,
         broker_connection_id=connection_id or _CONNECTION_ID,
         execution_mode=ExecutionMode.LIVE,
-        market_pack_id="india",
+        market_pack_id="india-equity",
         rule_version="india-products-v1",
     )
     intent = TradeIntent(
@@ -278,6 +278,7 @@ def _orchestrator(unit_of_work: _FakeUnitOfWork) -> ExecutionOrchestrator:
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        policy_verifier=policy_verifier(),
     )
 
 

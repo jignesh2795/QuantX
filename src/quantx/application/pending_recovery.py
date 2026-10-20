@@ -15,6 +15,7 @@ from uuid import UUID
 
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.orders import Fill
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.integrations.reconciliation import (
@@ -399,6 +400,7 @@ class PendingExecutionRecoveryRunner:
         fill_provider: FillProvider | None = None,
         evidence_policy: DefinitiveEvidencePolicy | None = None,
         refresh_policy: RefreshPolicy | None = None,
+        policy_verifier: MarketPackPolicyVerifier,
     ) -> None:
         self._unit_of_work = unit_of_work
         self._provider_resolver = provider_resolver
@@ -408,6 +410,7 @@ class PendingExecutionRecoveryRunner:
         self._fill_provider = fill_provider
         self._evidence_policy = evidence_policy
         self._refresh_policy = refresh_policy
+        self._policy_verifier = policy_verifier
 
     def run(
         self,
@@ -439,9 +442,15 @@ class PendingExecutionRecoveryRunner:
         context: PendingExecutionContext,
         checked_at: datetime,
     ) -> PendingRecoveryResult:
-        request = context.to_recovery_request()
-        client_order_id = str(request.order.client_order_id)
+        client_order_id = str(context.order.client_order_id)
         try:
+            # A restored payload is not canonical until its product and
+            # position-effect claims are re-verified against the deployment's
+            # trusted versioned market-pack policies. A persisted claim that
+            # the trusted policy does not support is never recovered.
+            self._policy_verifier.verify_request(context)
+            request = context.to_recovery_request()
+            client_order_id = str(request.order.client_order_id)
             provider = self._provider_resolver(request)
             local_order = (
                 None if self._local_order_provider is None else self._local_order_provider(request)
@@ -496,6 +505,7 @@ def recover_pending_live_executions(
     checked_at: datetime | None = None,
     evidence_policy: DefinitiveEvidencePolicy | None = None,
     refresh_policy: RefreshPolicy | None = None,
+    policy_verifier: MarketPackPolicyVerifier,
 ) -> PendingRecoveryRun:
     """Convenience boot hook for one deterministic pending-recovery pass."""
     return PendingExecutionRecoveryRunner(
@@ -507,4 +517,5 @@ def recover_pending_live_executions(
         fill_provider=fill_provider,
         evidence_policy=evidence_policy,
         refresh_policy=refresh_policy,
+        policy_verifier=policy_verifier,
     ).run(checked_at=checked_at)

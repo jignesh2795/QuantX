@@ -6,8 +6,56 @@ import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Protocol
 
-from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.deployment import ExecutionContext
+from quantx.domain.enums import PositionEffect
+from quantx.domain.orders import Order
+from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
+from quantx.domain.product_selection import ProductSelectionResolution
+from quantx.domain.value_objects import ProductCode
+
+
+class FingerprintableRequest(Protocol):
+    """The execution semantics a fingerprint is computed from.
+
+    Both an approved request and its persisted pending projection expose these
+    fields, so a restored context can be fingerprinted with the same canonical
+    rules and compared with the digest that was stored with it.
+    """
+
+    @property
+    def order(self) -> Order: ...
+
+    @property
+    def execution_context(self) -> ExecutionContext: ...
+
+    @property
+    def product(self) -> ProductCode | None: ...
+
+    @property
+    def position_effect(self) -> PositionEffect | None: ...
+
+    @property
+    def effective_position_effect(self) -> PositionEffect | None: ...
+
+    @property
+    def position_evidence_cut(self) -> datetime | None: ...
+
+    @property
+    def position_evidence(self) -> PositionEvidence | None: ...
+
+    @property
+    def position_evidence_max_age(self) -> timedelta | None: ...
+
+    @property
+    def position_effect_approval_instant(self) -> datetime | None: ...
+
+    @property
+    def product_resolution(self) -> ProductSelectionResolution | None: ...
+
+    @property
+    def position_effect_policy_resolution(self) -> AbsentPositionEffectResolution | None: ...
 
 
 def _canonical_decimal(value: Decimal) -> str:
@@ -54,15 +102,17 @@ def _timedelta_microseconds(value: object) -> int | None:
     return (value.days * 86_400 + value.seconds) * 1_000_000 + value.microseconds
 
 
-def request_fingerprint(request: ApprovedExecutionRequest) -> str:
-    """Hash execution-relevant fields, excluding client-order identity.
+def fingerprint_payload(request: FingerprintableRequest) -> dict[str, object]:
+    """Build the canonical execution-semantics payload a fingerprint hashes.
 
-    Wall-clock construction timestamps stay excluded. The position-evidence
-    cut and the approval instant are not construction timestamps: they are
-    the approval evidence the resolved effect is bound to, so they
-    participate in identity.
+    The payload is the complete set of execution-relevant semantics: the
+    instrument, side, quantity, order type, prices, time in force, the
+    account/portfolio/deployment identity, the market, the required
+    capabilities, the resolved product, the requested and effective position
+    effect, the market-pack/rule identity, the position evidence and its
+    freshness, and the product and position-effect proofs.
     """
-    payload = {
+    return {
         "instrument": str(request.order.instrument),
         "side": request.order.side.value,
         "order_type": request.order.order_type.value,
@@ -71,8 +121,8 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
         "stop_price": request.order.stop_price,
         "time_in_force": request.order.time_in_force.value,
         "account_id": str(request.execution_context.account_id.value),
-        "portfolio_id": request.execution_context.portfolio_id.value,
-        "deployment_id": request.execution_context.deployment_id.value,
+        "portfolio_id": str(request.execution_context.portfolio_id.value),
+        "deployment_id": str(request.execution_context.deployment_id.value),
         "market_venue": request.execution_context.market.venue,
         "market_region": request.execution_context.market.region.value,
         "market_family": request.execution_context.market.family.value,
@@ -127,5 +177,20 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
             else request.position_effect_policy_resolution.to_payload()
         ),
     }
+
+
+def request_fingerprint(request: FingerprintableRequest) -> str:
+    """Hash execution-relevant fields, excluding client-order identity.
+
+    Wall-clock construction timestamps stay excluded. The position-evidence
+    cut and the approval instant are not construction timestamps: they are
+    the approval evidence the resolved effect is bound to, so they
+    participate in identity.
+
+    The same canonical rules fingerprint an approved request and a restored
+    pending projection, so a persisted digest can be re-derived from the
+    restored execution semantics and compared with the stored value.
+    """
+    payload = fingerprint_payload(request)
     canonical = json.dumps(_json_value(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

@@ -44,7 +44,7 @@ from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
 from quantx.plugins.dhan.models import DhanPositionSnapshot
 from quantx.plugins.dhan.recovery import build_dhan_recovery_provider
-from tests.unit._execution_request_proofs import approved_request
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
 RESOLVED_AT = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
@@ -71,7 +71,7 @@ def _request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
-        market_pack_id="india",
+        market_pack_id="india-equity",
         rule_version="india-products-v1",
     )
     intent = TradeIntent(
@@ -515,6 +515,7 @@ def _runner(unit_of_work, adapter, request, **overrides):
             unit_of_work=unit_of_work,
             provider_resolver=lambda recovered: build_dhan_recovery_provider(adapter, recovered),
             **context_providers,
+            policy_verifier=policy_verifier(),
         ),
         fingerprint,
     )

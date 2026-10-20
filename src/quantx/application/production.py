@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.integrations.account_registry import AccountConnectionRegistry
 from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
 
@@ -37,6 +38,7 @@ class ProductionRuntimeConfig:
     database_path: str | Path
     configure_registry: RegistryConfigurator
     evidence_factory: RecoveryEvidenceFactory
+    policy_verifier: MarketPackPolicyVerifier
     expected_broker_id: str | None = None
     local_order_provider: LocalOrderProvider | None = None
     local_position_provider: LocalPositionProvider | None = None
@@ -101,6 +103,7 @@ def build_production_runtime(config: ProductionRuntimeConfig) -> ProductionRunti
             fill_provider=config.fill_provider,
             evidence_policy=config.evidence_policy,
             refresh_policy=config.refresh_policy,
+            policy_verifier=config.policy_verifier,
         )
     except Exception:
         database.close()

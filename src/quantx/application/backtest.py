@@ -32,6 +32,7 @@ from quantx.domain.policy import (
     PolicyDecision,
     PolicyResult,
 )
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.position_effect import (
     AbsentPositionEffectResolution,
     PositionEffectPolicy,
@@ -1287,6 +1288,18 @@ class DeterministicBacktestService:
                 product_resolution=product_resolution,
                 position_effect_policy_resolution=position_effect_policy_resolution,
             )
+            # The request's claims are re-derived from the very versioned
+            # policies that produced them, so a replay never executes a
+            # request whose product or absent effect its own pack does not
+            # permit.
+            MarketPackPolicyVerifier(
+                product_selection_policies=(
+                    () if self._product_selection is None else (self._product_selection,)
+                ),
+                position_effect_policies=(
+                    () if self._position_effect_policy is None else (self._position_effect_policy,)
+                ),
+            ).verify_request(request)
             try:
                 engine_time = self._require_engine_time_coherent(
                     execution_engine, frame.observation.timestamp

@@ -40,7 +40,7 @@ from quantx.plugins.dhan.host import DhanHostConfig, DhanHostRuntime, build_dhan
 from quantx.plugins.dhan.market_data import DhanMarketDataAdapter
 from quantx.plugins.dhan.models import DhanCandleSnapshot, DhanCredentials, DhanInstrumentRef
 from quantx.plugins.dhan.transport import DhanSDKTransport, InMemoryDhanTransport
-from tests.unit._execution_request_proofs import approved_request
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
 
@@ -78,6 +78,7 @@ def _config(tmp_path, **overrides) -> DhanHostConfig:
         cancel_timeout_seconds=overrides.pop("cancel_timeout_seconds", 5.0),
         reconcile_timeout_seconds=overrides.pop("reconcile_timeout_seconds", 5.0),
         **overrides,
+        policy_verifier=policy_verifier(),
     )
 
 
@@ -90,8 +91,8 @@ def _approved() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -187,6 +188,7 @@ def _resolving_config(tmp_path, approved: ApprovedExecutionRequest) -> DhanHostC
                 filled_at=CHECKED_AT,
             ),
         ),
+        policy_verifier=policy_verifier(),
     )
 
 

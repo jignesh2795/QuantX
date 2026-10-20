@@ -8,6 +8,7 @@ from uuid import UUID
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.execution.idempotency import IdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionReceipt
@@ -32,11 +33,13 @@ class ExecutionTransactionCoordinator:
         preconditions: Callable[[ApprovedExecutionRequest], PreconditionsResult],
         submit: Callable[[ApprovedExecutionRequest], ExecutionReceipt],
         receipt_repository: ReceiptRepository | None = None,
+        policy_verifier: MarketPackPolicyVerifier,
     ) -> None:
         self._idempotency = idempotency
         self._preconditions = preconditions
         self._submit = submit
         self._receipt_repository = receipt_repository
+        self._policy_verifier = policy_verifier
 
     def execute(self, request: ApprovedExecutionRequest) -> TransactionResult:
         mode = getattr(
@@ -44,6 +47,17 @@ class ExecutionTransactionCoordinator:
             "execution_mode",
             None,
         )
+
+        # The request's product and position-effect claims are verified
+        # against the deployment's canonical versioned market-pack policies
+        # before any reservation or submission.
+        try:
+            self._policy_verifier.verify_request(request)
+        except Exception:
+            return TransactionResult(
+                PreconditionsStatus.BLOCKED,
+                reasons=("request policy verification failed",),
+            )
 
         preflight = self._preconditions(request)
         if not preflight.can_execute:

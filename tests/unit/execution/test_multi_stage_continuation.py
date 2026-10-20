@@ -19,12 +19,16 @@ from quantx.execution.idempotency import InMemoryIdempotencyStore, request_finge
 from quantx.execution.lifecycle import ExecutionLifecycleService
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.receipts.models import ExecutionOutcome
+from tests.unit._execution_request_proofs import policy_verifier
 
 from .test_continuation import _PaperPort, _receipt, _ReceiptRepository, _request, _snapshot
 
 
 def _service(repository: _ReceiptRepository, receipt) -> ExecutionContinuationService:
-    dispatcher = ExecutionDispatcher(paper_port=_PaperPort(receipt))
+    dispatcher = ExecutionDispatcher(
+        paper_port=_PaperPort(receipt),
+        policy_verifier=policy_verifier(),
+    )
     lifecycle_service = ExecutionLifecycleService(
         dispatcher,
         receipt_repository=repository,
@@ -138,6 +142,7 @@ def test_reconcile_chain_rejects_broken_parent_linkage() -> None:
         policy_result=second.policy_result,
         required_margin=second.required_margin,
         parent_client_order_id=str(root.order.client_order_id),
+        product=second.product,
         product_resolution=second.product_resolution,
         position_effect_policy_resolution=second.position_effect_policy_resolution,
     )
@@ -184,12 +189,15 @@ def test_reconcile_chain_rejects_stage_quantity_above_parent_remainder() -> None
             strategy_id=valid_second.order.strategy_id,
             strategy_version=valid_second.order.strategy_version,
             required_capabilities=valid_second.order.required_capabilities,
+            product=valid_second.order.product,
+            position_effect=valid_second.order.position_effect,
         ),
         execution_context=valid_second.execution_context,
         risk_result=valid_second.risk_result,
         policy_result=valid_second.policy_result,
         required_margin=valid_second.required_margin,
         parent_client_order_id=valid_second.parent_client_order_id,
+        product=valid_second.product,
         product_resolution=valid_second.product_resolution,
         position_effect_policy_resolution=(valid_second.position_effect_policy_resolution),
     )
@@ -390,7 +398,10 @@ def test_dispatch_chain_continuation_prepares_and_dispatches_latest_stage() -> N
     )
     repository = _ReceiptRepository((root_receipt, first_receipt))
     port = _PaperPort(next_receipt)
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(lifecycle, dispatcher)
 
@@ -415,7 +426,10 @@ def test_dispatch_chain_continuation_requires_market_snapshot_for_paper() -> Non
     root_receipt = _receipt(root, "4")
     repository = _ReceiptRepository((root_receipt,))
     port = _PaperPort(_receipt(root, "6"))
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(lifecycle, dispatcher)
 
@@ -451,7 +465,10 @@ def test_dispatch_chain_continuation_rejects_terminal_latest_stage_before_dispat
     )
     repository = _ReceiptRepository((root_receipt, first_receipt, terminal_receipt))
     port = _PaperPort(terminal_receipt)
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(lifecycle, dispatcher)
 
@@ -490,7 +507,10 @@ def test_dispatch_chain_continuation_and_reconcile_returns_authoritative_child_s
     child_receipt = _receipt(prepared, "3")
     repository = _ReceiptRepository((root_receipt, first_receipt, child_receipt))
     port = _PaperPort(child_receipt)
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(lifecycle, dispatcher)
 
@@ -528,7 +548,10 @@ def test_dispatch_chain_continuation_and_reconcile_rejects_missing_authoritative
     )
     child_receipt = _receipt(prepared, "6")
     port = _PaperPort(child_receipt)
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(lifecycle, dispatcher)
 
@@ -559,7 +582,10 @@ def test_dispatch_chain_continuation_reuses_existing_authoritative_child() -> No
     duplicate_dispatch_receipt = _receipt(existing_child, "6")
     repository = _ReceiptRepository((root_receipt, authoritative_child_receipt))
     port = _PaperPort(duplicate_dispatch_receipt)
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(lifecycle, dispatcher)
 
@@ -613,7 +639,10 @@ def test_concurrent_chain_continuation_dispatch_has_one_atomic_claim() -> None:
     repository = _ReceiptRepository((root_receipt,))
     port = _BlockingRecordingPaperPort(child_receipt, repository)
     idempotency = InMemoryIdempotencyStore()
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,
@@ -667,7 +696,10 @@ def test_pending_continuation_claim_is_resolved_from_authoritative_child() -> No
     fingerprint = request_fingerprint(child)
     idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
     port = _PaperPort(_receipt(child, "6"))
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,
@@ -713,7 +745,10 @@ def test_recover_pending_continuation_resolves_from_authoritative_child() -> Non
     fingerprint = request_fingerprint(child)
     idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
     port = _PaperPort(_receipt(child, "6"))
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,
@@ -754,7 +789,10 @@ def test_recover_pending_continuation_requires_authoritative_evidence() -> None:
     fingerprint = request_fingerprint(child)
     idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
     port = _PaperPort(_receipt(child, "6"))
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,
@@ -794,7 +832,10 @@ def test_recover_pending_continuation_rejects_completed_child_claim() -> None:
         fingerprint,
         child_receipt.receipt_id,
     )
-    dispatcher = ExecutionDispatcher(paper_port=_PaperPort(child_receipt))
+    dispatcher = ExecutionDispatcher(
+        paper_port=_PaperPort(child_receipt),
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,
@@ -833,7 +874,10 @@ def test_recover_pending_chain_continuation_uses_latest_stage() -> None:
     fingerprint = request_fingerprint(second)
     idempotency.reserve_or_get(second.order.client_order_id, fingerprint)
     port = _PaperPort(_receipt(second, "3"))
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,
@@ -890,6 +934,7 @@ def test_recover_pending_chain_continuation_rejects_nonlatest_parent_link() -> N
         policy_result=second.policy_result,
         required_margin=second.required_margin,
         parent_client_order_id=str(root.order.client_order_id),
+        product=second.product,
         product_resolution=second.product_resolution,
         position_effect_policy_resolution=second.position_effect_policy_resolution,
     )
@@ -898,7 +943,10 @@ def test_recover_pending_chain_continuation_rejects_nonlatest_parent_link() -> N
     fingerprint = request_fingerprint(malformed)
     idempotency.reserve_or_get(malformed.order.client_order_id, fingerprint)
     port = _PaperPort(_receipt(malformed, "3"))
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,
@@ -946,7 +994,10 @@ def test_recover_pending_continuation_keeps_claim_pending_when_parent_is_termina
     fingerprint = request_fingerprint(child)
     idempotency.reserve_or_get(child.order.client_order_id, fingerprint)
     port = _PaperPort(child_receipt)
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,
@@ -993,7 +1044,10 @@ def test_completed_continuation_claim_must_reference_authoritative_receipt() -> 
         claimed_receipt.receipt_id,
     )
     port = _PaperPort(_receipt(child, "6"))
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,
@@ -1033,7 +1087,10 @@ def test_dispatch_claim_stays_pending_when_adapter_receipt_metadata_is_invalid()
         order_quantity=Decimal("1"),
     )
     port = _PaperPort(invalid_receipt)
-    dispatcher = ExecutionDispatcher(paper_port=port)
+    dispatcher = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     service = ExecutionContinuationService(
         lifecycle,

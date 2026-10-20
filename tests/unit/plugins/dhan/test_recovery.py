@@ -63,8 +63,8 @@ def _context(
         market=_instrument().market,
         broker_connection_id=BrokerConnectionId(connection),
         execution_mode=ExecutionMode.LIVE,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
 
 
@@ -92,6 +92,7 @@ def _recovery_request(
         order=approved.order,
         execution_context=context,
         parent_client_order_id=approved.parent_client_order_id,
+        product=approved.product,
         product_resolution=approved.product_resolution,
         position_effect_policy_resolution=approved.position_effect_policy_resolution,
     )

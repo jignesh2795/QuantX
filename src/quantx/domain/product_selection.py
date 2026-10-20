@@ -23,19 +23,20 @@ class ProductSelectionError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ProductSelectionResolution:
-    """Validated proof that a versioned policy selected one product.
+    """A claim that one versioned policy selected one product.
 
-    Only the canonical pre-approval resolver should create this value. The
-    approved-request boundary validates that it names the same product, market,
-    market pack, and rule version as the request, so a direct constructor
-    cannot claim a product from caller-supplied identity alone.
+    The claim names the market, the selected product, and the market-pack and
+    rule identity that made the selection. It carries no support set: a
+    payload cannot prove its own authenticity. Authenticity is established by
+    :meth:`ProductSelectionPolicy.verify_resolution`, which re-derives the
+    support decision from the trusted, versioned policy that the approved
+    request boundary is composed with.
     """
 
     market: MarketContext
     product: ProductCode
     market_pack_id: str
     rule_version: str
-    supported_products: frozenset[ProductCode]
 
     def __post_init__(self) -> None:
         if not isinstance(self.market, MarketContext):
@@ -46,12 +47,6 @@ class ProductSelectionResolution:
             raise ValueError("product selection resolution requires a market-pack id")
         if not isinstance(self.rule_version, str) or not self.rule_version.strip():
             raise ValueError("product selection resolution requires a rule version")
-        if not isinstance(self.supported_products, frozenset):
-            raise ValueError("product selection resolution supported products must be a frozenset")
-        if not self.supported_products:
-            raise ValueError("product selection resolution requires supported products")
-        if self.product not in self.supported_products:
-            raise ValueError("product selection resolution product must be supported")
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -59,7 +54,6 @@ class ProductSelectionResolution:
             "product": str(self.product),
             "market_pack_id": self.market_pack_id,
             "rule_version": self.rule_version,
-            "supported_products": sorted(str(product) for product in self.supported_products),
         }
 
     @classmethod
@@ -71,25 +65,20 @@ class ProductSelectionResolution:
             "product",
             "market_pack_id",
             "rule_version",
-            "supported_products",
         }:
             raise ValueError("product selection resolution has unexpected fields")
         product = payload["product"]
         market_pack_id = payload["market_pack_id"]
         rule_version = payload["rule_version"]
-        supported = payload["supported_products"]
         if not isinstance(product, str):
             raise ValueError("product selection resolution product must be a string")
         if not isinstance(market_pack_id, str) or not isinstance(rule_version, str):
             raise ValueError("product selection resolution identity must be strings")
-        if not isinstance(supported, list) or not all(isinstance(item, str) for item in supported):
-            raise ValueError("product selection resolution supported products must be strings")
         return cls(
             market=MarketContext.from_payload(payload["market"]),
             product=ProductCode(product),
             market_pack_id=market_pack_id,
             rule_version=rule_version,
-            supported_products=frozenset(ProductCode(item) for item in supported),
         )
 
 
@@ -216,6 +205,32 @@ class ProductSelectionPolicy:
             )
         return product
 
+    def verify_resolution(self, resolution: ProductSelectionResolution) -> None:
+        """Fail closed unless this policy supports the product a claim names.
+
+        The claim itself proves nothing: it can be written by any caller. This
+        check re-derives the support decision from the trusted, versioned
+        policy, so a claim naming a product outside the policy's support set,
+        a different market pack, a different rule version, or an uncovered
+        market is rejected.
+        """
+        if not isinstance(resolution, ProductSelectionResolution):
+            raise ProductSelectionError("product selection resolution has an unsupported type")
+        if resolution.market_pack_id != self.market_pack_id:
+            raise ProductSelectionError(
+                "product selection resolution market-pack id does not match the product policy"
+            )
+        if resolution.rule_version != self.rule_version:
+            raise ProductSelectionError(
+                "product selection resolution rule version does not match the product policy"
+            )
+        rule = self.rule_for(resolution.market)
+        if not rule.supports(resolution.product):
+            raise ProductSelectionError(
+                f"product {resolution.product} is not supported for market "
+                f"{resolution.market.venue}/{resolution.market.family.value}"
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class ProductSelectionResult:
@@ -309,7 +324,6 @@ def resolve_request_product(
                 product=explicit_product,
                 market_pack_id=policy.market_pack_id,
                 rule_version=policy.rule_version,
-                supported_products=rule.effective_supported_products,
             ),
         )
 
@@ -347,7 +361,6 @@ def resolve_request_product(
             product=product,
             market_pack_id=policy.market_pack_id,
             rule_version=policy.rule_version,
-            supported_products=rule.effective_supported_products,
         ),
     )
 

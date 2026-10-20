@@ -6,6 +6,7 @@ from quantx.domain.market_data import Candle, Quote
 from quantx.domain.value_objects import InstrumentId
 from quantx.india.domain import IndianExchange, IndianInstrumentSpec, IndianSegment
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
+from tests.unit._execution_request_proofs import policy_verifier
 
 
 def test_indian_equity_spec_builds_universal_instrument() -> None:
@@ -64,8 +65,10 @@ def test_market_data_is_framework_independent() -> None:
 
 
 def test_transaction_coordinator_stores_receipt_id_for_idempotency(monkeypatch) -> None:
+    from types import SimpleNamespace
     from uuid import uuid4
 
+    from quantx.domain.enums import PositionEffect
     from quantx.execution.idempotency import InMemoryIdempotencyStore
     from quantx.execution.preconditions.models import (
         PreconditionsResult,
@@ -79,6 +82,13 @@ def test_transaction_coordinator_stores_receipt_id_for_idempotency(monkeypatch) 
 
     request = type("Request", (), {})()
     request.order = type("Order", (), {"client_order_id": client_order_id})()
+    # No product and an explicit effect: the request carries no proof, so the
+    # canonical policy verification has nothing to authenticate.
+    request.execution_context = SimpleNamespace(execution_mode="paper")
+    request.product = None
+    request.position_effect = PositionEffect.OPEN
+    request.product_resolution = None
+    request.position_effect_policy_resolution = None
 
     receipt = type("Receipt", (), {"request_id": request_id, "receipt_id": receipt_id})()
 
@@ -92,6 +102,7 @@ def test_transaction_coordinator_stores_receipt_id_for_idempotency(monkeypatch) 
         idempotency=store,
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=lambda _: receipt,
+        policy_verifier=policy_verifier(),
     )
 
     result = coordinator.execute(request)

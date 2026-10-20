@@ -73,8 +73,8 @@ def test_broker_execution_adapter_delegates_to_submission_plugin() -> None:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.PAPER,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     request = approved_request(
         order=build_order_from_intent(

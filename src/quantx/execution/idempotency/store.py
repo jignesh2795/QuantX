@@ -30,6 +30,8 @@ from quantx.domain.position_effect import AbsentPositionEffectResolution, Positi
 from quantx.domain.product_selection import ProductSelectionResolution
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId, ProductCode
 
+from .fingerprint import request_fingerprint
+
 
 def _timedelta_microseconds(value: timedelta | None) -> int | None:
     if value is None:
@@ -309,7 +311,7 @@ class PendingExecutionContext:
                 if policy_resolution_value is None
                 else AbsentPositionEffectResolution.from_payload(policy_resolution_value)
             )
-            return cls(
+            restored = cls(
                 request_fingerprint=payload["request_fingerprint"],
                 order=order,
                 execution_context=context,
@@ -330,6 +332,15 @@ class PendingExecutionContext:
             )
         except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid pending execution context") from exc
+        # The stored digest is only trustworthy when it still describes the
+        # restored execution semantics. Re-derive it with the canonical rules
+        # and compare: a payload whose proof or execution fields were altered
+        # while the old digest was kept is rejected instead of recovered.
+        if request_fingerprint(restored) != restored.request_fingerprint:
+            raise ValueError(
+                "pending execution context fingerprint does not match its execution semantics"
+            )
+        return restored
 
 
 @dataclass(frozen=True, slots=True)

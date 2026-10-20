@@ -1,21 +1,33 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
 from quantx.domain.deployment import ExecutionMode
-from quantx.domain.enums import OrderStatus
+from quantx.domain.enums import OrderStatus, PositionEffect
+from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
+from quantx.domain.product_selection import ProductSelectionResolution
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
 from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
 from quantx.persistence import ReceiptRepository
+from tests.unit._execution_request_proofs import policy_verifier
 
 
 def _request(client_order_id):
     request = type("Request", (), {})()
     request.order = type("Order", (), {"client_order_id": client_order_id})()
+    # No product and an explicit effect: the request carries no proof, so the
+    # canonical policy verification has nothing to authenticate.
+    request.execution_context = SimpleNamespace(execution_mode="paper")
+    request.product = None
+    request.position_effect = PositionEffect.OPEN
+    request.product_resolution = None
+    request.position_effect_policy_resolution = None
     return request
 
 
@@ -68,6 +80,7 @@ def test_live_execution_is_blocked_before_submission(monkeypatch) -> None:
         idempotency=InMemoryIdempotencyStore(),
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=submit,
+        policy_verifier=policy_verifier(),
     )
 
     result = coordinator.execute(request)
@@ -96,6 +109,7 @@ def test_submission_exception_enters_unknown_and_preserves_reservation(monkeypat
         idempotency=store,
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=submit,
+        policy_verifier=policy_verifier(),
     )
 
     result = coordinator.execute(_request(client_order_id))
@@ -130,6 +144,7 @@ def test_pending_submission_cannot_be_retried(monkeypatch) -> None:
         idempotency=store,
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=submit,
+        policy_verifier=policy_verifier(),
     )
 
     first = coordinator.execute(_request(client_order_id))
@@ -166,6 +181,7 @@ def test_idempotency_completion_failure_enters_unknown_and_blocks_retry(monkeypa
         idempotency=store,
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=submit,
+        policy_verifier=policy_verifier(),
     )
 
     first = coordinator.execute(_request(client_order_id))
@@ -206,6 +222,7 @@ def test_duplicate_with_repository_returns_persisted_receipt(monkeypatch) -> Non
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=submit,
         receipt_repository=repository,
+        policy_verifier=policy_verifier(),
     )
 
     first = coordinator.execute(_request(client_order_id))
@@ -239,6 +256,7 @@ def test_duplicate_without_repository_preserves_receipt_none(monkeypatch) -> Non
         idempotency=store,
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=submit,
+        policy_verifier=policy_verifier(),
     )
 
     first = coordinator.execute(_request(client_order_id))
@@ -273,6 +291,7 @@ def test_duplicate_with_missing_receipt_fails_closed(monkeypatch) -> None:
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=submit,
         receipt_repository=repository,
+        policy_verifier=policy_verifier(),
     )
 
     first = coordinator.execute(_request(client_order_id))
@@ -323,6 +342,7 @@ def test_live_coordinator_blocks_even_if_idempotency_reports_acquired(monkeypatc
         idempotency=MisbehavingLiveStore(),
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=submit,
+        policy_verifier=policy_verifier(),
     )
 
     result = coordinator.execute(request)
@@ -340,6 +360,7 @@ def test_coordinator_does_not_resolve_products_at_submission_time() -> None:
             preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
             submit=lambda _: None,  # type: ignore[arg-type,return-value]
             product_selection=INDIA_EQUITY_PRODUCT_SELECTION,  # type: ignore[call-arg]
+            policy_verifier=policy_verifier(),
         )
 
 
@@ -364,13 +385,30 @@ def test_coordinator_forwards_resolved_semantics_without_resolving(monkeypatch) 
         idempotency=InMemoryIdempotencyStore(),
         preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
         submit=submit,
+        policy_verifier=policy_verifier(),
     )
-    resolved_product = object()
     request = _request(client_order_id)
+    market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
     request.execution_context = type(
-        "ExecutionContext", (), {"execution_mode": ExecutionMode.PAPER}
+        "ExecutionContext",
+        (),
+        {
+            "execution_mode": ExecutionMode.PAPER,
+            "market": market,
+            "market_pack_id": "india-equity",
+            "rule_version": "india-products-v1",
+        },
     )()
+    # The coordinator authenticates the resolved product against the trusted
+    # policy; it never resolves a product of its own.
+    resolved_product = ProductCode("CNC")
     request.product = resolved_product
+    request.product_resolution = ProductSelectionResolution(
+        market=market,
+        product=resolved_product,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
 
     result = coordinator.execute(request)
 

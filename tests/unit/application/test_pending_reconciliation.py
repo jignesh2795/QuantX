@@ -54,6 +54,7 @@ from quantx.persistence.sqlite import (
     SqliteReceiptRepository,
     SqliteUnitOfWork,
 )
+from tests.unit._execution_request_proofs import policy_verifier
 
 CHECKED_AT = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -136,9 +137,6 @@ def _product_resolution(
         product=product,
         market_pack_id=market_pack_id,
         rule_version=rule_version,
-        supported_products=frozenset(
-            {ProductCode("CNC"), ProductCode("DELIVERY"), ProductCode("MIS")}
-        ),
     )
 
 
@@ -219,6 +217,7 @@ def test_definitive_positive_resolution(tmp_path, monkeypatch) -> None:
             preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
             submit=submit,
             receipt_repository=SqliteReceiptRepository(database),
+            policy_verifier=policy_verifier(),
         ).execute(request)
         assert duplicate.status is PreconditionsStatus.READY
     finally:
@@ -703,6 +702,7 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
                 AssertionError("pending execution must not resubmit after restart")
             ),
             receipt_repository=SqliteReceiptRepository(database_b),
+            policy_verifier=policy_verifier(),
         ).execute(request)
         assert blocked.status is PreconditionsStatus.UNKNOWN
         assert len(SqliteIdempotencyStore(database_b).list_pending_contexts()) == 1
@@ -807,6 +807,7 @@ def test_pending_recovery_runner_resolves_with_default_all_required_evidence(tmp
             local_position_provider=lambda _: local_position,
             local_account_provider=lambda _: local_account,
             fill_provider=lambda recovered, _: (_fill(recovered),),
+            policy_verifier=policy_verifier(),
         )
 
         report = runner.run(checked_at=CHECKED_AT)
@@ -847,6 +848,7 @@ def test_pending_recovery_runner_resolves_after_restart(tmp_path) -> None:
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
             evidence_policy=DefinitiveEvidencePolicy.order_only(),
+            policy_verifier=policy_verifier(),
         )
 
         report = runner.run(checked_at=CHECKED_AT)
@@ -914,6 +916,7 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
             evidence_policy=DefinitiveEvidencePolicy.order_only(),
+            policy_verifier=policy_verifier(),
         )
 
     runners = (make_runner(unit_of_work_a), make_runner(unit_of_work_b))
@@ -979,6 +982,7 @@ def test_pending_recovery_runner_isolates_malformed_context(tmp_path) -> None:
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
             evidence_policy=DefinitiveEvidencePolicy.order_only(),
+            policy_verifier=policy_verifier(),
         )
 
         report = runner.run(checked_at=CHECKED_AT)
@@ -1047,6 +1051,7 @@ def test_pending_recovery_runner_isolates_failed_context(tmp_path) -> None:
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
             evidence_policy=DefinitiveEvidencePolicy.order_only(),
+            policy_verifier=policy_verifier(),
         )
 
         report = runner.run(checked_at=CHECKED_AT)

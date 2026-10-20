@@ -137,8 +137,8 @@ def test_partial_continuation_executes_remaining_quantity_with_parent_correlatio
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=InstrumentId("NSE", "TCS"),
@@ -198,7 +198,7 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
-        market_pack_id="india",
+        market_pack_id="india-equity",
         rule_version="india-products-v1",
     )
     intent = TradeIntent(

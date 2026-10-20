@@ -40,6 +40,7 @@ from quantx.execution.idempotency import (
     OperatorResolutionAction,
     PendingExecutionContext,
 )
+from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.persistence.sqlite import SqliteDatabase, SqliteIdempotencyStore
 from tests.unit._execution_request_proofs import approved_request
 
@@ -76,8 +77,8 @@ def _approved_request(client_order_id: UUID | None = None) -> ApprovedExecutionR
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -101,9 +102,15 @@ def _approved_request(client_order_id: UUID | None = None) -> ApprovedExecutionR
 
 def _pending_context(
     client_order_id: UUID,
-    fingerprint: str = FINGERPRINT,
+    fingerprint: str | None = None,
 ) -> PendingExecutionContext:
-    return PendingExecutionContext.from_request(_approved_request(client_order_id), fingerprint)
+    request = _approved_request(client_order_id)
+    # A pending context carries the canonical fingerprint of the request it
+    # projects: the decode re-derives it and compares.
+    return PendingExecutionContext.from_request(
+        request,
+        request_fingerprint(request) if fingerprint is None else fingerprint,
+    )
 
 
 def _store(path: Path) -> SqliteIdempotencyStore:
@@ -309,20 +316,21 @@ def test_pending_context_survives_close_and_reopen(tmp_path) -> None:
     path = tmp_path / "quantx.db"
     client_order_id = uuid4()
     context = _pending_context(client_order_id)
+    fingerprint = context.request_fingerprint
 
     with SqliteDatabase(path) as database:
-        SqliteIdempotencyStore(database).reserve_or_get(client_order_id, FINGERPRINT, context)
+        SqliteIdempotencyStore(database).reserve_or_get(client_order_id, fingerprint, context)
 
     with SqliteDatabase(path) as reopened:
         store = SqliteIdempotencyStore(reopened)
-        decision = store.check(client_order_id, FINGERPRINT)
+        decision = store.check(client_order_id, fingerprint)
         contexts = store.list_pending_contexts()
         records = store.list_pending_recovery_records()
 
     assert decision.pending_context is not None
-    assert decision.pending_context.request_fingerprint == FINGERPRINT
+    assert decision.pending_context.request_fingerprint == fingerprint
     assert len(contexts) == 1
-    assert contexts[0].request_fingerprint == FINGERPRINT
+    assert contexts[0].request_fingerprint == fingerprint
     assert len(records) == 1
     assert records[0].context is not None
     assert records[0].error is None
@@ -331,12 +339,15 @@ def test_pending_context_survives_close_and_reopen(tmp_path) -> None:
 def test_operator_resolved_context_is_excluded_from_pending_recovery(tmp_path) -> None:
     client_order_id = uuid4()
 
+    context = _pending_context(client_order_id)
+    fingerprint = context.request_fingerprint
+
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         store = SqliteIdempotencyStore(database)
-        store.reserve_or_get(client_order_id, FINGERPRINT, _pending_context(client_order_id))
+        store.reserve_or_get(client_order_id, fingerprint, context)
         store.resolve_operator(
             client_order_id,
-            FINGERPRINT,
+            fingerprint,
             operator_id="operator-1",
             reason="closed",
             resolved_at=RESOLVED_AT,
@@ -350,12 +361,15 @@ def test_not_submitted_resolution_survives_close_and_reopen(tmp_path) -> None:
     path = tmp_path / "quantx.db"
     client_order_id = uuid4()
 
+    context = _pending_context(client_order_id)
+    fingerprint = context.request_fingerprint
+
     with SqliteDatabase(path) as database:
         store = SqliteIdempotencyStore(database)
-        store.reserve_or_get(client_order_id, FINGERPRINT, _pending_context(client_order_id))
+        store.reserve_or_get(client_order_id, fingerprint, context)
         resolution = store.record_not_submitted(
             client_order_id,
-            FINGERPRINT,
+            fingerprint,
             source=NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION,
             reason="preflight rejected the request before submission",
             recorded_at=RESOLVED_AT,
@@ -365,7 +379,7 @@ def test_not_submitted_resolution_survives_close_and_reopen(tmp_path) -> None:
 
     with SqliteDatabase(path) as reopened:
         store = SqliteIdempotencyStore(reopened)
-        decision = store.check(client_order_id, FINGERPRINT)
+        decision = store.check(client_order_id, fingerprint)
 
         assert decision.not_submitted_resolution is not None
         assert (
@@ -374,22 +388,22 @@ def test_not_submitted_resolution_survives_close_and_reopen(tmp_path) -> None:
         )
         assert decision.reservation_pending is False
         assert decision.operator_resolved is False
-        assert store.get_operator_resolution(client_order_id, FINGERPRINT) is None
+        assert store.get_operator_resolution(client_order_id, fingerprint) is None
         assert (
-            store.get_not_submitted(client_order_id, FINGERPRINT)
+            store.get_not_submitted(client_order_id, fingerprint)
             == decision.not_submitted_resolution
         )
         assert store.list_pending_contexts() == ()
         assert store.list_pending_recovery_records() == ()
 
         with pytest.raises(ValueError, match="not submitted"):
-            store.complete(client_order_id, FINGERPRINT, uuid4())
+            store.complete(client_order_id, fingerprint, uuid4())
         with pytest.raises(ValueError, match="not submitted"):
-            store.resolve_pending(client_order_id, FINGERPRINT, uuid4())
+            store.resolve_pending(client_order_id, fingerprint, uuid4())
         with pytest.raises(ValueError, match="not submitted"):
             store.resolve_operator(
                 client_order_id,
-                FINGERPRINT,
+                fingerprint,
                 operator_id="operator-1",
                 reason="closed",
                 resolved_at=RESOLVED_AT,
@@ -397,7 +411,7 @@ def test_not_submitted_resolution_survives_close_and_reopen(tmp_path) -> None:
         with pytest.raises(ValueError, match="already closed as not submitted"):
             store.record_not_submitted(
                 client_order_id,
-                FINGERPRINT,
+                fingerprint,
                 source=NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION,
                 reason="preflight rejected the request before submission",
                 recorded_at=RESOLVED_AT,

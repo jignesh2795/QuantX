@@ -49,8 +49,8 @@ def _context() -> ExecutionContext:
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=BrokerConnectionId("paper-1"),
         execution_mode=ExecutionMode.PAPER,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
 
 

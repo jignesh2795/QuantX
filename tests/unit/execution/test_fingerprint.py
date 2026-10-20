@@ -23,13 +23,13 @@ from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency.fingerprint import (
     _canonical_datetime,
     _canonical_decimal,
+    fingerprint_payload,
     request_fingerprint,
 )
 
 NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
 MAX_AGE = timedelta(minutes=5)
 MARKET = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
-SUPPORTED_PRODUCTS = frozenset({ProductCode("CNC"), ProductCode("DELIVERY"), ProductCode("MIS")})
 
 
 def _product_resolution(
@@ -43,7 +43,6 @@ def _product_resolution(
         product=product,
         market_pack_id=market_pack_id,
         rule_version=rule_version,
-        supported_products=SUPPORTED_PRODUCTS,
     )
 
 
@@ -316,29 +315,26 @@ def test_rule_identity_changes_fingerprint() -> None:
 
 
 def test_product_selection_proof_participates_in_fingerprint() -> None:
+    """The canonical fingerprint hashes the product proof payload itself.
+
+    A persisted proof therefore cannot be altered without changing the
+    request identity, which is what the pending-context decode compares.
+    """
     product = ProductCode("CNC")
-    first = _request(
+    request = _request(
         product=product,
         product_resolution=ProductSelectionResolution(
             market=MARKET,
             product=product,
             market_pack_id="test-pack",
             rule_version="test-v1",
-            supported_products=frozenset({product}),
-        ),
-    )
-    second = _request(
-        product=product,
-        product_resolution=ProductSelectionResolution(
-            market=MARKET,
-            product=product,
-            market_pack_id="test-pack",
-            rule_version="test-v1",
-            supported_products=frozenset({product, ProductCode("MIS")}),
         ),
     )
 
-    assert request_fingerprint(first) != request_fingerprint(second)
+    payload = fingerprint_payload(request)
+
+    assert payload["product_resolution"] == request.product_resolution.to_payload()
+    assert request_fingerprint(request) == request_fingerprint(request)
 
 
 def test_equivalent_position_effect_instants_share_a_fingerprint() -> None:

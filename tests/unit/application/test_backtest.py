@@ -1220,8 +1220,8 @@ def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
     )
     request_context = replace(
         evaluated.result.intent.execution_context,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     request = approved_request(
         order=build_order_from_intent(

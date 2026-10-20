@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 
 from .market_data import MarketSnapshot
 from .ports import ExecutionReceipt, LiveExecutionPort, MarketDataExecutionPort
@@ -32,9 +33,11 @@ class ExecutionDispatcher:
         *,
         paper_port: MarketDataExecutionPort | None = None,
         live_port: LiveExecutionPort | None = None,
+        policy_verifier: MarketPackPolicyVerifier,
     ) -> None:
         self._paper_port = paper_port
         self._live_port = live_port
+        self._policy_verifier = policy_verifier
 
     def dispatch(
         self,
@@ -51,6 +54,13 @@ class ExecutionDispatcher:
         }:
             if self._paper_port is None:
                 raise ValueError(f"no paper execution adapter configured for {mode.value} mode")
+            # The routed request's product and position-effect claims are
+            # authenticated against the deployment's trusted versioned
+            # policies before the adapter is called.
+            try:
+                self._policy_verifier.verify_request(request)
+            except Exception as exc:
+                raise ValueError(f"request policy verification failed: {exc}") from exc
             if snapshot is None:
                 raise ValueError(f"{mode.value} execution requires a market snapshot")
             if snapshot.instrument != request.order.instrument:

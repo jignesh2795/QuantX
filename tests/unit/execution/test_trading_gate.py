@@ -4,17 +4,25 @@ from types import SimpleNamespace
 import pytest
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
+from quantx.domain.enums import PositionEffect
 from quantx.execution.trading_gate import (
     DurableTradingGate,
     InMemoryTradingGateStateStore,
     TradingGate,
     TradingGateState,
 )
+from tests.unit._execution_request_proofs import policy_verifier
 
 
 def _paper_request() -> object:
+    # A request with no product and an explicit effect carries no proof, so
+    # there is nothing for the canonical policy verification to authenticate.
     return SimpleNamespace(
         execution_context=SimpleNamespace(execution_mode="paper"),
+        product=None,
+        position_effect=PositionEffect.OPEN,
+        product_resolution=None,
+        position_effect_policy_resolution=None,
     )
 
 
@@ -59,6 +67,7 @@ def test_orchestrator_fails_closed_before_adapter_submission() -> None:
     result = ExecutionOrchestrator(
         paper_executor=Adapter(),
         trading_gate=gate,
+        policy_verifier=policy_verifier(),
     ).execute(_paper_request())
 
     assert result.status is ExecutionDispatchStatus.BLOCKED

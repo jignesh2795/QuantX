@@ -22,7 +22,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
+from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import (
     Instrument,
@@ -85,7 +85,7 @@ from quantx.persistence.sqlite import (
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
-from tests.unit._execution_request_proofs import approved_request
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 
 def _instrument() -> Instrument:
@@ -117,8 +117,8 @@ def _request(
         market=instrument.market,
         broker_connection_id=connection_id,
         execution_mode=mode,
-        market_pack_id="india" if live else "test-pack",
-        rule_version="india-products-v1" if live else "test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     product = ProductCode("CNC") if live else None
     intent = TradeIntent(
@@ -344,7 +344,10 @@ def _live_request():
 
 
 def test_paper_requires_an_observed_snapshot() -> None:
-    orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
+    orchestrator = ExecutionOrchestrator(
+        paper_executor=FakePaperExecutor(),
+        policy_verifier=policy_verifier(),
+    )
     result = orchestrator.execute(_request(ExecutionMode.PAPER))
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "snapshot" in result.reason
@@ -357,7 +360,10 @@ def test_orchestrator_carries_no_idempotency_store() -> None:
     the durable ``UnitOfWork.idempotency`` transaction, so the dispatcher
     constructs and dispatches identically without the removed store.
     """
-    orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
+    orchestrator = ExecutionOrchestrator(
+        paper_executor=FakePaperExecutor(),
+        policy_verifier=policy_verifier(),
+    )
     assert not hasattr(orchestrator, "_idempotency")
 
     request = _request(ExecutionMode.PAPER)
@@ -378,11 +384,15 @@ def test_orchestrator_rejects_idempotency_argument() -> None:
         ExecutionOrchestrator(
             paper_executor=FakePaperExecutor(),
             idempotency=InMemoryIdempotencyStore(),  # type: ignore[call-arg]
+            policy_verifier=policy_verifier(),
         )
 
 
 def test_paper_rejects_snapshot_for_wrong_instrument() -> None:
-    orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
+    orchestrator = ExecutionOrchestrator(
+        paper_executor=FakePaperExecutor(),
+        policy_verifier=policy_verifier(),
+    )
     wrong = Quote(
         instrument=InstrumentId("NSE", "INFY"),
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
@@ -394,7 +404,10 @@ def test_paper_rejects_snapshot_for_wrong_instrument() -> None:
 
 
 def test_paper_executes_with_matching_snapshot() -> None:
-    orchestrator = ExecutionOrchestrator(paper_executor=FakePaperExecutor())
+    orchestrator = ExecutionOrchestrator(
+        paper_executor=FakePaperExecutor(),
+        policy_verifier=policy_verifier(),
+    )
     request = _request(ExecutionMode.PAPER)
     snapshot = Quote(
         instrument=request.order.instrument,
@@ -425,6 +438,7 @@ def test_live_requires_a_broker() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(request)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "broker adapter" in result.reason
@@ -445,6 +459,7 @@ def test_live_blocks_account_mismatch() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "account" in result.reason
@@ -464,6 +479,7 @@ def test_live_blocks_connection_mismatch() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "connection" in result.reason
@@ -482,6 +498,7 @@ def test_live_blocks_unhealthy_broker() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(
         request,
         broker=FakeBroker(healthy=False),
@@ -509,6 +526,7 @@ def test_live_blocks_missing_required_capability() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=FakeBroker())
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "capabilities" in result.reason
@@ -531,6 +549,7 @@ def test_live_blocks_broker_instrument_market_mismatch() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(
         request,
         broker=FakeBroker(instrument=wrong_market_instrument),
@@ -554,6 +573,7 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(
         request,
         broker=FakeBroker(),
@@ -578,6 +598,7 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
     first = orchestrator.execute(request, broker=broker)
@@ -611,6 +632,7 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
     result = orchestrator.execute(request, broker=broker)
@@ -649,6 +671,7 @@ def test_live_unknown_receipt_preserves_pending_reservation() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
     first = orchestrator.execute(request, broker=broker)
@@ -683,6 +706,7 @@ def test_live_unit_of_work_groups_receipt_and_completion() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
     result = orchestrator.execute(request, broker=broker)
@@ -724,6 +748,7 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
     result = orchestrator.execute(request, broker=broker)
@@ -747,7 +772,10 @@ def test_live_without_explicit_trading_gate_is_blocked() -> None:
     broker = FakeBroker()
     unit_of_work = _FakeUnitOfWork()
 
-    result = ExecutionOrchestrator(unit_of_work=unit_of_work).execute(
+    result = ExecutionOrchestrator(
+        unit_of_work=unit_of_work,
+        policy_verifier=policy_verifier(),
+    ).execute(
         request,
         broker=broker,
     )
@@ -770,6 +798,7 @@ def test_live_without_application_runtime_is_blocked() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -797,6 +826,7 @@ def test_live_with_unstarted_application_runtime_is_blocked() -> None:
             rule_evaluator=_approving_india_evaluator(),
         ),
         application_runtime=runtime,
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -831,6 +861,7 @@ def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
             rule_evaluator=_approving_india_evaluator(),
         ),
         application_runtime=runtime,
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -1322,6 +1353,7 @@ def test_live_with_malformed_recovery_report_is_blocked_without_submit(
             rule_evaluator=_approving_india_evaluator(),
         ),
         application_runtime=runtime,
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -1359,6 +1391,7 @@ def test_live_gate_block_not_blocked_by_slow_broker() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
     def run_execution() -> None:
@@ -1404,6 +1437,7 @@ def test_live_without_unit_of_work_is_blocked() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -1454,6 +1488,7 @@ def test_live_without_submission_quarantine_is_blocked_without_submit() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -1482,6 +1517,7 @@ def test_paper_execution_does_not_require_submission_quarantine() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
     request = _request(ExecutionMode.PAPER)
     snapshot = Quote(
@@ -1505,6 +1541,7 @@ def test_live_rejects_process_local_trading_gate() -> None:
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=gate,
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -1525,6 +1562,7 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
     first = orchestrator.execute(request, broker=broker)
@@ -1552,6 +1590,7 @@ def _sqlite_setup(tmp_path):
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+        policy_verifier=policy_verifier(),
     )
     return database, unit_of_work, orchestrator
 
@@ -1649,6 +1688,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database_a),
+            policy_verifier=policy_verifier(),
         )
         first = orchestrator_a.execute(request, broker=FakeBroker())
         assert first.status is ExecutionDispatchStatus.EXECUTED
@@ -1668,6 +1708,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database_b),
+            policy_verifier=policy_verifier(),
         )
         second = orchestrator_b.execute(request, broker=broker_b)
         assert second.status is ExecutionDispatchStatus.EXECUTED
@@ -1719,6 +1760,7 @@ def test_live_without_unit_of_work_does_not_submit() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -1764,6 +1806,7 @@ def test_partial_continuation_is_blocked_by_trading_gate_before_adapter() -> Non
         application_runtime=_started_runtime(),
         paper_executor=Adapter(),
         trading_gate=gate,
+        policy_verifier=policy_verifier(),
     ).continue_partial(
         request,
         lifecycle,
@@ -1825,7 +1868,10 @@ def test_partial_continuation_passes_control_plane_to_adapter() -> None:
             )
 
     adapter = Adapter()
-    result = ExecutionOrchestrator(paper_executor=adapter).continue_partial(
+    result = ExecutionOrchestrator(
+        paper_executor=adapter,
+        policy_verifier=policy_verifier(),
+    ).continue_partial(
         request,
         lifecycle,
         risk_result=RiskResult(RiskDecision.APPROVE, "fresh approval"),
@@ -1887,6 +1933,7 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
     request = _live_request()
     outcome: dict = {}
@@ -1968,6 +2015,7 @@ def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
     request = _live_request()
     outcome: dict = {}
@@ -2015,6 +2063,7 @@ def _sqlite_setup_with_quarantine(tmp_path):
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=quarantine,
+        policy_verifier=policy_verifier(),
     )
     return database, unit_of_work, orchestrator, quarantine
 
@@ -2121,6 +2170,7 @@ def _quarantine_orchestrator(database, *, gate=None):
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=quarantine,
+        policy_verifier=policy_verifier(),
     )
     return unit_of_work, quarantine, orchestrator
 
@@ -2177,6 +2227,7 @@ def test_sqlite_commit_boundary_failure_is_unknown_not_false_success(tmp_path) -
                 rule_evaluator=_approving_india_evaluator(),
             ),
             submission_quarantine=quarantine,
+            policy_verifier=policy_verifier(),
         )
         request = _live_request()
         broker = FakeBroker()
@@ -2419,6 +2470,7 @@ def test_quarantine_record_failure_latches_fault_without_permissive_path() -> No
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
     first = orchestrator.execute(request, broker=broker)
@@ -2461,6 +2513,7 @@ def test_preflight_rejection_is_typed_not_submitted_without_operator_record() ->
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
     fingerprint = request_fingerprint(request)
 
@@ -2524,6 +2577,7 @@ def test_preflight_rejection_closure_failure_is_unresolved_without_resubmit(monk
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
+        policy_verifier=policy_verifier(),
     )
 
     first = orchestrator.execute(request, broker=broker)
@@ -2927,8 +2981,8 @@ def test_live_unresolved_product_blocks_before_gate_reservation_and_broker() -> 
         market=_instrument().market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
-        market_pack_id="test-pack",
-        rule_version="test-v1",
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=InstrumentId("NSE", "TCS"),
@@ -2937,12 +2991,17 @@ def test_live_unresolved_product_blocks_before_gate_reservation_and_broker() -> 
         order_type=OrderType.MARKET,
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
         execution_context=context,
+        position_effect=PositionEffect.OPEN,
     )
-    request = approved_request(
+    # A request that never resolved a product: the explicit effect keeps the
+    # request constructible without a product proof, so the LIVE guard is
+    # what blocks it.
+    request = ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        position_effect=PositionEffect.OPEN,
     )
 
     result = ExecutionOrchestrator(
@@ -2950,6 +3009,7 @@ def test_live_unresolved_product_blocks_before_gate_reservation_and_broker() -> 
         trading_gate=gate,
         application_runtime=_started_runtime(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -2969,4 +3029,5 @@ def test_orchestrator_does_not_resolve_products_at_submission_time() -> None:
         ExecutionOrchestrator(
             paper_executor=FakePaperExecutor(),
             product_selection=INDIA_EQUITY_PRODUCT_SELECTION,  # type: ignore[call-arg]
+            policy_verifier=policy_verifier(),
         )

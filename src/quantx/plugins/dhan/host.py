@@ -32,6 +32,7 @@ from quantx.application.production import (
 )
 from quantx.application.runtime import ApplicationStartupResult
 from quantx.domain.instruments import Instrument
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.integrations.account_registry import AccountConnectionRegistry, RegisteredConnection
 from quantx.integrations.brokers import BrokerConnectionRef
@@ -69,6 +70,7 @@ class DhanHostConfig:
     submit_timeout_seconds: float
     cancel_timeout_seconds: float
     reconcile_timeout_seconds: float
+    policy_verifier: MarketPackPolicyVerifier
     read_timeout_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS
     credentials: DhanCredentials | None = None
     transport: DhanTransport | None = None
@@ -191,6 +193,7 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
             database_path=config.database_path,
             configure_registry=configure,
             evidence_factory=build_dhan_recovery_provider,
+            policy_verifier=config.policy_verifier,
             expected_broker_id=_DHAN_BROKER_ID,
             local_order_provider=config.local_order_provider,
             local_position_provider=config.local_position_provider,
