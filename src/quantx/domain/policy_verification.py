@@ -43,6 +43,9 @@ class VerifiableRequest(Protocol):
     def position_effect(self) -> PositionEffect | None: ...
 
     @property
+    def effective_position_effect(self) -> PositionEffect | None: ...
+
+    @property
     def product_resolution(self) -> ProductSelectionResolution | None: ...
 
     @property
@@ -114,6 +117,10 @@ class MarketPackPolicyVerifier:
         """Verify one product claim against the trusted policy for its identity."""
         if not isinstance(resolution, ProductSelectionResolution):
             raise ProofVerificationError("product selection resolution has an unsupported type")
+        if resolution.market != execution_context.market:
+            raise ProofVerificationError(
+                "product selection resolution market does not match the execution context"
+            )
         if resolution.market_pack_id != execution_context.market_pack_id:
             raise ProofVerificationError(
                 "product selection resolution market-pack id does not match the execution context"
@@ -139,6 +146,10 @@ class MarketPackPolicyVerifier:
         if not isinstance(resolution, AbsentPositionEffectResolution):
             raise ProofVerificationError(
                 "position-effect policy resolution has an unsupported type"
+            )
+        if resolution.market != execution_context.market:
+            raise ProofVerificationError(
+                "position-effect policy resolution market does not match the execution context"
             )
         if resolution.market_pack_id != execution_context.market_pack_id:
             raise ProofVerificationError(
@@ -170,18 +181,38 @@ class MarketPackPolicyVerifier:
         """
         context = request.execution_context
         product = request.product
-        if product is not None:
-            product_resolution = request.product_resolution
+        product_resolution = request.product_resolution
+        if product is None:
+            if product_resolution is not None:
+                raise ProofVerificationError(
+                    "an absent product cannot carry a product selection resolution"
+                )
+        else:
             if product_resolution is None:
                 raise ProofVerificationError(
                     "a resolved product requires a validated product selection resolution"
                 )
+            if product_resolution.product != product:
+                raise ProofVerificationError(
+                    "product selection resolution product does not match the resolved product"
+                )
             self.verify_product_resolution(product_resolution, execution_context=context)
-        if request.position_effect is None:
-            effect_resolution = request.position_effect_policy_resolution
+
+        effect_resolution = request.position_effect_policy_resolution
+        if request.position_effect is not None:
+            if effect_resolution is not None:
+                raise ProofVerificationError(
+                    "a position-effect policy resolution is only valid for an absent "
+                    "position effect"
+                )
+        else:
             if effect_resolution is None:
                 raise ProofVerificationError(
                     "an absent position effect requires a validated market-pack policy resolution"
+                )
+            if effect_resolution.effective is not request.effective_position_effect:
+                raise ProofVerificationError(
+                    "position-effect policy resolution does not match the resolved effective effect"
                 )
             self.verify_absent_effect_resolution(
                 effect_resolution,

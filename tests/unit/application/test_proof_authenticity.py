@@ -314,6 +314,164 @@ def test_unavailable_policy_fails_closed() -> None:
         MarketPackPolicyVerifier().verify_request(request)
 
 
+def test_verifier_rejects_a_product_proof_for_a_different_request_product() -> None:
+    """A proof for one supported product cannot authenticate another product."""
+    request = SimpleNamespace(
+        execution_context=_context(),
+        product=ProductCode("CNC"),
+        position_effect=PositionEffect.OPEN,
+        effective_position_effect=None,
+        product_resolution=_forged_product_claim(ProductCode("MIS")),
+        position_effect_policy_resolution=None,
+    )
+
+    with pytest.raises(
+        ProofVerificationError,
+        match="product selection resolution product does not match the resolved product",
+    ):
+        CANONICAL_VERIFIER.verify_request(request)
+
+
+def test_verifier_rejects_a_product_proof_for_a_different_market() -> None:
+    """A proof for another market cannot authenticate the request context."""
+    other_market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN")
+    product_policy = ProductSelectionPolicy(
+        market_pack_id=INDIA_EQUITY_MARKET_PACK_ID,
+        rule_version=INDIA_EQUITY_RULE_VERSION,
+        rules=(
+            ProductSelectionRule(
+                market=INDIA_EQUITY_MARKET,
+                supported_products=frozenset({ProductCode("CNC")}),
+            ),
+            ProductSelectionRule(
+                market=other_market,
+                supported_products=frozenset({ProductCode("CNC")}),
+            ),
+        ),
+    )
+    request = SimpleNamespace(
+        execution_context=_context(),
+        product=ProductCode("CNC"),
+        position_effect=PositionEffect.OPEN,
+        effective_position_effect=None,
+        product_resolution=ProductSelectionResolution(
+            market=other_market,
+            product=ProductCode("CNC"),
+            market_pack_id=INDIA_EQUITY_MARKET_PACK_ID,
+            rule_version=INDIA_EQUITY_RULE_VERSION,
+        ),
+        position_effect_policy_resolution=None,
+    )
+
+    with pytest.raises(
+        ProofVerificationError,
+        match="product selection resolution market does not match the execution context",
+    ):
+        MarketPackPolicyVerifier(product_selection_policies=(product_policy,)).verify_request(
+            request
+        )
+
+
+def test_verifier_rejects_a_proof_attached_to_an_absent_product() -> None:
+    """An absent product cannot carry a product-selection claim."""
+    request = SimpleNamespace(
+        execution_context=_context(),
+        product=None,
+        position_effect=PositionEffect.OPEN,
+        effective_position_effect=None,
+        product_resolution=_forged_product_claim(ProductCode("CNC")),
+        position_effect_policy_resolution=None,
+    )
+
+    with pytest.raises(
+        ProofVerificationError,
+        match="an absent product cannot carry a product selection resolution",
+    ):
+        CANONICAL_VERIFIER.verify_request(request)
+
+
+def test_verifier_rejects_an_absent_effect_proof_for_a_different_market() -> None:
+    """An absent-effect proof for another market cannot authenticate the context."""
+    other_market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN")
+    effect_policy = PositionEffectPolicy(
+        market_pack_id=INDIA_EQUITY_MARKET_PACK_ID,
+        rule_version=INDIA_EQUITY_RULE_VERSION,
+        rules=(
+            PositionEffectRule(
+                market=INDIA_EQUITY_MARKET,
+                product=ProductCode("CNC"),
+                not_applicable=True,
+            ),
+            PositionEffectRule(
+                market=other_market,
+                product=ProductCode("CNC"),
+                not_applicable=True,
+            ),
+        ),
+    )
+    request = SimpleNamespace(
+        execution_context=_context(),
+        product=ProductCode("CNC"),
+        position_effect=None,
+        effective_position_effect=None,
+        product_resolution=_forged_product_claim(ProductCode("CNC")),
+        position_effect_policy_resolution=AbsentPositionEffectResolution(
+            market=other_market,
+            product=ProductCode("CNC"),
+            rule_product=ProductCode("CNC"),
+            market_pack_id=INDIA_EQUITY_MARKET_PACK_ID,
+            rule_version=INDIA_EQUITY_RULE_VERSION,
+            effective=None,
+            not_applicable=True,
+        ),
+    )
+
+    with pytest.raises(
+        ProofVerificationError,
+        match="position-effect policy resolution market does not match the execution context",
+    ):
+        MarketPackPolicyVerifier(
+            product_selection_policies=(INDIA_EQUITY_PRODUCT_SELECTION,),
+            position_effect_policies=(effect_policy,),
+        ).verify_request(request)
+
+
+def test_verifier_rejects_an_absent_effect_proof_for_a_different_effective_effect() -> None:
+    """An authentic proof cannot authenticate a different recorded effect."""
+    request = SimpleNamespace(
+        execution_context=_context(),
+        product=ProductCode("CNC"),
+        position_effect=None,
+        effective_position_effect=PositionEffect.OPEN,
+        product_resolution=_forged_product_claim(ProductCode("CNC")),
+        position_effect_policy_resolution=_forged_absent_effect_claim(ProductCode("CNC")),
+    )
+
+    with pytest.raises(
+        ProofVerificationError,
+        match="position-effect policy resolution does not match the resolved effective effect",
+    ):
+        CANONICAL_VERIFIER.verify_request(request)
+
+
+def test_verifier_rejects_an_absent_effect_proof_on_an_explicit_effect() -> None:
+    """An explicit effect cannot carry an absent-effect claim."""
+    request = SimpleNamespace(
+        execution_context=_context(),
+        product=ProductCode("CNC"),
+        position_effect=PositionEffect.OPEN,
+        effective_position_effect=None,
+        product_resolution=_forged_product_claim(ProductCode("CNC")),
+        position_effect_policy_resolution=_forged_absent_effect_claim(ProductCode("CNC")),
+    )
+
+    with pytest.raises(
+        ProofVerificationError,
+        match="a position-effect policy resolution is only valid for an absent position effect",
+    ):
+        CANONICAL_VERIFIER.verify_request(request)
+
+
 def test_a_policy_for_another_market_pack_is_not_trusted() -> None:
     """A claim naming a foreign pack identity never matches a trusted policy."""
     request = _request(
