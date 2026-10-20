@@ -54,6 +54,7 @@ from quantx.ports.market_checks import (
     RegionMarketPolicy,
     sequence_to_mapping,
 )
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _market(
@@ -91,8 +92,8 @@ def _request(
         market=market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=mode,
-        market_pack_id="test-pack" if live else None,
-        rule_version="test-rules-v1" if live else None,
+        market_pack_id="test-pack",
+        rule_version="test-rules-v1",
     )
     product = ProductCode("DEFAULT") if live else None
     intent = TradeIntent(
@@ -103,7 +104,7 @@ def _request(
         execution_context=context,
         product=product,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
@@ -337,7 +338,7 @@ def _us_request() -> ApprovedExecutionRequest:
         execution_context=context,
         product=ProductCode("DEFAULT"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
@@ -524,7 +525,7 @@ def test_unknown_region_string_fails_closed() -> None:
         execution_context=context,
         product=ProductCode("DEFAULT"),
     )
-    foreign_request = ApprovedExecutionRequest(
+    foreign_request = approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
@@ -559,7 +560,7 @@ def test_unknown_family_string_fails_closed() -> None:
         execution_context=context,
         product=ProductCode("DEFAULT"),
     )
-    foreign_request = ApprovedExecutionRequest(
+    foreign_request = approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

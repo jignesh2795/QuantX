@@ -13,7 +13,7 @@ from quantx.domain.deployment import (
     StrategyDeploymentId,
 )
 from quantx.domain.enums import AssetClass, OrderSide, OrderType
-from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+from quantx.domain.execution_request import build_order_from_intent
 from quantx.domain.instruments import (
     Instrument,
     InstrumentId,
@@ -27,6 +27,7 @@ from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.execution_adapter import BrokerExecutionAdapter
+from tests.unit._execution_request_proofs import approved_request
 
 
 class FakeSubmission:
@@ -72,8 +73,10 @@ def test_broker_execution_adapter_delegates_to_submission_plugin() -> None:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
-    request = ApprovedExecutionRequest(
+    request = approved_request(
         order=build_order_from_intent(
             TradeIntent(
                 instrument=instrument.instrument_id,

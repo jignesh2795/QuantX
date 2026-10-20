@@ -64,10 +64,122 @@ class PositionEffectResolution:
     effective: PositionEffect | None
     evidence_cut: datetime | None
     approval_instant: datetime | None = None
+    policy_resolution: AbsentPositionEffectResolution | None = None
+
+    def __post_init__(self) -> None:
+        if self.policy_resolution is None:
+            return
+        if self.requested is not None:
+            raise ValueError(
+                "a position-effect policy resolution is only valid for an absent effect"
+            )
+        if self.evidence_cut is not None or self.approval_instant is not None:
+            raise ValueError(
+                "an absent position effect cannot carry position evidence or an approval instant"
+            )
+        if self.effective is not self.policy_resolution.effective:
+            raise ValueError("position-effect policy resolution does not match the resolved effect")
 
 
 class PositionEffectPolicyError(ValueError):
     """An absent position effect has no authoritative market-pack rule."""
+
+
+@dataclass(frozen=True, slots=True)
+class AbsentPositionEffectResolution:
+    """Validated proof that a versioned policy permitted one absent effect.
+
+    The proof records the exact market/product scope and the rule that
+    applies. A not-applicable rule yields no effective effect; a documented
+    default can only yield OPEN. The approved-request boundary revalidates the
+    proof against the request context, product, and recorded effective effect.
+    """
+
+    market: MarketContext
+    product: ProductCode | None
+    rule_product: ProductCode | None
+    market_pack_id: str
+    rule_version: str
+    effective: PositionEffect | None
+    not_applicable: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.market, MarketContext):
+            raise ValueError("position-effect policy resolution market must be a MarketContext")
+        if self.product is not None and not isinstance(self.product, ProductCode):
+            raise ValueError("position-effect policy resolution product must be a ProductCode")
+        if self.rule_product is not None and not isinstance(self.rule_product, ProductCode):
+            raise ValueError("position-effect policy resolution rule product must be a ProductCode")
+        if self.rule_product is not None and self.product != self.rule_product:
+            raise ValueError(
+                "position-effect policy resolution rule product does not match the request product"
+            )
+        if not isinstance(self.market_pack_id, str) or not self.market_pack_id.strip():
+            raise ValueError("position-effect policy resolution requires a market-pack id")
+        if not isinstance(self.rule_version, str) or not self.rule_version.strip():
+            raise ValueError("position-effect policy resolution requires a rule version")
+        if not isinstance(self.not_applicable, bool):
+            raise ValueError("position-effect policy resolution not_applicable must be boolean")
+        if self.not_applicable:
+            if self.effective is not None:
+                raise ValueError(
+                    "a not-applicable position-effect policy resolution cannot have an effect"
+                )
+        elif self.effective is not PositionEffect.OPEN:
+            raise ValueError(
+                "a position-effect policy resolution must be not applicable or default to OPEN"
+            )
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "market": self.market.to_payload(),
+            "product": None if self.product is None else str(self.product),
+            "rule_product": None if self.rule_product is None else str(self.rule_product),
+            "market_pack_id": self.market_pack_id,
+            "rule_version": self.rule_version,
+            "effective": None if self.effective is None else self.effective.value,
+            "not_applicable": self.not_applicable,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: object) -> AbsentPositionEffectResolution:
+        if not isinstance(payload, dict):
+            raise ValueError("position-effect policy resolution must be an object")
+        if set(payload) != {
+            "market",
+            "product",
+            "rule_product",
+            "market_pack_id",
+            "rule_version",
+            "effective",
+            "not_applicable",
+        }:
+            raise ValueError("position-effect policy resolution has unexpected fields")
+        product = payload["product"]
+        rule_product = payload["rule_product"]
+        market_pack_id = payload["market_pack_id"]
+        rule_version = payload["rule_version"]
+        effective = payload["effective"]
+        not_applicable = payload["not_applicable"]
+        if product is not None and not isinstance(product, str):
+            raise ValueError("position-effect policy resolution product must be a string")
+        if rule_product is not None and not isinstance(rule_product, str):
+            raise ValueError("position-effect policy resolution rule product must be a string")
+        if not isinstance(market_pack_id, str) or not isinstance(rule_version, str):
+            raise ValueError("position-effect policy resolution identity must be strings")
+        if effective is not None and not isinstance(effective, str):
+            raise ValueError("position-effect policy resolution effective must be a string")
+        if not isinstance(not_applicable, bool):
+            raise ValueError("position-effect policy resolution not_applicable must be boolean")
+        return cls(
+            market=MarketContext.from_payload(payload["market"]),
+            product=None if product is None else ProductCode(product),
+            rule_product=None if rule_product is None else ProductCode(rule_product),
+            market_pack_id=market_pack_id,
+            rule_version=rule_version,
+            effective=None if effective is None else PositionEffect(effective),
+            not_applicable=not_applicable,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,9 +307,17 @@ def resolve_absent_position_effect(
         market_pack_id=policy.market_pack_id,
         rule_version=policy.rule_version,
     )
-    if rule.not_applicable:
-        return PositionEffectResolution(None, None, None, None), bound
-    return PositionEffectResolution(None, PositionEffect.OPEN, None, None), bound
+    effective = None if rule.not_applicable else PositionEffect.OPEN
+    proof = AbsentPositionEffectResolution(
+        market=context.market,
+        product=product,
+        rule_product=rule.product,
+        market_pack_id=policy.market_pack_id,
+        rule_version=policy.rule_version,
+        effective=effective,
+        not_applicable=rule.not_applicable,
+    )
+    return PositionEffectResolution(None, effective, None, None, proof), bound
 
 
 def resolve_position_effect(
@@ -298,6 +418,7 @@ def _require_reducing(order: Order, position: Decimal) -> None:
 
 
 __all__ = [
+    "AbsentPositionEffectResolution",
     "PositionEffectPolicy",
     "PositionEffectPolicyError",
     "PositionEffectResolution",

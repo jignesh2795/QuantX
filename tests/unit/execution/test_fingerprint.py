@@ -16,7 +16,8 @@ from quantx.domain.enums import OrderSide, OrderType, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
-from quantx.domain.position_effect import PositionEvidence
+from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
+from quantx.domain.product_selection import ProductSelectionResolution
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency.fingerprint import (
@@ -27,6 +28,41 @@ from quantx.execution.idempotency.fingerprint import (
 
 NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
 MAX_AGE = timedelta(minutes=5)
+MARKET = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
+SUPPORTED_PRODUCTS = frozenset({ProductCode("CNC"), ProductCode("DELIVERY"), ProductCode("MIS")})
+
+
+def _product_resolution(
+    product: ProductCode,
+    *,
+    market_pack_id: str = "india-equity",
+    rule_version: str = "v1",
+) -> ProductSelectionResolution:
+    return ProductSelectionResolution(
+        market=MARKET,
+        product=product,
+        market_pack_id=market_pack_id,
+        rule_version=rule_version,
+        supported_products=SUPPORTED_PRODUCTS,
+    )
+
+
+def _absent_effect_resolution(
+    *,
+    product: ProductCode | None = None,
+    effective: PositionEffect | None = None,
+    market_pack_id: str = "india-equity",
+    rule_version: str = "v1",
+) -> AbsentPositionEffectResolution:
+    return AbsentPositionEffectResolution(
+        market=MARKET,
+        product=product,
+        rule_product=product,
+        market_pack_id=market_pack_id,
+        rule_version=rule_version,
+        effective=effective,
+        not_applicable=effective is None,
+    )
 
 
 def _evidence(quantity: str = "0", *, cut: datetime = NOW) -> PositionEvidence:
@@ -52,8 +88,10 @@ def _request(
     position_evidence_cut: datetime | None = None,
     position_evidence: PositionEvidence | None = None,
     position_effect_approval_instant: datetime | None = NOW,
-    market_pack_id: str | None = None,
-    rule_version: str | None = None,
+    market_pack_id: str | None = "test-pack",
+    rule_version: str | None = "test-v1",
+    product_resolution: ProductSelectionResolution | None = None,
+    position_effect_policy_resolution: AbsentPositionEffectResolution | None = None,
 ) -> ApprovedExecutionRequest:
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
@@ -82,6 +120,24 @@ def _request(
         if position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}
         else None
     )
+    assert market_pack_id is not None
+    assert rule_version is not None
+    if product is not None and product_resolution is None:
+        product_resolution = _product_resolution(
+            product,
+            market_pack_id=market_pack_id,
+            rule_version=rule_version,
+        )
+    if position_effect is None and position_effect_policy_resolution is None:
+        proof_effective = (
+            effective_position_effect if effective_position_effect is PositionEffect.OPEN else None
+        )
+        position_effect_policy_resolution = _absent_effect_resolution(
+            product=product,
+            effective=proof_effective,
+            market_pack_id=market_pack_id,
+            rule_version=rule_version,
+        )
     return ApprovedExecutionRequest(
         order,
         context,
@@ -94,6 +150,8 @@ def _request(
         position_evidence=position_evidence,
         position_evidence_max_age=MAX_AGE if position_evidence is not None else None,
         position_effect_approval_instant=instant,
+        product_resolution=product_resolution,
+        position_effect_policy_resolution=position_effect_policy_resolution,
     )
 
 
@@ -255,6 +313,32 @@ def test_rule_identity_changes_fingerprint() -> None:
     base_fingerprint = request_fingerprint(base)
     assert request_fingerprint(next_version) != base_fingerprint
     assert request_fingerprint(other_pack) != base_fingerprint
+
+
+def test_product_selection_proof_participates_in_fingerprint() -> None:
+    product = ProductCode("CNC")
+    first = _request(
+        product=product,
+        product_resolution=ProductSelectionResolution(
+            market=MARKET,
+            product=product,
+            market_pack_id="test-pack",
+            rule_version="test-v1",
+            supported_products=frozenset({product}),
+        ),
+    )
+    second = _request(
+        product=product,
+        product_resolution=ProductSelectionResolution(
+            market=MARKET,
+            product=product,
+            market_pack_id="test-pack",
+            rule_version="test-v1",
+            supported_products=frozenset({product, ProductCode("MIS")}),
+        ),
+    )
+
+    assert request_fingerprint(first) != request_fingerprint(second)
 
 
 def test_equivalent_position_effect_instants_share_a_fingerprint() -> None:

@@ -57,6 +57,7 @@ from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDh
 from quantx.plugins.dhan.host import DhanHostConfig, build_dhan_host_runtime
 from quantx.plugins.dhan.models import DhanOrderDetail
 from quantx.plugins.dhan.transport import DhanSDKTransport, DhanTimeoutError
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _approving_india_evaluator():
@@ -211,7 +212,7 @@ def _request() -> ApprovedExecutionRequest:
         execution_context=context,
         product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

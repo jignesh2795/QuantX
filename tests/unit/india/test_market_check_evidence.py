@@ -59,6 +59,7 @@ from quantx.ports.market_checks import (
     MarketCheckOutcome,
     MarketCheckStage,
 )
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _approved_request() -> ApprovedExecutionRequest:
@@ -80,6 +81,8 @@ def _approved_request() -> ApprovedExecutionRequest:
         market=market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -88,7 +91,7 @@ def _approved_request() -> ApprovedExecutionRequest:
         order_type=OrderType.MARKET,
         execution_context=context,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

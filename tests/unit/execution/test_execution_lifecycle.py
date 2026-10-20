@@ -137,6 +137,8 @@ def test_partial_continuation_executes_remaining_quantity_with_parent_correlatio
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=InstrumentId("NSE", "TCS"),
@@ -144,9 +146,10 @@ def test_partial_continuation_executes_remaining_quantity_with_parent_correlatio
         quantity=Decimal("10"),
         execution_context=context,
     )
-    from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+    from quantx.domain.execution_request import build_order_from_intent
+    from tests.unit._execution_request_proofs import approved_request
 
-    request = ApprovedExecutionRequest(
+    request = approved_request(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),
@@ -181,11 +184,12 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
         PortfolioId,
         StrategyDeploymentId,
     )
-    from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
+    from quantx.domain.execution_request import build_order_from_intent
     from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
     from quantx.domain.order_intents import TradeIntent
     from quantx.domain.position_effect import PositionEvidence
     from quantx.domain.risk import RiskDecision, RiskResult
+    from tests.unit._execution_request_proofs import approved_request
 
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
@@ -213,7 +217,7 @@ def test_continuation_preserves_product_and_resolved_effect() -> None:
         evidence_cut=evidence_cut,
         matched=True,
     )
-    request = ApprovedExecutionRequest(
+    request = approved_request(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),

@@ -49,6 +49,7 @@ from quantx.plugins.dhan.mapping import normalize_status
 from quantx.plugins.dhan.models import DhanInstrumentRef
 from quantx.plugins.dhan.recovery import build_dhan_recovery_provider
 from quantx.plugins.dhan.transport import DhanTransport, InMemoryDhanTransport
+from tests.unit._execution_request_proofs import approved_request
 
 # (Dhan status, operation outcome, canonical order status, cumulative observed
 # filled quantity). Dhan's filledQty is a cumulative broker observation, so the
@@ -98,7 +99,7 @@ def _request() -> ApprovedExecutionRequest:
         execution_context=context,
         product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
@@ -146,6 +147,8 @@ def _recovery_request(request: ApprovedExecutionRequest) -> PendingExecutionReco
         position_evidence=request.position_evidence,
         position_evidence_max_age=request.position_evidence_max_age,
         position_effect_approval_instant=request.position_effect_approval_instant,
+        product_resolution=request.product_resolution,
+        position_effect_policy_resolution=request.position_effect_policy_resolution,
     )
 
 

@@ -28,6 +28,7 @@ from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.lifecycle import ExecutionLifecycleService
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _instrument() -> Instrument:
@@ -52,6 +53,8 @@ def _request(quantity: str = "10") -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     order = Order(
         instrument=instrument.instrument_id,
@@ -61,7 +64,7 @@ def _request(quantity: str = "10") -> ApprovedExecutionRequest:
         time_in_force=TimeInForce.DAY,
         required_capabilities=("market_order",),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=order,
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

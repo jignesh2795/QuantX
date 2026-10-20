@@ -85,6 +85,7 @@ from quantx.persistence.sqlite import (
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _instrument() -> Instrument:
@@ -116,8 +117,8 @@ def _request(
         market=instrument.market,
         broker_connection_id=connection_id,
         execution_mode=mode,
-        market_pack_id="india" if live else None,
-        rule_version="india-products-v1" if live else None,
+        market_pack_id="india" if live else "test-pack",
+        rule_version="india-products-v1" if live else "test-v1",
     )
     product = ProductCode("CNC") if live else None
     intent = TradeIntent(
@@ -129,7 +130,7 @@ def _request(
         required_capabilities=required_capabilities,
         product=product,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
@@ -2926,6 +2927,8 @@ def test_live_unresolved_product_blocks_before_gate_reservation_and_broker() -> 
         market=_instrument().market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=InstrumentId("NSE", "TCS"),
@@ -2935,7 +2938,7 @@ def test_live_unresolved_product_blocks_before_gate_reservation_and_broker() -> 
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
         execution_context=context,
     )
-    request = ApprovedExecutionRequest(
+    request = approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

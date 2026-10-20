@@ -33,6 +33,7 @@ from quantx.execution.paper import (
     QuoteSnapshot,
 )
 from quantx.persistence import ReceiptRepository
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequest:
@@ -43,6 +44,8 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=BrokerConnectionId("paper-1") if mode is ExecutionMode.LIVE else None,
         execution_mode=mode,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=InstrumentId("NSE", "TCS"),
@@ -55,9 +58,7 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
     policy = (
         PolicyResult(PolicyDecision.APPROVE, "approved") if mode is ExecutionMode.LIVE else None
     )
-    return ApprovedExecutionRequest(
-        order, context, RiskResult(RiskDecision.APPROVE, "approved"), policy
-    )
+    return approved_request(order, context, RiskResult(RiskDecision.APPROVE, "approved"), policy)
 
 
 def _snapshot(*, bid=None, ask=None, last=None) -> MarketSnapshot:
@@ -292,7 +293,7 @@ def test_market_sell_slippage_divides_reference_price() -> None:
         execution_context=_request().execution_context,
     )
     order = build_order_from_intent(intent)
-    request = ApprovedExecutionRequest(
+    request = approved_request(
         order,
         _request().execution_context,
         RiskResult(RiskDecision.APPROVE, "approved"),

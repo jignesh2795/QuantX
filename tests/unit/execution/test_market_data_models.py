@@ -16,6 +16,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.models import QuoteFillModel, SlippageModel
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _context() -> ExecutionContext:
@@ -26,6 +27,8 @@ def _context() -> ExecutionContext:
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=BrokerConnectionId("paper-1"),
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
 
 
@@ -36,7 +39,7 @@ def _request(side: OrderSide) -> ApprovedExecutionRequest:
         order_type=OrderType.MARKET,
         quantity=Decimal("10"),
     )
-    return ApprovedExecutionRequest(order, _context(), RiskResult(RiskDecision.APPROVE, "ok"))
+    return approved_request(order, _context(), RiskResult(RiskDecision.APPROVE, "ok"))
 
 
 def test_market_snapshot_does_not_invent_missing_quote() -> None:

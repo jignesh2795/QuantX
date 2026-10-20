@@ -22,10 +22,13 @@ closed at resolution; it is never inferred from the instrument, symbol, or a
 mutable broker mapping. ADR-011 acceptance criterion 7 is therefore claimed
 only for the documented NSE cash-equity context.
 
-Position effect: the NSE cash-equity position-effect concept is documented
-not applicable (equity delivery has no OPEN/CLOSE distinction), so an absent
-effect under this pack resolves to no effective effect — never to OPEN — and
-the rule identity is still bound to the prepared request.
+Position effect: the NSE cash-equity delivery concept has no OPEN/CLOSE
+distinction, so an absent effect is explicitly not applicable for ``CNC`` and
+``DELIVERY`` and resolves to no effective effect — never to OPEN. ``MIS`` is
+intraday and does not inherit that delivery-only rule; no absent-effect
+default is established for it, so an absent effect under ``MIS`` fails closed
+until an explicit versioned rule exists. The rule identity is still bound to
+the prepared request.
 """
 
 from __future__ import annotations
@@ -66,6 +69,12 @@ INDIA_EQUITY_POSITION_EFFECT_POLICY = PositionEffectPolicy(
     rules=(
         PositionEffectRule(
             market=INDIA_EQUITY_MARKET,
+            product=INDIA_EQUITY_COMPATIBILITY_PRODUCT,
+            not_applicable=True,
+        ),
+        PositionEffectRule(
+            market=INDIA_EQUITY_MARKET,
+            product=ProductCode(ProductType.DELIVERY.value),
             not_applicable=True,
         ),
     ),

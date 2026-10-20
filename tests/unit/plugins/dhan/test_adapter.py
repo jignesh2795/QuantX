@@ -71,6 +71,7 @@ from quantx.plugins.dhan.models import (
     DhanOrderResponse,
     DhanPositionsSnapshot,
 )
+from tests.unit._execution_request_proofs import approved_request
 
 _DEFAULT_PRODUCT = ProductCode("CNC")
 
@@ -96,9 +97,7 @@ def _request(
     position_effect: PositionEffect | None = None,
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
-    pack_identity = (
-        {} if product is None else {"market_pack_id": "india", "rule_version": "india-products-v1"}
-    )
+    pack_identity = {"market_pack_id": "india", "rule_version": "india-products-v1"}
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -121,7 +120,7 @@ def _request(
         position_effect=position_effect,
         execution_context=context,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

@@ -93,6 +93,12 @@ from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.ir import StrategyIR
+from tests.unit._execution_request_proofs import approved_request
+
+
+def _service(**kwargs):
+    kwargs.setdefault("product_selection", INDIA_EQUITY_PRODUCT_SELECTION)
+    return DeterministicBacktestService(**kwargs)
 
 
 def _instrument() -> Instrument:
@@ -220,7 +226,7 @@ def test_backtest_rejects_intent_strategy_identity_mismatch() -> None:
         return StrategyResult(signal, intent)
 
     with pytest.raises(ValueError, match="intent id"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -254,7 +260,7 @@ def test_backtest_rejects_signal_intent_direction_mismatch() -> None:
         return StrategyResult(signal, intent)
 
     with pytest.raises(ValueError, match="BUY signal"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -280,7 +286,7 @@ def test_backtest_rejects_nondeterministic_signal_timestamp() -> None:
         return StrategyResult(signal)
 
     with pytest.raises(ValueError, match="timestamp"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -324,7 +330,7 @@ def test_backtest_composes_replay_strategy_risk_policy_and_paper_execution() -> 
         )
         return StrategyResult(signal, None)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -366,7 +372,7 @@ def test_backtest_blocks_risk_rejected_intent_without_execution() -> None:
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -404,7 +410,7 @@ def test_backtest_requires_approval_when_policy_requires_manual_approval() -> No
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -449,7 +455,7 @@ def test_backtest_blocks_intent_when_canonical_market_does_not_match() -> None:
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -593,7 +599,7 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
     strategy = _BacktestTimerObserver(fail_timer=True)
     ir = _runtime_ir("timer-backtest")
     instruments = InMemoryInstrumentRegistry((_instrument(), _second_instrument()))
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY, instrument_registry=instruments
     ).run(
         series=(_timestamped_tcs_series(), _same_time_infy_series()),
@@ -667,7 +673,7 @@ def test_active_order_persists_into_next_strategy_context_until_terminal_status(
                 intent,
             )
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
@@ -721,7 +727,7 @@ def test_backtest_reports_timers_undelivered_beyond_replay_horizon() -> None:
             self.timer_calls.append(timer.timer_id)
 
     strategy = _HorizonTimerObserver()
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
@@ -801,7 +807,7 @@ def test_precommit_risk_or_policy_fault_preserves_timer_and_continues(
     engine_options = (
         {"risk_engine": engine} if failure_layer == "risk" else {"policy_engine": engine}
     )
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         **engine_options,
@@ -878,7 +884,7 @@ def test_clock_drift_between_strategy_and_execution_is_recorded_without_execute(
             engine._clock = FixedClock(ahead)
             return RiskResult(RiskDecision.APPROVE, "approved before clock drift")
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         execution_engine=engine,
@@ -904,7 +910,7 @@ def test_clock_drift_between_strategy_and_execution_is_recorded_without_execute(
 def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
     strategy = _BacktestCommitThenFailObserver()
     ir = _runtime_ir("callback-backtest")
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
@@ -944,7 +950,7 @@ def test_unexpected_future_effective_receipt_preserves_facts_and_halts() -> None
     strategy = _BacktestCommitThenFailObserver()
     ir = _runtime_ir("callback-backtest")
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         execution_engine=engine,
@@ -982,7 +988,7 @@ def test_unexpected_early_effective_receipt_preserves_facts_and_halts() -> None:
     engine.event_time_support = EventTimeSupport.SUPPORTED
     strategy = _BacktestCommitThenFailObserver()
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         execution_engine=engine,
@@ -1032,7 +1038,7 @@ def test_qx08_preflight_rejects_clock_ahead_before_first_strategy_callback() -> 
             )
 
     with pytest.raises(ValueError, match="start at the first replay frame"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
             execution_engine=engine,
@@ -1071,7 +1077,7 @@ def test_injected_qx08_clock_drift_blocks_before_next_strategy_callback() -> Non
                 )
             )
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         execution_engine=engine,
@@ -1112,7 +1118,7 @@ def test_callback_driver_rejects_nonzero_execution_latency_before_first_step() -
             )
 
     with pytest.raises(ValueError, match="nonzero paper execution latency"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         ).run(
@@ -1132,7 +1138,7 @@ def test_unknown_executor_time_capability_fails_closed() -> None:
     ir = _runtime_ir("preflight-backtest")
 
     with pytest.raises(ValueError, match="UNKNOWN"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             execution_engine=engine,
@@ -1177,7 +1183,7 @@ def test_backtest_accepts_runtime_neutral_strategy_evaluation_service() -> None:
     ir = StrategyCompiler.compile(
         StrategyDefinition(StrategyId("backtest-parity"), "1", "Backtest Parity")
     )
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -1212,9 +1218,16 @@ def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         initial_cash=Money(Decimal("1000"), "INR"),
     )
-    request = ApprovedExecutionRequest(
-        order=build_order_from_intent(evaluated.result.intent),
-        execution_context=evaluated.result.intent.execution_context,
+    request_context = replace(
+        evaluated.result.intent.execution_context,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
+    )
+    request = approved_request(
+        order=build_order_from_intent(
+            replace(evaluated.result.intent, execution_context=request_context)
+        ),
+        execution_context=request_context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
     )
@@ -1262,7 +1275,7 @@ def test_backtest_exposes_deterministic_account_state_trajectory() -> None:
         )
         return StrategyResult(signal)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -1315,7 +1328,7 @@ def test_backtest_exposes_time_indexed_account_state_series() -> None:
         )
         return StrategyResult(signal, None)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -1380,7 +1393,7 @@ def test_backtest_multinstrument_sampling_policy_is_explicit() -> None:
             )
         )
 
-    exact = DeterministicBacktestService(
+    exact = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY, instrument_registry=registry
     ).run(
         series=series,
@@ -1395,7 +1408,7 @@ def test_backtest_multinstrument_sampling_policy_is_explicit() -> None:
     # At frame 1 the TCS position is open but only INFY has a current mark.
     assert exact.account_state_series[1].completeness.value == "INCOMPLETE"
 
-    as_of = DeterministicBacktestService(
+    as_of = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY, instrument_registry=registry
     ).run(
         series=series,
@@ -1483,7 +1496,7 @@ def test_backtest_as_of_observed_with_unusable_mark_stays_incomplete() -> None:
             )
         )
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY, instrument_registry=registry
     ).run(
         series=series,
@@ -1532,7 +1545,7 @@ def _hold_all(strategy_id: str):
 
 def test_backtest_result_provenance_defaults_to_none() -> None:
     instrument = _instrument()
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -1549,7 +1562,7 @@ def test_backtest_result_provenance_defaults_to_none() -> None:
 def test_backtest_attaches_caller_provenance_unchanged() -> None:
     instrument = _instrument()
     supplied = _provenance()
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -1566,7 +1579,7 @@ def test_backtest_identical_provenance_gives_identical_fingerprint() -> None:
     instrument = _instrument()
 
     def run_with(provenance: ResearchProvenance):
-        return DeterministicBacktestService(
+        return _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -1598,7 +1611,7 @@ def test_backtest_changed_provenance_declaration_changes_fingerprint() -> None:
     )
 
     def run_with(provenance: ResearchProvenance):
-        return DeterministicBacktestService(
+        return _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -1657,7 +1670,7 @@ def test_backtest_heterogeneous_datasets_fail_closed() -> None:
     )
 
     with pytest.raises(ValueError, match="exactly one dataset"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((tcs, infy)),
         ).run(
@@ -1682,7 +1695,7 @@ def test_backtest_declared_version_mismatch_fails_closed() -> None:
     )
 
     with pytest.raises(ValueError, match="does not match"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -1734,7 +1747,7 @@ def test_backtest_shared_dataset_multi_instrument_binding() -> None:
         )
 
     def run_with(policy):
-        return DeterministicBacktestService(
+        return _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY, instrument_registry=registry
         ).run(
             series=series,
@@ -1780,7 +1793,7 @@ def test_backtest_wrong_dataset_same_source_version_fails_closed() -> None:
     )
 
     with pytest.raises(ValueError, match="dataset_id"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -1831,7 +1844,7 @@ def test_backtest_different_sources_same_dataset_binds() -> None:
         )
     )
     supplied = _provenance()
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((tcs, infy)),
     ).run(
@@ -1900,7 +1913,7 @@ def test_backtest_logical_mismatch_in_later_frame_fails_closed() -> None:
         )
 
     with pytest.raises(ValueError, match="exactly one dataset"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((tcs, infy)),
         ).run(
@@ -1953,7 +1966,7 @@ def test_backtest_same_source_multiple_versions_fail_closed() -> None:
     )
 
     with pytest.raises(ValueError, match="exactly one dataset"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((tcs, infy)),
         ).run(
@@ -1979,7 +1992,7 @@ def test_backtest_dataset_identity_has_no_normalization() -> None:
             configuration_revision="cfg9",
         )
         with pytest.raises(ValueError, match="dataset_id"):
-            DeterministicBacktestService(
+            _service(
                 position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
                 instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             ).run(
@@ -1995,7 +2008,7 @@ def test_backtest_provenance_object_reused_across_runs() -> None:
     supplied = _provenance()
 
     def run_with():
-        return DeterministicBacktestService(
+        return _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -2100,7 +2113,7 @@ def _c12_service(
     instrument_registry: InMemoryInstrumentRegistry,
     execution_engine: PaperExecutionEngine | None = None,
 ) -> DeterministicBacktestService:
-    return DeterministicBacktestService(
+    return _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=instrument_registry,
         execution_engine=execution_engine,
@@ -2380,7 +2393,7 @@ def test_backtest_orders_carry_replay_occurrence_time_not_wall_clock(monkeypatch
     context = _context()
     captured = _replay_time_recording_engine(monkeypatch)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -2404,7 +2417,7 @@ def test_backtest_repeated_runs_produce_identical_order_timestamps(monkeypatch) 
     context = _context()
     first_captured = _replay_time_recording_engine(monkeypatch)
 
-    DeterministicBacktestService(
+    _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -2414,7 +2427,7 @@ def test_backtest_repeated_runs_produce_identical_order_timestamps(monkeypatch) 
     )
 
     second_captured = _replay_time_recording_engine(monkeypatch)
-    DeterministicBacktestService(
+    _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
     ).run(
@@ -2446,7 +2459,7 @@ def test_backtest_injected_engine_clock_determines_execution_time() -> None:
     def _run_once() -> BacktestResult:
         caller_clock = SimulatedClock(frame_time)
         engine = PaperExecutionEngine(clock=caller_clock)
-        return DeterministicBacktestService(
+        return _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             execution_engine=engine,
@@ -2486,7 +2499,7 @@ def test_backtest_rejects_injected_engine_clock_before_replay_time() -> None:
     engine = PaperExecutionEngine(clock=caller_clock)
 
     with pytest.raises(ValueError, match="predates the replay frame"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             execution_engine=engine,
@@ -2517,7 +2530,7 @@ def test_backtest_rejects_signal_using_wall_clock_default() -> None:
         return StrategyResult(signal)
 
     with pytest.raises(ValueError, match="timestamp"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -2563,7 +2576,7 @@ def test_backtest_repeated_runs_produce_identical_evidence_timestamps(monkeypatc
 
     def _run() -> tuple[BacktestResult, list[ApprovedExecutionRequest]]:
         captured = _replay_time_recording_engine(monkeypatch)
-        result = DeterministicBacktestService(
+        result = _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         ).run(
@@ -2685,7 +2698,7 @@ def test_backtest_rejected_clock_leaves_no_venue_side_effects() -> None:
     )
 
     with pytest.raises(ValueError, match="predates the replay frame"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             execution_engine=engine,
@@ -2717,7 +2730,7 @@ def test_backtest_accepts_injected_clock_ahead_of_replay_time() -> None:
 
     def _run_once() -> tuple[BacktestResult, list[ApprovedExecutionRequest]]:
         engine = _CapturingEngine(clock=FixedClock(ahead))
-        result = DeterministicBacktestService(
+        result = _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             execution_engine=engine,
@@ -2762,7 +2775,7 @@ def test_backtest_accepts_advancing_clock_ahead_of_replay_time() -> None:
         engine = _CapturingEngine(
             clock=_AdvancingClock(start, timedelta(seconds=1)),
         )
-        result = DeterministicBacktestService(
+        result = _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             execution_engine=engine,
@@ -2811,7 +2824,7 @@ def test_backtest_rejects_system_clock_for_replay() -> None:
     )
 
     with pytest.raises(ValueError, match="must be deterministic for replay"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             execution_engine=engine,
@@ -2852,7 +2865,7 @@ def test_backtest_rejects_clock_without_determinism_declaration() -> None:
     engine = PaperExecutionEngine(clock=_UndeclaredClock(frame_time))
 
     with pytest.raises(ValueError, match="must be deterministic for replay"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             execution_engine=engine,
@@ -2955,7 +2968,7 @@ def test_backtest_timer_snapshot_excludes_same_timestamp_mark_and_history() -> N
         )
     )
 
-    DeterministicBacktestService(
+    _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
@@ -3007,7 +3020,7 @@ def test_strategy_context_uses_tracker_snapshot_not_financial_state_input() -> N
                 )
             )
 
-    DeterministicBacktestService(
+    _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
@@ -3077,7 +3090,7 @@ def test_backtest_resolves_omitted_product_before_risk_approval() -> None:
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         risk_engine=risk,
@@ -3141,7 +3154,7 @@ def test_backtest_resolves_auto_effect_before_risk_approval() -> None:
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         risk_engine=risk,
@@ -3193,7 +3206,7 @@ def test_backtest_resolution_failure_prevents_risk_and_execution() -> None:
         return StrategyResult(signal, intent)
 
     with pytest.raises(ProductSelectionError, match="no versioned default product"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             risk_engine=risk,
@@ -3243,7 +3256,7 @@ def test_backtest_resolves_absent_effect_through_the_market_pack_policy() -> Non
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
+    result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
         risk_engine=risk,
@@ -3258,7 +3271,7 @@ def test_backtest_resolves_absent_effect_through_the_market_pack_policy() -> Non
     assert risk.contexts[0].effective_position_effect is None
     assert risk.contexts[0].market_pack_id == "india-equity"
     assert risk.contexts[0].rule_version == "india-products-v1"
-    assert risk.intents[0].product is None
+    assert risk.intents[0].product == ProductCode("CNC")
     assert risk.intents[0].position_effect is None
 
 
@@ -3297,7 +3310,7 @@ def test_backtest_absent_effect_without_versioned_rule_prevents_risk() -> None:
         return StrategyResult(signal, intent)
 
     with pytest.raises(PositionEffectPolicyError, match="no versioned position-effect rule"):
-        DeterministicBacktestService(
+        _service(
             position_effect_policy=bse_only_effect_policy,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
             risk_engine=risk,

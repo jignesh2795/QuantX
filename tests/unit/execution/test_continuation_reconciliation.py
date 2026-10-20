@@ -154,6 +154,8 @@ def test_reconcile_continuation_rejects_child_quantity_above_parent_remainder() 
         policy_result=valid_child.policy_result,
         required_margin=valid_child.required_margin,
         parent_client_order_id=valid_child.parent_client_order_id,
+        product_resolution=valid_child.product_resolution,
+        position_effect_policy_resolution=(valid_child.position_effect_policy_resolution),
     )
     child_receipt = _receipt(oversized_child, "1")
     service = _service(

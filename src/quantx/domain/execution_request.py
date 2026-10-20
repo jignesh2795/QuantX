@@ -11,7 +11,12 @@ from .enums import PositionEffect
 from .order_intents import TradeIntent
 from .orders import Order
 from .policy import PolicyResult
-from .position_effect import PositionEvidence, resolve_position_effect
+from .position_effect import (
+    AbsentPositionEffectResolution,
+    PositionEvidence,
+    resolve_position_effect,
+)
+from .product_selection import ProductSelectionResolution
 from .risk import RiskDecision, RiskResult
 from .value_objects import ProductCode
 
@@ -21,6 +26,7 @@ def validate_order_product_symmetry(
     product: ProductCode | None,
     *,
     execution_context: ExecutionContext,
+    product_resolution: ProductSelectionResolution | None = None,
 ) -> None:
     """Fail closed unless the request product mirrors the executed order.
 
@@ -28,8 +34,10 @@ def validate_order_product_symmetry(
     resolved product the order carries nor claim a product the order does not
     carry. The only coherent states are both absent or both identical, and a
     resolved product always requires the market-pack and rule identity that
-    selected it.
+    selected it plus the validated proof that the policy supported it.
     """
+    if product is None and product_resolution is not None:
+        raise ValueError("an absent product cannot carry a product selection resolution")
     if product is not None:
         if not str(product).strip():
             raise ValueError("resolved product must be non-empty when specified")
@@ -44,18 +52,38 @@ def validate_order_product_symmetry(
             raise ValueError("resolved product does not match the order product")
     elif product is not None:
         raise ValueError("a resolved product requires the order to carry the same product")
+    if product is None:
+        return
+    if product_resolution is None:
+        raise ValueError("a resolved product requires a validated product selection resolution")
+    if not isinstance(product_resolution, ProductSelectionResolution):
+        raise ValueError("product selection resolution has an unsupported type")
+    if product_resolution.product != product:
+        raise ValueError("product selection resolution does not match the resolved product")
+    if product_resolution.market != execution_context.market:
+        raise ValueError("product selection resolution market does not match the execution context")
+    if product_resolution.market_pack_id != execution_context.market_pack_id:
+        raise ValueError(
+            "product selection resolution market-pack id does not match the execution context"
+        )
+    if product_resolution.rule_version != execution_context.rule_version:
+        raise ValueError(
+            "product selection resolution rule version does not match the execution context"
+        )
 
 
 def validate_position_effect_fields(
     order: Order,
     *,
     execution_context: ExecutionContext,
+    product: ProductCode | None = None,
     position_effect: PositionEffect | None,
     effective_position_effect: PositionEffect | None,
     position_evidence_cut: datetime | None,
     position_evidence: PositionEvidence | None,
     position_evidence_max_age: timedelta | None,
     position_effect_approval_instant: datetime | None,
+    position_effect_policy_resolution: AbsentPositionEffectResolution | None = None,
 ) -> None:
     """Fail closed unless the recorded effect semantics are coherent.
 
@@ -100,6 +128,40 @@ def validate_position_effect_fields(
         PositionEffect.CLOSE,
     }:
         raise ValueError("resolved position effect must be OPEN or CLOSE")
+
+    if position_effect is not None and position_effect_policy_resolution is not None:
+        raise ValueError(
+            "a position-effect policy resolution is only valid for an absent position effect"
+        )
+    if position_effect is None:
+        if position_effect_policy_resolution is None:
+            raise ValueError(
+                "an absent position effect requires a validated market-pack policy resolution"
+            )
+        if not isinstance(position_effect_policy_resolution, AbsentPositionEffectResolution):
+            raise ValueError("position-effect policy resolution has an unsupported type")
+        if position_effect_policy_resolution.market != execution_context.market:
+            raise ValueError(
+                "position-effect policy resolution market does not match the execution context"
+            )
+        if position_effect_policy_resolution.market_pack_id != execution_context.market_pack_id:
+            raise ValueError(
+                "position-effect policy resolution market-pack id does not match "
+                "the execution context"
+            )
+        if position_effect_policy_resolution.rule_version != execution_context.rule_version:
+            raise ValueError(
+                "position-effect policy resolution rule version does not match "
+                "the execution context"
+            )
+        if position_effect_policy_resolution.product != product:
+            raise ValueError(
+                "position-effect policy resolution product does not match the resolved product"
+            )
+        if position_effect_policy_resolution.effective is not effective_position_effect:
+            raise ValueError(
+                "position-effect policy resolution does not match the resolved effective effect"
+            )
 
     if position_effect is PositionEffect.OPEN:
         if (
@@ -193,6 +255,8 @@ class ApprovedExecutionRequest:
     position_evidence: PositionEvidence | None = None
     position_evidence_max_age: timedelta | None = None
     position_effect_approval_instant: datetime | None = None
+    product_resolution: ProductSelectionResolution | None = None
+    position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
 
     def __post_init__(self) -> None:
         if self.required_margin < 0:
@@ -208,16 +272,19 @@ class ApprovedExecutionRequest:
             self.order,
             self.product,
             execution_context=self.execution_context,
+            product_resolution=self.product_resolution,
         )
         validate_position_effect_fields(
             self.order,
             execution_context=self.execution_context,
+            product=self.product,
             position_effect=self.position_effect,
             effective_position_effect=self.effective_position_effect,
             position_evidence_cut=self.position_evidence_cut,
             position_evidence=self.position_evidence,
             position_evidence_max_age=self.position_evidence_max_age,
             position_effect_approval_instant=self.position_effect_approval_instant,
+            position_effect_policy_resolution=self.position_effect_policy_resolution,
         )
 
     @property
@@ -239,22 +306,27 @@ class PendingExecutionRecoveryRequest:
     position_evidence: PositionEvidence | None = None
     position_evidence_max_age: timedelta | None = None
     position_effect_approval_instant: datetime | None = None
+    product_resolution: ProductSelectionResolution | None = None
+    position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
 
     def __post_init__(self) -> None:
         validate_order_product_symmetry(
             self.order,
             self.product,
             execution_context=self.execution_context,
+            product_resolution=self.product_resolution,
         )
         validate_position_effect_fields(
             self.order,
             execution_context=self.execution_context,
+            product=self.product,
             position_effect=self.position_effect,
             effective_position_effect=self.effective_position_effect,
             position_evidence_cut=self.position_evidence_cut,
             position_evidence=self.position_evidence,
             position_evidence_max_age=self.position_evidence_max_age,
             position_effect_approval_instant=self.position_effect_approval_instant,
+            position_effect_policy_resolution=self.position_effect_policy_resolution,
         )
 
     @property

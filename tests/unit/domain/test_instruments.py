@@ -104,3 +104,25 @@ def test_market_context_preserves_region_and_family_values() -> None:
     assert context.family == MarketFamily.EQUITY
     assert context.region.value == "INDIA"
     assert context.family.value == "EQUITY"
+
+
+def test_market_context_payload_round_trips() -> None:
+    context = market()
+
+    assert MarketContext.from_payload(context.to_payload()) == context
+
+
+def test_market_context_payload_rejects_unexpected_fields() -> None:
+    payload = market().to_payload()
+    payload["extra"] = "forged"
+
+    with pytest.raises(ValueError, match="unexpected fields"):
+        MarketContext.from_payload(payload)
+
+
+def test_market_context_payload_rejects_an_unknown_market_family() -> None:
+    payload = market().to_payload()
+    payload["family"] = "FORGED"
+
+    with pytest.raises(ValueError):
+        MarketContext.from_payload(payload)

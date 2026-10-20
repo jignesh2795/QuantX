@@ -40,6 +40,7 @@ from quantx.plugins.dhan.host import DhanHostConfig, DhanHostRuntime, build_dhan
 from quantx.plugins.dhan.market_data import DhanMarketDataAdapter
 from quantx.plugins.dhan.models import DhanCandleSnapshot, DhanCredentials, DhanInstrumentRef
 from quantx.plugins.dhan.transport import DhanSDKTransport, InMemoryDhanTransport
+from tests.unit._execution_request_proofs import approved_request
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
 
@@ -89,6 +90,8 @@ def _approved() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -98,7 +101,7 @@ def _approved() -> ApprovedExecutionRequest:
         time_in_force=TimeInForce.DAY,
         execution_context=context,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),

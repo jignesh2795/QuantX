@@ -22,6 +22,78 @@ class ProductSelectionError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class ProductSelectionResolution:
+    """Validated proof that a versioned policy selected one product.
+
+    Only the canonical pre-approval resolver should create this value. The
+    approved-request boundary validates that it names the same product, market,
+    market pack, and rule version as the request, so a direct constructor
+    cannot claim a product from caller-supplied identity alone.
+    """
+
+    market: MarketContext
+    product: ProductCode
+    market_pack_id: str
+    rule_version: str
+    supported_products: frozenset[ProductCode]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.market, MarketContext):
+            raise ValueError("product selection resolution market must be a MarketContext")
+        if not isinstance(self.product, ProductCode) or not str(self.product).strip():
+            raise ValueError("product selection resolution product must be a ProductCode")
+        if not isinstance(self.market_pack_id, str) or not self.market_pack_id.strip():
+            raise ValueError("product selection resolution requires a market-pack id")
+        if not isinstance(self.rule_version, str) or not self.rule_version.strip():
+            raise ValueError("product selection resolution requires a rule version")
+        if not isinstance(self.supported_products, frozenset):
+            raise ValueError("product selection resolution supported products must be a frozenset")
+        if not self.supported_products:
+            raise ValueError("product selection resolution requires supported products")
+        if self.product not in self.supported_products:
+            raise ValueError("product selection resolution product must be supported")
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "market": self.market.to_payload(),
+            "product": str(self.product),
+            "market_pack_id": self.market_pack_id,
+            "rule_version": self.rule_version,
+            "supported_products": sorted(str(product) for product in self.supported_products),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: object) -> ProductSelectionResolution:
+        if not isinstance(payload, dict):
+            raise ValueError("product selection resolution must be an object")
+        if set(payload) != {
+            "market",
+            "product",
+            "market_pack_id",
+            "rule_version",
+            "supported_products",
+        }:
+            raise ValueError("product selection resolution has unexpected fields")
+        product = payload["product"]
+        market_pack_id = payload["market_pack_id"]
+        rule_version = payload["rule_version"]
+        supported = payload["supported_products"]
+        if not isinstance(product, str):
+            raise ValueError("product selection resolution product must be a string")
+        if not isinstance(market_pack_id, str) or not isinstance(rule_version, str):
+            raise ValueError("product selection resolution identity must be strings")
+        if not isinstance(supported, list) or not all(isinstance(item, str) for item in supported):
+            raise ValueError("product selection resolution supported products must be strings")
+        return cls(
+            market=MarketContext.from_payload(payload["market"]),
+            product=ProductCode(product),
+            market_pack_id=market_pack_id,
+            rule_version=rule_version,
+            supported_products=frozenset(ProductCode(item) for item in supported),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ProductSelectionRule:
     """Supported products for one market, with an optional compatibility default.
 
@@ -104,7 +176,20 @@ class ProductSelectionPolicy:
                 return rule
         return None
 
-    def resolve(self, market: MarketContext) -> ProductCode:
+    def rule_for(self, market: MarketContext) -> ProductSelectionRule:
+        """Return the exact rule for one market, or fail closed."""
+        if not isinstance(market, MarketContext):
+            raise ProductSelectionError("product selection requires a MarketContext")
+        rule = self._find_rule(market)
+        if rule is None:
+            raise ProductSelectionError(
+                "no versioned product selection rule for market "
+                f"{market.venue}/{market.family.value}"
+            )
+        return rule
+
+    def default_rule(self, market: MarketContext) -> ProductSelectionRule:
+        """Return the rule that supplies one market's compatibility default."""
         if not isinstance(market, MarketContext):
             raise ProductSelectionError("product selection requires a MarketContext")
         rule = self._find_rule(market)
@@ -112,20 +197,18 @@ class ProductSelectionPolicy:
             raise ProductSelectionError(
                 f"no versioned default product for market {market.venue}/{market.family.value}"
             )
+        return rule
+
+    def resolve(self, market: MarketContext) -> ProductCode:
+        rule = self.default_rule(market)
+        assert rule.default_product is not None
         return rule.default_product
 
     def resolve_explicit(self, market: MarketContext, product: ProductCode) -> ProductCode:
         """Validate one explicit product against its market's support set."""
-        if not isinstance(market, MarketContext):
-            raise ProductSelectionError("product selection requires a MarketContext")
         if not isinstance(product, ProductCode):
             raise ProductSelectionError("explicit product must be a ProductCode")
-        rule = self._find_rule(market)
-        if rule is None:
-            raise ProductSelectionError(
-                "no versioned product selection rule for market "
-                f"{market.venue}/{market.family.value}"
-            )
+        rule = self.rule_for(market)
         if not rule.supports(product):
             raise ProductSelectionError(
                 f"product {product} is not supported for market "
@@ -134,12 +217,45 @@ class ProductSelectionPolicy:
         return product
 
 
+@dataclass(frozen=True, slots=True)
+class ProductSelectionResult:
+    """Resolved product, bound context, and the proof that authorized it."""
+
+    product: ProductCode | None
+    context: ExecutionContext
+    resolution: ProductSelectionResolution | None
+
+    def __post_init__(self) -> None:
+        if self.product is None:
+            if self.resolution is not None:
+                raise ValueError("an absent product cannot carry a product selection resolution")
+            if self.context.execution_mode is ExecutionMode.LIVE:
+                raise ValueError("live execution requires a resolved product")
+            return
+        if self.resolution is None:
+            raise ValueError("a resolved product requires a product selection resolution")
+        if self.resolution.product != self.product:
+            raise ValueError("product selection resolution does not match the resolved product")
+        if self.resolution.market != self.context.market:
+            raise ValueError(
+                "product selection resolution market does not match the execution context"
+            )
+        if self.resolution.market_pack_id != self.context.market_pack_id:
+            raise ValueError(
+                "product selection resolution market-pack id does not match the execution context"
+            )
+        if self.resolution.rule_version != self.context.rule_version:
+            raise ValueError(
+                "product selection resolution rule version does not match the execution context"
+            )
+
+
 def resolve_request_product(
     context: ExecutionContext,
     *,
     explicit_product: ProductCode | None,
     policy: ProductSelectionPolicy | None,
-) -> tuple[ProductCode | None, ExecutionContext]:
+) -> ProductSelectionResult:
     """Resolve one request's product before risk approval, or fail closed.
 
     This is the single resolution point for the pre-approval stage. An
@@ -178,11 +294,23 @@ def resolve_request_product(
             raise ProductSelectionError(
                 "execution context rule version conflicts with the product selection policy"
             )
+        rule = policy.rule_for(context.market)
         policy.resolve_explicit(context.market, explicit_product)
-        return explicit_product, replace(
+        bound_context = replace(
             context,
             market_pack_id=policy.market_pack_id,
             rule_version=policy.rule_version,
+        )
+        return ProductSelectionResult(
+            product=explicit_product,
+            context=bound_context,
+            resolution=ProductSelectionResolution(
+                market=context.market,
+                product=explicit_product,
+                market_pack_id=policy.market_pack_id,
+                rule_version=policy.rule_version,
+                supported_products=rule.effective_supported_products,
+            ),
         )
 
     if policy is None:
@@ -191,7 +319,7 @@ def resolve_request_product(
                 "live execution requires a resolved product from a versioned "
                 "market-pack selection policy"
             )
-        return None, context
+        return ProductSelectionResult(product=None, context=context, resolution=None)
 
     if not isinstance(policy, ProductSelectionPolicy):
         raise ProductSelectionError("product selection policy has an unsupported type")
@@ -203,17 +331,32 @@ def resolve_request_product(
         raise ProductSelectionError(
             "execution context rule version conflicts with the product selection policy"
         )
-    product = policy.resolve(context.market)
-    return product, replace(
+    rule = policy.default_rule(context.market)
+    product = rule.default_product
+    assert product is not None
+    bound_context = replace(
         context,
         market_pack_id=policy.market_pack_id,
         rule_version=policy.rule_version,
+    )
+    return ProductSelectionResult(
+        product=product,
+        context=bound_context,
+        resolution=ProductSelectionResolution(
+            market=context.market,
+            product=product,
+            market_pack_id=policy.market_pack_id,
+            rule_version=policy.rule_version,
+            supported_products=rule.effective_supported_products,
+        ),
     )
 
 
 __all__ = [
     "ProductSelectionError",
     "ProductSelectionPolicy",
+    "ProductSelectionResolution",
+    "ProductSelectionResult",
     "ProductSelectionRule",
     "resolve_request_product",
 ]

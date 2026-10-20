@@ -70,6 +70,7 @@ from quantx.persistence.sqlite import (
     SqliteUnitOfWork,
 )
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
+from tests.unit._execution_request_proofs import approved_request
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
 
@@ -124,7 +125,7 @@ def _request() -> ApprovedExecutionRequest:
         execution_context=context,
         product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "upstream approved"),
@@ -598,7 +599,7 @@ def _us_request() -> tuple[ApprovedExecutionRequest, Instrument]:
         product=ProductCode("DEFAULT"),
     )
     return (
-        ApprovedExecutionRequest(
+        approved_request(
             order=build_order_from_intent(intent),
             execution_context=context,
             risk_result=RiskResult(RiskDecision.APPROVE, "upstream approved"),

@@ -26,7 +26,8 @@ from quantx.domain.execution_request import (
 )
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.orders import Order
-from quantx.domain.position_effect import PositionEvidence
+from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
+from quantx.domain.product_selection import ProductSelectionResolution
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId, ProductCode
 
 
@@ -51,6 +52,8 @@ class PendingExecutionContext:
     position_evidence: PositionEvidence | None = None
     position_evidence_max_age: timedelta | None = None
     position_effect_approval_instant: datetime | None = None
+    product_resolution: ProductSelectionResolution | None = None
+    position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_fingerprint, str) or not self.request_fingerprint.strip():
@@ -61,16 +64,19 @@ class PendingExecutionContext:
             self.order,
             self.product,
             execution_context=self.execution_context,
+            product_resolution=self.product_resolution,
         )
         validate_position_effect_fields(
             self.order,
             execution_context=self.execution_context,
+            product=self.product,
             position_effect=self.position_effect,
             effective_position_effect=self.effective_position_effect,
             position_evidence_cut=self.position_evidence_cut,
             position_evidence=self.position_evidence,
             position_evidence_max_age=self.position_evidence_max_age,
             position_effect_approval_instant=self.position_effect_approval_instant,
+            position_effect_policy_resolution=self.position_effect_policy_resolution,
         )
 
     @classmethod
@@ -91,6 +97,8 @@ class PendingExecutionContext:
             position_evidence=request.position_evidence,
             position_evidence_max_age=request.position_evidence_max_age,
             position_effect_approval_instant=request.position_effect_approval_instant,
+            product_resolution=request.product_resolution,
+            position_effect_policy_resolution=request.position_effect_policy_resolution,
         )
 
     def to_recovery_request(self) -> PendingExecutionRecoveryRequest:
@@ -105,6 +113,8 @@ class PendingExecutionContext:
             position_evidence=self.position_evidence,
             position_evidence_max_age=self.position_evidence_max_age,
             position_effect_approval_instant=self.position_effect_approval_instant,
+            product_resolution=self.product_resolution,
+            position_effect_policy_resolution=self.position_effect_policy_resolution,
         )
 
     def to_json(self) -> str:
@@ -189,6 +199,14 @@ class PendingExecutionContext:
             ),
             "position_evidence_max_age_microseconds": _timedelta_microseconds(
                 self.position_evidence_max_age
+            ),
+            "product_resolution": (
+                None if self.product_resolution is None else self.product_resolution.to_payload()
+            ),
+            "position_effect_policy_resolution": (
+                None
+                if self.position_effect_policy_resolution is None
+                else self.position_effect_policy_resolution.to_payload()
             ),
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -279,6 +297,18 @@ class PendingExecutionContext:
                 )
             max_age = None if max_age_value is None else timedelta(microseconds=int(max_age_value))
             instant_value = payload.get("position_effect_approval_instant")
+            product_resolution_value = payload.get("product_resolution")
+            policy_resolution_value = payload.get("position_effect_policy_resolution")
+            product_resolution = (
+                None
+                if product_resolution_value is None
+                else ProductSelectionResolution.from_payload(product_resolution_value)
+            )
+            policy_resolution = (
+                None
+                if policy_resolution_value is None
+                else AbsentPositionEffectResolution.from_payload(policy_resolution_value)
+            )
             return cls(
                 request_fingerprint=payload["request_fingerprint"],
                 order=order,
@@ -295,6 +325,8 @@ class PendingExecutionContext:
                 position_effect_approval_instant=(
                     datetime.fromisoformat(instant_value) if instant_value else None
                 ),
+                product_resolution=product_resolution,
+                position_effect_policy_resolution=policy_resolution,
             )
         except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid pending execution context") from exc

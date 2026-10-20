@@ -26,15 +26,21 @@ from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
-from quantx.domain.position_effect import PositionEvidence
-from quantx.domain.product_selection import resolve_request_product
+from quantx.domain.position_effect import (
+    PositionEvidence,
+    resolve_absent_position_effect,
+)
+from quantx.domain.product_selection import ProductSelectionResolution, resolve_request_product
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
-from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
+from quantx.india.market_pack import (
+    INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    INDIA_EQUITY_PRODUCT_SELECTION,
+)
 from quantx.integrations.reconciliation import (
     AccountFinancialState,
     OrderObservation,
@@ -106,6 +112,7 @@ def _request() -> ApprovedExecutionRequest:
         side=OrderSide.BUY,
         quantity=Decimal("2"),
         order_type=OrderType.MARKET,
+        position_effect=PositionEffect.OPEN,
         execution_context=context,
     )
     order = build_order_from_intent(intent)
@@ -114,6 +121,24 @@ def _request() -> ApprovedExecutionRequest:
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),
         PolicyResult(PolicyDecision.APPROVE, "approved"),
+        position_effect=PositionEffect.OPEN,
+    )
+
+
+def _product_resolution(
+    product: ProductCode,
+    *,
+    market_pack_id: str,
+    rule_version: str,
+) -> ProductSelectionResolution:
+    return ProductSelectionResolution(
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        product=product,
+        market_pack_id=market_pack_id,
+        rule_version=rule_version,
+        supported_products=frozenset(
+            {ProductCode("CNC"), ProductCode("DELIVERY"), ProductCode("MIS")}
+        ),
     )
 
 
@@ -449,6 +474,11 @@ def _auto_effect_request() -> ApprovedExecutionRequest:
         position_evidence=evidence,
         position_evidence_max_age=timedelta(minutes=5),
         position_effect_approval_instant=evidence_cut,
+        product_resolution=_product_resolution(
+            ProductCode("MIS"),
+            market_pack_id="india-equity",
+            rule_version="rules-v1",
+        ),
     )
 
 
@@ -475,6 +505,8 @@ def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
     assert restored.position_effect_approval_instant == evidence_cut
     assert restored.execution_context.market_pack_id == "india-equity"
     assert restored.execution_context.rule_version == "rules-v1"
+    assert restored.product_resolution == request.product_resolution
+    assert recovery_request.product_resolution == request.product_resolution
     assert recovery_request.product == ProductCode("MIS")
     assert recovery_request.position_effect is PositionEffect.AUTO
     assert recovery_request.effective_position_effect is PositionEffect.OPEN
@@ -513,6 +545,11 @@ def _product_and_effect_request() -> ApprovedExecutionRequest:
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
         product=ProductCode("MIS"),
         position_effect=PositionEffect.OPEN,
+        product_resolution=_product_resolution(
+            ProductCode("MIS"),
+            market_pack_id="india-equity",
+            rule_version="india-products-v1",
+        ),
     )
 
 
@@ -533,6 +570,97 @@ def test_pending_context_from_json_rejects_missing_effect_symmetry() -> None:
         PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
     )
     payload.pop("position_effect")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def _absent_effect_request() -> ApprovedExecutionRequest:
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+    selection = resolve_request_product(
+        context,
+        explicit_product=ProductCode("CNC"),
+        policy=INDIA_EQUITY_PRODUCT_SELECTION,
+    )
+    effect, _ = resolve_absent_position_effect(
+        selection.context,
+        product=selection.product,
+        policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        product=selection.product,
+        execution_context=selection.context,
+    )
+    return ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=selection.context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=selection.product,
+        product_resolution=selection.resolution,
+        position_effect_policy_resolution=effect.policy_resolution,
+    )
+
+
+def test_pending_context_round_trips_absent_effect_proof() -> None:
+    request = _absent_effect_request()
+    assert request.position_effect_policy_resolution is not None
+
+    restored = PendingExecutionContext.from_json(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    recovery_request = restored.to_recovery_request()
+
+    assert restored.product_resolution == request.product_resolution
+    assert restored.position_effect_policy_resolution == request.position_effect_policy_resolution
+    assert (
+        recovery_request.position_effect_policy_resolution
+        == request.position_effect_policy_resolution
+    )
+
+
+def test_pending_context_from_json_rejects_missing_absent_effect_proof() -> None:
+    request = _absent_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("position_effect_policy_resolution")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def test_pending_context_from_json_rejects_forged_absent_effect_proof() -> None:
+    request = _absent_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload["position_effect_policy_resolution"]["product"] = "MIS"
+    payload["position_effect_policy_resolution"]["rule_product"] = "MIS"
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def test_pending_context_from_json_rejects_missing_product_proof() -> None:
+    request = _product_and_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("product_resolution")
 
     with pytest.raises(ValueError, match="invalid pending execution context"):
         PendingExecutionContext.from_json(json.dumps(payload))
@@ -1027,11 +1155,13 @@ def test_pending_context_preserves_canonical_default_product_and_rule_identity()
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
     )
-    product, resolved_context = resolve_request_product(
+    selection = resolve_request_product(
         context,
         explicit_product=None,
         policy=INDIA_EQUITY_PRODUCT_SELECTION,
     )
+    product = selection.product
+    resolved_context = selection.context
     assert product == ProductCode("CNC")
     assert resolved_context.market_pack_id == "india-equity"
     assert resolved_context.rule_version == "india-products-v1"
@@ -1065,6 +1195,7 @@ def test_pending_context_preserves_canonical_default_product_and_rule_identity()
         position_evidence=evidence,
         position_evidence_max_age=timedelta(minutes=5),
         position_effect_approval_instant=evidence_cut,
+        product_resolution=selection.resolution,
     )
     fingerprint = request_fingerprint(request)
 
@@ -1082,7 +1213,9 @@ def test_pending_context_preserves_canonical_default_product_and_rule_identity()
     assert restored.position_evidence_cut == evidence_cut
     assert restored.position_evidence == evidence
     assert restored.position_effect_approval_instant == evidence_cut
+    assert restored.product_resolution == selection.resolution
     assert recovery_request.product == ProductCode("CNC")
     assert recovery_request.position_effect_approval_instant == evidence_cut
     assert recovery_request.execution_context.market_pack_id == "india-equity"
     assert recovery_request.execution_context.rule_version == "india-products-v1"
+    assert recovery_request.product_resolution == selection.resolution

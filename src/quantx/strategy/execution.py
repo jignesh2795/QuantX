@@ -21,6 +21,7 @@ from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
 from quantx.domain.position_effect import (
+    AbsentPositionEffectResolution,
     PositionEffectPolicy,
     PositionEvidence,
     resolve_absent_position_effect,
@@ -132,16 +133,20 @@ class StrategyExecutionPreparer:
         # decision, and the approved request is built from exactly these
         # immutable values. A failure stops approval and every later side
         # effect; no component resolves them again at broker submission.
-        product, context = resolve_request_product(
+        selection = resolve_request_product(
             context,
             explicit_product=intent.product,
             policy=self._product_selection,
         )
+        product = selection.product
+        context = selection.context
+        product_resolution = selection.resolution
         resolved_intent = replace(intent, product=product, execution_context=context)
         order = build_order_from_intent(resolved_intent)
 
         effective_position_effect: PositionEffect | None = None
         position_evidence_cut: datetime | None = None
+        position_evidence_policy_resolution: AbsentPositionEffectResolution | None = None
         evidence: PositionEvidence | None = None
         evidence_max_age: timedelta | None = None
         approval: datetime | None = None
@@ -177,6 +182,7 @@ class StrategyExecutionPreparer:
                     policy=self._position_effect_policy,
                 )
                 effective_position_effect = resolution.effective
+                position_evidence_policy_resolution = resolution.policy_resolution
                 resolved_intent = replace(resolved_intent, execution_context=context)
 
         risk = self._risk_engine.evaluate(
@@ -212,6 +218,8 @@ class StrategyExecutionPreparer:
             position_evidence=evidence,
             position_evidence_max_age=evidence_max_age,
             position_effect_approval_instant=approval,
+            product_resolution=product_resolution,
+            position_effect_policy_resolution=position_evidence_policy_resolution,
         )
         return StrategyExecutionPreparation(decision, risk, policy, request)
 

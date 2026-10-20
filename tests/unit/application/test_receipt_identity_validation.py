@@ -77,6 +77,7 @@ from quantx.integrations.brokers import (
     CapabilitySet,
 )
 from quantx.persistence import ReceiptRepository, UnitOfWork
+from tests.unit._execution_request_proofs import approved_request
 
 # ---------------------------------------------------------------------------
 # Shared fixtures / factory helpers
@@ -126,7 +127,7 @@ def _live_request(
         execution_context=context,
         product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

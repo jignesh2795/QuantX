@@ -26,6 +26,7 @@ from quantx.domain.value_objects import Money
 from quantx.execution.accounting import FillAccounting
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile, QuoteSnapshot
 from quantx.execution.paper_session import PaperSession
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _instrument() -> Instrument:
@@ -50,6 +51,8 @@ def _request() -> ApprovedExecutionRequest:
         market=market,
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=_instrument().instrument_id,
@@ -61,7 +64,7 @@ def _request() -> ApprovedExecutionRequest:
     from quantx.domain.execution_request import build_order_from_intent
 
     order = build_order_from_intent(intent)
-    return ApprovedExecutionRequest(order, context, RiskResult(RiskDecision.APPROVE, "approved"))
+    return approved_request(order, context, RiskResult(RiskDecision.APPROVE, "approved"))
 
 
 def test_execute_account_and_value_uses_observed_mark() -> None:

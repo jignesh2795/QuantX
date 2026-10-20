@@ -49,6 +49,7 @@ from quantx.plugins.reference_broker import (
     ReferenceBrokerAdapter,
 )
 from quantx.ports.broker import BrokerPort
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _instrument() -> Instrument:
@@ -74,8 +75,8 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=mode,
-        market_pack_id="india" if live else None,
-        rule_version="india-products-v1" if live else None,
+        market_pack_id="india",
+        rule_version="india-products-v1",
     )
     product = ProductCode("CNC") if live else None
     intent = TradeIntent(
@@ -85,7 +86,7 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
         execution_context=context,
         product=product,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

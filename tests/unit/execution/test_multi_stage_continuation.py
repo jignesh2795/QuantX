@@ -138,6 +138,8 @@ def test_reconcile_chain_rejects_broken_parent_linkage() -> None:
         policy_result=second.policy_result,
         required_margin=second.required_margin,
         parent_client_order_id=str(root.order.client_order_id),
+        product_resolution=second.product_resolution,
+        position_effect_policy_resolution=second.position_effect_policy_resolution,
     )
     repository = _ReceiptRepository((first_receipt, second_receipt))
     service = _service(repository, second_receipt)
@@ -188,6 +190,8 @@ def test_reconcile_chain_rejects_stage_quantity_above_parent_remainder() -> None
         policy_result=valid_second.policy_result,
         required_margin=valid_second.required_margin,
         parent_client_order_id=valid_second.parent_client_order_id,
+        product_resolution=valid_second.product_resolution,
+        position_effect_policy_resolution=(valid_second.position_effect_policy_resolution),
     )
     repository = _ReceiptRepository((root_receipt, first_receipt))
     service = _service(repository, first_receipt)
@@ -886,6 +890,8 @@ def test_recover_pending_chain_continuation_rejects_nonlatest_parent_link() -> N
         policy_result=second.policy_result,
         required_margin=second.required_margin,
         parent_client_order_id=str(root.order.client_order_id),
+        product_resolution=second.product_resolution,
+        position_effect_policy_resolution=second.position_effect_policy_resolution,
     )
     repository = _ReceiptRepository((root_receipt, first_receipt))
     idempotency = InMemoryIdempotencyStore()

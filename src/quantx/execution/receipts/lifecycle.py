@@ -115,6 +115,8 @@ class ExecutionLifecycle:
             position_evidence=request.position_evidence,
             position_evidence_max_age=request.position_evidence_max_age,
             position_effect_approval_instant=request.position_effect_approval_instant,
+            product_resolution=request.product_resolution,
+            position_effect_policy_resolution=request.position_effect_policy_resolution,
         )
 
     def continuation_quantity(self, requested_quantity: Decimal | None = None) -> Decimal:

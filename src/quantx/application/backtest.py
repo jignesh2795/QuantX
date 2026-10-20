@@ -33,6 +33,7 @@ from quantx.domain.policy import (
     PolicyResult,
 )
 from quantx.domain.position_effect import (
+    AbsentPositionEffectResolution,
     PositionEffectPolicy,
     PositionEvidence,
     resolve_absent_position_effect,
@@ -1069,11 +1070,14 @@ class DeterministicBacktestService:
                 # Pre-approval resolution: product and position effect are
                 # fixed before risk/policy, then used unchanged to build the
                 # approved request. No later stage resolves them again.
-                product, resolved_context = resolve_request_product(
+                product_selection = resolve_request_product(
                     intent.execution_context,
                     explicit_product=intent.product,
                     policy=self._product_selection,
                 )
+                product = product_selection.product
+                resolved_context = product_selection.context
+                product_resolution = product_selection.resolution
                 resolved_intent = replace(
                     intent,
                     product=product,
@@ -1089,6 +1093,7 @@ class DeterministicBacktestService:
                 )
                 effective_position_effect: PositionEffect | None = None
                 position_evidence_cut: datetime | None = None
+                position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
                 evidence: PositionEvidence | None = None
                 evidence_max_age: timedelta | None = None
                 approval: datetime | None = None
@@ -1128,6 +1133,7 @@ class DeterministicBacktestService:
                             policy=self._position_effect_policy,
                         )
                         effective_position_effect = resolution.effective
+                        position_effect_policy_resolution = resolution.policy_resolution
                         resolved_intent = replace(
                             resolved_intent, execution_context=resolved_context
                         )
@@ -1278,6 +1284,8 @@ class DeterministicBacktestService:
                 position_evidence=evidence,
                 position_evidence_max_age=evidence_max_age,
                 position_effect_approval_instant=approval,
+                product_resolution=product_resolution,
+                position_effect_policy_resolution=position_effect_policy_resolution,
             )
             try:
                 engine_time = self._require_engine_time_coherent(

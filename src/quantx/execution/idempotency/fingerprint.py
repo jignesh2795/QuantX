@@ -118,6 +118,14 @@ def request_fingerprint(request: ApprovedExecutionRequest) -> str:
         "position_evidence_max_age_microseconds": _timedelta_microseconds(
             request.position_evidence_max_age
         ),
+        "product_resolution": (
+            None if request.product_resolution is None else request.product_resolution.to_payload()
+        ),
+        "position_effect_policy_resolution": (
+            None
+            if request.position_effect_policy_resolution is None
+            else request.position_effect_policy_resolution.to_payload()
+        ),
     }
     canonical = json.dumps(_json_value(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

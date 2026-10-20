@@ -215,7 +215,9 @@ def test_preparer_rejects_deployment_market_mismatch() -> None:
 
 
 def test_preparer_builds_approved_execution_request() -> None:
-    result = _preparer().prepare(_decision(), _event(), _financial_state())
+    result = _preparer(product_selection=INDIA_EQUITY_PRODUCT_SELECTION).prepare(
+        _decision(product=ProductCode("CNC")), _event(), _financial_state()
+    )
 
     assert result.risk_result is not None
     assert result.risk_result.decision.value == "approve"
@@ -228,8 +230,8 @@ def test_preparer_builds_approved_execution_request() -> None:
 
 
 def test_preparer_stops_on_risk_rejection() -> None:
-    result = _preparer().prepare(
-        _decision(required_margin=Decimal("200000")),
+    result = _preparer(product_selection=INDIA_EQUITY_PRODUCT_SELECTION).prepare(
+        _decision(required_margin=Decimal("200000"), product=ProductCode("CNC")),
         _event(),
         _financial_state(),
     )
@@ -241,8 +243,11 @@ def test_preparer_stops_on_risk_rejection() -> None:
 
 
 def test_preparer_stops_on_policy_rejection() -> None:
-    result = _preparer().prepare(
-        _decision(required_capabilities=frozenset({"broker.write"})),
+    result = _preparer(product_selection=INDIA_EQUITY_PRODUCT_SELECTION).prepare(
+        _decision(
+            required_capabilities=frozenset({"broker.write"}),
+            product=ProductCode("CNC"),
+        ),
         _event(),
         _financial_state(),
     )

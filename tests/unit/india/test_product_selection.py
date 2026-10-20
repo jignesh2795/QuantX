@@ -30,6 +30,7 @@ from quantx.india.domain import (
 from quantx.india.execution_rules import IndiaExecutionRuleEngine, IndiaRuleDecision
 from quantx.india.product_selection import india_product_type, india_request_product
 from quantx.india.rule_data import IndiaRuleScope, IndiaVenueRuleSnapshot
+from tests.unit._execution_request_proofs import approved_request
 
 NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
 
@@ -72,7 +73,7 @@ def _request(product: ProductCode | None) -> ApprovedExecutionRequest:
         position_effect=PositionEffect.OPEN,
         execution_context=context,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),

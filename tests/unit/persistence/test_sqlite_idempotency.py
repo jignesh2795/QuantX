@@ -41,6 +41,7 @@ from quantx.execution.idempotency import (
     PendingExecutionContext,
 )
 from quantx.persistence.sqlite import SqliteDatabase, SqliteIdempotencyStore
+from tests.unit._execution_request_proofs import approved_request
 
 FINGERPRINT = "a" * 64
 OTHER_FINGERPRINT = "b" * 64
@@ -75,6 +76,8 @@ def _approved_request(client_order_id: UUID | None = None) -> ApprovedExecutionR
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -88,7 +91,7 @@ def _approved_request(client_order_id: UUID | None = None) -> ApprovedExecutionR
     order = build_order_from_intent(intent)
     if client_order_id is not None:
         order = replace(order, client_order_id=client_order_id)
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=order,
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

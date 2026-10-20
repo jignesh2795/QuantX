@@ -27,6 +27,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _market() -> MarketContext:
@@ -69,6 +70,8 @@ def _request(
         market=instrument.market,
         broker_connection_id=(BrokerConnectionId("conn-1") if mode is ExecutionMode.LIVE else None),
         execution_mode=mode,
+        market_pack_id="test-pack",
+        rule_version="test-rules-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -81,7 +84,7 @@ def _request(
     policy = (
         PolicyResult(PolicyDecision.APPROVE, "approved") if mode is ExecutionMode.LIVE else None
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=order,
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

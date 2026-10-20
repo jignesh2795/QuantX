@@ -52,6 +52,7 @@ from quantx.plugins.dhan.adapter import DhanBrokerAdapter
 from quantx.plugins.dhan.models import DhanInstrumentRef, DhanPositionSnapshot
 from quantx.plugins.dhan.recovery import build_dhan_recovery_provider
 from quantx.plugins.dhan.transport import InMemoryDhanTransport
+from tests.unit._execution_request_proofs import approved_request
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
 
@@ -96,7 +97,7 @@ def _approved(
         execution_context=context,
         product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),

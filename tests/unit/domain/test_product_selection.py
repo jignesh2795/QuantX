@@ -153,20 +153,27 @@ def test_default_only_rule_supports_exactly_its_default() -> None:
 
 
 def test_omitted_product_resolves_and_binds_pack_identity() -> None:
-    product, context = resolve_request_product(_context(), explicit_product=None, policy=_policy())
+    result = resolve_request_product(_context(), explicit_product=None, policy=_policy())
 
-    assert product == ProductCode("CNC")
-    assert context.market_pack_id == "india-equity"
-    assert context.rule_version == "india-products-v1"
+    assert result.product == ProductCode("CNC")
+    assert result.context.market_pack_id == "india-equity"
+    assert result.context.rule_version == "india-products-v1"
+    assert result.resolution is not None
+    assert result.resolution.product == ProductCode("CNC")
+    assert result.resolution.market == NSE_EQUITY
+    assert result.resolution.market_pack_id == "india-equity"
+    assert result.resolution.rule_version == "india-products-v1"
+    assert result.resolution.supported_products == frozenset({ProductCode("CNC")})
 
 
 def test_omitted_product_without_policy_stays_absent_for_simulated_modes() -> None:
-    product, context = resolve_request_product(
+    result = resolve_request_product(
         _context(mode=ExecutionMode.BACKTEST), explicit_product=None, policy=None
     )
 
-    assert product is None
-    assert context == _context(mode=ExecutionMode.BACKTEST)
+    assert result.product is None
+    assert result.context == _context(mode=ExecutionMode.BACKTEST)
+    assert result.resolution is None
 
 
 def test_omitted_live_product_fails_closed_before_risk() -> None:
@@ -185,14 +192,19 @@ def test_omitted_product_fails_closed_when_policy_has_no_rule() -> None:
 
 def test_explicit_supported_product_is_preserved_verbatim() -> None:
     context = _context(market_pack_id="india-equity", rule_version="india-products-v1")
-    product, resolved = resolve_request_product(
+    result = resolve_request_product(
         context,
         explicit_product=ProductCode("MIS"),
         policy=_policy(default="CNC", supported=("CNC", "MIS")),
     )
 
-    assert product == ProductCode("MIS")
-    assert resolved == context
+    assert result.product == ProductCode("MIS")
+    assert result.context == context
+    assert result.resolution is not None
+    assert result.resolution.product == ProductCode("MIS")
+    assert result.resolution.supported_products == frozenset(
+        {ProductCode("CNC"), ProductCode("MIS")}
+    )
 
 
 def test_explicit_product_requires_a_supporting_policy() -> None:
@@ -219,15 +231,18 @@ def test_explicit_product_must_be_supported_by_its_market_rule() -> None:
 
 
 def test_explicit_product_binds_the_policy_identity() -> None:
-    product, resolved = resolve_request_product(
+    result = resolve_request_product(
         _context(),
         explicit_product=ProductCode("MIS"),
         policy=_policy(default="CNC", supported=("CNC", "MIS")),
     )
 
-    assert product == ProductCode("MIS")
-    assert resolved.market_pack_id == "india-equity"
-    assert resolved.rule_version == "india-products-v1"
+    assert result.product == ProductCode("MIS")
+    assert result.context.market_pack_id == "india-equity"
+    assert result.context.rule_version == "india-products-v1"
+    assert result.resolution is not None
+    assert result.resolution.market_pack_id == "india-equity"
+    assert result.resolution.rule_version == "india-products-v1"
 
 
 def test_explicit_product_conflicting_policy_identity_is_rejected() -> None:
@@ -271,10 +286,11 @@ def test_conflicting_pack_identity_is_rejected_not_overwritten() -> None:
 
 def test_matching_existing_identity_is_accepted() -> None:
     context = _context(market_pack_id="india-equity", rule_version="india-products-v1")
-    product, resolved = resolve_request_product(context, explicit_product=None, policy=_policy())
+    result = resolve_request_product(context, explicit_product=None, policy=_policy())
 
-    assert product == ProductCode("CNC")
-    assert resolved == context
+    assert result.product == ProductCode("CNC")
+    assert result.context == context
+    assert result.resolution is not None
 
 
 def test_policy_defaults_are_scoped_per_market() -> None:

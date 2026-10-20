@@ -15,13 +15,50 @@ from quantx.domain.execution_request import ApprovedExecutionRequest, build_orde
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Order
-from quantx.domain.position_effect import PositionEvidence
+from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
+from quantx.domain.product_selection import ProductSelectionResolution
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 
 NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
 PACK = {"market_pack_id": "india", "rule_version": "india-products-v1"}
 MAX_AGE = timedelta(minutes=5)
+MARKET = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
+SUPPORTED_PRODUCTS = frozenset({ProductCode("CNC"), ProductCode("DELIVERY"), ProductCode("MIS")})
+
+
+def _product_resolution(
+    product: ProductCode,
+    *,
+    market_pack_id: str = PACK["market_pack_id"],
+    rule_version: str = PACK["rule_version"],
+) -> ProductSelectionResolution:
+    return ProductSelectionResolution(
+        market=MARKET,
+        product=product,
+        market_pack_id=market_pack_id,
+        rule_version=rule_version,
+        supported_products=SUPPORTED_PRODUCTS,
+    )
+
+
+def _absent_effect_resolution(
+    *,
+    product: ProductCode | None = None,
+    effective: PositionEffect | None = None,
+    not_applicable: bool = True,
+    market_pack_id: str = PACK["market_pack_id"],
+    rule_version: str = PACK["rule_version"],
+) -> AbsentPositionEffectResolution:
+    return AbsentPositionEffectResolution(
+        market=MARKET,
+        product=product,
+        rule_product=product,
+        market_pack_id=market_pack_id,
+        rule_version=rule_version,
+        effective=effective,
+        not_applicable=not_applicable,
+    )
 
 
 def _context(
@@ -128,14 +165,28 @@ def _paper_request(
     position_effect_approval_instant: datetime | None = NOW,
     market_pack_id: str | None = PACK["market_pack_id"],
     rule_version: str | None = PACK["rule_version"],
+    product_resolution: ProductSelectionResolution | None = None,
+    position_effect_policy_resolution: AbsentPositionEffectResolution | None = None,
 ) -> ApprovedExecutionRequest:
     requested_effect = order.position_effect if position_effect is None else position_effect
+    resolved_product = order.product if product is None else product
     if requested_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
         max_age = position_evidence_max_age
         instant = position_effect_approval_instant
     else:
         max_age = None
         instant = None
+    if resolved_product is not None and product_resolution is None:
+        product_resolution = _product_resolution(resolved_product)
+    if requested_effect is None and position_effect_policy_resolution is None:
+        proof_effective = (
+            effective_position_effect if effective_position_effect is PositionEffect.OPEN else None
+        )
+        position_effect_policy_resolution = _absent_effect_resolution(
+            product=resolved_product,
+            effective=proof_effective,
+            not_applicable=proof_effective is None,
+        )
     return ApprovedExecutionRequest(
         order=order,
         execution_context=_context(
@@ -144,13 +195,15 @@ def _paper_request(
             rule_version=rule_version,
         ),
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
-        product=order.product if product is None else product,
+        product=resolved_product,
         position_effect=requested_effect,
         effective_position_effect=effective_position_effect,
         position_evidence_cut=position_evidence_cut,
         position_evidence=position_evidence,
         position_evidence_max_age=max_age,
         position_effect_approval_instant=instant,
+        product_resolution=product_resolution,
+        position_effect_policy_resolution=position_effect_policy_resolution,
     )
 
 
@@ -436,7 +489,7 @@ def test_open_request_cannot_carry_an_approval_instant() -> None:
 
 def test_absent_position_effect_resolved_to_open_requires_pack_identity() -> None:
     order = _order()
-    with pytest.raises(ValueError, match="resolved to OPEN requires a market-pack id"):
+    with pytest.raises(ValueError, match="market-pack id does not match"):
         _paper_request(
             order,
             effective_position_effect=PositionEffect.OPEN,
@@ -454,5 +507,68 @@ def test_absent_position_effect_may_resolve_to_open_with_pack_identity() -> None
 
 def test_absent_position_effect_cannot_resolve_to_close() -> None:
     order = _order()
-    with pytest.raises(ValueError, match="may only resolve to OPEN"):
+    with pytest.raises(ValueError, match="does not match the resolved effective effect"):
         _paper_request(order, effective_position_effect=PositionEffect.CLOSE)
+
+
+def test_absent_position_effect_requires_a_validated_policy_resolution() -> None:
+    order = _order()
+    with pytest.raises(
+        ValueError, match="absent position effect requires a validated market-pack policy"
+    ):
+        ApprovedExecutionRequest(
+            order=order,
+            execution_context=_context(ExecutionMode.PAPER, **PACK),
+            risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        )
+
+
+def test_resolved_product_requires_a_validated_selection_resolution() -> None:
+    order = _order(product=ProductCode("CNC"))
+    with pytest.raises(ValueError, match="requires a validated product selection resolution"):
+        ApprovedExecutionRequest(
+            order=order,
+            execution_context=_context(ExecutionMode.PAPER, **PACK),
+            risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+            product=ProductCode("CNC"),
+            position_effect=PositionEffect.OPEN,
+        )
+
+
+def test_absent_effect_policy_resolution_must_match_the_request_product() -> None:
+    order = _order()
+    with pytest.raises(ValueError, match="product does not match the resolved product"):
+        _paper_request(
+            order,
+            position_effect_policy_resolution=_absent_effect_resolution(product=ProductCode("CNC")),
+        )
+
+
+def test_product_selection_resolution_must_match_the_resolved_product() -> None:
+    order = _order(product=ProductCode("CNC"))
+    with pytest.raises(ValueError, match="does not match the resolved product"):
+        _paper_request(
+            order,
+            product_resolution=_product_resolution(ProductCode("MIS")),
+        )
+
+
+def test_product_selection_resolution_must_match_the_context_identity() -> None:
+    order = _order(product=ProductCode("CNC"))
+    with pytest.raises(ValueError, match="market-pack id does not match"):
+        _paper_request(
+            order,
+            product_resolution=_product_resolution(ProductCode("CNC"), market_pack_id="other-pack"),
+        )
+
+
+def test_absent_effect_policy_resolution_is_only_valid_for_an_absent_effect() -> None:
+    order = _order(position_effect=PositionEffect.OPEN)
+    with pytest.raises(ValueError, match="only valid for an absent position effect"):
+        ApprovedExecutionRequest(
+            order=order,
+            execution_context=_context(ExecutionMode.PAPER, **PACK),
+            risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+            position_effect=PositionEffect.OPEN,
+            position_effect_policy_resolution=_absent_effect_resolution(),
+        )

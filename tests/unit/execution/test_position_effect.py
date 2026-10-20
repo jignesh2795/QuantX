@@ -18,6 +18,7 @@ from quantx.domain.enums import OrderSide, OrderType, PositionEffect
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.orders import Order
 from quantx.domain.position_effect import (
+    AbsentPositionEffectResolution,
     PositionEffectPolicy,
     PositionEffectPolicyError,
     PositionEffectRule,
@@ -410,6 +411,11 @@ def test_absent_not_applicable_binds_identity_and_resolves_to_no_effect() -> Non
     assert resolution.requested is None
     assert resolution.effective is None
     assert resolution.evidence_cut is None
+    assert resolution.policy_resolution is not None
+    assert resolution.policy_resolution.not_applicable
+    assert resolution.policy_resolution.product is None
+    assert resolution.policy_resolution.market_pack_id == "india-equity"
+    assert resolution.policy_resolution.rule_version == "india-products-v1"
     assert context.market_pack_id == "india-equity"
     assert context.rule_version == "india-products-v1"
 
@@ -422,7 +428,51 @@ def test_absent_open_default_binds_identity() -> None:
     )
 
     assert resolution.effective is PositionEffect.OPEN
+    assert resolution.policy_resolution is not None
+    assert resolution.policy_resolution.effective is PositionEffect.OPEN
+    assert not resolution.policy_resolution.not_applicable
     assert context.market_pack_id == "india-equity"
+
+
+def test_absent_product_scoped_rule_records_its_scope() -> None:
+    resolution, _ = resolve_absent_position_effect(
+        _context(),
+        product=ProductCode("CNC"),
+        policy=_policy(
+            product=ProductCode("CNC"),
+            not_applicable=True,
+        ),
+    )
+
+    assert resolution.policy_resolution is not None
+    assert resolution.policy_resolution.product == ProductCode("CNC")
+    assert resolution.policy_resolution.rule_product == ProductCode("CNC")
+
+
+def test_policy_resolution_rejects_conflicting_rule_scope() -> None:
+    with pytest.raises(ValueError, match="does not match the request product"):
+        AbsentPositionEffectResolution(
+            market=INDIA_EQUITY,
+            product=ProductCode("MIS"),
+            rule_product=ProductCode("CNC"),
+            market_pack_id="india-equity",
+            rule_version="india-products-v1",
+            effective=None,
+            not_applicable=True,
+        )
+
+
+def test_policy_resolution_rejects_effect_for_not_applicable_rule() -> None:
+    with pytest.raises(ValueError, match="cannot have an effect"):
+        AbsentPositionEffectResolution(
+            market=INDIA_EQUITY,
+            product=ProductCode("CNC"),
+            rule_product=ProductCode("CNC"),
+            market_pack_id="india-equity",
+            rule_version="india-products-v1",
+            effective=PositionEffect.OPEN,
+            not_applicable=True,
+        )
 
 
 def test_absent_policy_without_matching_market_fails_closed() -> None:

@@ -36,6 +36,7 @@ from quantx.plugins.reference_broker import (
     ReferenceBrokerAdapter,
 )
 from quantx.ports.broker import BrokerPort
+from tests.unit._execution_request_proofs import approved_request
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +77,7 @@ def _request() -> ApprovedExecutionRequest:
         execution_context=context,
         product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

@@ -110,8 +110,37 @@ def test_canonical_position_effect_policy_is_not_applicable_for_nse_equity() -> 
 
     assert resolution.effective is None
     assert resolution.evidence_cut is None
+    assert resolution.policy_resolution is not None
+    assert resolution.policy_resolution.product == INDIA_EQUITY_COMPATIBILITY_PRODUCT
+    assert resolution.policy_resolution.rule_product == INDIA_EQUITY_COMPATIBILITY_PRODUCT
+    assert resolution.policy_resolution.not_applicable
     assert context.market_pack_id == INDIA_EQUITY_MARKET_PACK_ID
     assert context.rule_version == INDIA_EQUITY_RULE_VERSION
+
+
+def test_delivery_is_explicitly_not_applicable() -> None:
+    resolution, _ = resolve_absent_position_effect(
+        _context(),
+        product=ProductCode(ProductType.DELIVERY.value),
+        policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    )
+
+    assert resolution.effective is None
+    assert resolution.policy_resolution is not None
+    assert resolution.policy_resolution.rule_product == ProductCode(ProductType.DELIVERY.value)
+
+
+def test_mis_absent_effect_does_not_inherit_the_delivery_rule() -> None:
+    with pytest.raises(PositionEffectPolicyError, match="no versioned position-effect rule"):
+        resolve_absent_position_effect(
+            _context(),
+            product=ProductCode(ProductType.MIS.value),
+            policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        )
+
+
+def test_canonical_position_effect_policy_has_no_market_wide_rule() -> None:
+    assert all(rule.product is not None for rule in INDIA_EQUITY_POSITION_EFFECT_POLICY.rules)
 
 
 def test_canonical_position_effect_policy_does_not_invent_rules_for_other_contexts() -> None:

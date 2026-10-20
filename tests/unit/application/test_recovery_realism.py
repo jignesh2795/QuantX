@@ -44,6 +44,7 @@ from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
 from quantx.plugins.dhan.models import DhanPositionSnapshot
 from quantx.plugins.dhan.recovery import build_dhan_recovery_provider
+from tests.unit._execution_request_proofs import approved_request
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
 RESOLVED_AT = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
@@ -83,7 +84,7 @@ def _request() -> ApprovedExecutionRequest:
         execution_context=context,
         product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),

@@ -85,6 +85,11 @@ from quantx.strategy.reference import BuyAndHoldStrategy
 from quantx.strategy.registry import StrategyRegistry
 
 
+def _service(**kwargs):
+    kwargs.setdefault("product_selection", INDIA_EQUITY_PRODUCT_SELECTION)
+    return DeterministicBacktestService(**kwargs)
+
+
 def _market() -> MarketContext:
     return MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
 
@@ -1187,7 +1192,7 @@ def test_backtest_paper_order_sequence_parity() -> None:
             )
         )
 
-    backtest_result = DeterministicBacktestService(
+    backtest_result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
@@ -1309,7 +1314,7 @@ def _context_inventory_signature(
 
 def _buy_and_hold_driver_run():
     backtest_strategy = _ObservedBuyAndHold()
-    backtest_result = DeterministicBacktestService(
+    backtest_result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
@@ -1551,7 +1556,7 @@ class _AcceptedWithoutFillObserver:
 
 def test_qx08_backtest_rejects_live_execution_context_for_bound_intents() -> None:
     context = replace(_bound_context(), execution_mode=ExecutionMode.LIVE)
-    service = DeterministicBacktestService(
+    service = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     )
@@ -1568,7 +1573,7 @@ def test_qx08_backtest_rejects_live_execution_context_for_bound_intents() -> Non
 
 def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> None:
     backtest_strategy = _AcceptedWithoutFillObserver()
-    backtest_result = DeterministicBacktestService(
+    backtest_result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
@@ -1621,7 +1626,7 @@ def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> Non
 
 def test_qx08_accepted_without_fill_is_preserved_after_order_callback_error() -> None:
     backtest_strategy = _AcceptedWithoutFillObserver(fail_order_update=True)
-    backtest_result = DeterministicBacktestService(
+    backtest_result = _service(
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
