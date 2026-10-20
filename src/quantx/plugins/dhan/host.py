@@ -39,8 +39,8 @@ from quantx.integrations.account_registry import AccountConnectionRegistry, Regi
 from quantx.integrations.brokers import BrokerConnectionRef
 
 from .adapter import DhanBrokerAdapter
-from .market_data import DhanMarketDataAdapter
 from .mapping import normalize_dhan_product_map
+from .market_data import DhanMarketDataAdapter
 from .models import DhanCredentials, DhanInstrumentRef
 from .recovery import build_dhan_recovery_provider
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanSDKTransport, DhanTransport

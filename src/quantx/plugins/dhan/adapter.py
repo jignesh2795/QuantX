@@ -68,9 +68,7 @@ class DhanBrokerAdapter:
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise ValueError(f"{name} must be a positive number")
         if self._product_map is not None:
-            object.__setattr__(
-                self, "_product_map", normalize_dhan_product_map(self._product_map)
-            )
+            object.__setattr__(self, "_product_map", normalize_dhan_product_map(self._product_map))
 
     @property
     def descriptor(self) -> BrokerDescriptor:

@@ -51,6 +51,7 @@ from tests.unit._execution_request_proofs import approved_request, policy_verifi
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
 _PRODUCT_MAP = {"CNC": "CNC", "MIS": "INTRADAY", "NRML": "MARGIN"}
+_DEFAULT_PRODUCT = ProductCode("CNC")
 
 
 def _instrument() -> Instrument:
@@ -93,7 +94,7 @@ def _config(tmp_path, **overrides) -> DhanHostConfig:
 
 def _approved(
     *,
-    product: ProductCode = ProductCode("CNC"),
+    product: ProductCode = _DEFAULT_PRODUCT,
     position_effect: PositionEffect | None = None,
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
