@@ -59,6 +59,8 @@ from quantx.plugins.dhan.models import DhanOrderDetail
 from quantx.plugins.dhan.transport import DhanSDKTransport, DhanTimeoutError
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
+_PRODUCT_MAP = {"CNC": "CNC"}
+
 
 def _approving_india_evaluator():
     """India layer is not under test here; approve explicitly to reach it."""
@@ -622,6 +624,7 @@ def test_host_config_rejects_invalid_timeouts(tmp_path) -> None:
         "market_context_id": "NSE_EQ",
         "instruments": ((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
         "transport": InMemoryDhanTransport(),
+        "product_map": _PRODUCT_MAP,
     }
 
     valid_timeouts = {
@@ -666,6 +669,7 @@ def test_host_config_accepts_valid_timeouts(tmp_path) -> None:
         market_context_id="NSE_EQ",
         instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
         transport=InMemoryDhanTransport(),
+        product_map=_PRODUCT_MAP,
         submit_timeout_seconds=10.0,
         cancel_timeout_seconds=5.0,
         reconcile_timeout_seconds=15.0,
@@ -691,6 +695,7 @@ def test_host_close_shuts_down_transport(tmp_path) -> None:
         market_context_id="NSE_EQ",
         instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
         transport=transport,
+        product_map=_PRODUCT_MAP,
         submit_timeout_seconds=5.0,
         cancel_timeout_seconds=5.0,
         reconcile_timeout_seconds=5.0,
