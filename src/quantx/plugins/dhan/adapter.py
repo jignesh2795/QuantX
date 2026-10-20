@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -31,6 +32,8 @@ from .capabilities import DHAN_CAPABILITIES
 from .mapping import (
     build_order_request,
     dhan_correlation_id,
+    dhan_product_type,
+    normalize_dhan_product_map,
     normalize_status,
     parse_dhan_timestamp,
 )
@@ -51,6 +54,7 @@ class DhanBrokerAdapter:
     _read_timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
     _capabilities: CapabilitySet = DHAN_CAPABILITIES
     _adapter_version: str = "dhan-0.1"
+    _product_map: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         if self._connection.broker_id != "dhan":
@@ -63,6 +67,8 @@ class DhanBrokerAdapter:
         ):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise ValueError(f"{name} must be a positive number")
+        if self._product_map is not None:
+            object.__setattr__(self, "_product_map", normalize_dhan_product_map(self._product_map))
 
     @property
     def descriptor(self) -> BrokerDescriptor:
@@ -84,6 +90,19 @@ class DhanBrokerAdapter:
         if context.broker_connection_id != self._connection.connection_id:
             raise ValueError("Dhan adapter connection does not match execution request connection")
 
+    def _validate_product(self, request: ApprovedExecutionRequest) -> None:
+        try:
+            dhan_product_type(request.product, product_map=self._product_map)
+        except ValueError as exc:
+            if request.product is None:
+                raise BrokerPreflightRejected(
+                    "Dhan submission requires an approved resolved product; "
+                    "instrument references carry no product default"
+                ) from exc
+            raise BrokerPreflightRejected(
+                f"unsupported product for Dhan adapter: {request.product.value}"
+            ) from exc
+
     def health(self) -> bool:
         return self._transport.health(timeout=self._read_timeout)
 
@@ -104,6 +123,7 @@ class DhanBrokerAdapter:
             self._validate_connection(request)
             broker_instrument = self._resolve(request.order.instrument)
             self._validate_market(broker_instrument[0], broker_instrument[1])
+            self._validate_product(request)
             wire = build_order_request(
                 instrument_ref=broker_instrument[1],
                 side=request.order.side,
@@ -113,6 +133,8 @@ class DhanBrokerAdapter:
                 stop_price=request.order.stop_price,
                 time_in_force=request.order.time_in_force,
                 correlation_id=request.correlation_id,
+                product_code=request.product,
+                product_map=self._product_map,
             )
         except BrokerPreflightRejected:
             raise
@@ -374,15 +396,6 @@ class DhanBrokerAdapter:
             )
         if instrument.market.venue.upper() != segment_venue:
             raise ValueError("Dhan instrument exchange segment does not match request market venue")
-        if instrument_ref.product_type.upper() not in {
-            "CNC",
-            "INTRADAY",
-            "MARGIN",
-            "MTF",
-        }:
-            raise ValueError(
-                f"unsupported Dhan regular-order product type: {instrument_ref.product_type}"
-            )
 
     @staticmethod
     def _unknown_receipt(

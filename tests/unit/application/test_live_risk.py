@@ -36,7 +36,7 @@ from quantx.domain.risk import (
     RiskResult,
     RiskSnapshot,
 )
-from quantx.domain.value_objects import Money
+from quantx.domain.value_objects import Money, ProductCode
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
@@ -55,6 +55,7 @@ from quantx.persistence.sqlite import (
     SqliteUnitOfWork,
 )
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 EVALUATED_AT = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
 OBSERVED_AT = datetime(2026, 1, 1, 9, 29, tzinfo=UTC)
@@ -107,6 +108,8 @@ def _execution_context() -> ExecutionContext:
         market=_market(),
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
 
 
@@ -118,6 +121,7 @@ def _intent(**overrides) -> TradeIntent:
         "required_margin": Decimal("1000"),
         "required_capabilities": frozenset({"ORDER_SUBMISSION"}),
         "execution_context": _execution_context(),
+        "product": ProductCode("CNC"),
     }
     values.update(overrides)
     return TradeIntent(**values)
@@ -166,11 +170,12 @@ def _evaluate(intent=None, context=None, limits=None, snapshot=None) -> RiskResu
 def _request() -> ApprovedExecutionRequest:
     intent = _intent()
     context = _execution_context()
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "upstream approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("CNC"),
     )
 
 
@@ -183,13 +188,14 @@ def _adapter(transport: InMemoryDhanTransport) -> DhanBrokerAdapter:
         _instruments={
             instrument.instrument_id: (
                 instrument,
-                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
+                DhanInstrumentRef("1333", "NSE_EQ", "TCS"),
             )
         },
         _transport=transport,
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _product_map={"CNC": "CNC"},
     )
 
 
@@ -691,6 +697,7 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
             application_runtime=_started_runtime(),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             live_risk_evaluator=_evaluator(limits=_limits(max_order_notional=Decimal("1"))),
+            policy_verifier=policy_verifier(),
         )
         request = _request()
         result = orchestrator.execute(request, broker=_adapter(transport))
@@ -736,6 +743,7 @@ def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
             application_runtime=_started_runtime(),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             live_risk_evaluator=_evaluator(),
+            policy_verifier=policy_verifier(),
         )
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 
@@ -764,6 +772,7 @@ def test_upstream_approve_cannot_bypass_authoritative_risk(tmp_path) -> None:
                 limits=_limits(max_daily_loss=Decimal("1")),
                 snapshot=_snapshot(daily_pnl=Decimal("-100")),
             ),
+            policy_verifier=policy_verifier(),
         )
         # The request carries an upstream APPROVE, yet the bound evaluator
         # rejects on current state; the submission must still be blocked.
@@ -798,6 +807,7 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
             application_runtime=_started_runtime(),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
             live_risk_evaluator=exploding,
+            policy_verifier=policy_verifier(),
         )
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 

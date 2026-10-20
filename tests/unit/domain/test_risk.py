@@ -1,3 +1,4 @@
+from dataclasses import replace
 from decimal import Decimal
 
 from quantx.domain.accounts import AccountId
@@ -7,7 +8,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide
+from quantx.domain.enums import AssetClass, OrderSide, PositionEffect
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint, CapitalSourceType
 from quantx.domain.instruments import (
     Instrument,
@@ -98,3 +99,53 @@ def test_pre_trade_risk_enforces_broker_minimum() -> None:
     )
     result = PreTradeRiskEngine().evaluate(_intent(quantity=Decimal("10")), context)
     assert result.decision == RiskDecision.REJECT
+
+
+def test_absent_effect_resolved_to_open_requires_pack_identity() -> None:
+    context = replace(_context(), effective_position_effect=PositionEffect.OPEN)
+
+    result = PreTradeRiskEngine().evaluate(_intent(), context)
+
+    assert result.decision is RiskDecision.REJECT
+    assert "requires a market-pack id" in result.reason
+
+
+def test_absent_effect_resolved_to_open_with_identity_is_accepted() -> None:
+    context = replace(
+        _context(),
+        effective_position_effect=PositionEffect.OPEN,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+
+    result = PreTradeRiskEngine().evaluate(_intent(), context)
+
+    assert result.decision is RiskDecision.APPROVE
+
+
+def test_absent_effect_cannot_resolve_to_close() -> None:
+    context = replace(
+        _context(),
+        effective_position_effect=PositionEffect.CLOSE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+
+    result = PreTradeRiskEngine().evaluate(_intent(), context)
+
+    assert result.decision is RiskDecision.REJECT
+    assert "may only resolve to OPEN" in result.reason
+
+
+def test_explicit_open_cannot_carry_a_resolved_effect() -> None:
+    context = replace(
+        _context(),
+        effective_position_effect=PositionEffect.OPEN,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+
+    result = PreTradeRiskEngine().evaluate(_intent(position_effect=PositionEffect.OPEN), context)
+
+    assert result.decision is RiskDecision.REJECT
+    assert "explicit OPEN request cannot carry" in result.reason

@@ -34,6 +34,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.receipts.models import ExecutionOutcome
 from quantx.execution.trading_gate import DurableTradingGate
@@ -56,6 +57,9 @@ from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDh
 from quantx.plugins.dhan.host import DhanHostConfig, build_dhan_host_runtime
 from quantx.plugins.dhan.models import DhanOrderDetail
 from quantx.plugins.dhan.transport import DhanSDKTransport, DhanTimeoutError
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
+
+_PRODUCT_MAP = {"CNC": "CNC"}
 
 
 def _approving_india_evaluator():
@@ -197,6 +201,8 @@ def _request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -206,12 +212,14 @@ def _request() -> ApprovedExecutionRequest:
         time_in_force=TimeInForce.DAY,
         required_capabilities=frozenset({"ORDER_SUBMISSION"}),
         execution_context=context,
+        product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("CNC"),
     )
 
 
@@ -238,7 +246,6 @@ def _adapter(
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },
@@ -246,6 +253,7 @@ def _adapter(
         _submit_timeout=submit_timeout,
         _cancel_timeout=cancel_timeout,
         _reconcile_timeout=reconcile_timeout,
+        _product_map={"CNC": "CNC"},
     )
 
 
@@ -285,6 +293,7 @@ def test_gate_block_completes_while_broker_submit_blocked(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             application_runtime=_started_runtime(),
+            policy_verifier=policy_verifier(),
         )
 
         submit_done = threading.Event()
@@ -358,6 +367,7 @@ def test_slow_health_probe_does_not_serialize_block(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             application_runtime=_started_runtime(),
+            policy_verifier=policy_verifier(),
         )
 
         submit_done = threading.Event()
@@ -409,6 +419,7 @@ def test_blocked_gate_creates_no_reservation_or_submission(tmp_path) -> None:
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
             ),
+            policy_verifier=policy_verifier(),
         )
 
         request = _request()
@@ -448,6 +459,7 @@ def test_authorized_reservation_continues_after_block(tmp_path) -> None:
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
             ),
+            policy_verifier=policy_verifier(),
         )
         request = _request()
         submit_done = threading.Event()
@@ -502,6 +514,7 @@ def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             application_runtime=_started_runtime(),
+            policy_verifier=policy_verifier(),
         )
 
         request = _request()
@@ -579,6 +592,7 @@ def test_late_broker_success_reconciles_without_resubmission(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             application_runtime=_started_runtime(),
+            policy_verifier=policy_verifier(),
         )
         request = _request()
 
@@ -608,8 +622,9 @@ def test_host_config_rejects_invalid_timeouts(tmp_path) -> None:
         "account_id": AccountId("acct-1"),
         "connection_id": BrokerConnectionId("conn-1"),
         "market_context_id": "NSE_EQ",
-        "instruments": ((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC")),),
+        "instruments": ((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
         "transport": InMemoryDhanTransport(),
+        "product_map": _PRODUCT_MAP,
     }
 
     valid_timeouts = {
@@ -627,7 +642,10 @@ def test_host_config_rejects_invalid_timeouts(tmp_path) -> None:
         for bad in (0, -1, "invalid", True, False):
             kwargs = {**base_kwargs, **valid_timeouts, field: bad}
             with pytest.raises(ValueError, match=f"{field} must be a positive number"):
-                DhanHostConfig(**kwargs)
+                DhanHostConfig(
+                    **kwargs,
+                    policy_verifier=policy_verifier(),
+                )
 
 
 def test_adapter_rejects_bool_timeouts() -> None:
@@ -649,11 +667,13 @@ def test_host_config_accepts_valid_timeouts(tmp_path) -> None:
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
         market_context_id="NSE_EQ",
-        instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC")),),
+        instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
         transport=InMemoryDhanTransport(),
+        product_map=_PRODUCT_MAP,
         submit_timeout_seconds=10.0,
         cancel_timeout_seconds=5.0,
         reconcile_timeout_seconds=15.0,
+        policy_verifier=policy_verifier(),
     )
 
     host = build_dhan_host_runtime(config)
@@ -673,11 +693,13 @@ def test_host_close_shuts_down_transport(tmp_path) -> None:
         account_id=AccountId("acct-1"),
         connection_id=BrokerConnectionId("conn-1"),
         market_context_id="NSE_EQ",
-        instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC")),),
+        instruments=((_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
         transport=transport,
+        product_map=_PRODUCT_MAP,
         submit_timeout_seconds=5.0,
         cancel_timeout_seconds=5.0,
         reconcile_timeout_seconds=5.0,
+        policy_verifier=policy_verifier(),
     )
     host = build_dhan_host_runtime(config)
     host.close()
@@ -703,6 +725,7 @@ def test_idempotency_preserved_after_timeout(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             application_runtime=_started_runtime(),
+            policy_verifier=policy_verifier(),
         )
         request = _request()
 

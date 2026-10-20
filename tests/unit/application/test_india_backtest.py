@@ -30,8 +30,17 @@ from quantx.india import (
     IndianInstrumentSpec,
     IndianSegment,
 )
+from quantx.india.market_pack import (
+    INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    INDIA_EQUITY_PRODUCT_SELECTION,
+)
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.replay import ReplayFrame
+
+
+def _service(**kwargs):
+    kwargs.setdefault("product_selection", INDIA_EQUITY_PRODUCT_SELECTION)
+    return DeterministicBacktestService(**kwargs)
 
 
 def test_indian_nse_spec_flows_through_registry_and_deterministic_backtest() -> None:
@@ -90,7 +99,9 @@ def test_indian_nse_spec_flows_through_registry_and_deterministic_backtest() -> 
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(instrument_registry=registry).run(
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY, instrument_registry=registry
+    ).run(
         series=series,
         strategy=strategy,
         financial_state=AccountFinancialState(

@@ -10,6 +10,7 @@ from quantx.application.production import (
 )
 from quantx.domain.value_objects import AccountId
 from quantx.integrations.account_registry import AccountConnectionRegistry
+from tests.unit._execution_request_proofs import policy_verifier
 
 
 def test_build_production_runtime_uses_explicit_registry_configuration(tmp_path: Path) -> None:
@@ -23,6 +24,7 @@ def test_build_production_runtime_uses_explicit_registry_configuration(tmp_path:
             database_path=tmp_path / "quantx.db",
             configure_registry=configure_registry,
             evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+            policy_verifier=policy_verifier(),
         )
     )
     try:
@@ -39,6 +41,7 @@ def test_production_runtime_start_runs_recovery_before_ready(tmp_path: Path) -> 
             database_path=tmp_path / "quantx.db",
             configure_registry=lambda registry: None,
             evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+            policy_verifier=policy_verifier(),
         )
     )
     try:
@@ -63,6 +66,7 @@ def test_registry_configuration_failure_closes_database(tmp_path: Path) -> None:
                 database_path=path,
                 configure_registry=fail,
                 evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+                policy_verifier=policy_verifier(),
             )
         )
 

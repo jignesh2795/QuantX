@@ -28,6 +28,7 @@ from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.lifecycle import ExecutionLifecycleService
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 
 def _instrument() -> Instrument:
@@ -52,6 +53,8 @@ def _request(quantity: str = "10") -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     order = Order(
         instrument=instrument.instrument_id,
@@ -61,7 +64,7 @@ def _request(quantity: str = "10") -> ApprovedExecutionRequest:
         time_in_force=TimeInForce.DAY,
         required_capabilities=("market_order",),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=order,
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
@@ -149,7 +152,12 @@ class _ReceiptRepository:
 def test_dispatch_returns_lifecycle_from_receipt() -> None:
     request = _request()
     receipt = _receipt(request, "4")
-    service = ExecutionLifecycleService(ExecutionDispatcher(paper_port=_PaperPort(receipt)))
+    service = ExecutionLifecycleService(
+        ExecutionDispatcher(
+            paper_port=_PaperPort(receipt),
+            policy_verifier=policy_verifier(),
+        )
+    )
 
     result = service.dispatch(request, snapshot=_snapshot())
 
@@ -167,7 +175,10 @@ def test_reconcile_rebuilds_from_authoritative_receipts() -> None:
     second = _receipt(request, "6")
     repository = _ReceiptRepository((first, second))
     service = ExecutionLifecycleService(
-        ExecutionDispatcher(paper_port=_PaperPort(first)),
+        ExecutionDispatcher(
+            paper_port=_PaperPort(first),
+            policy_verifier=policy_verifier(),
+        ),
         receipt_repository=repository,
     )
 
@@ -185,7 +196,10 @@ def test_dispatch_prefers_authoritative_receipt_history() -> None:
     second = _receipt(request, "2")
     repository = _ReceiptRepository((first, second))
     service = ExecutionLifecycleService(
-        ExecutionDispatcher(paper_port=_PaperPort(first)),
+        ExecutionDispatcher(
+            paper_port=_PaperPort(first),
+            policy_verifier=policy_verifier(),
+        ),
         receipt_repository=repository,
     )
 
@@ -197,7 +211,7 @@ def test_dispatch_prefers_authoritative_receipt_history() -> None:
 
 def test_reconcile_requires_authoritative_repository() -> None:
     request = _request()
-    service = ExecutionLifecycleService(ExecutionDispatcher())
+    service = ExecutionLifecycleService(ExecutionDispatcher(policy_verifier=policy_verifier()))
 
     with pytest.raises(ValueError, match="authoritative receipt repository"):
         service.reconcile(request)
@@ -207,7 +221,7 @@ def test_reconcile_rejects_missing_receipt_evidence() -> None:
     request = _request()
     repository = _ReceiptRepository(())
     service = ExecutionLifecycleService(
-        ExecutionDispatcher(),
+        ExecutionDispatcher(policy_verifier=policy_verifier()),
         receipt_repository=repository,
     )
 
@@ -240,7 +254,7 @@ def test_reconcile_can_resolve_unknown_from_authoritative_receipt_history() -> N
     )
     repository = _ReceiptRepository((unknown, confirmed))
     service = ExecutionLifecycleService(
-        ExecutionDispatcher(),
+        ExecutionDispatcher(policy_verifier=policy_verifier()),
         receipt_repository=repository,
     )
 

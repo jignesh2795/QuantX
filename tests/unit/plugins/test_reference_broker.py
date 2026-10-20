@@ -26,6 +26,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
@@ -48,6 +49,7 @@ from quantx.plugins.reference_broker import (
     ReferenceBrokerAdapter,
 )
 from quantx.ports.broker import BrokerPort
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 
 def _instrument() -> Instrument:
@@ -65,6 +67,7 @@ def _instrument() -> Instrument:
 
 def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequest:
     instrument = _instrument()
+    live = mode is ExecutionMode.LIVE
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -72,18 +75,23 @@ def _request(mode: ExecutionMode = ExecutionMode.PAPER) -> ApprovedExecutionRequ
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=mode,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
+    product = ProductCode("CNC") if live else None
     intent = TradeIntent(
         instrument=instrument.instrument_id,
         side=OrderSide.BUY,
         quantity=Decimal("2"),
         execution_context=context,
+        product=product,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
     )
 
 
@@ -230,6 +238,7 @@ def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> Non
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
             ),
+            policy_verifier=policy_verifier(),
         ).execute(request, broker=adapter)
     finally:
         database.close()

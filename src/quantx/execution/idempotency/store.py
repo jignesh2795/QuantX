@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from threading import RLock
@@ -17,14 +17,26 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
+from quantx.domain.enums import OrderSide, OrderStatus, OrderType, PositionEffect, TimeInForce
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
     PendingExecutionRecoveryRequest,
+    validate_order_product_symmetry,
+    validate_position_effect_fields,
 )
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.orders import Order
-from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
+from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
+from quantx.domain.product_selection import ProductSelectionResolution
+from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId, ProductCode
+
+from .fingerprint import request_fingerprint
+
+
+def _timedelta_microseconds(value: timedelta | None) -> int | None:
+    if value is None:
+        return None
+    return (value.days * 86_400 + value.seconds) * 1_000_000 + value.microseconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,12 +47,39 @@ class PendingExecutionContext:
     order: Order
     execution_context: ExecutionContext
     parent_client_order_id: str | None = None
+    product: ProductCode | None = None
+    position_effect: PositionEffect | None = None
+    effective_position_effect: PositionEffect | None = None
+    position_evidence_cut: datetime | None = None
+    position_evidence: PositionEvidence | None = None
+    position_evidence_max_age: timedelta | None = None
+    position_effect_approval_instant: datetime | None = None
+    product_resolution: ProductSelectionResolution | None = None
+    position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_fingerprint, str) or not self.request_fingerprint.strip():
             raise ValueError("pending execution context fingerprint must not be empty")
         if self.execution_context.execution_mode is not ExecutionMode.LIVE:
             raise ValueError("pending execution context must describe LIVE execution")
+        validate_order_product_symmetry(
+            self.order,
+            self.product,
+            execution_context=self.execution_context,
+            product_resolution=self.product_resolution,
+        )
+        validate_position_effect_fields(
+            self.order,
+            execution_context=self.execution_context,
+            product=self.product,
+            position_effect=self.position_effect,
+            effective_position_effect=self.effective_position_effect,
+            position_evidence_cut=self.position_evidence_cut,
+            position_evidence=self.position_evidence,
+            position_evidence_max_age=self.position_evidence_max_age,
+            position_effect_approval_instant=self.position_effect_approval_instant,
+            position_effect_policy_resolution=self.position_effect_policy_resolution,
+        )
 
     @classmethod
     def from_request(
@@ -53,6 +92,15 @@ class PendingExecutionContext:
             order=request.order,
             execution_context=request.execution_context,
             parent_client_order_id=request.parent_client_order_id,
+            product=request.product,
+            position_effect=request.position_effect,
+            effective_position_effect=request.effective_position_effect,
+            position_evidence_cut=request.position_evidence_cut,
+            position_evidence=request.position_evidence,
+            position_evidence_max_age=request.position_evidence_max_age,
+            position_effect_approval_instant=request.position_effect_approval_instant,
+            product_resolution=request.product_resolution,
+            position_effect_policy_resolution=request.position_effect_policy_resolution,
         )
 
     def to_recovery_request(self) -> PendingExecutionRecoveryRequest:
@@ -60,6 +108,15 @@ class PendingExecutionContext:
             order=self.order,
             execution_context=self.execution_context,
             parent_client_order_id=self.parent_client_order_id,
+            product=self.product,
+            position_effect=self.position_effect,
+            effective_position_effect=self.effective_position_effect,
+            position_evidence_cut=self.position_evidence_cut,
+            position_evidence=self.position_evidence,
+            position_evidence_max_age=self.position_evidence_max_age,
+            position_effect_approval_instant=self.position_effect_approval_instant,
+            product_resolution=self.product_resolution,
+            position_effect_policy_resolution=self.position_effect_policy_resolution,
         )
 
     def to_json(self) -> str:
@@ -86,6 +143,10 @@ class PendingExecutionContext:
                 "strategy_id": self.order.strategy_id,
                 "strategy_version": self.order.strategy_version,
                 "required_capabilities": sorted(self.order.required_capabilities),
+                "product": None if self.order.product is None else str(self.order.product),
+                "position_effect": (
+                    None if self.order.position_effect is None else self.order.position_effect.value
+                ),
             },
             "execution_context": {
                 "account_id": self.execution_context.account_id.value,
@@ -101,9 +162,53 @@ class PendingExecutionContext:
                     else self.execution_context.broker_connection_id.value
                 ),
                 "execution_mode": self.execution_context.execution_mode.value,
+                "market_pack_id": self.execution_context.market_pack_id,
+                "rule_version": self.execution_context.rule_version,
             },
             "parent_client_order_id": (
                 None if self.parent_client_order_id is None else str(self.parent_client_order_id)
+            ),
+            "product": None if self.product is None else str(self.product),
+            "position_effect": (
+                None if self.position_effect is None else self.position_effect.value
+            ),
+            "effective_position_effect": (
+                None
+                if self.effective_position_effect is None
+                else self.effective_position_effect.value
+            ),
+            "position_evidence_cut": (
+                None
+                if self.position_evidence_cut is None
+                else self.position_evidence_cut.isoformat()
+            ),
+            "position_effect_approval_instant": (
+                None
+                if self.position_effect_approval_instant is None
+                else self.position_effect_approval_instant.isoformat()
+            ),
+            "position_evidence": (
+                None
+                if self.position_evidence is None
+                else {
+                    "instrument_venue": self.position_evidence.instrument.venue,
+                    "instrument_symbol": self.position_evidence.instrument.symbol,
+                    "quantity": str(self.position_evidence.quantity),
+                    "observed_at": self.position_evidence.observed_at.isoformat(),
+                    "evidence_cut": self.position_evidence.evidence_cut.isoformat(),
+                    "matched": self.position_evidence.matched,
+                }
+            ),
+            "position_evidence_max_age_microseconds": _timedelta_microseconds(
+                self.position_evidence_max_age
+            ),
+            "product_resolution": (
+                None if self.product_resolution is None else self.product_resolution.to_payload()
+            ),
+            "position_effect_policy_resolution": (
+                None
+                if self.position_effect_policy_resolution is None
+                else self.position_effect_policy_resolution.to_payload()
             ),
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -142,6 +247,12 @@ class PendingExecutionContext:
                 strategy_id=order_data["strategy_id"],
                 strategy_version=order_data["strategy_version"],
                 required_capabilities=frozenset(order_data["required_capabilities"]),
+                product=ProductCode(order_data["product"]) if order_data.get("product") else None,
+                position_effect=(
+                    PositionEffect(order_data["position_effect"])
+                    if order_data.get("position_effect")
+                    else None
+                ),
             )
             context = ExecutionContext(
                 account_id=AccountId(context_data["account_id"]),
@@ -159,16 +270,77 @@ class PendingExecutionContext:
                     else BrokerConnectionId(context_data["broker_connection_id"])
                 ),
                 execution_mode=ExecutionMode(context_data["execution_mode"]),
+                market_pack_id=context_data.get("market_pack_id"),
+                rule_version=context_data.get("rule_version"),
             )
             parent = payload["parent_client_order_id"]
-            return cls(
+            product_value = payload.get("product")
+            effect_value = payload.get("position_effect")
+            effective_value = payload.get("effective_position_effect")
+            cut_value = payload.get("position_evidence_cut")
+            evidence_value = payload.get("position_evidence")
+            max_age_value = payload.get("position_evidence_max_age_microseconds")
+            evidence = None
+            if evidence_value is not None:
+                if not isinstance(evidence_value, dict):
+                    raise ValueError("pending position evidence must be an object")
+                matched = evidence_value["matched"]
+                if not isinstance(matched, bool):
+                    raise ValueError("pending position evidence matched must be boolean")
+                evidence = PositionEvidence(
+                    instrument=InstrumentId(
+                        evidence_value["instrument_venue"],
+                        evidence_value["instrument_symbol"],
+                    ),
+                    quantity=Decimal(evidence_value["quantity"]),
+                    observed_at=datetime.fromisoformat(evidence_value["observed_at"]),
+                    evidence_cut=datetime.fromisoformat(evidence_value["evidence_cut"]),
+                    matched=matched,
+                )
+            max_age = None if max_age_value is None else timedelta(microseconds=int(max_age_value))
+            instant_value = payload.get("position_effect_approval_instant")
+            product_resolution_value = payload.get("product_resolution")
+            policy_resolution_value = payload.get("position_effect_policy_resolution")
+            product_resolution = (
+                None
+                if product_resolution_value is None
+                else ProductSelectionResolution.from_payload(product_resolution_value)
+            )
+            policy_resolution = (
+                None
+                if policy_resolution_value is None
+                else AbsentPositionEffectResolution.from_payload(policy_resolution_value)
+            )
+            restored = cls(
                 request_fingerprint=payload["request_fingerprint"],
                 order=order,
                 execution_context=context,
                 parent_client_order_id=parent,
+                product=ProductCode(product_value) if product_value else None,
+                position_effect=PositionEffect(effect_value) if effect_value else None,
+                effective_position_effect=(
+                    PositionEffect(effective_value) if effective_value else None
+                ),
+                position_evidence_cut=(datetime.fromisoformat(cut_value) if cut_value else None),
+                position_evidence=evidence,
+                position_evidence_max_age=max_age,
+                position_effect_approval_instant=(
+                    datetime.fromisoformat(instant_value) if instant_value else None
+                ),
+                product_resolution=product_resolution,
+                position_effect_policy_resolution=policy_resolution,
             )
         except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid pending execution context") from exc
+        # The stored digest is only trustworthy when it still describes the
+        # restored execution semantics. Re-derive it with the canonical rules
+        # and compare: a payload whose proof or execution fields were altered
+        # while the old digest was kept is rejected instead of recovered.
+        if request_fingerprint(restored) != restored.request_fingerprint:
+            raise ValueError(
+                "pending execution context fingerprint does not match its execution semantics"
+            )
+        return restored
 
 
 @dataclass(frozen=True, slots=True)

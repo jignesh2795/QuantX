@@ -1,7 +1,8 @@
 """Integration tests for pending-execution reconciliation over real SQLite."""
 
 import inspect
-from datetime import UTC, datetime
+import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from threading import Barrier, Lock, Thread
 from uuid import uuid4
@@ -19,18 +20,27 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import OrderSide, OrderStatus, OrderType
+from quantx.domain.enums import OrderSide, OrderStatus, OrderType, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
+from quantx.domain.position_effect import (
+    PositionEvidence,
+    resolve_absent_position_effect,
+)
+from quantx.domain.product_selection import ProductSelectionResolution, resolve_request_product
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.domain.value_objects import InstrumentId
+from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
+from quantx.india.market_pack import (
+    INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    INDIA_EQUITY_PRODUCT_SELECTION,
+)
 from quantx.integrations.reconciliation import (
     AccountFinancialState,
     OrderObservation,
@@ -44,6 +54,7 @@ from quantx.persistence.sqlite import (
     SqliteReceiptRepository,
     SqliteUnitOfWork,
 )
+from tests.unit._execution_request_proofs import policy_verifier
 
 CHECKED_AT = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -102,6 +113,7 @@ def _request() -> ApprovedExecutionRequest:
         side=OrderSide.BUY,
         quantity=Decimal("2"),
         order_type=OrderType.MARKET,
+        position_effect=PositionEffect.OPEN,
         execution_context=context,
     )
     order = build_order_from_intent(intent)
@@ -110,6 +122,21 @@ def _request() -> ApprovedExecutionRequest:
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),
         PolicyResult(PolicyDecision.APPROVE, "approved"),
+        position_effect=PositionEffect.OPEN,
+    )
+
+
+def _product_resolution(
+    product: ProductCode,
+    *,
+    market_pack_id: str,
+    rule_version: str,
+) -> ProductSelectionResolution:
+    return ProductSelectionResolution(
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        product=product,
+        market_pack_id=market_pack_id,
+        rule_version=rule_version,
     )
 
 
@@ -190,6 +217,7 @@ def test_definitive_positive_resolution(tmp_path, monkeypatch) -> None:
             preconditions=lambda _: PreconditionsResult(PreconditionsStatus.READY),
             submit=submit,
             receipt_repository=SqliteReceiptRepository(database),
+            policy_verifier=policy_verifier(),
         ).execute(request)
         assert duplicate.status is PreconditionsStatus.READY
     finally:
@@ -405,6 +433,249 @@ def test_pending_context_round_trip_reconstructs_recovery_request() -> None:
     assert recovery_request.correlation_id == request.correlation_id
 
 
+def _auto_effect_request() -> ApprovedExecutionRequest:
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="rules-v1",
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        product=ProductCode("MIS"),
+        position_effect=PositionEffect.AUTO,
+        execution_context=context,
+    )
+    evidence_cut = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+    evidence = PositionEvidence(
+        instrument=InstrumentId("NSE", "TCS"),
+        quantity=Decimal("0"),
+        observed_at=evidence_cut,
+        evidence_cut=evidence_cut,
+        matched=True,
+    )
+    return ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("MIS"),
+        position_effect=PositionEffect.AUTO,
+        effective_position_effect=PositionEffect.OPEN,
+        position_evidence_cut=evidence_cut,
+        position_evidence=evidence,
+        position_evidence_max_age=timedelta(minutes=5),
+        position_effect_approval_instant=evidence_cut,
+        product_resolution=_product_resolution(
+            ProductCode("MIS"),
+            market_pack_id="india-equity",
+            rule_version="rules-v1",
+        ),
+    )
+
+
+def test_pending_context_preserves_product_effect_and_rule_identity() -> None:
+    request = _auto_effect_request()
+    fingerprint = request_fingerprint(request)
+    evidence_cut = request.position_evidence_cut
+    evidence = request.position_evidence
+
+    restored = PendingExecutionContext.from_json(
+        PendingExecutionContext.from_request(request, fingerprint).to_json()
+    )
+    recovery_request = restored.to_recovery_request()
+
+    assert restored.request_fingerprint == fingerprint
+    assert restored.order.product == ProductCode("MIS")
+    assert restored.order.position_effect is PositionEffect.AUTO
+    assert restored.product == ProductCode("MIS")
+    assert restored.position_effect is PositionEffect.AUTO
+    assert restored.effective_position_effect is PositionEffect.OPEN
+    assert restored.position_evidence_cut == evidence_cut
+    assert restored.position_evidence == evidence
+    assert restored.position_evidence_max_age == timedelta(minutes=5)
+    assert restored.position_effect_approval_instant == evidence_cut
+    assert restored.execution_context.market_pack_id == "india-equity"
+    assert restored.execution_context.rule_version == "rules-v1"
+    assert restored.product_resolution == request.product_resolution
+    assert recovery_request.product_resolution == request.product_resolution
+    assert recovery_request.product == ProductCode("MIS")
+    assert recovery_request.position_effect is PositionEffect.AUTO
+    assert recovery_request.effective_position_effect is PositionEffect.OPEN
+    assert recovery_request.position_evidence_cut == evidence_cut
+    assert recovery_request.position_evidence == evidence
+    assert recovery_request.position_evidence_max_age == timedelta(minutes=5)
+    assert recovery_request.position_effect_approval_instant == evidence_cut
+    assert recovery_request.execution_context.market_pack_id == "india-equity"
+    assert recovery_request.execution_context.rule_version == "rules-v1"
+
+
+def _product_and_effect_request() -> ApprovedExecutionRequest:
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        product=ProductCode("MIS"),
+        position_effect=PositionEffect.OPEN,
+        execution_context=context,
+    )
+    return ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("MIS"),
+        position_effect=PositionEffect.OPEN,
+        product_resolution=_product_resolution(
+            ProductCode("MIS"),
+            market_pack_id="india-equity",
+            rule_version="india-products-v1",
+        ),
+    )
+
+
+def test_pending_context_from_json_rejects_missing_product_symmetry() -> None:
+    request = _product_and_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("product")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def test_pending_context_from_json_rejects_missing_effect_symmetry() -> None:
+    request = _product_and_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("position_effect")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def _absent_effect_request() -> ApprovedExecutionRequest:
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+    selection = resolve_request_product(
+        context,
+        explicit_product=ProductCode("CNC"),
+        policy=INDIA_EQUITY_PRODUCT_SELECTION,
+    )
+    effect, _ = resolve_absent_position_effect(
+        selection.context,
+        product=selection.product,
+        policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        product=selection.product,
+        execution_context=selection.context,
+    )
+    return ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=selection.context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=selection.product,
+        product_resolution=selection.resolution,
+        position_effect_policy_resolution=effect.policy_resolution,
+    )
+
+
+def test_pending_context_round_trips_absent_effect_proof() -> None:
+    request = _absent_effect_request()
+    assert request.position_effect_policy_resolution is not None
+
+    restored = PendingExecutionContext.from_json(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    recovery_request = restored.to_recovery_request()
+
+    assert restored.product_resolution == request.product_resolution
+    assert restored.position_effect_policy_resolution == request.position_effect_policy_resolution
+    assert (
+        recovery_request.position_effect_policy_resolution
+        == request.position_effect_policy_resolution
+    )
+
+
+def test_pending_context_from_json_rejects_missing_absent_effect_proof() -> None:
+    request = _absent_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("position_effect_policy_resolution")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def test_pending_context_from_json_rejects_forged_absent_effect_proof() -> None:
+    request = _absent_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload["position_effect_policy_resolution"]["product"] = "MIS"
+    payload["position_effect_policy_resolution"]["rule_product"] = "MIS"
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def test_pending_context_from_json_rejects_missing_product_proof() -> None:
+    request = _product_and_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("product_resolution")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
+def test_pending_context_from_json_rejects_effect_payload_without_instant() -> None:
+    request = _auto_effect_request()
+    payload = json.loads(
+        PendingExecutionContext.from_request(request, request_fingerprint(request)).to_json()
+    )
+    payload.pop("position_effect_approval_instant")
+
+    with pytest.raises(ValueError, match="invalid pending execution context"):
+        PendingExecutionContext.from_json(json.dumps(payload))
+
+
 def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> None:
     request = _request()
     order_id = request.order.client_order_id
@@ -431,6 +702,7 @@ def test_pending_live_reservation_survives_restart_and_reconciles(tmp_path) -> N
                 AssertionError("pending execution must not resubmit after restart")
             ),
             receipt_repository=SqliteReceiptRepository(database_b),
+            policy_verifier=policy_verifier(),
         ).execute(request)
         assert blocked.status is PreconditionsStatus.UNKNOWN
         assert len(SqliteIdempotencyStore(database_b).list_pending_contexts()) == 1
@@ -535,6 +807,7 @@ def test_pending_recovery_runner_resolves_with_default_all_required_evidence(tmp
             local_position_provider=lambda _: local_position,
             local_account_provider=lambda _: local_account,
             fill_provider=lambda recovered, _: (_fill(recovered),),
+            policy_verifier=policy_verifier(),
         )
 
         report = runner.run(checked_at=CHECKED_AT)
@@ -575,6 +848,7 @@ def test_pending_recovery_runner_resolves_after_restart(tmp_path) -> None:
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
             evidence_policy=DefinitiveEvidencePolicy.order_only(),
+            policy_verifier=policy_verifier(),
         )
 
         report = runner.run(checked_at=CHECKED_AT)
@@ -642,6 +916,7 @@ def test_pending_recovery_runner_concurrent_passes_resolve_once(tmp_path) -> Non
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
             evidence_policy=DefinitiveEvidencePolicy.order_only(),
+            policy_verifier=policy_verifier(),
         )
 
     runners = (make_runner(unit_of_work_a), make_runner(unit_of_work_b))
@@ -707,6 +982,7 @@ def test_pending_recovery_runner_isolates_malformed_context(tmp_path) -> None:
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
             evidence_policy=DefinitiveEvidencePolicy.order_only(),
+            policy_verifier=policy_verifier(),
         )
 
         report = runner.run(checked_at=CHECKED_AT)
@@ -775,6 +1051,7 @@ def test_pending_recovery_runner_isolates_failed_context(tmp_path) -> None:
             ),
             fill_provider=lambda recovered, _: (_fill(recovered),),
             evidence_policy=DefinitiveEvidencePolicy.order_only(),
+            policy_verifier=policy_verifier(),
         )
 
         report = runner.run(checked_at=CHECKED_AT)
@@ -865,3 +1142,85 @@ def test_default_pending_reconciliation_requires_scoped_broker_order(tmp_path) -
         assert SqliteReceiptRepository(database).get_by_client_order(order_id) is None
     finally:
         database.close()
+
+
+def test_pending_context_preserves_canonical_default_product_and_rule_identity() -> None:
+    """The composition-supplied default survives durable request semantics.
+
+    A LIVE request whose product was omitted resolves through the canonical
+    India pack before approval; serialization/recovery must preserve the
+    resolved product, rule identity, effective effect, and evidence cut
+    without re-resolving or falling back to instrument identity.
+    """
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+    )
+    selection = resolve_request_product(
+        context,
+        explicit_product=None,
+        policy=INDIA_EQUITY_PRODUCT_SELECTION,
+    )
+    product = selection.product
+    resolved_context = selection.context
+    assert product == ProductCode("CNC")
+    assert resolved_context.market_pack_id == "india-equity"
+    assert resolved_context.rule_version == "india-products-v1"
+
+    evidence_cut = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+    evidence = PositionEvidence(
+        instrument=InstrumentId("NSE", "TCS"),
+        quantity=Decimal("0"),
+        observed_at=evidence_cut,
+        evidence_cut=evidence_cut,
+        matched=True,
+    )
+    intent = TradeIntent(
+        instrument=InstrumentId("NSE", "TCS"),
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        product=product,
+        position_effect=PositionEffect.AUTO,
+        execution_context=resolved_context,
+    )
+    request = ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=resolved_context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
+        position_effect=PositionEffect.AUTO,
+        effective_position_effect=PositionEffect.OPEN,
+        position_evidence_cut=evidence_cut,
+        position_evidence=evidence,
+        position_evidence_max_age=timedelta(minutes=5),
+        position_effect_approval_instant=evidence_cut,
+        product_resolution=selection.resolution,
+    )
+    fingerprint = request_fingerprint(request)
+
+    restored = PendingExecutionContext.from_json(
+        PendingExecutionContext.from_request(request, fingerprint).to_json()
+    )
+    recovery_request = restored.to_recovery_request()
+
+    assert restored.request_fingerprint == fingerprint
+    assert restored.product == ProductCode("CNC")
+    assert restored.order.product == ProductCode("CNC")
+    assert restored.execution_context.market_pack_id == "india-equity"
+    assert restored.execution_context.rule_version == "india-products-v1"
+    assert restored.effective_position_effect is PositionEffect.OPEN
+    assert restored.position_evidence_cut == evidence_cut
+    assert restored.position_evidence == evidence
+    assert restored.position_effect_approval_instant == evidence_cut
+    assert restored.product_resolution == selection.resolution
+    assert recovery_request.product == ProductCode("CNC")
+    assert recovery_request.position_effect_approval_instant == evidence_cut
+    assert recovery_request.execution_context.market_pack_id == "india-equity"
+    assert recovery_request.execution_context.rule_version == "india-products-v1"
+    assert recovery_request.product_resolution == selection.resolution

@@ -13,7 +13,13 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderType, TimeInForce
+from quantx.domain.enums import (
+    AssetClass,
+    OrderSide,
+    OrderType,
+    PositionEffect,
+    TimeInForce,
+)
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import (
     Instrument,
@@ -26,6 +32,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
@@ -40,8 +47,11 @@ from quantx.plugins.dhan.host import DhanHostConfig, DhanHostRuntime, build_dhan
 from quantx.plugins.dhan.market_data import DhanMarketDataAdapter
 from quantx.plugins.dhan.models import DhanCandleSnapshot, DhanCredentials, DhanInstrumentRef
 from quantx.plugins.dhan.transport import DhanSDKTransport, InMemoryDhanTransport
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
+_PRODUCT_MAP = {"CNC": "CNC", "MIS": "INTRADAY", "NRML": "MARGIN"}
+_DEFAULT_PRODUCT = ProductCode("CNC")
 
 
 def _instrument() -> Instrument:
@@ -61,7 +71,6 @@ def _instrument_ref() -> DhanInstrumentRef:
         security_id="1333",
         exchange_segment="NSE_EQ",
         trading_symbol="TCS",
-        product_type="CNC",
     )
 
 
@@ -77,11 +86,17 @@ def _config(tmp_path, **overrides) -> DhanHostConfig:
         submit_timeout_seconds=overrides.pop("submit_timeout_seconds", 5.0),
         cancel_timeout_seconds=overrides.pop("cancel_timeout_seconds", 5.0),
         reconcile_timeout_seconds=overrides.pop("reconcile_timeout_seconds", 5.0),
+        product_map=overrides.pop("product_map", _PRODUCT_MAP),
         **overrides,
+        policy_verifier=policy_verifier(),
     )
 
 
-def _approved() -> ApprovedExecutionRequest:
+def _approved(
+    *,
+    product: ProductCode = _DEFAULT_PRODUCT,
+    position_effect: PositionEffect | None = None,
+) -> ApprovedExecutionRequest:
     instrument = _instrument()
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
@@ -90,6 +105,8 @@ def _approved() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -97,13 +114,17 @@ def _approved() -> ApprovedExecutionRequest:
         quantity=Decimal("2"),
         order_type=OrderType.MARKET,
         time_in_force=TimeInForce.DAY,
+        product=product,
+        position_effect=position_effect,
         execution_context=context,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),
         PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
+        position_effect=position_effect,
     )
 
 
@@ -148,6 +169,7 @@ def _resolving_config(tmp_path, approved: ApprovedExecutionRequest) -> DhanHostC
         submit_timeout_seconds=5.0,
         cancel_timeout_seconds=5.0,
         reconcile_timeout_seconds=5.0,
+        product_map=_PRODUCT_MAP,
         local_order_provider=lambda request: OrderObservation(
             order_id,
             OrderLifecycleStatus.FILLED,
@@ -185,6 +207,7 @@ def _resolving_config(tmp_path, approved: ApprovedExecutionRequest) -> DhanHostC
                 filled_at=CHECKED_AT,
             ),
         ),
+        policy_verifier=policy_verifier(),
     )
 
 
@@ -202,6 +225,45 @@ def test_host_registers_exact_account_connection(tmp_path) -> None:
         assert host.registry.get(BrokerConnectionId("conn-unknown")) is None
     finally:
         host.close()
+
+
+@pytest.mark.parametrize(
+    ("product", "expected_wire"),
+    [(ProductCode("CNC"), "CNC"), (ProductCode("MIS"), "INTRADAY")],
+)
+def test_host_wires_configured_product_map_through_adapter_submission(
+    tmp_path, product: ProductCode, expected_wire: str
+) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    configured_map = {"CNC": "CNC", "MIS": "INTRADAY"}
+    host = build_dhan_host_runtime(
+        _config(tmp_path, transport=transport, product_map=configured_map)
+    )
+    try:
+        request = _approved(product=product, position_effect=PositionEffect.OPEN)
+
+        host.adapter.submit(request)
+
+        assert transport.submitted[0].product_type == expected_wire
+    finally:
+        host.close()
+
+
+@pytest.mark.parametrize(
+    ("product_map", "message"),
+    [
+        ({}, "must not be empty"),
+        ({" ": "CNC"}, "keys must be non-empty"),
+        ({"CNC": " "}, "values must be non-empty"),
+        ({"cnc": "CNC", "CNC": "CNC"}, "duplicate Dhan product map key"),
+        ({"CNC": "UNKNOWN"}, "value is not supported"),
+    ],
+)
+def test_host_rejects_invalid_product_maps_before_runtime_build(
+    tmp_path, product_map: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _config(tmp_path, product_map=product_map)
 
 
 def test_host_wires_dhan_recovery_provider(tmp_path) -> None:

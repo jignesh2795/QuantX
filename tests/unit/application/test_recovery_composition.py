@@ -31,6 +31,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.integrations.account_registry import AccountConnectionRegistry, RegisteredConnection
@@ -51,6 +52,7 @@ from quantx.plugins.dhan.adapter import DhanBrokerAdapter
 from quantx.plugins.dhan.models import DhanInstrumentRef, DhanPositionSnapshot
 from quantx.plugins.dhan.recovery import build_dhan_recovery_provider
 from quantx.plugins.dhan.transport import InMemoryDhanTransport
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
 
@@ -75,6 +77,8 @@ def _context(account: str = "acct-1", connection: str = "conn-1") -> ExecutionCo
         market=_instrument().market,
         broker_connection_id=BrokerConnectionId(connection),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
 
 
@@ -91,12 +95,14 @@ def _approved(
         order_type=OrderType.MARKET,
         time_in_force=TimeInForce.DAY,
         execution_context=context,
+        product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),
         PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("CNC"),
     )
 
 
@@ -120,7 +126,6 @@ def _dhan_adapter(
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },
@@ -128,6 +133,7 @@ def _dhan_adapter(
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _product_map={"CNC": "CNC"},
     )
 
 
@@ -327,6 +333,7 @@ def test_recovery_performs_no_broker_submission(tmp_path) -> None:
             provider_resolver=RecoveryEndpointResolver(
                 registry, build_dhan_recovery_provider
             ).resolve_provider,
+            policy_verifier=policy_verifier(),
         )
 
         run = runner.run(checked_at=CHECKED_AT)
@@ -355,6 +362,7 @@ def test_successful_authoritative_recovery(tmp_path) -> None:
             local_position_provider=lambda request: _local_position(approved),
             local_account_provider=lambda request: _local_account(approved),
             fill_provider=lambda request, local_order: _fills(approved),
+            policy_verifier=policy_verifier(),
         )
 
         run = runner.run(checked_at=CHECKED_AT)
@@ -384,6 +392,7 @@ def test_non_definitive_evidence_remains_pending(tmp_path) -> None:
             provider_resolver=RecoveryEndpointResolver(
                 registry, build_dhan_recovery_provider
             ).resolve_provider,
+            policy_verifier=policy_verifier(),
         )
 
         run = runner.run(checked_at=CHECKED_AT)
@@ -421,6 +430,7 @@ def test_bad_context_does_not_corrupt_good_context(tmp_path) -> None:
             local_position_provider=lambda request: _local_position(good),
             local_account_provider=lambda request: _local_account(good),
             fill_provider=lambda request, local_order: _fills(good),
+            policy_verifier=policy_verifier(),
         )
 
         run = runner.run(checked_at=CHECKED_AT)
@@ -456,6 +466,7 @@ def test_startup_composition_runs_recovery_exactly_once(tmp_path) -> None:
             local_position_provider=lambda request: _local_position(approved),
             local_account_provider=lambda request: _local_account(approved),
             fill_provider=lambda request, local_order: _fills(approved),
+            policy_verifier=policy_verifier(),
         )
 
         result = runtime.start(checked_at=CHECKED_AT)
@@ -497,6 +508,7 @@ def test_process_recreation_resolves_pending_context(tmp_path) -> None:
             local_position_provider=lambda request: _local_position(approved),
             local_account_provider=lambda request: _local_account(approved),
             fill_provider=lambda request, local_order: _fills(approved),
+            policy_verifier=policy_verifier(),
         )
 
         result = runtime.start(checked_at=CHECKED_AT)

@@ -26,6 +26,10 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.paper_engine import PaperSimulationProfile
+from quantx.india.market_pack import (
+    INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    INDIA_EQUITY_PRODUCT_SELECTION,
+)
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.provenance import ResearchProvenance
 from quantx.research.result import ResultQuality
@@ -35,6 +39,11 @@ T1 = datetime(2026, 1, 1, 9, 16, tzinfo=UTC)
 T2 = datetime(2026, 1, 1, 9, 17, tzinfo=UTC)
 
 TCS = InstrumentId("NSE", "TCS")
+
+
+def _service(**kwargs):
+    kwargs.setdefault("product_selection", INDIA_EQUITY_PRODUCT_SELECTION)
+    return DeterministicBacktestService(**kwargs)
 
 
 def _instrument() -> Instrument:
@@ -147,8 +156,9 @@ def _strategy(order_type: OrderType, price: Decimal | None = None):
 
 
 def _run(series, order_type: OrderType, price: Decimal | None = None):
-    return DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    return _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=series,
         strategy=_strategy(order_type, price),
@@ -305,8 +315,9 @@ def test_end_to_end_candle_to_fidelity_metadata() -> None:
 
 
 def _run_with_profile(series, order_type, profile, price=None):
-    return DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    return _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=series,
         strategy=_strategy(order_type, price),

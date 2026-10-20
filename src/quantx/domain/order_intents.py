@@ -7,8 +7,8 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from .deployment import ExecutionContext
-from .enums import OrderSide, OrderType, TimeInForce
-from .value_objects import InstrumentId
+from .enums import OrderSide, OrderType, PositionEffect, TimeInForce
+from .value_objects import InstrumentId, ProductCode
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +28,8 @@ class TradeIntent:
     strategy_version: str | None = None
     execution_context: ExecutionContext | None = None
     intent_id: UUID = field(default_factory=uuid4)
+    product: ProductCode | None = None
+    position_effect: PositionEffect | None = None
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:
@@ -42,3 +44,11 @@ class TradeIntent:
             raise ValueError("stop_price is required for stop intents")
         if (self.strategy_id is None) != (self.strategy_version is None):
             raise ValueError("strategy_id and strategy_version must be supplied together")
+        if self.product is not None and (not str(self.product).strip()):
+            raise ValueError("product must have a non-empty value when specified")
+        if self.position_effect is not None and self.position_effect not in {
+            PositionEffect.OPEN,
+            PositionEffect.CLOSE,
+            PositionEffect.AUTO,
+        }:
+            raise ValueError("position_effect must be OPEN, CLOSE, AUTO, or None")

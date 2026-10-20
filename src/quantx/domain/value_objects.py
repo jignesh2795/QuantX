@@ -51,6 +51,20 @@ class AccountId:
 
 
 @dataclass(frozen=True, slots=True)
+class ProductCode:
+    """Opaque, market-pack-scoped product identity (not an instrument property)."""
+
+    value: str
+
+    def __post_init__(self) -> None:
+        if not self.value or not self.value.strip():
+            raise ValueError("product code must not be empty or whitespace")
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True, slots=True)
 class BrokerConnectionId:
     value: str
 

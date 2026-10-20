@@ -71,6 +71,10 @@ from quantx.execution.paper.profile import (
     OrderBookSnapshot,
     SlippageModel,
 )
+from quantx.india.market_pack import (
+    INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    INDIA_EQUITY_PRODUCT_SELECTION,
+)
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.strategy.compiler import StrategyCompiler
 from quantx.strategy.context import StrategyContext
@@ -79,6 +83,11 @@ from quantx.strategy.execution import bind_deployment_context
 from quantx.strategy.ir import StrategyIR
 from quantx.strategy.reference import BuyAndHoldStrategy
 from quantx.strategy.registry import StrategyRegistry
+
+
+def _service(**kwargs):
+    kwargs.setdefault("product_selection", INDIA_EQUITY_PRODUCT_SELECTION)
+    return DeterministicBacktestService(**kwargs)
 
 
 def _market() -> MarketContext:
@@ -187,12 +196,14 @@ def _session(
 ) -> tuple[StrategyRehearsalSession, _CountingAccounting]:
     held = accounting or _CountingAccounting()
     session = StrategyRehearsalSession(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         registry=registry or _registry(),
         strategy_ir=strategy_ir or _ir(),
         deployment=deployment or _deployment(),
         instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         paper_executor=_executor(held),
         financial_state=_financial_state(),
+        product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
     )
     return session, held
 
@@ -282,12 +293,14 @@ def test_session_rejects_non_paper_deployment(mode: ExecutionMode) -> None:
     accounting = _CountingAccounting()
     with pytest.raises(ValueError, match="PAPER deployments only"):
         StrategyRehearsalSession(
+            position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             registry=_registry(),
             strategy_ir=_ir(),
             deployment=_deployment(mode=mode),
             instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
             paper_executor=_executor(accounting),
             financial_state=_financial_state(),
+            product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
         )
 
 
@@ -295,12 +308,14 @@ def test_session_rejects_disabled_deployment() -> None:
     accounting = _CountingAccounting()
     with pytest.raises(ValueError, match="disabled"):
         StrategyRehearsalSession(
+            position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             registry=_registry(),
             strategy_ir=_ir(),
             deployment=_deployment(enabled=False),
             instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
             paper_executor=_executor(accounting),
             financial_state=_financial_state(),
+            product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
         )
 
 
@@ -308,12 +323,14 @@ def test_session_rejects_unknown_strategy() -> None:
     accounting = _CountingAccounting()
     with pytest.raises(KeyError, match="not registered"):
         StrategyRehearsalSession(
+            position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             registry=StrategyRegistry(),
             strategy_ir=_ir(),
             deployment=_deployment(),
             instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
             paper_executor=_executor(accounting),
             financial_state=_financial_state(),
+            product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
         )
 
 
@@ -442,12 +459,14 @@ def test_missing_snapshot_produces_no_fill_without_accounting() -> None:
 def test_missing_instrument_metadata_is_recorded_as_blocked() -> None:
     accounting = _CountingAccounting()
     session = StrategyRehearsalSession(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
         registry=_registry(),
         strategy_ir=_ir(),
         deployment=_deployment(),
         instrument_registry=InMemoryInstrumentRegistry(()),
         paper_executor=_executor(accounting),
         financial_state=_financial_state(),
+        product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
     )
     result = session.run(_inputs(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
 
@@ -1173,8 +1192,9 @@ def test_backtest_paper_order_sequence_parity() -> None:
             )
         )
 
-    backtest_result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    backtest_result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_parity_series(),
         strategy=backtest_strategy,
@@ -1294,8 +1314,9 @@ def _context_inventory_signature(
 
 def _buy_and_hold_driver_run():
     backtest_strategy = _ObservedBuyAndHold()
-    backtest_result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    backtest_result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_parity_series(),
         strategy=StrategyEvaluationService(backtest_strategy),
@@ -1535,8 +1556,9 @@ class _AcceptedWithoutFillObserver:
 
 def test_qx08_backtest_rejects_live_execution_context_for_bound_intents() -> None:
     context = replace(_bound_context(), execution_mode=ExecutionMode.LIVE)
-    service = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    service = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     )
 
     with pytest.raises(ValueError, match="supported simulated mode"):
@@ -1551,8 +1573,9 @@ def test_qx08_backtest_rejects_live_execution_context_for_bound_intents() -> Non
 
 def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> None:
     backtest_strategy = _AcceptedWithoutFillObserver()
-    backtest_result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    backtest_result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_parity_series(),
         strategy=StrategyEvaluationService(backtest_strategy),
@@ -1603,8 +1626,9 @@ def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> Non
 
 def test_qx08_accepted_without_fill_is_preserved_after_order_callback_error() -> None:
     backtest_strategy = _AcceptedWithoutFillObserver(fail_order_update=True)
-    backtest_result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    backtest_result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_parity_series(),
         strategy=StrategyEvaluationService(backtest_strategy),

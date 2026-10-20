@@ -16,12 +16,16 @@ from quantx.execution.idempotency import InMemoryIdempotencyStore, request_finge
 from quantx.execution.lifecycle import ExecutionLifecycleService
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.receipts.models import ExecutionOutcome
+from tests.unit._execution_request_proofs import policy_verifier
 
 from .test_continuation import _PaperPort, _receipt, _ReceiptRepository, _request
 
 
 def _pending_service(repository, receipt, store):
-    dispatcher = ExecutionDispatcher(paper_port=_PaperPort(receipt))
+    dispatcher = ExecutionDispatcher(
+        paper_port=_PaperPort(receipt),
+        policy_verifier=policy_verifier(),
+    )
     lifecycle = ExecutionLifecycleService(dispatcher, receipt_repository=repository)
     return ExecutionContinuationService(
         lifecycle,

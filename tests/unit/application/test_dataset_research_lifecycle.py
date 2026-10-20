@@ -115,7 +115,7 @@ def test_declared_dataset_flows_deterministically_to_durable_research_run(tmp_pa
         _instruments={
             INSTRUMENT: (
                 _instrument(),
-                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
+                DhanInstrumentRef("1333", "NSE_EQ", "TCS"),
             )
         },
         _transport=InMemoryDhanTransport(candle_snapshots={("1333", "NSE_EQ"): _snapshots()}),

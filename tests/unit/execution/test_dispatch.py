@@ -27,6 +27,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 
 def _market() -> MarketContext:
@@ -69,6 +70,8 @@ def _request(
         market=instrument.market,
         broker_connection_id=(BrokerConnectionId("conn-1") if mode is ExecutionMode.LIVE else None),
         execution_mode=mode,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -81,7 +84,7 @@ def _request(
     policy = (
         PolicyResult(PolicyDecision.APPROVE, "approved") if mode is ExecutionMode.LIVE else None
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=order,
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
@@ -137,7 +140,10 @@ class FakeLivePort:
 def test_dispatch_routes_paper_mode_with_market_snapshot() -> None:
     port = FakePaperPort()
     request = _request()
-    result = ExecutionDispatcher(paper_port=port).dispatch(
+    result = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    ).dispatch(
         request,
         snapshot=_snapshot(),
     )
@@ -152,7 +158,10 @@ def test_dispatch_routes_simulated_modes_to_paper_port(mode: ExecutionMode) -> N
     port = FakePaperPort()
     request = _request(mode)
 
-    result = ExecutionDispatcher(paper_port=port).dispatch(
+    result = ExecutionDispatcher(
+        paper_port=port,
+        policy_verifier=policy_verifier(),
+    ).dispatch(
         request,
         snapshot=_snapshot(),
     )
@@ -166,19 +175,28 @@ def test_dispatch_rejects_live_mode_without_durable_execution_boundary() -> None
     request = _request(ExecutionMode.LIVE)
 
     with pytest.raises(ValueError, match="ExecutionOrchestrator.*UnitOfWork"):
-        ExecutionDispatcher(live_port=port).dispatch(request)
+        ExecutionDispatcher(
+            live_port=port,
+            policy_verifier=policy_verifier(),
+        ).dispatch(request)
 
     assert port.calls == []
 
 
 def test_dispatch_requires_snapshot_for_simulated_modes() -> None:
     with pytest.raises(ValueError, match="market snapshot"):
-        ExecutionDispatcher(paper_port=FakePaperPort()).dispatch(_request())
+        ExecutionDispatcher(
+            paper_port=FakePaperPort(),
+            policy_verifier=policy_verifier(),
+        ).dispatch(_request())
 
 
 def test_dispatch_rejects_snapshot_for_wrong_instrument() -> None:
     with pytest.raises(ValueError, match="instrument"):
-        ExecutionDispatcher(paper_port=FakePaperPort()).dispatch(
+        ExecutionDispatcher(
+            paper_port=FakePaperPort(),
+            policy_verifier=policy_verifier(),
+        ).dispatch(
             _request(),
             snapshot=_snapshot(InstrumentId("NSE", "INFY")),
         )
@@ -186,10 +204,14 @@ def test_dispatch_rejects_snapshot_for_wrong_instrument() -> None:
 
 def test_dispatch_requires_matching_adapter() -> None:
     with pytest.raises(ValueError, match="no paper execution adapter"):
-        ExecutionDispatcher().dispatch(_request(), snapshot=_snapshot())
+        ExecutionDispatcher(policy_verifier=policy_verifier()).dispatch(
+            _request(), snapshot=_snapshot()
+        )
 
     with pytest.raises(ValueError, match="ExecutionOrchestrator.*UnitOfWork"):
-        ExecutionDispatcher().dispatch(_request(ExecutionMode.LIVE))
+        ExecutionDispatcher(policy_verifier=policy_verifier()).dispatch(
+            _request(ExecutionMode.LIVE)
+        )
 
 
 def test_dispatch_does_not_execute_backtest_mode() -> None:
@@ -199,6 +221,7 @@ def test_dispatch_does_not_execute_backtest_mode() -> None:
         ExecutionDispatcher(
             paper_port=FakePaperPort(),
             live_port=FakeLivePort(),
+            policy_verifier=policy_verifier(),
         ).dispatch(request)
 
 
@@ -207,6 +230,9 @@ def test_dispatch_never_submits_live_requests_directly() -> None:
     port = FakeLivePort()
 
     with pytest.raises(ValueError, match="ExecutionOrchestrator.*UnitOfWork"):
-        ExecutionDispatcher(live_port=port).dispatch(request)
+        ExecutionDispatcher(
+            live_port=port,
+            policy_verifier=policy_verifier(),
+        ).dispatch(request)
 
     assert port.calls == []

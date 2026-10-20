@@ -59,6 +59,39 @@ class MarketContext:
             if len(normalized) != 2:
                 raise ValueError("country_code must be a 2-letter code")
 
+    def to_payload(self) -> dict[str, object]:
+        """Canonical serializable form of this market classification."""
+        return {
+            "region": self.region.value,
+            "family": self.family.value,
+            "venue": self.venue,
+            "country_code": self.country_code,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: object) -> MarketContext:
+        """Rebuild a market context, rejecting anything unexpected."""
+        if not isinstance(payload, dict):
+            raise ValueError("market context must be an object")
+        if set(payload) != {"region", "family", "venue", "country_code"}:
+            raise ValueError("market context has unexpected fields")
+        region = payload["region"]
+        family = payload["family"]
+        venue = payload["venue"]
+        country_code = payload["country_code"]
+        if not isinstance(region, str) or not isinstance(family, str):
+            raise ValueError("market context region and family must be strings")
+        if not isinstance(venue, str):
+            raise ValueError("market context venue must be a string")
+        if country_code is not None and not isinstance(country_code, str):
+            raise ValueError("market context country must be a string or None")
+        return cls(
+            region=MarketRegion(region),
+            family=MarketFamily(family),
+            venue=venue,
+            country_code=country_code,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Instrument:

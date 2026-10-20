@@ -9,16 +9,26 @@ adapters can share the same preparation semantics.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from quantx.domain.deployment import ExecutionContext, StrategyDeployment
-from quantx.domain.enums import OrderSide
+from quantx.domain.enums import OrderSide, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
+from quantx.domain.position_effect import (
+    AbsentPositionEffectResolution,
+    PositionEffectPolicy,
+    PositionEvidence,
+    resolve_absent_position_effect,
+    resolve_position_effect,
+)
+from quantx.domain.product_selection import ProductSelectionPolicy, resolve_request_product
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction
 
@@ -69,10 +79,14 @@ class StrategyExecutionPreparer:
         *,
         risk_engine: PreTradeRiskEngine | None = None,
         policy_engine: ExecutionPolicyEngine | None = None,
+        product_selection: ProductSelectionPolicy | None = None,
+        position_effect_policy: PositionEffectPolicy | None = None,
     ) -> None:
         self._instrument_registry = instrument_registry
         self._risk_engine = risk_engine or PreTradeRiskEngine()
         self._policy_engine = policy_engine or ExecutionPolicyEngine()
+        self._product_selection = product_selection
+        self._position_effect_policy = position_effect_policy
 
     def prepare(
         self,
@@ -83,6 +97,9 @@ class StrategyExecutionPreparer:
         policy_context: PolicyContext | None = None,
         broker_constraints: tuple[BrokerConstraint, ...] = (),
         reference_price: Decimal | None = None,
+        position_evidence: PositionEvidence | None = None,
+        position_evidence_max_age: timedelta | None = None,
+        approval_instant: datetime | None = None,
     ) -> StrategyExecutionPreparation:
         self._validate_decision(decision, event)
         intent = decision.result.intent
@@ -112,29 +129,111 @@ class StrategyExecutionPreparer:
         if effective_reference is None:
             effective_reference = self._event_reference_price(event)
 
+        # Resolution is part of preparation, not submission. Product and
+        # position effect are fixed here, before the final risk/policy
+        # decision, and the approved request is built from exactly these
+        # immutable values. A failure stops approval and every later side
+        # effect; no component resolves them again at broker submission.
+        selection = resolve_request_product(
+            context,
+            explicit_product=intent.product,
+            policy=self._product_selection,
+        )
+        product = selection.product
+        context = selection.context
+        product_resolution = selection.resolution
+        resolved_intent = replace(intent, product=product, execution_context=context)
+        order = build_order_from_intent(resolved_intent)
+
+        effective_position_effect: PositionEffect | None = None
+        position_evidence_cut: datetime | None = None
+        position_evidence_policy_resolution: AbsentPositionEffectResolution | None = None
+        evidence: PositionEvidence | None = None
+        evidence_max_age: timedelta | None = None
+        approval: datetime | None = None
+        if resolved_intent.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
+            evidence = position_evidence
+            evidence_max_age = position_evidence_max_age
+            if evidence_max_age is None:
+                raise ValueError(
+                    f"{resolved_intent.position_effect.value} position effect requires a "
+                    "position evidence freshness policy"
+                )
+            approval = approval_instant
+            resolution = resolve_position_effect(
+                order,
+                evidence=evidence,
+                max_evidence_age=evidence_max_age,
+                approval_instant=approval,
+            )
+            effective_position_effect = resolution.effective
+            position_evidence_cut = resolution.evidence_cut
+        else:
+            if position_evidence is not None or position_evidence_max_age is not None:
+                raise ValueError(
+                    "position evidence is only valid for AUTO or CLOSE position effects"
+                )
+            if resolved_intent.position_effect is None:
+                # An absent effect is not a universal default: it resolves
+                # only through the versioned market-pack policy, which binds
+                # its rule identity onto the execution context.
+                resolution, context = resolve_absent_position_effect(
+                    context,
+                    product=product,
+                    policy=self._position_effect_policy,
+                )
+                effective_position_effect = resolution.effective
+                position_evidence_policy_resolution = resolution.policy_resolution
+                resolved_intent = replace(resolved_intent, execution_context=context)
+
         risk = self._risk_engine.evaluate(
-            intent,
+            resolved_intent,
             RiskContext(
                 instrument=instrument,
                 financial_state=financial_state,
                 broker_constraints=broker_constraints,
                 reference_price=effective_reference,
+                product=product,
+                effective_position_effect=effective_position_effect,
+                market_pack_id=context.market_pack_id,
+                rule_version=context.rule_version,
             ),
         )
         if risk.decision is not RiskDecision.APPROVE:
             return StrategyExecutionPreparation(decision, risk, None, None)
 
-        policy = self._policy_engine.evaluate(intent, policy_context or PolicyContext())
+        policy = self._policy_engine.evaluate(resolved_intent, policy_context or PolicyContext())
         if not policy.approved:
             return StrategyExecutionPreparation(decision, risk, policy, None)
 
         request = ApprovedExecutionRequest(
-            order=build_order_from_intent(intent),
+            order=order,
             execution_context=context,
             risk_result=risk,
             policy_result=policy,
-            required_margin=intent.required_margin,
+            required_margin=resolved_intent.required_margin,
+            product=product,
+            position_effect=resolved_intent.position_effect,
+            effective_position_effect=effective_position_effect,
+            position_evidence_cut=position_evidence_cut,
+            position_evidence=evidence,
+            position_evidence_max_age=evidence_max_age,
+            position_effect_approval_instant=approval,
+            product_resolution=product_resolution,
+            position_effect_policy_resolution=position_evidence_policy_resolution,
         )
+        # The request carries claims about the resolved product and the
+        # permitted absent effect. They are re-derived here from the very
+        # versioned policies that produced them, so a request never leaves
+        # the pre-approval seam with a claim its own policies do not support.
+        MarketPackPolicyVerifier(
+            product_selection_policies=(
+                () if self._product_selection is None else (self._product_selection,)
+            ),
+            position_effect_policies=(
+                () if self._position_effect_policy is None else (self._position_effect_policy,)
+            ),
+        ).verify_request(request)
         return StrategyExecutionPreparation(decision, risk, policy, request)
 
     @staticmethod

@@ -27,6 +27,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
 from quantx.execution.receipts.models import ExecutionOutcome
 from quantx.integrations.reconciliation.orders import OrderObservation
+from tests.unit._execution_request_proofs import approved_request
 
 RECOVERED_AT = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -40,7 +41,7 @@ def _request() -> ApprovedExecutionRequest:
         time_in_force=TimeInForce.DAY,
         client_order_id=uuid4(),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=order,
         execution_context=ExecutionContext(
             account_id=AccountId("acct-1"),
@@ -49,6 +50,8 @@ def _request() -> ApprovedExecutionRequest:
             market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
             broker_connection_id=BrokerConnectionId("conn-1"),
             execution_mode=ExecutionMode.LIVE,
+            market_pack_id="india-equity",
+            rule_version="india-products-v1",
         ),
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),

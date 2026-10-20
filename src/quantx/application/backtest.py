@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
 from quantx.application.strategy_preflight import assess_backtest_event_time_support
 from quantx.domain.clock import SimulatedClock
 from quantx.domain.deployment import ExecutionContext, ExecutionMode
-from quantx.domain.enums import OrderSide, OrderStatus, OrderType
+from quantx.domain.enums import OrderSide, OrderStatus, OrderType, PositionEffect
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
     build_order_from_intent,
@@ -32,6 +32,15 @@ from quantx.domain.policy import (
     PolicyDecision,
     PolicyResult,
 )
+from quantx.domain.policy_verification import MarketPackPolicyVerifier
+from quantx.domain.position_effect import (
+    AbsentPositionEffectResolution,
+    PositionEffectPolicy,
+    PositionEvidence,
+    resolve_absent_position_effect,
+    resolve_position_effect,
+)
+from quantx.domain.product_selection import ProductSelectionPolicy, resolve_request_product
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
@@ -478,12 +487,16 @@ class DeterministicBacktestService:
         policy_engine: ExecutionPolicyEngine | None = None,
         execution_engine: PaperExecutionEngine | None = None,
         accounting: FillAccounting | None = None,
+        product_selection: ProductSelectionPolicy | None = None,
+        position_effect_policy: PositionEffectPolicy | None = None,
     ) -> None:
         self._instrument_registry = instrument_registry
         self._risk_engine = risk_engine or PreTradeRiskEngine()
         self._policy_engine = policy_engine or ExecutionPolicyEngine()
         self._execution_engine = execution_engine
         self._accounting_override = accounting
+        self._product_selection = product_selection
+        self._position_effect_policy = position_effect_policy
 
     @staticmethod
     def _validate_strategy_result(strategy_result: StrategyResult, frame: ReplayFrame) -> None:
@@ -614,6 +627,8 @@ class DeterministicBacktestService:
             AccountStateSamplingPolicy.EXACT_CURRENT
         ),
         provenance: ResearchProvenance | None = None,
+        position_evidence: PositionEvidence | None = None,
+        position_evidence_max_age: timedelta | None = None,
     ) -> BacktestResult:
         """Run replay; bind the explicit context only to bare QX-08 strategy intents.
 
@@ -1053,6 +1068,97 @@ class DeterministicBacktestService:
 
             failure_identity = f"{timestamp}:{frame.observation.instrument}"
             try:
+                # Pre-approval resolution: product and position effect are
+                # fixed before risk/policy, then used unchanged to build the
+                # approved request. No later stage resolves them again.
+                product_selection = resolve_request_product(
+                    intent.execution_context,
+                    explicit_product=intent.product,
+                    policy=self._product_selection,
+                )
+                product = product_selection.product
+                resolved_context = product_selection.context
+                product_resolution = product_selection.resolution
+                resolved_intent = replace(
+                    intent,
+                    product=product,
+                    execution_context=resolved_context,
+                )
+                # The order always carries the explicit replay occurrence time,
+                # including on the caller-supplied engine path: the wall-clock
+                # default must never reach replay evidence, and the service must
+                # not silently rewrite the caller's own execution clock.
+                order = replace(
+                    build_order_from_intent(resolved_intent),
+                    created_at=frame.observation.timestamp,
+                )
+                effective_position_effect: PositionEffect | None = None
+                position_evidence_cut: datetime | None = None
+                position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
+                evidence: PositionEvidence | None = None
+                evidence_max_age: timedelta | None = None
+                approval: datetime | None = None
+                if resolved_intent.position_effect in {PositionEffect.CLOSE, PositionEffect.AUTO}:
+                    evidence = position_evidence
+                    evidence_max_age = position_evidence_max_age
+                    if evidence_max_age is None:
+                        raise ValueError(
+                            f"{resolved_intent.position_effect.value} position effect "
+                            "requires a position evidence freshness policy"
+                        )
+                    # The replay frame's occurrence time is the approval
+                    # instant: freshness is judged at the same clock the
+                    # strategy observed, never at wall-clock run time.
+                    approval = frame.observation.timestamp
+                    resolution = resolve_position_effect(
+                        order,
+                        evidence=evidence,
+                        max_evidence_age=evidence_max_age,
+                        approval_instant=approval,
+                    )
+                    effective_position_effect = resolution.effective
+                    position_evidence_cut = resolution.evidence_cut
+                else:
+                    if position_evidence is not None or position_evidence_max_age is not None:
+                        raise ValueError(
+                            "position evidence is only valid for AUTO or CLOSE position effects"
+                        )
+                    if resolved_intent.position_effect is None:
+                        # An absent effect is not a universal default: it
+                        # resolves only through the versioned market-pack
+                        # policy, which binds its rule identity onto the
+                        # execution context used by risk and the request.
+                        resolution, resolved_context = resolve_absent_position_effect(
+                            resolved_context,
+                            product=product,
+                            policy=self._position_effect_policy,
+                        )
+                        effective_position_effect = resolution.effective
+                        position_effect_policy_resolution = resolution.policy_resolution
+                        resolved_intent = replace(
+                            resolved_intent, execution_context=resolved_context
+                        )
+            except Exception as exc:
+                if not qx08_active:
+                    raise
+                fault = callback_fault("approval_resolution", failure_identity, exc)
+                callback_faults.append(fault)
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        f"pre-commit approval resolution failed: {fault.message}",
+                        (fault,),
+                    )
+                )
+                continue
+            intent = resolved_intent
+            try:
                 risk = self._risk_engine.evaluate(
                     intent,
                     RiskContext(
@@ -1060,6 +1166,10 @@ class DeterministicBacktestService:
                         financial_state=financial_state,
                         broker_constraints=broker_constraints,
                         reference_price=_reference_price(frame.observation.snapshot),
+                        product=product,
+                        effective_position_effect=effective_position_effect,
+                        market_pack_id=resolved_context.market_pack_id,
+                        rule_version=resolved_context.rule_version,
                     ),
                 )
             except Exception as exc:
@@ -1161,20 +1271,35 @@ class DeterministicBacktestService:
 
             if simulation_clock is not None:
                 simulation_clock.set_time(frame.observation.timestamp)
-            # The order always carries the explicit replay occurrence time,
-            # including on the caller-supplied engine path: the wall-clock
-            # default must never reach replay evidence, and the service must
-            # not silently rewrite the caller's own execution clock.
-            order = replace(
-                build_order_from_intent(intent),
-                created_at=frame.observation.timestamp,
-            )
+            # Build the request from exactly the resolved semantics risk and
+            # policy evaluated; nothing here re-resolves a product or effect.
             request: ApprovedExecutionRequest = ApprovedExecutionRequest(
                 order=order,
-                execution_context=intent.execution_context,
+                execution_context=resolved_context,
                 risk_result=risk,
                 policy_result=policy,
+                product=product,
+                position_effect=intent.position_effect,
+                effective_position_effect=effective_position_effect,
+                position_evidence_cut=position_evidence_cut,
+                position_evidence=evidence,
+                position_evidence_max_age=evidence_max_age,
+                position_effect_approval_instant=approval,
+                product_resolution=product_resolution,
+                position_effect_policy_resolution=position_effect_policy_resolution,
             )
+            # The request's claims are re-derived from the very versioned
+            # policies that produced them, so a replay never executes a
+            # request whose product or absent effect its own pack does not
+            # permit.
+            MarketPackPolicyVerifier(
+                product_selection_policies=(
+                    () if self._product_selection is None else (self._product_selection,)
+                ),
+                position_effect_policies=(
+                    () if self._position_effect_policy is None else (self._position_effect_policy,)
+                ),
+            ).verify_request(request)
             try:
                 engine_time = self._require_engine_time_coherent(
                     execution_engine, frame.observation.timestamp

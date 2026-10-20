@@ -52,7 +52,7 @@ def _adapter(transport: InMemoryDhanTransport) -> DhanBrokerAdapter:
         _instruments={
             instrument.instrument_id: (
                 instrument,
-                DhanInstrumentRef("1333", "NSE_EQ", "TCS", "CNC"),
+                DhanInstrumentRef("1333", "NSE_EQ", "TCS"),
             )
         },
         _transport=transport,

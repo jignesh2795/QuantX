@@ -14,12 +14,16 @@ from quantx.execution.dispatch import ExecutionDispatcher
 from quantx.execution.lifecycle import ExecutionLifecycleService
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
+from tests.unit._execution_request_proofs import policy_verifier
 
 from .test_continuation import _PaperPort, _receipt, _ReceiptRepository, _request
 
 
 def _service(repository: _ReceiptRepository, receipt) -> ExecutionContinuationService:
-    dispatcher = ExecutionDispatcher(paper_port=_PaperPort(receipt))
+    dispatcher = ExecutionDispatcher(
+        paper_port=_PaperPort(receipt),
+        policy_verifier=policy_verifier(),
+    )
     lifecycle_service = ExecutionLifecycleService(
         dispatcher,
         receipt_repository=repository,
@@ -148,12 +152,17 @@ def test_reconcile_continuation_rejects_child_quantity_above_parent_remainder() 
             strategy_id=valid_child.order.strategy_id,
             strategy_version=valid_child.order.strategy_version,
             required_capabilities=valid_child.order.required_capabilities,
+            product=valid_child.order.product,
+            position_effect=valid_child.order.position_effect,
         ),
         execution_context=valid_child.execution_context,
         risk_result=valid_child.risk_result,
         policy_result=valid_child.policy_result,
         required_margin=valid_child.required_margin,
         parent_client_order_id=valid_child.parent_client_order_id,
+        product=valid_child.product,
+        product_resolution=valid_child.product_resolution,
+        position_effect_policy_resolution=(valid_child.position_effect_policy_resolution),
     )
     child_receipt = _receipt(oversized_child, "1")
     service = _service(

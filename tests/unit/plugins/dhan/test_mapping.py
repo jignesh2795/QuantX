@@ -6,10 +6,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from quantx.domain.enums import OrderSide, OrderType, TimeInForce
+from quantx.domain.value_objects import ProductCode
 from quantx.plugins.dhan.mapping import (
     build_order_request,
     dhan_correlation_id,
     dhan_order_type,
+    dhan_product_type,
     dhan_time_in_force,
     normalize_status,
     parse_dhan_timestamp,
@@ -22,7 +24,6 @@ def _ref() -> DhanInstrumentRef:
         security_id="1333",
         exchange_segment="NSE_EQ",
         trading_symbol="TCS",
-        product_type="CNC",
     )
 
 
@@ -60,6 +61,8 @@ def test_build_order_request_preserves_decimal_order_values() -> None:
         stop_price=None,
         time_in_force=TimeInForce.DAY,
         correlation_id=str(uuid4()),
+        product_code=ProductCode("CNC"),
+        product_map={"CNC": "CNC"},
     )
 
     assert request.security_id == "1333"
@@ -81,6 +84,70 @@ def test_build_order_request_rejects_fractional_quantity() -> None:
             side=OrderSide.BUY,
             order_type=OrderType.MARKET,
             quantity=Decimal("1.5"),
+            limit_price=None,
+            stop_price=None,
+            time_in_force=TimeInForce.DAY,
+            correlation_id="abc",
+        )
+
+
+def test_explicit_product_maps_to_dhan_wire_value() -> None:
+    request = build_order_request(
+        instrument_ref=_ref(),
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Decimal("1"),
+        limit_price=None,
+        stop_price=None,
+        time_in_force=TimeInForce.DAY,
+        correlation_id="abc",
+        product_code=ProductCode("MIS"),
+        product_map={"MIS": "INTRADAY"},
+    )
+
+    assert request.product_type == "INTRADAY"
+    assert not hasattr(_ref(), "product_type")
+
+
+def test_distinct_products_for_same_instrument_map_to_distinct_wire_values() -> None:
+    product_map = {"CNC": "CNC", "MIS": "INTRADAY"}
+
+    def wire(product: str) -> str:
+        return dhan_product_type(ProductCode(product), product_map=product_map)
+
+    assert wire("CNC") == "CNC"
+    assert wire("MIS") == "INTRADAY"
+    assert wire("CNC") != wire("MIS")
+
+
+def test_product_mapping_normalizes_case_and_surrounding_space() -> None:
+    assert dhan_product_type(ProductCode(" cnc "), product_map={"cnc": " cnc "}) == "CNC"
+
+
+def test_explicit_product_requires_configured_mapping() -> None:
+    with pytest.raises(ValueError, match="no configured Dhan product mapping"):
+        dhan_product_type(ProductCode("CNC"))
+
+
+def test_unsupported_product_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported Dhan product"):
+        dhan_product_type(ProductCode("DELIVERY"), product_map={"CNC": "CNC"})
+
+
+def test_unsupported_mapped_wire_value_is_rejected() -> None:
+    with pytest.raises(ValueError, match="configured Dhan product map value is not supported"):
+        dhan_product_type(ProductCode("CNC"), product_map={"CNC": "NOT_A_DHAN_PRODUCT"})
+
+
+def test_absent_product_is_rejected_without_instrument_reference_fallback() -> None:
+    with pytest.raises(ValueError, match="resolved approved product"):
+        dhan_product_type(None)
+    with pytest.raises(ValueError, match="resolved approved product"):
+        build_order_request(
+            instrument_ref=_ref(),
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("1"),
             limit_price=None,
             stop_price=None,
             time_in_force=TimeInForce.DAY,
@@ -113,3 +180,18 @@ def test_dhan_timestamp_defaults_to_ist_when_timezone_is_omitted() -> None:
     assert parsed is not None
     assert parsed.utcoffset() == ZoneInfo("Asia/Kolkata").utcoffset(datetime(2026, 1, 1, 10))
     assert parsed.isoformat().endswith("+05:30")
+
+
+def test_product_mapping_is_adapter_wide_and_makes_no_instrument_specific_claim() -> None:
+    """The configured map is the adapter's only product-support authority.
+
+    There is no per-instrument/segment product map, so a rejection must not
+    claim instrument-specific validation that the adapter never performed.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        dhan_product_type(ProductCode("DELIVERY"), product_map={"CNC": "CNC"})
+
+    message = str(excinfo.value)
+    assert "instrument/segment" not in message
+    assert "configured map" in message
+    assert dhan_product_type(ProductCode("CNC"), product_map={"CNC": "CNC"}) == "CNC"

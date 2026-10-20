@@ -25,6 +25,7 @@ from quantx.domain.value_objects import Money
 from quantx.execution.margin_ledger import MarginLedger
 from quantx.execution.paper_engine import PaperExecutionEngine, QuoteSnapshot
 from quantx.execution.paper_session import PaperSession
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _instrument() -> Instrument:
@@ -50,6 +51,8 @@ def _request(
         market=instrument.market,
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -59,7 +62,7 @@ def _request(
         execution_context=context,
         required_margin=required_margin,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),

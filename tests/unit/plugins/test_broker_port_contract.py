@@ -27,6 +27,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.ports import ExecutionReceipt
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
@@ -35,6 +36,7 @@ from quantx.plugins.reference_broker import (
     ReferenceBrokerAdapter,
 )
 from quantx.ports.broker import BrokerPort
+from tests.unit._execution_request_proofs import approved_request
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +66,8 @@ def _request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -71,12 +75,14 @@ def _request() -> ApprovedExecutionRequest:
         quantity=Decimal("2"),
         order_type=OrderType.MARKET,
         execution_context=context,
+        product=ProductCode("CNC"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("CNC"),
     )
 
 
@@ -109,7 +115,6 @@ def _dhan_adapter() -> BrokerPort:
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },
@@ -117,6 +122,7 @@ def _dhan_adapter() -> BrokerPort:
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _product_map={"CNC": "CNC"},
     )
 
 

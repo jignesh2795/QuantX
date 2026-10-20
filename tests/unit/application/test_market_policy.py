@@ -27,7 +27,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide, OrderType
+from quantx.domain.enums import AssetClass, OrderSide, OrderType, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import (
     Instrument,
@@ -39,6 +39,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.trading_gate import DurableTradingGate, InMemoryTradingGateStateStore
 from quantx.integrations.brokers import BrokerConnectionRef, CapabilitySet
 from quantx.ports.market_checks import (
@@ -53,6 +54,7 @@ from quantx.ports.market_checks import (
     RegionMarketPolicy,
     sequence_to_mapping,
 )
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 
 def _market(
@@ -82,6 +84,7 @@ def _request(
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
     market = market or instrument.market
+    live = mode is ExecutionMode.LIVE
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -89,19 +92,24 @@ def _request(
         market=market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=mode,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
+    product = ProductCode("DEFAULT") if live else None
     intent = TradeIntent(
         instrument=instrument.instrument_id,
         side=OrderSide.BUY,
         quantity=Decimal("1"),
         order_type=OrderType.MARKET,
         execution_context=context,
+        product=product,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
     )
 
 
@@ -141,6 +149,7 @@ def _live_orchestrator(**overrides) -> ExecutionOrchestrator:
         application_runtime=_started_runtime(),
         submission_quarantine=_FakeSubmissionQuarantine(),
         **overrides,
+        policy_verifier=policy_verifier(),
     )
 
 
@@ -319,6 +328,8 @@ def _us_request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.LIVE,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -326,12 +337,14 @@ def _us_request() -> ApprovedExecutionRequest:
         quantity=Decimal("1"),
         order_type=OrderType.MARKET,
         execution_context=context,
+        product=ProductCode("DEFAULT"),
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=ProductCode("DEFAULT"),
     )
 
 
@@ -501,20 +514,27 @@ def test_unknown_region_string_fails_closed() -> None:
         deployment_id=request.execution_context.deployment_id,
         market=foreign,
         broker_connection_id=request.execution_context.broker_connection_id,
-        execution_mode=ExecutionMode.LIVE,
+        execution_mode=ExecutionMode.PAPER,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
+    # A market no versioned pack covers cannot carry a product proof, so the
+    # request stays product-free and explicitly positioned: the market-policy
+    # stage is what must fail closed for it.
     intent = TradeIntent(
         instrument=request.order.instrument,
         side=OrderSide.BUY,
         quantity=Decimal("1"),
         order_type=OrderType.MARKET,
         execution_context=context,
+        position_effect=PositionEffect.OPEN,
     )
     foreign_request = ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        position_effect=PositionEffect.OPEN,
     )
     result = orchestrator.execute(foreign_request)
     assert result.status is ExecutionDispatchStatus.BLOCKED
@@ -532,7 +552,9 @@ def test_unknown_family_string_fails_closed() -> None:
         deployment_id=request.execution_context.deployment_id,
         market=foreign,
         broker_connection_id=request.execution_context.broker_connection_id,
-        execution_mode=ExecutionMode.LIVE,
+        execution_mode=ExecutionMode.PAPER,
+        market_pack_id="test-pack",
+        rule_version="test-v1",
     )
     intent = TradeIntent(
         instrument=request.order.instrument,
@@ -540,12 +562,14 @@ def test_unknown_family_string_fails_closed() -> None:
         quantity=Decimal("1"),
         order_type=OrderType.MARKET,
         execution_context=context,
+        position_effect=PositionEffect.OPEN,
     )
     foreign_request = ApprovedExecutionRequest(
         order=build_order_from_intent(intent),
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        position_effect=PositionEffect.OPEN,
     )
     orchestrator = _live_orchestrator()
     result = orchestrator.execute(foreign_request)
@@ -592,6 +616,7 @@ def test_india_non_live_modes_keep_session_guard_without_pack_checks(
         application_runtime=_started_runtime(),
         session_guard=SessionExecutionGuard(session=_ClosedSession()),
         market_policy=policy,
+        policy_verifier=policy_verifier(),
     )
     result = orchestrator.execute(request)
 

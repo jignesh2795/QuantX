@@ -33,6 +33,7 @@ from quantx.execution.models import (
     SlippageModel,
     StopTrigger,
 )
+from tests.unit._execution_request_proofs import approved_request
 
 T0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
 TCS = InstrumentId("NSE", "TCS")
@@ -48,6 +49,8 @@ def _context() -> ExecutionContext:
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN"),
         broker_connection_id=BrokerConnectionId("paper-1"),
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
 
 
@@ -95,7 +98,7 @@ def _request(
         limit_price=limit_price,
         stop_price=stop_price,
     )
-    return ApprovedExecutionRequest(order, _context(), RiskResult(RiskDecision.APPROVE, "ok"))
+    return approved_request(order, _context(), RiskResult(RiskDecision.APPROVE, "ok"))
 
 
 def test_candle_market_buy_fills_at_exact_bar_close() -> None:

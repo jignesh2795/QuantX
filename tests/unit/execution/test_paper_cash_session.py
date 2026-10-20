@@ -31,6 +31,7 @@ from quantx.execution.paper_session import PaperSession
 from quantx.execution.post_trade_enforcement import PostTradeRiskEnforcer
 from quantx.execution.post_trade_risk import PostTradeRiskLimits
 from quantx.execution.trading_gate import TradingGate
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _instrument() -> Instrument:
@@ -54,6 +55,8 @@ def _request(instrument: Instrument, side: OrderSide) -> ApprovedExecutionReques
         market=instrument.market,
         broker_connection_id=None,
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -62,7 +65,7 @@ def _request(instrument: Instrument, side: OrderSide) -> ApprovedExecutionReques
         order_type=OrderType.MARKET,
         execution_context=context,
     )
-    return ApprovedExecutionRequest(
+    return approved_request(
         build_order_from_intent(intent),
         context,
         RiskResult(RiskDecision.APPROVE, "approved"),

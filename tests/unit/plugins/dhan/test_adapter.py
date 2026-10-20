@@ -19,6 +19,7 @@ from quantx.domain.enums import (
     OrderSide,
     OrderStatus,
     OrderType,
+    PositionEffect,
     TimeInForce,
 )
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
@@ -31,7 +32,9 @@ from quantx.domain.instruments import (
 )
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
+from quantx.domain.product_selection import ProductSelectionResolution
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import NotSubmittedSource
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.receipts.models import (
@@ -40,6 +43,7 @@ from quantx.execution.receipts.models import (
     ExecutionReceipt,
 )
 from quantx.execution.receipts.quarantine import QuarantineObservationKind
+from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
@@ -68,6 +72,9 @@ from quantx.plugins.dhan.models import (
     DhanOrderResponse,
     DhanPositionsSnapshot,
 )
+from tests.unit._execution_request_proofs import approved_request, policy_verifier
+
+_DEFAULT_PRODUCT = ProductCode("CNC")
 
 
 def _instrument() -> Instrument:
@@ -87,8 +94,11 @@ def _request(
     mode: ExecutionMode = ExecutionMode.LIVE,
     order_type: OrderType = OrderType.MARKET,
     time_in_force: TimeInForce = TimeInForce.DAY,
+    product: ProductCode | None = _DEFAULT_PRODUCT,
+    position_effect: PositionEffect | None = PositionEffect.OPEN,
 ) -> ApprovedExecutionRequest:
     instrument = _instrument()
+    pack_identity = {"market_pack_id": "india-equity", "rule_version": "india-products-v1"}
     context = ExecutionContext(
         account_id=AccountId("acct-1"),
         portfolio_id=PortfolioId("portfolio-1"),
@@ -96,6 +106,7 @@ def _request(
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=mode,
+        **pack_identity,
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -106,13 +117,29 @@ def _request(
         limit_price=Decimal("100") if order_type is OrderType.LIMIT else None,
         stop_price=Decimal("99") if order_type in {OrderType.STOP, OrderType.STOP_LIMIT} else None,
         required_capabilities=frozenset({"ORDER_SUBMISSION"}),
+        product=product,
+        position_effect=position_effect,
         execution_context=context,
     )
-    return ApprovedExecutionRequest(
-        order=build_order_from_intent(intent),
+    order = build_order_from_intent(intent)
+    if product is None:
+        # A request that never resolved a product: it carries no product and
+        # no product proof, so the adapter's own product guard is what must
+        # reject it before any transport call.
+        return ApprovedExecutionRequest(
+            order=order,
+            execution_context=context,
+            risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+            policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+            position_effect=position_effect,
+        )
+    return approved_request(
+        order=order,
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
+        position_effect=position_effect,
     )
 
 
@@ -162,7 +189,14 @@ def _started_runtime() -> ApplicationRuntime:
     return runtime
 
 
-def _adapter(transport: InMemoryDhanTransport | None = None) -> DhanBrokerAdapter:
+_PRODUCT_MAP = {"CNC": "CNC", "MIS": "INTRADAY", "NRML": "MARGIN"}
+
+
+def _adapter(
+    transport: InMemoryDhanTransport | None = None,
+    *,
+    product_map: dict[str, str] | None = _PRODUCT_MAP,
+) -> DhanBrokerAdapter:
     instrument = _instrument()
     connection = BrokerConnectionRef(
         AccountId("acct-1"),
@@ -179,7 +213,6 @@ def _adapter(transport: InMemoryDhanTransport | None = None) -> DhanBrokerAdapte
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },
@@ -187,6 +220,7 @@ def _adapter(transport: InMemoryDhanTransport | None = None) -> DhanBrokerAdapte
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _product_map=product_map,
     )
 
 
@@ -206,6 +240,104 @@ def test_submit_translates_to_dhan_and_returns_normalized_receipt() -> None:
     assert transport.submitted[0].exchange_segment == "NSE_EQ"
     assert transport.submitted[0].product_type == "CNC"
     assert transport.submitted[0].correlation_id == dhan_correlation_id(request.correlation_id)
+
+
+def test_submit_uses_resolved_request_product() -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    receipt = _adapter(transport).submit(_request(product=ProductCode("MIS")))
+
+    assert receipt.outcome is ExecutionOutcome.ACCEPTED
+    assert transport.submitted[0].product_type == "INTRADAY"
+
+
+def test_distinct_products_produce_distinct_wire_values_and_fingerprints() -> None:
+    first = _request(product=ProductCode("CNC"))
+    second = _request(product=ProductCode("MIS"))
+    first_transport = InMemoryDhanTransport(response_status="PENDING")
+    second_transport = InMemoryDhanTransport(response_status="PENDING")
+
+    _adapter(first_transport).submit(first)
+    _adapter(second_transport).submit(second)
+
+    assert first_transport.submitted[0].product_type == "CNC"
+    assert second_transport.submitted[0].product_type == "INTRADAY"
+    assert request_fingerprint(first) != request_fingerprint(second)
+
+
+def test_explicit_product_requires_configured_mapping_before_transport() -> None:
+    transport = InMemoryDhanTransport()
+
+    with pytest.raises(BrokerPreflightRejected, match="unsupported product"):
+        _adapter(transport, product_map=None).submit(_request(product=ProductCode("MIS")))
+
+    assert not transport.submitted
+
+
+def _request_with_unauthenticated_product(product: ProductCode) -> ApprovedExecutionRequest:
+    """Build a request whose product claim no versioned pack supports.
+
+    The market pack rejects such a product before execution, so the request
+    is written directly here: the adapter's own product guard must still
+    refuse it before any transport call.
+    """
+    instrument = _instrument()
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=instrument.market,
+        broker_connection_id=BrokerConnectionId("conn-1"),
+        execution_mode=ExecutionMode.LIVE,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
+    )
+    intent = TradeIntent(
+        instrument=instrument.instrument_id,
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.DAY,
+        required_capabilities=frozenset({"ORDER_SUBMISSION"}),
+        product=product,
+        position_effect=PositionEffect.OPEN,
+        execution_context=context,
+    )
+    return ApprovedExecutionRequest(
+        order=build_order_from_intent(intent),
+        execution_context=context,
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        product=product,
+        position_effect=PositionEffect.OPEN,
+        product_resolution=ProductSelectionResolution(
+            market=instrument.market,
+            product=product,
+            market_pack_id="india-equity",
+            rule_version="india-products-v1",
+        ),
+    )
+
+
+def test_submit_rejects_unsupported_product_before_transport() -> None:
+    transport = InMemoryDhanTransport()
+
+    with pytest.raises(BrokerPreflightRejected, match="unsupported product"):
+        _adapter(transport).submit(_request_with_unauthenticated_product(ProductCode("MTF")))
+
+    assert not transport.submitted
+
+
+def test_request_without_resolved_product_is_rejected_before_transport() -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+
+    with pytest.raises(BrokerPreflightRejected, match="resolved product"):
+        _adapter(transport).submit(_request(product=None))
+
+    assert not transport.submitted
+
+
+def test_instrument_reference_carries_no_product_default() -> None:
+    assert not hasattr(_adapter()._instruments[_instrument().instrument_id][1], "product_type")
 
 
 def test_submit_rejects_wrong_account_for_bound_connection() -> None:
@@ -413,7 +545,6 @@ def test_market_segment_mismatch_is_rejected() -> None:
                     security_id="1333",
                     exchange_segment="NSE_EQ",
                     trading_symbol="TCS",
-                    product_type="CNC",
                 ),
             )
         },
@@ -442,6 +573,7 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
             ),
+            policy_verifier=policy_verifier(),
         ).execute(_request(), broker=adapter)
     finally:
         database.close()
@@ -581,6 +713,7 @@ def _quarantine_orchestrator(database) -> ExecutionOrchestrator:
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+        policy_verifier=policy_verifier(),
     )
 
 

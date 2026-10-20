@@ -25,19 +25,21 @@ class DhanCredentials:
 
 @dataclass(frozen=True, slots=True)
 class DhanInstrumentRef:
-    """Broker-specific instrument mapping for one canonical QuantX instrument."""
+    """Broker-specific instrument mapping for one canonical QuantX instrument.
+
+    Instrument identity carries no per-order product. The approved request
+    product is the sole authority and is mapped by ``mapping.dhan_product_type``.
+    """
 
     security_id: str
     exchange_segment: str
     trading_symbol: str
-    product_type: str
 
     def __post_init__(self) -> None:
         for name, value in (
             ("security_id", self.security_id),
             ("exchange_segment", self.exchange_segment),
             ("trading_symbol", self.trading_symbol),
-            ("product_type", self.product_type),
         ):
             if not value.strip():
                 raise ValueError(f"{name} must not be empty")

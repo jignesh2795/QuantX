@@ -95,6 +95,20 @@ def _product_allowed(product: ProductType, asset_class: AssetClass) -> bool:
     return False
 
 
+def india_supported_products(asset_class: AssetClass) -> frozenset[ProductType]:
+    """Return exactly the India-universal products permitted for an asset class.
+
+    This is the public derivation behind market-pack product selection: it
+    exposes the same matrix the execution rule engine enforces, so an explicit
+    product is validated against the one authoritative list rather than a
+    duplicated constant.
+    """
+    products = {product for product, assets in _PRODUCT_ASSETS if asset_class in assets}
+    if _mis_allowed(asset_class):
+        products.add(ProductType.MIS)
+    return frozenset(products)
+
+
 def _is_number(value: object) -> Decimal | None:
     """Return a finite Decimal for explicit numeric input, else None."""
     if isinstance(value, bool):
@@ -592,4 +606,5 @@ __all__ = [
     "IndiaRuleCheck",
     "IndiaRuleDecision",
     "IndiaRuleResult",
+    "india_supported_products",
 ]

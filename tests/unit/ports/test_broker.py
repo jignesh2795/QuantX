@@ -28,6 +28,7 @@ from quantx.integrations.brokers import (
     CapabilitySet,
 )
 from quantx.ports.broker import BrokerPort
+from tests.unit._execution_request_proofs import approved_request
 
 
 def _instrument() -> Instrument:
@@ -52,6 +53,8 @@ def _request() -> ApprovedExecutionRequest:
         market=instrument.market,
         broker_connection_id=BrokerConnectionId("conn-1"),
         execution_mode=ExecutionMode.PAPER,
+        market_pack_id="india-equity",
+        rule_version="india-products-v1",
     )
     intent = TradeIntent(
         instrument=instrument.instrument_id,
@@ -61,7 +64,7 @@ def _request() -> ApprovedExecutionRequest:
         execution_context=context,
     )
     order = build_order_from_intent(intent)
-    return ApprovedExecutionRequest(order, context, RiskResult(RiskDecision.APPROVE, "approved"))
+    return approved_request(order, context, RiskResult(RiskDecision.APPROVE, "approved"))
 
 
 class ReferenceBroker:

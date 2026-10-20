@@ -39,6 +39,10 @@ from quantx.domain.strategy import (
 )
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.paper_engine import PaperSimulationProfile
+from quantx.india.market_pack import (
+    INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    INDIA_EQUITY_PRODUCT_SELECTION,
+)
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.quality import DataQualityStatus
 from quantx.research.replay import HistoricalReplay
@@ -67,6 +71,11 @@ PRECISE = {
     "close": Decimal("100.00000000000001"),
     "volume": Decimal("123456789.123456789"),
 }
+
+
+def _service(**kwargs):
+    kwargs.setdefault("product_selection", INDIA_EQUITY_PRODUCT_SELECTION)
+    return DeterministicBacktestService(**kwargs)
 
 
 def _instrument() -> Instrument:
@@ -278,8 +287,9 @@ def test_unsupported_payloads_fail_explicitly() -> None:
 # Candle MARKET orders fill deterministically at the observed bar close
 # through the BASIC_BAR model; no quote fields are invented.
 def test_candle_market_order_fills_at_bar_close() -> None:
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=_buy_once_strategy(_context()),
@@ -358,8 +368,9 @@ def _stop_strategy(context: ExecutionContext):
 
 
 def test_candle_limit_order_produces_no_fill_without_invention() -> None:
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=_limit_strategy(_context()),
@@ -396,8 +407,9 @@ def test_candle_crossed_limit_fills_at_bar_close_end_to_end() -> None:
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=strategy,
@@ -450,8 +462,9 @@ def test_candle_limit_fills_only_crossed_bars() -> None:
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=strategy,
@@ -472,8 +485,9 @@ def test_candle_limit_fills_only_crossed_bars() -> None:
 
 
 def test_candle_stop_order_produces_no_fill_without_invention() -> None:
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=_stop_strategy(_context()),
@@ -514,8 +528,9 @@ def _stop_every_bar_strategy(context: ExecutionContext, side, stop):
 def test_candle_buy_stop_triggered_and_ambiguous_bars() -> None:
     # bar0/bar1 touch stop=100 with confirming closes; bar2 touches but
     # closes below the stop, so its outcome is unknowable.
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=_stop_every_bar_strategy(_context(), OrderSide.BUY, Decimal("100")),
@@ -538,8 +553,9 @@ def test_candle_buy_stop_triggered_and_ambiguous_bars() -> None:
 def test_candle_sell_stop_triggered_and_ambiguous_bars() -> None:
     # stop=100: bar0/bar1 touch but close above (ambiguous); bar2 touches
     # with a confirming close below and fills at the close.
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=_stop_every_bar_strategy(_context(), OrderSide.SELL, Decimal("100")),
@@ -586,8 +602,9 @@ def _stop_limit_every_bar_strategy(context: ExecutionContext):
 def test_candle_stop_limit_never_fills_with_explicit_reasons() -> None:
     # bar0/bar1 trigger the stop but post-trigger limit ordering is
     # unknowable; bar2 has an unknowable trigger path.
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=_stop_limit_every_bar_strategy(_context()),
@@ -608,8 +625,9 @@ def test_candle_stop_limit_never_fills_with_explicit_reasons() -> None:
 
 def test_candle_stop_run_is_deterministic() -> None:
     def run_all():
-        return DeterministicBacktestService(
-            instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+        return _service(
+            position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+            instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         ).run(
             series=_candle_series(),
             strategy=_stop_every_bar_strategy(_context(), OrderSide.BUY, Decimal("100")),
@@ -631,8 +649,9 @@ def test_candle_run_is_chronological_deterministic_and_reproducible() -> None:
     shuffled = HistoricalDataSeries(tuple(reversed(_candle_series().as_tuple())))
 
     def run_all():
-        return DeterministicBacktestService(
-            instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+        return _service(
+            position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+            instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         ).run(
             series=shuffled,
             strategy=_buy_once_strategy(_context()),
@@ -670,8 +689,9 @@ def test_candle_run_consumes_no_future_information() -> None:
         )
         return StrategyResult(signal, None)
 
-    DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=series,
         strategy=strategy,
@@ -694,8 +714,9 @@ def test_candle_evaluation_is_reproducible() -> None:
 
 
 def test_candle_receipt_records_basic_bar_identity() -> None:
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=_buy_once_strategy(_context()),
@@ -757,8 +778,9 @@ def test_mixed_series_records_identity_per_payload() -> None:
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=series,
         strategy=strategy,
@@ -777,8 +799,9 @@ def test_mixed_series_records_identity_per_payload() -> None:
 
 def test_candle_receipt_identity_is_reproducible() -> None:
     def run_all():
-        return DeterministicBacktestService(
-            instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+        return _service(
+            position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+            instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
         ).run(
             series=_candle_series(),
             strategy=_buy_once_strategy(_context()),
@@ -829,8 +852,9 @@ def _volume_strategy(quantity: Decimal):
 
 
 def _volume_run(series, quantity: Decimal, rate: Decimal | None):
-    return DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    return _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=series,
         strategy=_volume_strategy(quantity),
@@ -907,8 +931,9 @@ def test_quote_stop_behavior_unchanged() -> None:
         )
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_quote_series(),
         strategy=strategy,
@@ -924,8 +949,9 @@ def test_quote_stop_behavior_unchanged() -> None:
 
 
 def test_quote_backtest_still_executes() -> None:
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_quote_series(),
         strategy=_buy_once_strategy(_context()),
@@ -961,8 +987,9 @@ def test_each_candle_fill_uses_its_own_bar_close() -> None:
         closes.append(snapshot.close)
         return StrategyResult(signal, intent)
 
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=strategy,
@@ -1003,8 +1030,9 @@ class _CandleParityStrategy:
 
 def test_candle_end_to_end_replay_to_accounting() -> None:
     ir = StrategyCompiler.compile(StrategyDefinition(StrategyId("candle-e2e"), "1", "Candle E2E"))
-    result = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    result = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_candle_series(),
         strategy=StrategyEvaluationService(_CandleParityStrategy()),
@@ -1023,8 +1051,9 @@ def test_candle_end_to_end_replay_to_accounting() -> None:
 
 
 def _slipped_run(series, strategy, profile):
-    return DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    return _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=series,
         strategy=strategy,
@@ -1098,8 +1127,9 @@ def test_candle_slippage_preserves_triggers_and_quantities() -> None:
 def test_candle_participation_slippage_ratio_stay_independent() -> None:
     base = _volume_run(_volume_series(), Decimal("5"), Decimal("0.10"))
     profile = PaperSimulationProfile(slippage_bps=Decimal("10"), partial_fill_ratio=Decimal("0.5"))
-    combined = DeterministicBacktestService(
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),))
+    combined = _service(
+        position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
     ).run(
         series=_volume_series(),
         strategy=_volume_strategy(Decimal("5")),
