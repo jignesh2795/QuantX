@@ -5,6 +5,7 @@
 - `v0.1-build-order.md` — implementation sequence and release gates.
 - `local-release-validation-playbook.md` — operator sequence for producing exact-head validation and release-gate evidence locally.
 - `p0-canonical-contracts.md` — stable internal vocabulary and invariants.
+- `quarantine-evidence-worklist.md` — read-only operator view of unresolved quarantined submission evidence.
 - `v0.1-repository-tree.md` — historical v0.1 target tree; it is not the current source tree.
 
 For the actual current package layout, use `docs/architecture/41-current-package-map.md`.
