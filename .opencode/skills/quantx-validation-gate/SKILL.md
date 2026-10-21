@@ -55,7 +55,7 @@ Notes:
 
 ```powershell
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head <sha>
-python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --skip-full   # degrades to UNKNOWN, never PASS
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --skip-pytest  # degrades to UNKNOWN, never PASS
 ```
 
 - Runs: full `uv run pytest` (pyproject `addopts` supplies `-q`; an extra `-q` would suppress the summary line and fail-closed to UNKNOWN), changed-file `uv run ruff check` + `ruff format --check`, `uv run mypy`, `git diff --check`, `git status --porcelain`.
