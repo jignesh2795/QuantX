@@ -41,21 +41,33 @@ class SqliteDatabase:
         """Open an existing database without creating or migrating it.
 
         Missing paths raise :class:`FileNotFoundError` and are never created.
-        SQLite is opened with ``mode=rw`` (which refuses creation) and
-        ``query_only`` as defense in depth, while the explicit write
-        transaction guard rejects all writes. The schema version must already
-        be current; missing or unreadable tables are never repaired here, and
-        reads fail closed until the database is repaired.
+        SQLite is opened with the ``mode=ro`` URI flag, so the engine itself
+        refuses every write — including a write attempted after
+        ``PRAGMA query_only=OFF`` through the public connection handle.
+        ``query_only`` and the write-transaction guard remain as defense in
+        depth. The schema version must already be current; missing or
+        unreadable tables are never repaired here, and reads fail closed until
+        the database is repaired.
+
+        Read-only is not side-effect free. A WAL-mode database is read through
+        SQLite's WAL machinery, which may create or update ``-wal``/``-shm``
+        companion files and may create an empty ``-wal`` for a cleanly closed
+        database. A read-only connection cannot checkpoint, so a hot WAL is
+        read where it stands rather than folded into the main file, and the
+        main database file is not modified by a read. This is therefore not a
+        byte-preserving inspection of the directory: preserve the only copy of
+        evidence unopened and inspect a disposable copy taken after the last
+        writer closed.
         """
         candidate = Path(path).absolute()
         if not candidate.is_file():
             raise FileNotFoundError(f"SQLite database does not exist: {path}")
         database = cls.__new__(cls)
-        database._path = str(path)
+        database._path = str(candidate)
         database._lock = RLock()
         database._read_only = True
         connection = sqlite3.connect(
-            f"{candidate.as_uri()}?mode=rw",
+            f"{candidate.as_uri()}?mode=ro",
             uri=True,
             check_same_thread=False,
             timeout=timeout,
@@ -70,6 +82,13 @@ class SqliteDatabase:
             raise
         database._connection = connection
         return database
+
+    @property
+    def path(self) -> str:
+        """Absolute path this instance opened, for evidence-store verification."""
+        if self._path == ":memory:":
+            return self._path
+        return str(Path(self._path).absolute())
 
     @property
     def lock(self) -> RLock:

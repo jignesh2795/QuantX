@@ -8,18 +8,37 @@ identical re-record is a no-op, a conflicting payload fails closed.
 
 from __future__ import annotations
 
+import sqlite3
 from uuid import UUID
 
 from quantx.execution.receipts.quarantine import (
+    MAX_SERIALIZED_PAYLOAD_CHARS,
     QuarantinedSubmissionObservation,
     QuarantineEvidenceDecodeError,
     QuarantineEvidenceTooLarge,
+    QuarantineEvidenceUnavailable,
 )
 
 from .database import SqliteDatabase
 
 DEFAULT_MAX_SCAN_ROWS = 10_000
-DEFAULT_MAX_PAYLOAD_CHARS = 4_096
+DEFAULT_MAX_PAYLOAD_CHARS = MAX_SERIALIZED_PAYLOAD_CHARS
+
+
+def _sqlite_read_detail(error: sqlite3.Error) -> str:
+    """Map a SQLite read failure to a static, operator-safe description.
+
+    Driver messages can embed file paths and untrusted text, so they are never
+    reproduced. The mapped detail distinguishes the common failure classes
+    without exposing the raw exception.
+    """
+    if isinstance(error, sqlite3.OperationalError):
+        return "the SQLite database is not readable in its current state"
+    if isinstance(error, sqlite3.ProgrammingError):
+        return "the SQLite evidence connection is not usable for reading"
+    if isinstance(error, sqlite3.DatabaseError):
+        return "the SQLite database file is corrupt or not a readable database"
+    return "the SQLite driver could not complete the evidence read"
 
 
 def _identity_key(value: object) -> tuple[str, str]:
@@ -56,7 +75,24 @@ class SqliteSubmissionQuarantineRepository:
         self._max_payload_chars = max_payload_chars
 
     def record(self, observation: QuarantinedSubmissionObservation) -> None:
+        """Persist one observation, or fail closed before any write.
+
+        The serialized size is checked against the same canonical bound the
+        reader uses. Every value produced by the validated constructor fits the
+        bound, so this check is not reachable for a normal observation; it
+        rejects only a value whose runtime type lies about its serialized form
+        (for example a ``str`` subclass overriding ``__str__``). Rejecting such
+        a payload before the insert is deliberate: storing it would create a
+        durable row no default reader can decode, silently losing the evidence.
+        The caller treats a rejected record as a persistence failure and latches
+        the existing fail-closed safety fault; it never stores an unreadable row.
+        """
         payload = observation.to_payload()
+        if len(payload) > MAX_SERIALIZED_PAYLOAD_CHARS:
+            raise ValueError(
+                "serialized quarantine observation exceeds the "
+                f"{MAX_SERIALIZED_PAYLOAD_CHARS}-character write bound"
+            )
         with self._database.transaction() as connection:
             row = connection.execute(
                 "SELECT payload FROM submission_quarantine WHERE observation_id = ?",
@@ -130,16 +166,31 @@ class SqliteSubmissionQuarantineRepository:
         identity, so a corrupt record can never be mistaken for an empty
         worklist or silently dropped from an operator's view.
 
+        ``max_payload_chars`` defaults to the canonical write bound, so every
+        observation the write boundary accepted is readable. Raising the read
+        bound is safe; lowering it below the write bound intentionally reports
+        its own store as unreadable rather than admitting an over-bound row.
+
+        SQLite failures are raised as :class:`QuarantineEvidenceUnavailable`
+        with a static description; the driver message is never propagated.
+
+        SQLite ``length``/``substr`` text semantics stop at an embedded NUL.
+        Such a payload cannot be valid JSON (the writer escapes every control
+        character), so it is reported as undecodable rather than readable.
+
         The query runs in a deferred read transaction, so it takes no writer
         lock and observes one consistent snapshot.
         """
-        with self._database.read_transaction() as connection:
-            rows = connection.execute(
-                "SELECT observation_id, client_order_id, length(payload), "
-                "substr(payload, 1, ?) FROM submission_quarantine "
-                "ORDER BY rowid LIMIT ?",
-                (self._max_payload_chars, self._max_scan_rows + 1),
-            ).fetchall()
+        try:
+            with self._database.read_transaction() as connection:
+                rows = connection.execute(
+                    "SELECT observation_id, client_order_id, length(payload), "
+                    "substr(payload, 1, ?) FROM submission_quarantine "
+                    "ORDER BY rowid LIMIT ?",
+                    (self._max_payload_chars, self._max_scan_rows + 1),
+                ).fetchall()
+        except sqlite3.Error as exc:
+            raise QuarantineEvidenceUnavailable(_sqlite_read_detail(exc)) from exc
         if len(rows) > self._max_scan_rows:
             raise QuarantineEvidenceTooLarge(
                 f"row count exceeds the {self._max_scan_rows}-row scan bound"

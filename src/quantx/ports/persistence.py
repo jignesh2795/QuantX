@@ -101,6 +101,10 @@ class SubmissionQuarantineRepository(Protocol):
     reconciliation. Writes are idempotent on the stable observation
     identity: re-recording an identical observation is a no-op, and a
     conflicting payload for the same identity fails closed.
+
+    This is the execution-side write/identity contract. The operator worklist
+    uses the separate :class:`QuarantineEvidenceReader` contract so an adapter
+    is not required to implement an unrelated full-store listing.
     """
 
     def record(self, observation: QuarantinedSubmissionObservation) -> None: ...
@@ -108,17 +112,23 @@ class SubmissionQuarantineRepository(Protocol):
     def list_by_client_order(
         self, client_order_id: UUID | str
     ) -> tuple[QuarantinedSubmissionObservation, ...]: ...
-    def list_all(self) -> tuple[QuarantinedSubmissionObservation, ...]:
-        """Return all readable durable observations in storage order.
 
-        Implementations must not mutate evidence, and must raise
-        ``QuarantineEvidenceDecodeError`` rather than skip an unreadable or
-        identity-inconsistent row. They must also enforce their documented
-        retrieval bounds and raise ``QuarantineEvidenceTooLarge`` instead of
-        silently omitting evidence beyond those bounds. Presentation ordering
-        and pagination belong to the read consumer.
-        """
-        ...
+
+class QuarantineEvidenceReader(Protocol):
+    """Bounded read-only listing of durable quarantined evidence.
+
+    Separate from :class:`SubmissionQuarantineRepository` so the operator
+    worklist depends only on the read surface it needs. Implementations must
+    not mutate evidence, and must raise ``QuarantineEvidenceDecodeError``
+    rather than skip an unreadable or identity-inconsistent row. They must
+    also enforce their documented retrieval bounds and raise
+    ``QuarantineEvidenceTooLarge`` instead of silently omitting evidence
+    beyond those bounds; a driver failure is reported as
+    ``QuarantineEvidenceUnavailable`` with a static description. Presentation
+    ordering and pagination belong to the read consumer.
+    """
+
+    def list_all(self) -> tuple[QuarantinedSubmissionObservation, ...]: ...
 
 
 class UnitOfWork(Protocol):
@@ -147,6 +157,7 @@ class UnitOfWork(Protocol):
 
 __all__ = [
     "PersistentIdempotencyStore",
+    "QuarantineEvidenceReader",
     "ReceiptRepository",
     "SubmissionQuarantineRepository",
     "UnitOfWork",

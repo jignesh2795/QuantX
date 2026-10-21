@@ -1,15 +1,17 @@
 """Read-boundary tests for the SQLite submission-quarantine repository."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
 
 from quantx.execution.receipts.quarantine import (
+    MAX_SERIALIZED_PAYLOAD_CHARS,
     QuarantinedSubmissionObservation,
     QuarantineEvidenceDecodeError,
     QuarantineEvidenceTooLarge,
+    QuarantineEvidenceUnavailable,
     QuarantineObservationKind,
 )
 from quantx.persistence.sqlite import SqliteDatabase, SqliteSubmissionQuarantineRepository
@@ -53,6 +55,26 @@ def _insert_payload(
                 datetime(2026, 1, 2, tzinfo=UTC).isoformat(),
             ),
         )
+
+
+class _OversizedClientOrderId(str):
+    def __str__(self) -> str:
+        return "x" * (MAX_SERIALIZED_PAYLOAD_CHARS + 1)
+
+
+def test_record_rejects_serialized_payload_over_shared_bound(tmp_path) -> None:
+    observation = _observation(client_order_id=_OversizedClientOrderId("x"))
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        with pytest.raises(ValueError, match="serialized quarantine observation"):
+            repository.record(observation)
+        stored = (
+            database.connection()
+            .execute("SELECT COUNT(*) FROM submission_quarantine")
+            .fetchone()[0]
+        )
+
+    assert stored == 0
 
 
 def test_list_all_returns_every_recorded_observation(tmp_path) -> None:
@@ -326,3 +348,156 @@ def test_list_all_does_not_mutate_evidence_rows(tmp_path) -> None:
         database.close()
 
     assert after == before
+
+
+_MAXIMAL_TEXT = "\U0001f600" * 256
+_MAXIMAL_REASON = "\U0001f600" * 512
+# Widest legal ``datetime.isoformat`` result: 26 characters plus a 16-character
+# UTC offset (``9999-12-31T23:59:59.999999+23:59:59.999999``).
+_MAXIMAL_OBSERVED_AT = datetime(
+    9999,
+    12,
+    31,
+    23,
+    59,
+    59,
+    999999,
+    tzinfo=timezone(timedelta(hours=23, minutes=59, seconds=59, microseconds=999999)),
+)
+
+
+def _maximal_observation() -> QuarantinedSubmissionObservation:
+    return QuarantinedSubmissionObservation(
+        observation_id=uuid4(),
+        kind=QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN,
+        client_order_id=_MAXIMAL_TEXT,
+        observed_at=_MAXIMAL_OBSERVED_AT,
+        reason=_MAXIMAL_REASON,
+        request_correlation_id=_MAXIMAL_TEXT,
+        source=_MAXIMAL_TEXT,
+        broker_order_id=_MAXIMAL_TEXT,
+        outcome=_MAXIMAL_TEXT,
+        order_status=_MAXIMAL_TEXT,
+    )
+
+
+def test_writer_accepts_and_reader_decodes_the_proven_worst_case_payload(tmp_path) -> None:
+    observation = _maximal_observation()
+    payload = observation.to_payload()
+
+    # The shared bound is derived, not guessed: this observation touches every
+    # field limit, the widest enum value, a maximal ISO timestamp, and the
+    # widest JSON escaping (an astral code point costs twelve characters).
+    assert len(payload) == MAX_SERIALIZED_PAYLOAD_CHARS
+
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        listed = repository.list_all()
+
+    assert len(listed) == 1
+    assert listed[0].to_payload() == payload
+
+
+def test_default_scan_bound_is_exact_at_ten_thousand_rows(tmp_path) -> None:
+    observations = tuple(_observation() for _ in range(10_000))
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        _insert_observations(database, observations)
+        listed = repository.list_all()
+        _insert_observations(database, (_observation(),))
+        with pytest.raises(
+            QuarantineEvidenceTooLarge,
+            match="row count exceeds the 10000-row scan bound",
+        ):
+            repository.list_all()
+
+    assert len(listed) == 10_000
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    (
+        ("source", {"unexpected": "mapping"}),
+        ("broker_order_id", 12345),
+        ("outcome", ""),
+        ("order_status", " UNKNOWN "),
+        ("request_correlation_id", 3.5),
+    ),
+)
+def test_list_all_rejects_non_canonical_stored_optional_field(
+    tmp_path,
+    field_name: str,
+    value: object,
+) -> None:
+    observation = _observation()
+    payload = json.loads(observation.to_payload())
+    payload[field_name] = value
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        _insert_payload(
+            database,
+            str(observation.observation_id),
+            str(observation.client_order_id),
+            json.dumps(payload),
+        )
+
+        with pytest.raises(QuarantineEvidenceDecodeError) as raised:
+            repository.list_all()
+
+    assert str(observation.observation_id) in str(raised.value)
+
+
+def test_list_all_ignores_unknown_stored_keys_without_surfacing_them(tmp_path) -> None:
+    observation = _observation()
+    payload = json.loads(observation.to_payload())
+    payload["raw_response"] = {"secret": "tok-secret-value"}
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        _insert_payload(
+            database,
+            str(observation.observation_id),
+            str(observation.client_order_id),
+            json.dumps(payload),
+        )
+        listed = repository.list_all()
+
+    assert listed == (observation,)
+    assert "tok-secret-value" not in listed[0].to_payload()
+
+
+def test_list_all_maps_driver_failure_to_static_unavailable(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        database.connection().close()
+        repository = SqliteSubmissionQuarantineRepository(database)
+        with pytest.raises(QuarantineEvidenceUnavailable) as raised:
+            repository.list_all()
+    finally:
+        database.close()
+
+    assert str(raised.value) == (
+        "quarantine evidence store could not be read: "
+        "the SQLite evidence connection is not usable for reading"
+    )
+
+
+def _insert_observations(
+    database: SqliteDatabase,
+    observations: tuple[QuarantinedSubmissionObservation, ...],
+) -> None:
+    rows = [
+        (
+            str(observation.observation_id),
+            str(observation.client_order_id),
+            observation.to_payload(),
+            observation.observed_at.isoformat(),
+        )
+        for observation in observations
+    ]
+    with database.transaction() as connection:
+        connection.executemany(
+            "INSERT INTO submission_quarantine "
+            "(observation_id, client_order_id, payload, created_at) VALUES (?, ?, ?, ?)",
+            rows,
+        )

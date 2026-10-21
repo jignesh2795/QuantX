@@ -16,11 +16,17 @@ Contract:
   empty worklist that could be misread as "nothing to reconcile";
 - output is deterministically ordered by observation time and stable
   observation identity, and bounded by a caller-supplied limit with an opaque
-  continuation cursor for evidence beyond the first page;
+  single-pass continuation cursor for evidence beyond the first page;
 - items expose only the bounded quarantine record. Untrusted text must be
   rendered through :func:`render_quarantine_worklist_item`, which neutralizes
-  control characters; no raw broker payload, credential, or unbounded
-  exception text is reproduced here.
+  control characters, bidirectional formatting controls, and lone surrogates;
+  no raw broker payload, credential, or unbounded exception text is reproduced
+  here.
+
+This is a bounded inspection view over one readable snapshot, not a guarantee
+of complete inventory at arbitrary table sizes. The underlying adapter reports
+an explicit ``UNAVAILABLE`` above its row and per-row bounds; it never presents
+a truncated or over-bound store as a partial or empty worklist.
 
 Resolving an item requires a separately authorized operator action; this
 module intentionally provides no acknowledge/resolve/retry surface.
@@ -41,8 +47,10 @@ from quantx.execution.receipts.quarantine import (
     QuarantinedSubmissionObservation,
     QuarantineEvidenceDecodeError,
     QuarantineEvidenceTooLarge,
+    QuarantineEvidenceUnavailable,
+    neutralize_display_text,
 )
-from quantx.ports.persistence import SubmissionQuarantineRepository
+from quantx.ports.persistence import QuarantineEvidenceReader
 
 DEFAULT_WORKLIST_LIMIT = 100
 MAX_WORKLIST_LIMIT = 1000
@@ -54,37 +62,19 @@ _CURSOR_VERSION = 1
 _CURSOR_FIELDS = frozenset({"version", "observed_at", "observation_id"})
 
 
+class _CursorAttributionError(ValueError):
+    """A well-formed cursor does not belong to the evidence just read.
+
+    Raised for a cursor whose ordering anchor is absent from the readable
+    set -- a reused cursor from another database or inspection run, or one
+    whose anchor was removed by a source mutation. The caller must restart
+    from the initial cursor; silently continuing would present a partial view.
+    """
+
+
 def _display_text(value: object, *, max_length: int = _MAX_DISPLAY_FIELD_LENGTH) -> str:
-    """Neutralize terminal control characters in an untrusted display value."""
-    try:
-        text = str(value)
-    except Exception:
-        text = f"<{type(value).__name__}>"
-    text = text[:max_length]
-    escaped = "".join(
-        {
-            "\n": "\\n",
-            "\r": "\\r",
-            "\t": "\\t",
-        }.get(
-            character,
-            (
-                character
-                if 0x20 <= ord(character) <= 0x7E
-                or 0xA0 <= ord(character) <= 0x2027
-                or ord(character) >= 0x202A
-                else (
-                    f"\\x{ord(character):02x}"
-                    if ord(character) <= 0xFF
-                    else f"\\u{ord(character):04x}"
-                )
-            ),
-        )
-        for character in text
-    )
-    if len(escaped) > max_length:
-        return f"{escaped[: max_length - 3]}..."
-    return escaped
+    """Neutralize untrusted display text through the shared evidence renderer."""
+    return neutralize_display_text(value, max_length=max_length)
 
 
 def _bounded_error(message: str) -> str:
@@ -135,9 +125,12 @@ def render_quarantine_worklist_item(item: QuarantineWorklistItem) -> str:
     """Render one item for a terminal with all untrusted text neutralized.
 
     Persisted evidence is not modified. Newlines, carriage returns, tabs,
-    ANSI escape bytes, NUL, and all other C0/C1 control characters are shown
-    as printable escape sequences, so broker-derived text cannot inject
-    terminal commands or forge additional worklist entries.
+    ANSI escape bytes, NUL, all other C0/C1 control characters, Unicode
+    line/paragraph separators, bidirectional formatting/isolate controls
+    (including U+200F, U+202E, and U+2066), and lone surrogates are shown as
+    printable escape sequences, so broker-derived text cannot inject terminal
+    commands, reorder surrounding text, forge additional worklist entries, or
+    break the terminal encoder.
     """
     if not isinstance(item, QuarantineWorklistItem):
         raise ValueError("worklist renderer requires a QuarantineWorklistItem")
@@ -252,9 +245,14 @@ class QuarantineWorklist:
 
 
 class QuarantineWorklistReadService:
-    """List unresolved quarantined submissions without changing anything."""
+    """List unresolved quarantined submissions without changing anything.
 
-    def __init__(self, *, quarantine: SubmissionQuarantineRepository) -> None:
+    This is a bounded inspection view over one read-only evidence store, not a
+    complete-inventory or live-monitoring service. See the module docstring for
+    the row and payload bounds and for the operator escalation procedure.
+    """
+
+    def __init__(self, *, quarantine: QuarantineEvidenceReader) -> None:
         self._quarantine = quarantine
 
     def read(
@@ -271,6 +269,18 @@ class QuarantineWorklistReadService:
         rely on rowid or offset. ``truncated`` is true exactly when a
         ``next_cursor`` is returned. Invalid limits and cursors fail closed
         before any store access.
+
+        Cursor lifetime is one inspection pass against one unchanged store.
+        Every call reads a fresh snapshot, so a pass requires a quiesced or
+        offline source: after any source mutation (including deletions) the
+        operator must restart from the initial cursor rather than mixing pages
+        from different snapshots. A well-formed cursor whose ordering anchor is
+        absent from the readable evidence -- a cursor from another database or
+        an earlier run, or one invalidated by mutation -- is rejected with
+        ``ValueError`` instead of silently continuing from an arbitrary offset.
+        A cursor is deliberately not bound to a database identity; verifying
+        that the open store is the intended evidence store stays an operator
+        responsibility (``SqliteDatabase.path`` exposes the resolved path).
         """
         if isinstance(limit, bool) or not isinstance(limit, int):
             raise ValueError("worklist limit must be an integer")
@@ -299,8 +309,14 @@ class QuarantineWorklistReadService:
                 (observation.observed_at, str(observation.observation_id))
                 for observation in ordered
             ]
-            if len(set(keys)) != len(keys):
+            unique_keys = set(keys)
+            if len(unique_keys) != len(keys):
                 raise ValueError("quarantine repository returned duplicate observation identities")
+            if cursor_key is not None and cursor_key not in unique_keys:
+                raise _CursorAttributionError(
+                    "worklist cursor does not match the readable evidence in this store; "
+                    "restart the inspection pass from the initial cursor"
+                )
             start = bisect_right(keys, cursor_key) if cursor_key is not None else 0
             page = ordered[start : start + limit]
             truncated = start + limit < len(ordered)
@@ -311,12 +327,19 @@ class QuarantineWorklistReadService:
                 truncated=truncated,
                 next_cursor=_encode_cursor(page[-1]) if truncated else None,
             )
+        except _CursorAttributionError:
+            raise
         except QuarantineEvidenceDecodeError as exc:
             return QuarantineWorklist(
                 status=QuarantineWorklistStatus.UNAVAILABLE,
                 error=_bounded_error(f"quarantine evidence could not be decoded: {exc}"),
             )
         except QuarantineEvidenceTooLarge as exc:
+            return QuarantineWorklist(
+                status=QuarantineWorklistStatus.UNAVAILABLE,
+                error=_bounded_error(str(exc)),
+            )
+        except QuarantineEvidenceUnavailable as exc:
             return QuarantineWorklist(
                 status=QuarantineWorklistStatus.UNAVAILABLE,
                 error=_bounded_error(str(exc)),
