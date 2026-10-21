@@ -142,6 +142,9 @@ class _FakeSubmissionQuarantine:
             if observation.client_order_id == client_order_id
         )
 
+    def list_all(self):
+        return tuple(self._observations.values())
+
 
 def _live_orchestrator(**overrides) -> ExecutionOrchestrator:
     return ExecutionOrchestrator(

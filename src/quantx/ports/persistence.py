@@ -109,11 +109,14 @@ class SubmissionQuarantineRepository(Protocol):
         self, client_order_id: UUID | str
     ) -> tuple[QuarantinedSubmissionObservation, ...]: ...
     def list_all(self) -> tuple[QuarantinedSubmissionObservation, ...]:
-        """Return every durable observation in storage order (read-only).
+        """Return all readable durable observations in storage order.
 
         Implementations must not mutate evidence, and must raise
-        ``QuarantineEvidenceDecodeError`` rather than skip an unreadable row.
-        Presentation ordering and bounds belong to the read consumer.
+        ``QuarantineEvidenceDecodeError`` rather than skip an unreadable or
+        identity-inconsistent row. They must also enforce their documented
+        retrieval bounds and raise ``QuarantineEvidenceTooLarge`` instead of
+        silently omitting evidence beyond those bounds. Presentation ordering
+        and pagination belong to the read consumer.
         """
         ...
 

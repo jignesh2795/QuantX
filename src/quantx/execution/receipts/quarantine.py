@@ -28,6 +28,33 @@ from uuid import UUID
 _MAX_TEXT_LENGTH = 256
 _MAX_REASON_LENGTH = 512
 _MAX_OBSERVATION_ID_DISPLAY = 128
+_MAX_DETAIL_LENGTH = 512
+
+
+def _bounded_identity(value: object) -> str:
+    """Render an untrusted row identity safely and boundedly."""
+    try:
+        text = str(value)
+    except Exception:
+        text = f"<{type(value).__name__}>"
+    escaped = "".join(
+        (
+            character
+            if 0x20 <= ord(character) <= 0x7E
+            or (0xA0 <= ord(character) and ord(character) not in (0x2028, 0x2029))
+            else (
+                f"\\x{ord(character):02x}" if ord(character) <= 0xFF else f"\\u{ord(character):04x}"
+            )
+        )
+        for character in text[:_MAX_OBSERVATION_ID_DISPLAY]
+    )
+    if len(escaped) > _MAX_OBSERVATION_ID_DISPLAY:
+        escaped = f"{escaped[:_MAX_OBSERVATION_ID_DISPLAY]}..."
+    return escaped
+
+
+def _bounded_detail(detail: str) -> str:
+    return " ".join(detail[:_MAX_DETAIL_LENGTH].split())
 
 
 class QuarantineEvidenceDecodeError(ValueError):
@@ -36,17 +63,33 @@ class QuarantineEvidenceDecodeError(ValueError):
     Raised by storage adapters listing durable evidence when a stored payload
     is unreadable or violates the record contract. Readers must surface this
     as an explicit unavailable result: a corrupt evidence row is not an empty
-    worklist, and it must never be silently skipped. The row identity is kept
-    whole for callers, but its rendered form is bounded so a hostile row key
-    cannot make the failure report unbounded.
+    worklist, and it must never be silently skipped. The row identity is
+    rendered safely and boundedly so a hostile row key cannot make the
+    failure report unbounded or terminal-unsafe.
     """
 
-    def __init__(self, observation_id: str) -> None:
-        self.observation_id = observation_id
-        display = observation_id
-        if len(display) > _MAX_OBSERVATION_ID_DISPLAY:
-            display = f"{display[:_MAX_OBSERVATION_ID_DISPLAY]}..."
-        super().__init__(f"quarantined observation {display} could not be decoded")
+    def __init__(self, observation_id: object, *, detail: str | None = None) -> None:
+        self.observation_id = _bounded_identity(observation_id)
+        message = f"quarantined observation {self.observation_id} could not be decoded"
+        if detail:
+            message = f"{message}: {_bounded_detail(detail)}"
+        super().__init__(message)
+
+
+class QuarantineEvidenceTooLarge(RuntimeError):
+    """The durable evidence exceeds the adapter's bounded read contract.
+
+    A reader must surface this as explicitly unavailable. It is never an empty
+    worklist and never a silently truncated page: evidence beyond the bounded
+    snapshot is not presented as if it did not exist.
+    """
+
+    def __init__(self, detail: str, *, observation_id: object | None = None) -> None:
+        message = "quarantine evidence exceeds read bounds"
+        if observation_id is not None:
+            message = f"{message} for observation {_bounded_identity(observation_id)}"
+        self.detail = _bounded_detail(detail)
+        super().__init__(f"{message}: {self.detail}")
 
 
 class QuarantineObservationKind(StrEnum):
@@ -237,6 +280,7 @@ class QuarantinedSubmissionObservation:
 
 __all__ = [
     "QuarantineEvidenceDecodeError",
+    "QuarantineEvidenceTooLarge",
     "QuarantineObservationKind",
     "QuarantinedSubmissionObservation",
 ]

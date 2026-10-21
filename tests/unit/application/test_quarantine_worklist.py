@@ -1,20 +1,24 @@
 """Read-only worklist tests for durable quarantined submission evidence."""
 
 import ast
+import base64
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from quantx.application.quarantine_worklist import (
     QuarantineEvidenceState,
+    QuarantineWorklist,
     QuarantineWorklistReadService,
     QuarantineWorklistStatus,
+    render_quarantine_worklist_item,
 )
 from quantx.execution.receipts.quarantine import (
     QuarantinedSubmissionObservation,
+    QuarantineEvidenceTooLarge,
     QuarantineObservationKind,
 )
 from quantx.execution.trading_gate import DurableTradingGate
@@ -35,18 +39,22 @@ def _observation(
     client_order_id=None,
     broker_order_id: str | None = "BR-1",
     source: str | None = "dhan",
+    reason: str = "broker returned an UNKNOWN receipt; unresolved pending reconciliation",
+    request_correlation_id: str | None = "correlation-keep-me",
+    outcome: str | None = "UNKNOWN",
+    order_status: str | None = "UNKNOWN",
 ) -> QuarantinedSubmissionObservation:
     return QuarantinedSubmissionObservation(
         observation_id=observation_id or uuid4(),
         kind=kind,
         client_order_id=client_order_id or uuid4(),
         observed_at=observed_at or datetime(2026, 1, 2, tzinfo=UTC),
-        reason="broker returned an UNKNOWN receipt; unresolved pending reconciliation",
-        request_correlation_id="correlation-keep-me",
+        reason=reason,
+        request_correlation_id=request_correlation_id,
         source=source,
         broker_order_id=broker_order_id,
-        outcome="UNKNOWN",
-        order_status="UNKNOWN",
+        outcome=outcome,
+        order_status=order_status,
     )
 
 
@@ -70,6 +78,26 @@ class _FailingQuarantinePort:
 
     def list_all(self) -> tuple[QuarantinedSubmissionObservation, ...]:
         raise OSError("quarantine store unavailable")
+
+
+class _ScriptedQuarantinePort:
+    """Port double returning an arbitrary result for contract validation."""
+
+    def __init__(self, result: object) -> None:
+        self._result = result
+
+    def list_all(self) -> object:
+        return self._result
+
+
+class _RaisingQuarantinePort:
+    """Port double raising one configured exception."""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    def list_all(self) -> tuple[QuarantinedSubmissionObservation, ...]:
+        raise self._error
 
 
 def _durable_snapshot(database: SqliteDatabase) -> dict[str, object]:
@@ -104,7 +132,7 @@ def test_worklist_lists_evidence_after_store_reopen(tmp_path) -> None:
     finally:
         database.close()
 
-    reopened = SqliteDatabase(path)
+    reopened = SqliteDatabase.open_existing(path)
     try:
         worklist = QuarantineWorklistReadService(
             quarantine=SqliteSubmissionQuarantineRepository(reopened)
@@ -121,36 +149,65 @@ def test_worklist_lists_evidence_after_store_reopen(tmp_path) -> None:
     assert item.observation.kind is QuarantineObservationKind.TRANSPORT_UNCERTAIN
 
 
-def test_worklist_orders_items_deterministically_across_kinds_and_sources() -> None:
+def test_worklist_orders_items_by_timestamp_then_observation_id() -> None:
     late = _observation(
+        observation_id=UUID("00000000-0000-0000-0000-000000000003"),
         kind=QuarantineObservationKind.MALFORMED_RECEIPT,
         observed_at=datetime(2026, 1, 3, tzinfo=UTC),
         source="dhan",
     )
-    early_a = _observation(
+    early_b = _observation(
+        observation_id=UUID("00000000-0000-0000-0000-000000000002"),
         kind=QuarantineObservationKind.BROKER_UNKNOWN,
         observed_at=datetime(2026, 1, 1, tzinfo=UTC),
         source="fake-broker",
     )
-    early_b = _observation(
+    early_a = _observation(
+        observation_id=UUID("00000000-0000-0000-0000-000000000001"),
         kind=QuarantineObservationKind.IDENTITY_REJECTED,
         observed_at=datetime(2026, 1, 1, tzinfo=UTC),
         source="dhan",
     )
-    port = _StrictReadOnlyQuarantinePort((late, early_a, early_b))
+    port = _StrictReadOnlyQuarantinePort((late, early_b, early_a))
 
     first = QuarantineWorklistReadService(quarantine=port).read()
     second = QuarantineWorklistReadService(quarantine=port).read()
 
-    expected = sorted(
-        (late, early_a, early_b),
-        key=lambda observation: (observation.observed_at, str(observation.observation_id)),
-    )
     assert [item.observation.observation_id for item in first.items] == [
-        observation.observation_id for observation in expected
+        early_a.observation_id,
+        early_b.observation_id,
+        late.observation_id,
     ]
     assert first == second
     assert port.list_calls == 2
+
+
+def test_worklist_orders_by_instant_not_iso_text_across_offsets() -> None:
+    earlier = _observation(
+        observation_id=UUID("00000000-0000-0000-0000-000000000002"),
+        observed_at=datetime(
+            2026,
+            1,
+            1,
+            14,
+            30,
+            tzinfo=timezone(timedelta(hours=5, minutes=30)),
+        ),
+    )
+    later = _observation(
+        observation_id=UUID("00000000-0000-0000-0000-000000000001"),
+        observed_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+    )
+    service = QuarantineWorklistReadService(
+        quarantine=_StrictReadOnlyQuarantinePort((later, earlier))
+    )
+
+    worklist = service.read()
+
+    assert [item.observation.observation_id for item in worklist.items] == [
+        earlier.observation_id,
+        later.observation_id,
+    ]
 
 
 def test_worklist_tolerates_missing_and_malformed_optional_metadata(tmp_path) -> None:
@@ -353,11 +410,12 @@ def test_empty_worklist_is_ok_and_distinct_from_unavailable(tmp_path) -> None:
 
 def test_worklist_output_is_bounded_and_excludes_raw_payload_secrets(tmp_path) -> None:
     observation_id = uuid4()
+    client_order_id = uuid4()
     payload = json.dumps(
         {
             "observation_id": str(observation_id),
             "kind": "BROKER_UNKNOWN",
-            "client_order_id": str(uuid4()),
+            "client_order_id": str(client_order_id),
             "observed_at": "2026-01-02T00:00:00+00:00",
             "reason": "r" * 512,
             "request_correlation_id": "correlation-1",
@@ -366,7 +424,7 @@ def test_worklist_output_is_bounded_and_excludes_raw_payload_secrets(tmp_path) -
             "outcome": "UNKNOWN",
             "order_status": "UNKNOWN",
             "access_token": "tok-secret-value",
-            "raw_response": {"payload": "x" * 5000},
+            "raw_response": {"payload": "x" * 1000},
         }
     )
     database = SqliteDatabase(tmp_path / "quantx.db")
@@ -377,7 +435,7 @@ def test_worklist_output_is_bounded_and_excludes_raw_payload_secrets(tmp_path) -
                 "(observation_id, client_order_id, payload, created_at) VALUES (?, ?, ?, ?)",
                 (
                     str(observation_id),
-                    str(uuid4()),
+                    str(client_order_id),
                     payload,
                     datetime(2026, 1, 2, tzinfo=UTC).isoformat(),
                 ),
@@ -416,6 +474,343 @@ def test_worklist_limit_is_validated_and_reported_as_truncated() -> None:
     for invalid in (0, -1, 1001, True):
         with pytest.raises(ValueError):
             service.read(limit=invalid)
+
+
+def test_missing_database_is_not_reported_as_an_empty_worklist(tmp_path) -> None:
+    missing = tmp_path / "missing.db"
+    with pytest.raises(FileNotFoundError):
+        SqliteDatabase.open_existing(missing)
+    assert missing.exists() is False
+
+    existing = tmp_path / "quantx.db"
+    with SqliteDatabase(existing):
+        pass
+    with SqliteDatabase.open_existing(existing) as database:
+        worklist = QuarantineWorklistReadService(
+            quarantine=SqliteSubmissionQuarantineRepository(database)
+        ).read()
+
+    assert worklist.status is QuarantineWorklistStatus.OK
+    assert worklist.items == ()
+    assert worklist.truncated is False
+    assert worklist.next_cursor is None
+
+
+def test_worklist_limit_boundaries_are_exact() -> None:
+    observations = tuple(
+        _observation(observed_at=datetime(2026, 1, 1, tzinfo=UTC)) for _ in range(1000)
+    )
+    port = _StrictReadOnlyQuarantinePort(observations)
+    complete = QuarantineWorklistReadService(quarantine=port).read(limit=1000)
+
+    assert len(complete.items) == 1000
+    assert complete.truncated is False
+    assert complete.next_cursor is None
+
+    with_extra = _observation(observed_at=datetime(2026, 1, 1, tzinfo=UTC))
+    port = _StrictReadOnlyQuarantinePort((*observations, with_extra))
+    service = QuarantineWorklistReadService(quarantine=port)
+    first = service.read(limit=1000)
+    second = service.read(limit=1000, cursor=first.next_cursor)
+
+    assert len(first.items) == 1000
+    assert first.truncated is True
+    assert first.next_cursor is not None
+    assert len(second.items) == 1
+    assert second.truncated is False
+    assert second.next_cursor is None
+    assert {item.observation.observation_id for item in first.items}.isdisjoint(
+        item.observation.observation_id for item in second.items
+    )
+
+
+def test_cursor_pages_are_contiguous_deterministic_and_non_overlapping() -> None:
+    observations = tuple(
+        _observation(observed_at=datetime(2026, 1, day, tzinfo=UTC)) for day in (1, 2, 3, 4, 5)
+    )
+    service = QuarantineWorklistReadService(quarantine=_StrictReadOnlyQuarantinePort(observations))
+    expected = [
+        observation.observation_id
+        for observation in sorted(
+            observations,
+            key=lambda observation: (
+                observation.observed_at,
+                str(observation.observation_id),
+            ),
+        )
+    ]
+
+    seen = []
+    cursor = None
+    for _ in range(10):
+        page = service.read(limit=2, cursor=cursor)
+        seen.extend(item.observation.observation_id for item in page.items)
+        assert page.truncated is (page.next_cursor is not None)
+        if page.next_cursor is None:
+            break
+        cursor = page.next_cursor
+    else:
+        pytest.fail("cursor pagination did not terminate")
+
+    assert seen == expected
+    assert len(set(seen)) == len(seen)
+
+
+def test_invalid_cursors_are_rejected_before_store_access() -> None:
+    port = _StrictReadOnlyQuarantinePort(())
+    service = QuarantineWorklistReadService(quarantine=port)
+    invalid_cursors = (
+        "",
+        "not-a-cursor",
+        "x" * 513,
+        base64.urlsafe_b64encode(
+            b'{"version":2,"observed_at":"2026-01-01T00:00:00+00:00",'
+            b'"observation_id":"00000000-0000-0000-0000-000000000001"}'
+        ).decode("ascii"),
+        base64.urlsafe_b64encode(
+            b'{"version":1,"observed_at":"2026-01-01T00:00:00",'
+            b'"observation_id":"00000000-0000-0000-0000-000000000001"}'
+        ).decode("ascii"),
+    )
+
+    for cursor in invalid_cursors:
+        with pytest.raises(ValueError, match="cursor"):
+            service.read(cursor=cursor)
+
+    assert port.list_calls == 0
+
+
+def test_worklist_result_rejects_contradictory_states() -> None:
+    item = (
+        QuarantineWorklistReadService(quarantine=_StrictReadOnlyQuarantinePort((_observation(),)))
+        .read()
+        .items[0]
+    )
+
+    with pytest.raises(ValueError):
+        QuarantineWorklist(status=QuarantineWorklistStatus.OK, truncated=True)
+    with pytest.raises(ValueError):
+        QuarantineWorklist(
+            status=QuarantineWorklistStatus.OK,
+            items=(item,),
+            truncated=True,
+        )
+    with pytest.raises(ValueError):
+        QuarantineWorklist(
+            status=QuarantineWorklistStatus.OK,
+            items=(item,),
+            next_cursor="cursor",
+        )
+    with pytest.raises(ValueError):
+        QuarantineWorklist(
+            status=QuarantineWorklistStatus.OK,
+            next_cursor="cursor",
+        )
+    with pytest.raises(ValueError):
+        QuarantineWorklist(
+            status=QuarantineWorklistStatus.OK,
+            error="failed",
+        )
+    with pytest.raises(ValueError):
+        QuarantineWorklist(
+            status=QuarantineWorklistStatus.UNAVAILABLE,
+            items=(item,),
+            error="failed",
+        )
+    with pytest.raises(ValueError):
+        QuarantineWorklist(
+            status=QuarantineWorklistStatus.UNAVAILABLE,
+            truncated=True,
+            error="failed",
+        )
+    with pytest.raises(ValueError):
+        QuarantineWorklist(
+            status=QuarantineWorklistStatus.UNAVAILABLE,
+            next_cursor="cursor",
+            error="failed",
+        )
+    with pytest.raises(ValueError):
+        QuarantineWorklist(status=QuarantineWorklistStatus.UNAVAILABLE)
+    with pytest.raises(ValueError):
+        QuarantineWorklist(
+            status=QuarantineWorklistStatus.OK,
+            items=[item],
+        )
+    with pytest.raises(ValueError):
+        QuarantineWorklist(
+            status=QuarantineWorklistStatus.OK,
+            truncated=1,
+        )
+    with pytest.raises(ValueError):
+        QuarantineWorklist(status="OK")
+
+
+def test_malformed_repository_results_fail_closed() -> None:
+    observation = _observation()
+    for malformed in (
+        [observation],
+        ("not-an-observation",),
+        (observation, observation),
+        None,
+    ):
+        worklist = QuarantineWorklistReadService(
+            quarantine=_ScriptedQuarantinePort(malformed)
+        ).read()
+        assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
+        assert worklist.items == ()
+        assert worklist.truncated is False
+        assert worklist.next_cursor is None
+        assert worklist.error is not None
+        assert 0 < len(worklist.error) <= 512
+
+
+def test_read_bound_failure_is_unavailable_and_requires_attention() -> None:
+    worklist = QuarantineWorklistReadService(
+        quarantine=_RaisingQuarantinePort(
+            QuarantineEvidenceTooLarge("row count exceeds the bounded scan")
+        )
+    ).read()
+
+    assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert worklist.items == ()
+    assert worklist.truncated is False
+    assert worklist.next_cursor is None
+    assert worklist.requires_operator_reconciliation is True
+    assert worklist.error is not None
+    assert worklist.error.startswith("quarantine evidence exceeds read bounds: ")
+    assert 0 < len(worklist.error) <= 512
+
+
+def test_recursion_error_is_unavailable_but_process_control_exceptions_propagate() -> None:
+    recursive = QuarantineWorklistReadService(
+        quarantine=_RaisingQuarantinePort(RecursionError("nested evidence"))
+    ).read()
+    assert recursive.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert recursive.error == "quarantine evidence read failed: RecursionError"
+
+    for error in (KeyboardInterrupt(), SystemExit()):
+        service = QuarantineWorklistReadService(quarantine=_RaisingQuarantinePort(error))
+        with pytest.raises(type(error)):
+            service.read()
+
+
+def test_over_bound_payload_is_unavailable_not_a_partial_worklist(tmp_path) -> None:
+    observation_id = uuid4()
+    client_order_id = uuid4()
+    payload = json.dumps(
+        {
+            "observation_id": str(observation_id),
+            "kind": "BROKER_UNKNOWN",
+            "client_order_id": str(client_order_id),
+            "observed_at": "2026-01-02T00:00:00+00:00",
+            "reason": "bounded reason",
+            "request_correlation_id": None,
+            "source": "dhan",
+            "broker_order_id": "BR-1",
+            "outcome": "UNKNOWN",
+            "order_status": "UNKNOWN",
+            "padding": "x" * 5000,
+        }
+    )
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO submission_quarantine "
+                "(observation_id, client_order_id, payload, created_at) VALUES (?, ?, ?, ?)",
+                (
+                    str(observation_id),
+                    str(client_order_id),
+                    payload,
+                    datetime(2026, 1, 2, tzinfo=UTC).isoformat(),
+                ),
+            )
+        worklist = QuarantineWorklistReadService(
+            quarantine=SqliteSubmissionQuarantineRepository(database)
+        ).read()
+        stored = (
+            database.connection()
+            .execute("SELECT COUNT(*) FROM submission_quarantine")
+            .fetchone()[0]
+        )
+
+    assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert worklist.items == ()
+    assert worklist.truncated is False
+    assert worklist.next_cursor is None
+    assert worklist.error is not None
+    assert "payload exceeds" in worklist.error
+    assert str(observation_id) in worklist.error
+    assert stored == 1
+
+
+def test_scan_bound_is_unavailable_and_leaves_evidence_untouched(tmp_path) -> None:
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database, max_scan_rows=2)
+        for _ in range(3):
+            repository.record(_observation())
+        before = _durable_snapshot(database)
+        worklist = QuarantineWorklistReadService(quarantine=repository).read()
+        after = _durable_snapshot(database)
+
+    assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert worklist.items == ()
+    assert worklist.error is not None
+    assert "row count exceeds" in worklist.error
+    assert after == before
+
+
+def test_renderer_neutralizes_control_text_without_changing_evidence(tmp_path) -> None:
+    reason = "first line\nsecond line\r\x1b[31mred\x00\x9b"
+    source = "dhan\rspoofed-entry"
+    observation = _observation(reason=reason, source=source)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        before = _durable_snapshot(database)
+        worklist = QuarantineWorklistReadService(quarantine=repository).read()
+        stored = repository.get(observation.observation_id)
+        rendered = render_quarantine_worklist_item(worklist.items[0])
+        after = _durable_snapshot(database)
+
+    assert worklist.status is QuarantineWorklistStatus.OK
+    assert len(worklist.items) == 1
+    assert stored is not None
+    assert stored.reason == reason
+    assert stored.source == source
+    assert after == before
+    assert "\x00" not in rendered
+    assert "\x1b" not in rendered
+    assert "\r" not in rendered
+    assert "\\x1b[31mred" in rendered
+    assert "\\x00" in rendered
+    assert "\\x9b" in rendered
+    assert "dhan\\rspoofed-entry" in rendered
+    assert rendered.count("\n") == 10
+
+
+def test_rendered_item_is_bounded_even_with_maximal_control_text() -> None:
+    control = "\x1b" * 256
+    observation = _observation(
+        reason="\x00" * 512,
+        client_order_id=control,
+        request_correlation_id=control,
+        source=control,
+        broker_order_id=control,
+        outcome=control,
+        order_status=control,
+    )
+    item = (
+        QuarantineWorklistReadService(quarantine=_StrictReadOnlyQuarantinePort((observation,)))
+        .read()
+        .items[0]
+    )
+
+    rendered = render_quarantine_worklist_item(item)
+
+    assert len(rendered) <= 4096
+    assert rendered.endswith("...")
+    assert "\x1b" not in rendered
+    assert "\x00" not in rendered
 
 
 def test_worklist_module_has_no_broker_or_network_imports() -> None:

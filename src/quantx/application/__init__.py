@@ -34,6 +34,7 @@ from .quarantine_worklist import (
     QuarantineWorklistItem,
     QuarantineWorklistReadService,
     QuarantineWorklistStatus,
+    render_quarantine_worklist_item,
 )
 from .reconciliation import (
     OrderStateReconciliationResult,
@@ -90,6 +91,7 @@ __all__ = [
     "QuarantineWorklistItem",
     "QuarantineWorklistReadService",
     "QuarantineWorklistStatus",
+    "render_quarantine_worklist_item",
     "RecoveryEndpointResolver",
     "RecoveryEvidenceFactory",
     "ResolvedRecoveryEndpoint",

@@ -254,6 +254,9 @@ class _FakeSubmissionQuarantine:
             if observation.client_order_id == client_order_id
         )
 
+    def list_all(self):
+        return tuple(self._observations.values())
+
 
 class _FakeUnitOfWork(UnitOfWork):
     def __init__(self, store: InMemoryIdempotencyStore | None = None) -> None:

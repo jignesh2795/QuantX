@@ -9,6 +9,7 @@ import pytest
 from quantx.execution.receipts.quarantine import (
     QuarantinedSubmissionObservation,
     QuarantineEvidenceDecodeError,
+    QuarantineEvidenceTooLarge,
     QuarantineObservationKind,
 )
 from quantx.persistence.sqlite import SqliteDatabase, SqliteSubmissionQuarantineRepository
@@ -33,6 +34,25 @@ def _observation(
         outcome="UNKNOWN",
         order_status="UNKNOWN",
     )
+
+
+def _insert_payload(
+    database: SqliteDatabase,
+    observation_id: str,
+    client_order_id: str,
+    payload: str,
+) -> None:
+    with database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO submission_quarantine "
+            "(observation_id, client_order_id, payload, created_at) VALUES (?, ?, ?, ?)",
+            (
+                observation_id,
+                client_order_id,
+                payload,
+                datetime(2026, 1, 2, tzinfo=UTC).isoformat(),
+            ),
+        )
 
 
 def test_list_all_returns_every_recorded_observation(tmp_path) -> None:
@@ -135,6 +155,152 @@ def test_list_all_preserves_insertion_order_across_observation_timestamps(tmp_pa
         later.observation_id,
         earlier.observation_id,
     ]
+
+
+def test_list_all_rejects_payload_over_configured_bound(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        repository = SqliteSubmissionQuarantineRepository(database, max_payload_chars=100)
+        observation = _observation()
+        repository.record(observation)
+
+        with pytest.raises(QuarantineEvidenceTooLarge, match="payload exceeds") as raised:
+            repository.list_all()
+    finally:
+        database.close()
+
+    assert str(observation.observation_id) in str(raised.value)
+
+
+def test_list_all_enforces_scan_bound_without_partial_results(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        repository = SqliteSubmissionQuarantineRepository(database, max_scan_rows=2)
+        for _ in range(3):
+            repository.record(_observation())
+
+        with pytest.raises(QuarantineEvidenceTooLarge, match="row count exceeds"):
+            repository.list_all()
+    finally:
+        database.close()
+
+
+def test_list_all_accepts_exactly_the_scan_bound(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        repository = SqliteSubmissionQuarantineRepository(database, max_scan_rows=2)
+        observations = (_observation(), _observation())
+        for observation in observations:
+            repository.record(observation)
+
+        listed = repository.list_all()
+    finally:
+        database.close()
+
+    assert [observation.observation_id for observation in listed] == [
+        observation.observation_id for observation in observations
+    ]
+
+
+def test_list_all_reports_recursive_payload_with_row_identity(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        observation_id = uuid4()
+        _insert_payload(
+            database,
+            str(observation_id),
+            str(uuid4()),
+            "[" * 2000 + "]" * 2000,
+        )
+
+        with pytest.raises(QuarantineEvidenceDecodeError) as raised:
+            repository.list_all()
+    finally:
+        database.close()
+
+    assert str(observation_id) in str(raised.value)
+
+
+def test_list_all_rejects_payload_observation_identity_mismatch(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        payload_observation = _observation()
+        row_observation_id = uuid4()
+        _insert_payload(
+            database,
+            str(row_observation_id),
+            str(payload_observation.client_order_id),
+            payload_observation.to_payload(),
+        )
+
+        with pytest.raises(
+            QuarantineEvidenceDecodeError,
+            match="identity does not match",
+        ) as raised:
+            repository.list_all()
+        with pytest.raises(
+            QuarantineEvidenceDecodeError,
+            match="identity does not match",
+        ):
+            repository.get(row_observation_id)
+    finally:
+        database.close()
+
+    assert str(row_observation_id) in str(raised.value)
+
+
+def test_list_all_rejects_payload_client_order_identity_mismatch(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        payload_observation = _observation()
+        _insert_payload(
+            database,
+            str(payload_observation.observation_id),
+            str(uuid4()),
+            payload_observation.to_payload(),
+        )
+
+        with pytest.raises(
+            QuarantineEvidenceDecodeError,
+            match="identity does not match",
+        ) as raised:
+            repository.list_all()
+    finally:
+        database.close()
+
+    assert str(payload_observation.observation_id) in str(raised.value)
+
+
+def test_list_all_rejects_payload_missing_an_optional_key(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        observation = _observation()
+        payload = json.loads(observation.to_payload())
+        del payload["source"]
+        _insert_payload(
+            database,
+            str(observation.observation_id),
+            str(observation.client_order_id),
+            json.dumps(payload),
+        )
+
+        with pytest.raises(QuarantineEvidenceDecodeError) as raised:
+            repository.list_all()
+    finally:
+        database.close()
+
+    assert str(observation.observation_id) in str(raised.value)
+
+
+def test_repository_rejects_invalid_read_bounds() -> None:
+    with pytest.raises(ValueError, match="max_scan_rows"):
+        SqliteSubmissionQuarantineRepository(None, max_scan_rows=0)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="max_payload_chars"):
+        SqliteSubmissionQuarantineRepository(None, max_payload_chars=True)  # type: ignore[arg-type]
 
 
 def test_list_all_does_not_mutate_evidence_rows(tmp_path) -> None:
