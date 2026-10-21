@@ -9,6 +9,13 @@ The script never modifies the repository and never fixes anything. Missing
 tools, timeouts, unparsed summaries, skipped checks, dirty tracked files, or
 a HEAD change during the run are never reported as PASS.
 
+Ruff invocations additionally keep their complete stdout/stderr in
+`output_full`, so a linter/formatter verdict can be re-read from the evidence
+without re-running Ruff. `output_tail` stays the bounded tail that the console
+report and the release gate consume, and it remains the only form retained for
+the other checks. The field is additive: the evidence schema id is unchanged
+and consumers that do not know `output_full` ignore it.
+
 Usage:
     python .opencode/skills/quantx-validation-gate/scripts/run_validation.py
     python ... run_validation.py --expected-head <sha> --base origin/main
@@ -72,6 +79,7 @@ class RunOutcome:
     duration_s: float = 0.0
     notes: list[str] = field(default_factory=list)
     output_tail: str = ""
+    output_full: str = ""
 
 
 @dataclass
@@ -84,10 +92,19 @@ class Check:
     summary: str = ""
     notes: list[str] = field(default_factory=list)
     output_tail: str = ""
+    # Complete stdout/stderr, retained for the Ruff invocations only. ``None``
+    # when the invocation was skipped, missing, or otherwise did not complete.
+    output_full: str | None = None
 
 
-def run_command(argv: list[str], cwd: Path, timeout: float) -> RunOutcome:
-    """Execute one read-only command; never raises for command failures."""
+def run_command(
+    argv: list[str], cwd: Path, timeout: float, *, capture_full: bool = False
+) -> RunOutcome:
+    """Execute one read-only command; never raises for command failures.
+
+    ``capture_full`` retains the complete output for evidence; otherwise only
+    the bounded tail is kept, which is all most checks need.
+    """
     tool = shutil.which(argv[0])
     if tool is None:
         return RunOutcome("missing", notes=[f"tool not found on PATH: {argv[0]}"])
@@ -122,6 +139,7 @@ def run_command(argv: list[str], cwd: Path, timeout: float) -> RunOutcome:
         exit_code=proc.returncode,
         duration_s=time.monotonic() - started,
         output_tail=output[-OUTPUT_TAIL_CHARS:],
+        output_full=output if capture_full else "",
     )
 
 
@@ -276,7 +294,7 @@ def build_checks(args: argparse.Namespace, repo: Path) -> list[Check]:
     else:
         for name, extra in (("ruff-check", []), ("ruff-format", ["--check"])):
             argv = ["uv", "run", "ruff", ("format" if extra else "check"), *extra, *py_files]
-            outcome = run_command(argv, repo, args.timeout)
+            outcome = run_command(argv, repo, args.timeout, capture_full=True)
             if outcome.kind != "completed" or outcome.exit_code is None:
                 checks.append(
                     Check(
@@ -286,6 +304,7 @@ def build_checks(args: argparse.Namespace, repo: Path) -> list[Check]:
                         duration_s=outcome.duration_s,
                         notes=outcome.notes,
                         output_tail=outcome.output_tail,
+                        output_full=None,
                     )
                 )
             else:
@@ -300,6 +319,7 @@ def build_checks(args: argparse.Namespace, repo: Path) -> list[Check]:
                         summary=f"{len(py_files)} changed file(s)",
                         notes=notes,
                         output_tail=outcome.output_tail,
+                        output_full=outcome.output_full,
                     )
                 )
 
@@ -547,6 +567,42 @@ def self_test() -> int:
     check("run_command missing", missing.kind == "missing")
     slow = run_command([sys.executable, "-c", "import time; time.sleep(3)"], Path.cwd(), 1)
     check("run_command timeout", slow.kind == "timeout")
+
+    tail_only = run_command([sys.executable, "-c", "print('tail-only')"], Path.cwd(), 30)
+    check(
+        "tail-only by default",
+        tail_only.output_full == "" and "tail-only" in tail_only.output_tail,
+    )
+    captured = run_command(
+        [sys.executable, "-c", f"print('x' * {OUTPUT_TAIL_CHARS + 2000})"],
+        Path.cwd(),
+        30,
+        capture_full=True,
+    )
+    check(
+        "full output retained",
+        len(captured.output_full) > OUTPUT_TAIL_CHARS
+        and len(captured.output_tail) == OUTPUT_TAIL_CHARS
+        and captured.output_full.endswith(captured.output_tail),
+    )
+    timed_out = run_command([sys.executable, "-c", "import time; time.sleep(3)"], Path.cwd(), 1)
+    check(
+        "timeout keeps no full output",
+        timed_out.output_full == "" and timed_out.output_tail == "",
+    )
+    check(
+        "incomplete check records null full output",
+        asdict(Check("ruff-check", [], UNKNOWN, output_tail="partial"))["output_full"] is None,
+    )
+    check(
+        "completed check records full output",
+        asdict(Check("ruff-check", [], PASS, output_full="complete"))["output_full"] == "complete",
+    )
+    record = asdict(Check("ruff-check", [], PASS, output_tail="tail", output_full="tail and more"))
+    check(
+        "evidence keeps both output forms",
+        record["output_tail"] == "tail" and record["output_full"] == "tail and more",
+    )
 
     if failures:
         print(f"SELF-TEST FAILED ({len(failures)}/{total} failing): {', '.join(failures)}")
