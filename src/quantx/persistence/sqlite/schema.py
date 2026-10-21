@@ -252,6 +252,23 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
     _create_experiment_tables(connection)
 
 
+def require_current_schema(connection: sqlite3.Connection) -> None:
+    """Reject an existing database that is not exactly at the current schema.
+
+    Used by read-only openers: they must never create or migrate a schema.
+    """
+    try:
+        rows = connection.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
+    except sqlite3.OperationalError as exc:
+        raise ValueError("existing SQLite database has no QuantX schema_version table") from exc
+    if len(rows) != 1:
+        found = sorted(row[0] for row in rows)
+        raise ValueError(f"incompatible SQLite schema version: found {found}")
+    version = rows[0][0]
+    if version != SCHEMA_VERSION:
+        raise ValueError(f"incompatible SQLite schema version: found {[version]}")
+
+
 def init_schema(connection: sqlite3.Connection) -> None:
     """Create or migrate the durable execution schema to the current version."""
     connection.execute(_SCHEMA_TABLE)
