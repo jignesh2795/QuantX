@@ -119,16 +119,18 @@ def _resolution(
     resolved_at: datetime = NOW,
     metadata_version: str = "contract-v1",
     rule_version: str = "rule-v1",
+    rule_from: datetime = T0,
+    contract_from: datetime = T0,
 ) -> InstrumentResolution:
     return InstrumentResolution(
         instrument=instrument or _option_instrument(),
         contract=_option_contract() if contract is None else contract,
         instrument_rule_version=rule_version,
-        instrument_rule_effective_from=T0,
+        instrument_rule_effective_from=rule_from,
         resolved_at=resolved_at,
         contract_metadata_version=metadata_version,
         contract_source="nse-bhavcopy",
-        contract_effective_from=T0,
+        contract_effective_from=contract_from,
     )
 
 
@@ -158,6 +160,7 @@ def _request(
     *,
     instrument: Instrument | None = None,
     resolution: InstrumentResolution | None = None,
+    risk_resolution: InstrumentResolution | None = None,
     mode: ExecutionMode = ExecutionMode.PAPER,
 ) -> ApprovedExecutionRequest:
     instrument = instrument or _option_instrument()
@@ -175,7 +178,11 @@ def _request(
     return approved_request(
         order=build_order_from_intent(intent),
         execution_context=context,
-        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        risk_result=RiskResult(
+            RiskDecision.APPROVE,
+            "approved",
+            instrument_resolution=risk_resolution,
+        ),
         policy_result=(
             PolicyResult(PolicyDecision.APPROVE, "approved") if mode is ExecutionMode.LIVE else None
         ),
@@ -238,6 +245,51 @@ def _verifier(resolver: PointInTimeInstrumentResolver | None) -> MarketPackPolic
 def test_approved_request_rejects_a_resolution_for_another_instrument() -> None:
     with pytest.raises(ValueError, match="does not describe the executed instrument"):
         _request(instrument=_option_instrument(), resolution=_equity_resolution())
+
+
+def test_approved_request_retains_the_resolution_risk_evaluated() -> None:
+    resolution = _resolution()
+    request = _request(resolution=resolution, risk_resolution=resolution)
+
+    assert request.instrument_resolution is resolution
+    assert request.risk_result.instrument_resolution is resolution
+
+
+def test_approved_request_rejects_a_dropped_risk_resolution() -> None:
+    with pytest.raises(ValueError, match="must retain the resolution risk evaluated"):
+        _request(risk_resolution=_resolution())
+
+
+@pytest.mark.parametrize(
+    "substitute",
+    [
+        # Same Contract value, different metadata version and provenance.
+        _resolution(metadata_version="contract-v2"),
+        # Same Contract value, different instrument-rule version.
+        _resolution(rule_version="rule-v2"),
+        # Same Contract value, different effective instant for the rule.
+        _resolution(rule_from=datetime(2025, 12, 1, tzinfo=UTC)),
+        # Same Contract value, different effective instant for the contract.
+        _resolution(contract_from=datetime(2025, 12, 1, tzinfo=UTC)),
+    ],
+)
+def test_approved_request_rejects_a_resolution_risk_did_not_evaluate(
+    substitute: InstrumentResolution,
+) -> None:
+    # Equality of the Contract value is not identity: the risk boundary binds
+    # the selected metadata/rule version and effective identity as one object.
+    assert substitute.contract == _resolution().contract
+
+    with pytest.raises(ValueError, match="does not match the risk resolution"):
+        _request(resolution=substitute, risk_resolution=_resolution())
+
+
+def test_approved_request_rejects_a_substituted_contract_record() -> None:
+    with pytest.raises(ValueError, match="does not match the risk resolution"):
+        _request(
+            resolution=_resolution(contract=_option_contract(strike="26000")),
+            risk_resolution=_resolution(),
+        )
 
 
 def test_recovery_request_rejects_a_resolution_for_another_instrument() -> None:
@@ -343,6 +395,55 @@ def test_continuation_preserves_contract_identity() -> None:
     assert child.instrument_resolution == resolution
     assert child.order.quantity == Decimal("1")
     assert child.order.client_order_id != request.order.client_order_id
+
+
+def test_continuation_rejects_a_fresh_risk_result_for_another_identity() -> None:
+    # A continuation child keeps the parent's contract identity. If the fresh
+    # risk evaluation consumed a different version of that identity there is no
+    # safe child: the seam fails closed instead of binding two claims together.
+    resolution = _resolution()
+    request = _request(resolution=resolution, mode=ExecutionMode.LIVE)
+    lifecycle = ExecutionLifecycle(
+        client_order_id=request.order.client_order_id,
+        order_quantity=Decimal("2"),
+        filled_quantity=Decimal("1"),
+        status=OrderStatus.PARTIALLY_FILLED,
+    )
+    re_resolved = _resolution(metadata_version="contract-v2")
+
+    with pytest.raises(ValueError, match="does not match the risk resolution"):
+        lifecycle.continuation_request(
+            request,
+            risk_result=RiskResult(
+                RiskDecision.APPROVE, "approved", instrument_resolution=re_resolved
+            ),
+            policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        )
+
+
+def test_continuation_accepts_a_fresh_risk_result_for_the_same_identity() -> None:
+    resolution = _resolution()
+    request = _request(resolution=resolution, mode=ExecutionMode.LIVE)
+    lifecycle = ExecutionLifecycle(
+        client_order_id=request.order.client_order_id,
+        order_quantity=Decimal("2"),
+        filled_quantity=Decimal("1"),
+        status=OrderStatus.PARTIALLY_FILLED,
+    )
+
+    child = lifecycle.continuation_request(
+        request,
+        risk_result=RiskResult(
+            RiskDecision.APPROVE,
+            "approved",
+            instrument_resolution=replace(resolution, resolved_at=T1),
+        ),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+    )
+
+    assert child.instrument_resolution is resolution
+    assert child.risk_result.instrument_resolution is not None
+    assert child.risk_result.instrument_resolution.contract_metadata_version == "contract-v1"
 
 
 @pytest.mark.parametrize(

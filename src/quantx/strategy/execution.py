@@ -21,7 +21,7 @@ from quantx.domain.instrument_registry import (
     InstrumentResolution,
     InstrumentResolutionResolver,
 )
-from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES, Contract
+from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES
 from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
@@ -119,10 +119,12 @@ class StrategyExecutionPreparer:
 
         # Point-in-time resolution is explicit: when a resolver is composed,
         # the canonical instrument, the applicable contract record, and the
-        # selected rule/contract versions are fixed here, before risk. A
-        # derivative that has no contract resolution is never approved.
+        # selected rule/contract versions are fixed here, before risk. The
+        # very same resolution object is handed to risk and then attached to
+        # the approved request, so the identity risk approved is exactly the
+        # identity the request and its fingerprint retain. A derivative that
+        # has no contract resolution is never approved.
         instrument_resolution: InstrumentResolution | None = None
-        contract: Contract | None = None
         if self._instrument_resolver is not None:
             instrument_resolution = self._instrument_resolver.resolve_at(
                 event.instrument, event.timestamp
@@ -130,7 +132,6 @@ class StrategyExecutionPreparer:
             if instrument_resolution.instrument != instrument:
                 raise ValueError("instrument resolution contradicts the canonical instrument")
             instrument = instrument_resolution.instrument
-            contract = instrument_resolution.contract
         elif instrument.asset_class in DERIVATIVE_ASSET_CLASSES:
             raise ValueError(
                 "derivative instrument metadata requires a point-in-time instrument resolver"
@@ -223,7 +224,7 @@ class StrategyExecutionPreparer:
                 effective_position_effect=effective_position_effect,
                 market_pack_id=context.market_pack_id,
                 rule_version=context.rule_version,
-                contract=contract,
+                instrument_resolution=instrument_resolution,
             ),
         )
         if risk.decision is not RiskDecision.APPROVE:

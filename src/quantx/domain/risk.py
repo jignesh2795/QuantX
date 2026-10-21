@@ -20,6 +20,7 @@ from .constraints import (
 )
 from .enums import OrderSide, PositionEffect
 from .finance import AccountFinancialState, BrokerConstraint
+from .instrument_registry import InstrumentResolution
 from .instruments import DERIVATIVE_ASSET_CLASSES, Contract, Instrument
 from .order_intents import TradeIntent
 from .value_objects import Money, ProductCode, Quantity
@@ -38,9 +39,15 @@ class RiskContext:
     ``product``, ``effective_position_effect``, ``market_pack_id`` and
     ``rule_version`` carry the *already resolved* pre-approval semantics. Risk
     never resolves them itself and never falls back to instrument identity;
-    it validates that the supplied resolution is internally coherent. A
-    derivative evaluation consumes the resolved contract metadata; a
-    non-derivative evaluation never carries one.
+    it validates that the supplied resolution is internally coherent.
+
+    ``instrument_resolution`` is the one point-in-time claim that binds the
+    instrument facts, the derivative contract, the selected instrument-rule
+    version and the contract metadata version/provenance. Risk consumes that
+    claim as a whole instead of a bare contract value, so the identity it
+    approved is exactly the identity the approved request and its fingerprint
+    retain. A derivative evaluation requires it; a non-derivative evaluation
+    may omit it and then never carries contract metadata.
     """
 
     instrument: Instrument
@@ -51,18 +58,55 @@ class RiskContext:
     effective_position_effect: PositionEffect | None = None
     market_pack_id: str | None = None
     rule_version: str | None = None
-    contract: Contract | None = None
+    instrument_resolution: InstrumentResolution | None = None
 
     def __post_init__(self) -> None:
-        if self.contract is not None and not isinstance(self.contract, Contract):
-            raise ValueError("risk context contract must be canonical contract metadata")
+        if self.instrument_resolution is not None and not isinstance(
+            self.instrument_resolution, InstrumentResolution
+        ):
+            raise ValueError("risk context resolution must be a canonical instrument resolution")
+
+    @property
+    def contract(self) -> Contract | None:
+        """The resolved derivative contract, read-only from the resolution.
+
+        Derived, never independently writable: the resolution stays the single
+        source of truth for the selected contract and its version.
+        """
+        if self.instrument_resolution is None:
+            return None
+        return self.instrument_resolution.contract
 
 
 @dataclass(frozen=True, slots=True)
 class RiskResult:
+    """One risk outcome, bound to the resolution it evaluated.
+
+    ``instrument_resolution`` is the exact resolution the engine consumed, so
+    an approved request can prove it retains the semantics that were risk
+    approved instead of merely an equal-looking contract value.
+    """
+
     decision: RiskDecision
     reason: str
     constraints: tuple[ConstraintDecision, ...] = ()
+    instrument_resolution: InstrumentResolution | None = None
+
+    def __post_init__(self) -> None:
+        if self.instrument_resolution is not None and not isinstance(
+            self.instrument_resolution, InstrumentResolution
+        ):
+            raise ValueError("risk result resolution must be a canonical instrument resolution")
+
+
+def _risk_result(
+    context: RiskContext,
+    decision: RiskDecision,
+    reason: str,
+    constraints: tuple[ConstraintDecision, ...] = (),
+) -> RiskResult:
+    """Return a result carrying the exact resolution this evaluation consumed."""
+    return RiskResult(decision, reason, constraints, context.instrument_resolution)
 
 
 def _risk_number(value: object) -> Decimal | None:
@@ -159,13 +203,27 @@ def _resolution_violation(intent: TradeIntent, context: RiskContext) -> str | No
     """Reject incoherent resolved semantics without inventing a fallback.
 
     Only supplied resolution is checked. A caller that supplies no product or
-    effective effect is not asserting a resolution, so the legacy bare risk
-    contract is unchanged. An absent position effect may only resolve through
-    a documented, versioned market-pack rule: to OPEN, with the rule identity
+    effective effect is not asserting a resolution, so the legacy
+    resolution-less risk context is unchanged. An absent position effect may
+    only resolve through a documented, versioned market-pack rule: to OPEN,
+    with the rule identity
     supplied, or to no effective effect at all.
+
+    The instrument resolution is validated as one identity, not as a contract
+    value: the resolved instrument must be both the intent instrument and the
+    risk instrument, a derivative must carry a complete canonical contract
+    with its metadata version and provenance, a non-derivative must carry no
+    contract metadata at all, and a derivative without a resolution fails
+    closed.
     """
     if context.instrument.instrument_id != intent.instrument:
         return "risk context instrument does not match the intent instrument"
+    resolution = context.instrument_resolution
+    if resolution is not None:
+        if resolution.instrument.instrument_id != intent.instrument:
+            return "resolved instrument does not match the intent instrument"
+        if resolution.instrument != context.instrument:
+            return "resolved instrument does not match the risk context instrument"
     if context.product is not None:
         if intent.product is not None and intent.product != context.product:
             return "resolved product does not match the intent product"
@@ -174,14 +232,36 @@ def _resolution_violation(intent: TradeIntent, context: RiskContext) -> str | No
         if not (context.rule_version or "").strip():
             return "a resolved product requires a market-pack rule version"
     if context.instrument.asset_class in DERIVATIVE_ASSET_CLASSES:
-        if context.contract is None:
-            return "a derivative instrument requires resolved contract metadata"
-        if context.contract.instrument_id != context.instrument.instrument_id:
+        if resolution is None:
+            return "a derivative instrument requires a resolved instrument resolution"
+        contract = resolution.contract
+        if contract is None:
+            return "a derivative instrument resolution requires canonical contract metadata"
+        if contract.instrument_id != context.instrument.instrument_id:
             return "resolved contract instrument does not match the risk instrument"
-        if context.contract.asset_class is not context.instrument.asset_class:
+        if contract.asset_class is not context.instrument.asset_class:
             return "resolved contract asset class does not match the risk instrument"
-    elif context.contract is not None:
-        return "a non-derivative instrument cannot carry contract metadata"
+        if not (resolution.instrument_rule_version or "").strip():
+            return "a derivative instrument resolution requires an instrument rule version"
+        if resolution.instrument_rule_effective_from > resolution.resolved_at:
+            return "the resolved instrument rule is not effective at the resolution instant"
+        if not (resolution.contract_metadata_version or "").strip():
+            return "a derivative instrument resolution requires a contract metadata version"
+        if not (resolution.contract_source or "").strip():
+            return "a derivative instrument resolution requires contract metadata provenance"
+        if resolution.contract_effective_from is None:
+            return "a derivative instrument resolution requires a contract effective instant"
+        if resolution.contract_effective_from > resolution.resolved_at:
+            return "the resolved contract metadata is not effective at the resolution instant"
+    elif resolution is not None:
+        if resolution.contract is not None:
+            return "a non-derivative instrument cannot carry contract metadata"
+        if (
+            resolution.contract_metadata_version is not None
+            or resolution.contract_source is not None
+            or resolution.contract_effective_from is not None
+        ):
+            return "a non-derivative instrument resolution cannot carry contract provenance"
     if context.effective_position_effect is not None:
         if context.effective_position_effect not in {
             PositionEffect.OPEN,
@@ -212,11 +292,12 @@ class PreTradeRiskEngine:
 
     def evaluate(self, intent: TradeIntent, context: RiskContext) -> RiskResult:
         if intent.execution_context is None:
-            return RiskResult(RiskDecision.REJECT, "execution context is required")
+            return _risk_result(context, RiskDecision.REJECT, "execution context is required")
 
         resolution_violation = _resolution_violation(intent, context)
         if resolution_violation is not None:
-            return RiskResult(
+            return _risk_result(
+                context,
                 RiskDecision.REJECT,
                 f"RISK_STATE_INCONSISTENT: {resolution_violation}",
             )
@@ -229,11 +310,14 @@ class PreTradeRiskEngine:
             evaluate_capital(context.financial_state, required_margin)
         ]
         if decisions[-1].result is ConstraintResult.REJECT:
-            return RiskResult(RiskDecision.REJECT, decisions[-1].reason, tuple(decisions))
+            return _risk_result(
+                context, RiskDecision.REJECT, decisions[-1].reason, tuple(decisions)
+            )
 
         order_value = _order_value(intent, context)
         if order_value is None:
-            return RiskResult(
+            return _risk_result(
+                context,
                 RiskDecision.REJECT,
                 "order value cannot be determined without estimated value or reference price",
                 tuple(decisions),
@@ -251,18 +335,24 @@ class PreTradeRiskEngine:
             decision = evaluate_broker_constraint(constraint, trade_input)
             decisions.append(decision)
             if decision.result is ConstraintResult.REJECT:
-                return RiskResult(RiskDecision.REJECT, decision.reason, tuple(decisions))
+                return _risk_result(context, RiskDecision.REJECT, decision.reason, tuple(decisions))
 
         if intent.approval_required or any(
             decision.result is ConstraintResult.REQUIRES_APPROVAL for decision in decisions
         ):
-            return RiskResult(
+            return _risk_result(
+                context,
                 RiskDecision.APPROVAL_REQUIRED,
                 "explicit approval is required before execution",
                 tuple(decisions),
             )
 
-        return RiskResult(RiskDecision.APPROVE, "pre-trade risk checks passed", tuple(decisions))
+        return _risk_result(
+            context,
+            RiskDecision.APPROVE,
+            "pre-trade risk checks passed",
+            tuple(decisions),
+        )
 
     def evaluate_with_limits(
         self,
@@ -282,12 +372,14 @@ class PreTradeRiskEngine:
         broker calls, no receipts; the caller supplies snapshot and timestamp.
         """
         if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
-            return RiskResult(
+            return _risk_result(
+                context,
                 RiskDecision.REJECT,
                 "RISK_VALUE_INVALID: evaluated_at must be timezone-aware",
             )
         if snapshot is None:
-            return RiskResult(
+            return _risk_result(
+                context,
                 RiskDecision.REJECT,
                 "RISK_SNAPSHOT_MISSING: risk snapshot is required for limit enforcement",
             )
@@ -324,7 +416,9 @@ class PreTradeRiskEngine:
             decisions.append(
                 ConstraintDecision(ConstraintResult.REJECT, "order_notional", violations[-1])
             )
-            return RiskResult(RiskDecision.REJECT, "; ".join(violations), tuple(decisions))
+            return _risk_result(
+                context, RiskDecision.REJECT, "; ".join(violations), tuple(decisions)
+            )
 
         if limits.max_order_notional is not None:
             self._check_limit(
@@ -441,8 +535,15 @@ class PreTradeRiskEngine:
         self._check_margin(decisions, violations, snapshot)
 
         if violations:
-            return RiskResult(RiskDecision.REJECT, "; ".join(violations), tuple(decisions))
-        return RiskResult(RiskDecision.APPROVE, "pre-trade risk checks passed", tuple(decisions))
+            return _risk_result(
+                context, RiskDecision.REJECT, "; ".join(violations), tuple(decisions)
+            )
+        return _risk_result(
+            context,
+            RiskDecision.APPROVE,
+            "pre-trade risk checks passed",
+            tuple(decisions),
+        )
 
     @staticmethod
     def _check_limit(

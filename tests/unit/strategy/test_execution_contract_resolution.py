@@ -182,7 +182,7 @@ class _RecordingRiskEngine:
         return PreTradeRiskEngine().evaluate(intent, context)
 
 
-def test_preparer_binds_derivative_resolution_before_risk_and_request() -> None:
+def test_preparer_binds_the_exact_resolution_to_risk_and_the_request() -> None:
     resolver = _resolver(_record(_contract(), T0, None, version="contract-v1"))
     risk = _RecordingRiskEngine()
     event = _event()
@@ -194,16 +194,29 @@ def test_preparer_binds_derivative_resolution_before_risk_and_request() -> None:
     ).prepare(_decision(event), event, _financial_state())
 
     expected = resolver.resolve_at(OPTION, event.timestamp)
+    approved = risk.contexts[0].instrument_resolution
 
     assert result.risk_result is not None
     assert result.risk_result.decision.value == "approve"
     assert result.request is not None
-    assert risk.contexts[0].contract == expected.contract
+    assert approved == expected
+    assert approved is not None
+    # The versioned identity and provenance reach risk, not merely an equal
+    # Contract value.
+    assert approved.contract == expected.contract
+    assert approved.contract_metadata_version == "contract-v1"
+    assert approved.contract_source == "nse-bhavcopy"
+    assert approved.contract_effective_from == T0
+    assert approved.instrument_rule_version == "rule-v1"
+    assert approved.instrument_rule_effective_from == T0
+    assert approved.resolved_at == event.timestamp
+    # The very same selected resolution is retained by the risk result and the
+    # approved request, so the request executes the semantics risk approved.
+    assert result.risk_result.instrument_resolution is approved
+    assert result.request.instrument_resolution is approved
     assert result.request.order.instrument == OPTION
-    assert result.request.instrument_resolution == expected
-    assert result.request.instrument_resolution is not None
-    assert result.request.instrument_resolution.contract_metadata_version == "contract-v1"
-    assert result.request.instrument_resolution.contract_source == "nse-bhavcopy"
+    # Notional/margin arithmetic is unchanged by the identity handoff.
+    assert result.request.required_margin == Decimal("1000")
 
 
 def test_preparer_rejects_a_derivative_without_a_resolver_before_risk() -> None:
@@ -216,6 +229,26 @@ def test_preparer_rejects_a_derivative_without_a_resolver_before_risk() -> None:
         ).prepare(_decision(_event()), _event(), _financial_state())
 
     assert risk.contexts == []
+
+
+def test_preparer_never_hands_risk_a_bare_contract() -> None:
+    resolver = _resolver(_record(_contract(), T0, None, version="contract-v1"))
+    risk = _RecordingRiskEngine()
+    event = _event()
+
+    StrategyExecutionPreparer(
+        InMemoryInstrumentRegistry((_instrument(),)),
+        risk_engine=risk,
+        instrument_resolver=resolver,
+    ).prepare(_decision(event), event, _financial_state())
+
+    # ``contract`` is a read-only projection of the canonical resolution: the
+    # risk boundary received the resolution itself, never a second source of
+    # truth for the selected contract or its version.
+    context = risk.contexts[0]
+    assert context.instrument_resolution is not None
+    assert context.contract is context.instrument_resolution.contract
+    assert context.instrument_resolution.contract_metadata_version == "contract-v1"
 
 
 def test_preparer_selects_the_historical_contract_for_the_event_instant() -> None:

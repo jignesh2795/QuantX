@@ -198,9 +198,22 @@ def test_backtest_binds_resolution_to_risk_and_the_approved_request() -> None:
     )
 
     expected = resolver.resolve_at(OPTION, T0)
+    approved = risk.contexts[0].instrument_resolution
+
     assert result.steps[0].disposition is BacktestDisposition.EXECUTED
     assert result.executed_count == 1
-    assert risk.contexts[0].contract == expected.contract
-    assert execution.requests[0].instrument_resolution == expected
-    assert execution.requests[0].instrument_resolution is not None
-    assert execution.requests[0].instrument_resolution.contract_metadata_version == "contract-v1"
+    assert approved == expected
+    assert approved is not None
+    # The historical frame's versioned identity and provenance reach risk, not
+    # merely an equal Contract value, and no second lookup happens later.
+    assert approved.contract == expected.contract
+    assert approved.contract_metadata_version == "contract-v1"
+    assert approved.contract_source == "nse-bhavcopy"
+    assert approved.contract_effective_from == T0
+    assert approved.instrument_rule_version == "rule-v1"
+    assert approved.instrument_rule_effective_from == T0
+    # The very same selected resolution is retained by the risk result and the
+    # request handed to execution.
+    assert result.steps[0].risk_result is not None
+    assert result.steps[0].risk_result.instrument_resolution is approved
+    assert execution.requests[0].instrument_resolution is approved

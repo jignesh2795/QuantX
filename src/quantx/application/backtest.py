@@ -27,7 +27,7 @@ from quantx.domain.instrument_registry import (
     InstrumentResolution,
     InstrumentResolutionResolver,
 )
-from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES, Contract
+from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES
 from quantx.domain.market_data import Candle
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Order
@@ -1015,10 +1015,12 @@ class DeterministicBacktestService:
 
             # Point-in-time resolution fixes the canonical instrument and, for
             # a derivative, the applicable contract record and rule/contract
-            # versions before risk. Historical frames never adopt current
+            # versions before risk. The very same resolution object is handed
+            # to risk and then attached to the approved request, so the
+            # identity risk approved is exactly the identity the request and
+            # its fingerprint retain. Historical frames never adopt current
             # metadata, and a derivative without a resolver never executes.
             instrument_resolution: InstrumentResolution | None = None
-            contract: Contract | None = None
             if self._instrument_resolver is not None:
                 try:
                     instrument_resolution = self._instrument_resolver.resolve_at(
@@ -1052,7 +1054,7 @@ class DeterministicBacktestService:
                         )
                     )
                     continue
-                contract = instrument_resolution.contract
+                instrument = instrument_resolution.instrument
             elif instrument.asset_class in DERIVATIVE_ASSET_CLASSES:
                 steps.append(
                     BacktestStep(
@@ -1233,7 +1235,7 @@ class DeterministicBacktestService:
                         effective_position_effect=effective_position_effect,
                         market_pack_id=resolved_context.market_pack_id,
                         rule_version=resolved_context.rule_version,
-                        contract=contract,
+                        instrument_resolution=instrument_resolution,
                     ),
                 )
             except Exception as exc:
