@@ -40,6 +40,12 @@ from .database import SqliteDatabase
 
 DEFAULT_MAX_SCAN_ROWS = 10_000
 DEFAULT_MAX_PAYLOAD_CHARS = MAX_SERIALIZED_PAYLOAD_CHARS
+#: UTF-8 encodes one code point in at most four bytes, so a stored payload can
+#: hold at most this many bytes per configured payload character. The read uses
+#: it as a byte pre-filter: a value larger than this cannot fit the configured
+#: character bound, and a value within it is read in full before its character
+#: count is measured.
+_MAX_UTF8_BYTES_PER_CHAR = 4
 
 
 def _sqlite_read_detail(error: sqlite3.Error) -> str:
@@ -262,14 +268,14 @@ class SqliteSubmissionQuarantineRepository:
     def list_all(self) -> tuple[QuarantinedSubmissionObservation, ...]:
         """Return durable observations in storage order; never mutates.
 
-        The read is bounded: at most ``max_scan_rows`` rows and
-        ``max_payload_chars`` characters per row are materialized. Exceeding
-        either bound raises :class:`QuarantineEvidenceTooLarge`; evidence is
-        never silently omitted or truncated. A payload that cannot be decoded,
-        including a payload whose identity disagrees with its stored columns,
-        raises :class:`QuarantineEvidenceDecodeError` carrying the affected row
-        identity, so a corrupt record can never be mistaken for an empty
-        worklist or silently dropped from an operator's view.
+        The read is bounded: at most ``max_scan_rows`` rows are returned and a
+        payload is accepted only up to ``max_payload_chars`` characters.
+        Exceeding either bound raises :class:`QuarantineEvidenceTooLarge`;
+        evidence is never silently omitted or truncated. A payload that cannot
+        be decoded, including a payload whose identity disagrees with its
+        stored columns, raises :class:`QuarantineEvidenceDecodeError` carrying
+        the affected row identity, so a corrupt record can never be mistaken
+        for an empty worklist or silently dropped from an operator's view.
 
         ``max_payload_chars`` defaults to the canonical write bound, so every
         observation the write boundary accepted is readable. Raising the read
@@ -279,20 +285,30 @@ class SqliteSubmissionQuarantineRepository:
         SQLite failures are raised as :class:`QuarantineEvidenceUnavailable`
         with a static description; the driver message is never propagated.
 
-        SQLite ``length``/``substr`` text semantics stop at an embedded NUL.
-        Such a payload cannot be valid JSON (the writer escapes every control
-        character), so it is reported as undecodable rather than readable.
+        The stored value is measured and read as bytes -- ``length`` and
+        ``substr`` over ``CAST(payload AS BLOB)`` -- so SQLite TEXT semantics
+        cannot stop at an embedded NUL. The measured length and the value
+        handed to the decoder therefore cover every stored byte, and a
+        payload carrying an embedded NUL is reported as undecodable instead of
+        being decoded from a truncated prefix. The byte pre-filter admits up
+        to four bytes per configured character, the UTF-8 worst case, and the
+        decoded character count is then checked against the same bound; a
+        value beyond the byte filter is rejected as too large without being
+        materialized.
 
         The query runs in a deferred read transaction, so it takes no writer
         lock and observes one consistent snapshot.
         """
+        max_payload_bytes = _MAX_UTF8_BYTES_PER_CHAR * self._max_payload_chars
         try:
             with self._database.read_transaction() as connection:
                 rows = connection.execute(
-                    "SELECT observation_id, client_order_id, length(payload), "
-                    "substr(payload, 1, ?) FROM submission_quarantine "
-                    "ORDER BY rowid LIMIT ?",
-                    (self._max_payload_chars, self._max_scan_rows + 1),
+                    "SELECT observation_id, client_order_id, "
+                    "length(CAST(payload AS BLOB)), "
+                    "CASE WHEN length(CAST(payload AS BLOB)) <= ? "
+                    "THEN substr(CAST(payload AS BLOB), 1, ?) END "
+                    "FROM submission_quarantine ORDER BY rowid LIMIT ?",
+                    (max_payload_bytes, max_payload_bytes, self._max_scan_rows + 1),
                 ).fetchall()
         except sqlite3.Error as exc:
             raise QuarantineEvidenceUnavailable(_sqlite_read_detail(exc)) from exc
@@ -301,8 +317,29 @@ class SqliteSubmissionQuarantineRepository:
                 f"row count exceeds the {self._max_scan_rows}-row scan bound"
             )
         observations: list[QuarantinedSubmissionObservation] = []
-        for observation_id, client_order_id, payload_length, payload in rows:
-            if payload_length > self._max_payload_chars:
+        for observation_id, client_order_id, payload_bytes_length, payload_bytes in rows:
+            if payload_bytes_length is None:
+                raise QuarantineEvidenceDecodeError(observation_id, detail="stored payload is null")
+            if payload_bytes_length > max_payload_bytes:
+                raise QuarantineEvidenceTooLarge(
+                    f"payload exceeds the {self._max_payload_chars}-character bound",
+                    observation_id=observation_id,
+                )
+            if type(payload_bytes) is not bytes:
+                raise QuarantineEvidenceDecodeError(
+                    observation_id, detail="stored payload could not be read as bytes"
+                )
+            try:
+                payload = payload_bytes.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise QuarantineEvidenceDecodeError(
+                    observation_id, detail="stored payload is not valid UTF-8"
+                ) from exc
+            if "\x00" in payload:
+                raise QuarantineEvidenceDecodeError(
+                    observation_id, detail="stored payload contains an embedded NUL"
+                )
+            if len(payload) > self._max_payload_chars:
                 raise QuarantineEvidenceTooLarge(
                     f"payload exceeds the {self._max_payload_chars}-character bound",
                     observation_id=observation_id,

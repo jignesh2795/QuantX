@@ -33,6 +33,11 @@ below. It does not reconcile anything.
 - The adapter materializes at most 10,000 readable rows per call. More than
   10,000 readable rows returns `UNAVAILABLE` before any page is produced; it is
   never presented as `truncated`, an empty worklist, or a partial inventory.
+- Each payload is measured and read as bytes, so SQLite TEXT semantics cannot
+  stop at an embedded NUL. The full stored byte length is compared with the
+  per-row bound before decoding; a payload with an embedded NUL, invalid UTF-8,
+  or an over-bound size returns `UNAVAILABLE`, and a truncated prefix is never
+  decoded as if it were the whole value.
 - Pagination exists to bound operator-visible output, not to page through an
   arbitrarily large table. Every page re-reads the bounded store, so a full
   pass costs `ceil(rows / limit)` store reads.
@@ -155,7 +160,13 @@ not `None`. Malformed limits and cursors fail before any store access.
 
 A page is ordered by `observed_at`, then observation id. Cursors carry that same
 ordering key, so pages are deterministic and never overlap within one unchanged
-snapshot. Ordering is not based on rowid or an offset.
+snapshot. Ordering is not based on rowid or an offset. A repeated logical
+observation id — for example a legacy row whose persisted UUID rendering
+normalizes to an id another row already carries, under the same or a different
+timestamp — makes the evidence ambiguous and returns `UNAVAILABLE` rather than
+presenting one logical observation as two items. The timestamp remains part of
+the ordering and pagination key; duplicate detection is on the logical identity
+alone.
 
 Cursor lifetime is **one inspection pass against one unchanged store**. A cursor
 is not persisted, not durable, and not bound to a database identity. Reusing a
@@ -327,8 +338,14 @@ tested renderer:
 - escapes Unicode line/paragraph separators (U+2028, U+2029);
 - escapes bidirectional formatting/isolate controls (U+061C, U+200E, U+200F,
   U+202A–U+202E, U+2066–U+2069, including U+202E and U+2066);
-- escapes lone surrogates so terminal encoding cannot fail;
-- keeps printable Unicode unchanged and bounds the rendered item.
+- escapes every other invisible Unicode format character (category `Cf`),
+  including U+200B, U+2060, U+FEFF, U+00AD, and U+FFF9–U+FFFB, so a hidden
+  character cannot remain silently embedded in operator output;
+- keeps zero-width non-joiner and zero-width joiner (U+200C, U+200D), which
+  several scripts and emoji sequences need for correct rendering, and keeps
+  other printable Unicode unchanged;
+- escapes lone surrogates so terminal encoding cannot fail, and bounds the
+  rendered item.
 
 Do not print the underlying observation fields directly. The renderer
 neutralizes these categories for terminal output; it does not sanitize the

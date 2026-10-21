@@ -19,9 +19,9 @@ Contract:
   single-pass continuation cursor for evidence beyond the first page;
 - items expose only the bounded quarantine record. Untrusted text must be
   rendered through :func:`render_quarantine_worklist_item`, which neutralizes
-  control characters, bidirectional formatting controls, and lone surrogates;
-  no raw broker payload, credential, or unbounded exception text is reproduced
-  here.
+  control characters, bidirectional and other invisible Unicode format
+  characters, and lone surrogates; no raw broker payload, credential, or
+  unbounded exception text is reproduced here.
 
 This is a bounded inspection view over one readable snapshot, not a guarantee
 of complete inventory at arbitrary table sizes. The underlying adapter reports
@@ -127,10 +127,14 @@ def render_quarantine_worklist_item(item: QuarantineWorklistItem) -> str:
     Persisted evidence is not modified. Newlines, carriage returns, tabs,
     ANSI escape bytes, NUL, all other C0/C1 control characters, Unicode
     line/paragraph separators, bidirectional formatting/isolate controls
-    (including U+200F, U+202E, and U+2066), and lone surrogates are shown as
-    printable escape sequences, so broker-derived text cannot inject terminal
-    commands, reorder surrounding text, forge additional worklist entries, or
-    break the terminal encoder.
+    (including U+200F, U+202E, and U+2066), every other invisible Unicode
+    format character (category ``Cf``, such as U+200B, U+2060, and U+FEFF),
+    and lone surrogates are shown as printable escape sequences, so
+    broker-derived text cannot inject terminal commands, reorder surrounding
+    text, hide characters, forge additional worklist entries, or break the
+    terminal encoder. Zero-width non-joiner and zero-width joiner (U+200C and
+    U+200D) are deliberately retained: several scripts and emoji sequences
+    need them to render correctly.
     """
     if not isinstance(item, QuarantineWorklistItem):
         raise ValueError("worklist renderer requires a QuarantineWorklistItem")
@@ -281,6 +285,13 @@ class QuarantineWorklistReadService:
         A cursor is deliberately not bound to a database identity; verifying
         that the open store is the intended evidence store stays an operator
         responsibility (``SqliteDatabase.path`` exposes the resolved path).
+
+        The same logical observation identity appearing more than once -- for
+        example two stored rows whose persisted UUID renderings normalize to
+        one identity, or one identity recorded under different timestamps --
+        is ambiguous evidence and returns ``UNAVAILABLE``. Duplicates are
+        detected on the logical identity alone; the timestamp remains part of
+        the ordering and pagination key.
         """
         if isinstance(limit, bool) or not isinstance(limit, int):
             raise ValueError("worklist limit must be an integer")
@@ -305,13 +316,24 @@ class QuarantineWorklistReadService:
                     ),
                 )
             )
+            logical_ids = [str(observation.observation_id) for observation in ordered]
+            if len(set(logical_ids)) != len(logical_ids):
+                # The ordering key includes the timestamp, so a repeated
+                # logical identity under a different timestamp would otherwise
+                # pass as two distinct observations. One logical observation
+                # cannot be two pieces of evidence: present nothing rather
+                # than a worklist that double-counts the same submission.
+                return QuarantineWorklist(
+                    status=QuarantineWorklistStatus.UNAVAILABLE,
+                    error=_bounded_error(
+                        "quarantine evidence contains duplicate logical observation identities"
+                    ),
+                )
             keys = [
-                (observation.observed_at, str(observation.observation_id))
-                for observation in ordered
+                (observation.observed_at, logical_ids[index])
+                for index, observation in enumerate(ordered)
             ]
             unique_keys = set(keys)
-            if len(unique_keys) != len(keys):
-                raise ValueError("quarantine repository returned duplicate observation identities")
             if cursor_key is not None and cursor_key not in unique_keys:
                 raise _CursorAttributionError(
                     "worklist cursor does not match the readable evidence in this store; "

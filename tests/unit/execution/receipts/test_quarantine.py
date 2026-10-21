@@ -1,5 +1,7 @@
 """Bounded failure-reporting and display-neutralization tests for quarantine evidence."""
 
+import unicodedata
+
 import pytest
 
 from quantx.execution.receipts.quarantine import (
@@ -76,6 +78,30 @@ def test_display_neutralization_escapes_bidi_formatting_controls() -> None:
         assert f"\\u{codepoint:04x}" in rendered
     assert rendered.startswith("before")
     assert rendered.endswith("after")
+
+
+def test_display_neutralization_escapes_invisible_unicode_format_characters() -> None:
+    invisible = "\u00ad\u180e\u200b\u2060\u2061\u2064\ufeff\ufff9"
+
+    rendered = neutralize_display_text(f"before{invisible}after", max_length=512)
+
+    for character in invisible:
+        assert character not in rendered
+    assert "\\xad" in rendered
+    for codepoint in (0x180E, 0x200B, 0x2060, 0x2061, 0x2064, 0xFEFF, 0xFFF9):
+        assert f"\\u{codepoint:04x}" in rendered
+    assert rendered.startswith("before")
+    assert rendered.endswith("after")
+
+
+def test_display_neutralization_keeps_script_joining_format_controls() -> None:
+    # ZWNJ and ZWJ are format characters but are required for correct Persian,
+    # Indic, and emoji rendering, so they must not be escaped.
+    assert unicodedata.category("\u200c") == "Cf"
+    assert unicodedata.category("\u200d") == "Cf"
+    text = "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645 \U0001f468\u200d\U0001f469"
+
+    assert neutralize_display_text(text, max_length=64) == text
 
 
 def test_display_neutralization_escapes_lone_surrogates_safely() -> None:

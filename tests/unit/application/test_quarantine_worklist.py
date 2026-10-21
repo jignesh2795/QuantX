@@ -240,6 +240,76 @@ def test_worklist_orders_by_instant_not_iso_text_across_offsets() -> None:
     ]
 
 
+def test_duplicate_logical_observation_identity_with_distinct_timestamps_is_unavailable() -> None:
+    observation_id = UUID("00000000-0000-0000-0000-000000000009")
+    first = _observation(
+        observation_id=observation_id,
+        observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    second = _observation(
+        observation_id=observation_id,
+        observed_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    worklist = QuarantineWorklistReadService(
+        quarantine=_StrictReadOnlyQuarantinePort((first, second))
+    ).read()
+
+    # The ordering key includes the timestamp, so these rows would otherwise
+    # paginate as two distinct observations. One logical identity is one piece
+    # of evidence: the worklist must fail closed instead of double-counting it.
+    assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert worklist.items == ()
+    assert worklist.truncated is False
+    assert worklist.next_cursor is None
+    assert worklist.requires_operator_reconciliation is True
+    assert worklist.error is not None
+    assert "duplicate logical observation identities" in worklist.error
+    assert 0 < len(worklist.error) <= 512
+
+
+def test_legacy_uuid_renderings_of_one_identity_are_unavailable(tmp_path) -> None:
+    base = uuid4()
+    first = _observation(
+        observation_id=base,
+        observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    second = _observation(
+        observation_id=base,
+        observed_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        with database.transaction() as connection:
+            connection.executemany(
+                "INSERT INTO submission_quarantine "
+                "(observation_id, client_order_id, payload, created_at) VALUES (?, ?, ?, ?)",
+                (
+                    (
+                        str(base),
+                        str(first.client_order_id),
+                        first.to_payload(),
+                        first.observed_at.isoformat(),
+                    ),
+                    (
+                        # A legacy row keeps the caller's non-canonical text in
+                        # its identity column; its payload decodes to the same
+                        # logical UUID as the canonical row.
+                        str(base).upper(),
+                        str(second.client_order_id),
+                        second.to_payload(),
+                        second.observed_at.isoformat(),
+                    ),
+                ),
+            )
+        worklist = QuarantineWorklistReadService(
+            quarantine=SqliteSubmissionQuarantineRepository(database)
+        ).read()
+
+    assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert worklist.items == ()
+    assert worklist.error is not None
+    assert "duplicate logical observation identities" in worklist.error
+
+
 def test_worklist_reports_wrong_typed_persisted_metadata_as_corruption(tmp_path) -> None:
     observation_id = uuid4()
     client_order_id = uuid4()
@@ -1050,6 +1120,31 @@ def test_renderer_neutralizes_bidi_controls() -> None:
         assert character not in rendered
     assert "\\u061c" in rendered
     assert "\\u202e" in rendered
+    assert "dhan" in rendered
+    assert "spoofed-entry" in rendered
+
+
+def test_renderer_neutralizes_invisible_unicode_format_characters() -> None:
+    invisible = "\u00ad\u200b\u2060\ufeff"
+    observation = _observation(
+        reason=f"before{invisible}after",
+        source=f"dhan{invisible}spoofed-entry",
+    )
+    item = (
+        QuarantineWorklistReadService(quarantine=_StrictReadOnlyQuarantinePort((observation,)))
+        .read()
+        .items[0]
+    )
+
+    rendered = render_quarantine_worklist_item(item)
+
+    for character in invisible:
+        assert character not in rendered
+    assert "\\xad" in rendered
+    for codepoint in (0x200B, 0x2060, 0xFEFF):
+        assert f"\\u{codepoint:04x}" in rendered
+    assert "before" in rendered
+    assert "after" in rendered
     assert "dhan" in rendered
     assert "spoofed-entry" in rendered
 

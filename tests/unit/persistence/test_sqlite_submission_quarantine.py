@@ -279,6 +279,56 @@ def test_list_all_rejects_payload_over_configured_bound(tmp_path) -> None:
     assert str(observation.observation_id) in str(raised.value)
 
 
+def test_list_all_rejects_valid_json_then_embedded_nul_and_trailing_data(tmp_path) -> None:
+    observation = _observation()
+    stored_payload = f"{observation.to_payload()}\x00trailing-data"
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        _insert_payload(
+            database,
+            str(observation.observation_id),
+            str(observation.client_order_id),
+            stored_payload,
+        )
+        with pytest.raises(QuarantineEvidenceDecodeError, match="embedded NUL") as raised:
+            repository.list_all()
+        stored = (
+            database.connection().execute("SELECT payload FROM submission_quarantine").fetchone()[0]
+        )
+
+    # SQLite TEXT semantics would measure only the JSON prefix before the NUL
+    # and hand back that prefix; the byte-oriented read must reject the row
+    # instead of decoding a truncated payload as if it were the whole value.
+    assert stored == stored_payload
+    assert str(observation.observation_id) in str(raised.value)
+
+
+def test_list_all_rejects_oversized_payload_with_nul_before_the_bound(tmp_path) -> None:
+    observation = _observation()
+    payload = observation.to_payload()
+    max_payload_chars = 1000
+    max_payload_bytes = 4 * max_payload_chars
+    stored_payload = f"{payload}\x00{'x' * 10_000}"
+    assert len(payload) < max_payload_bytes < len(stored_payload)
+
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(
+            database, max_payload_chars=max_payload_chars
+        )
+        _insert_payload(
+            database,
+            str(observation.observation_id),
+            str(observation.client_order_id),
+            stored_payload,
+        )
+        with pytest.raises(QuarantineEvidenceTooLarge, match="payload exceeds") as raised:
+            repository.list_all()
+
+    # The NUL sits before the byte boundary, so a TEXT length measurement would
+    # report a readable prefix; the full stored size still exceeds the bound.
+    assert str(observation.observation_id) in str(raised.value)
+
+
 def test_list_all_enforces_scan_bound_without_partial_results(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:

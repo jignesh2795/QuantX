@@ -20,6 +20,7 @@ length before serialization.
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -52,24 +53,50 @@ _BIDI_CONTROL_CODEPOINTS = frozenset(
 )
 
 
+#: Unicode format controls (category ``Cf``) do not occupy a visible cell, so
+#: an untrusted field can carry one to hide characters, join or split text, or
+#: otherwise make rendered output differ from what an operator appears to read.
+#: Every ``Cf`` character is escaped except the script-joining pair below.
+#:
+#: ZERO WIDTH NON-JOINER and ZERO WIDTH JOINER are format controls too, but
+#: several scripts and emoji sequences require them for correct rendering, so
+#: escaping them would visibly damage legitimate international text. Retaining
+#: them cannot reorder surrounding text or hide a character that would
+#: otherwise be visible.
+_SCRIPT_JOINING_CODEPOINTS = frozenset({0x200C, 0x200D})
+
+
 def _is_displayable(character: str) -> bool:
     codepoint = ord(character)
     if 0xD800 <= codepoint <= 0xDFFF:  # lone surrogate: not terminal-encodable
         return False
     if codepoint in _BIDI_CONTROL_CODEPOINTS:
         return False
-    return 0x20 <= codepoint <= 0x7E or 0xA0 <= codepoint <= 0x2027 or codepoint >= 0x202A
+    if 0x20 <= codepoint <= 0x7E:  # printable ASCII
+        return True
+    if codepoint < 0xA0:  # C0/C1 controls and DEL
+        return False
+    if codepoint in _SCRIPT_JOINING_CODEPOINTS:
+        return True
+    if unicodedata.category(character) == "Cf":  # invisible format control
+        return False
+    return codepoint <= 0x2027 or codepoint >= 0x202A
 
 
 def neutralize_display_text(value: object, *, max_length: int) -> str:
     """Render untrusted text for a terminal, bounded to ``max_length`` characters.
 
     Newlines, carriage returns, tabs, C0/C1 controls, Unicode line/paragraph
-    separators, bidirectional formatting/isolate controls, and lone surrogates
-    are shown as printable escapes, so persisted or broker-derived text cannot
-    inject terminal commands, reorder surrounding text, forge worklist entries,
-    or make a terminal encoder fail. The persisted value is never modified; only
-    this rendered copy is neutralized.
+    separators, bidirectional formatting/isolate controls, every other
+    invisible Unicode format character (category ``Cf``, including U+200B,
+    U+2060, and U+FEFF), and lone surrogates are shown as printable escapes,
+    so persisted or broker-derived text cannot inject terminal commands,
+    reorder surrounding text, hide characters, forge worklist entries, or make
+    a terminal encoder fail. Zero-width non-joiner and zero-width joiner
+    (U+200C and U+200D) are the only format characters kept as-is: several
+    scripts and emoji sequences need them to render correctly. Ordinary
+    printable Unicode outside the format categories is untouched. The
+    persisted value is never modified; only this rendered copy is neutralized.
     """
     if isinstance(max_length, bool) or not isinstance(max_length, int) or max_length < 1:
         raise ValueError("max_length must be a positive integer")
