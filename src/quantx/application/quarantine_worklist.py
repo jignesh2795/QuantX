@@ -82,10 +82,24 @@ def _bounded_error(message: str) -> str:
     return _display_text(message, max_length=_MAX_ERROR_LENGTH)
 
 
+def _logical_identity(observation_id: UUID) -> str:
+    """Canonical text of the underlying 128-bit UUID identity.
+
+    Quarantine records accept ``UUID`` subclasses, and a subclass may override
+    ``__str__``. Text rendering is therefore not an identity: two observations
+    holding the same UUID value could otherwise sort, pass the duplicate check,
+    and anchor cursors as if they were different observations. The canonical
+    lowercase form is derived from the value itself, so equivalent identities
+    always produce the same ordering key, duplicate comparison, and cursor
+    anchor, while ordinary UUIDs keep their existing text form.
+    """
+    return str(UUID(int=observation_id.int))
+
+
 def _encode_cursor(observation: QuarantinedSubmissionObservation) -> str:
     payload = json.dumps(
         {
-            "observation_id": str(observation.observation_id),
+            "observation_id": _logical_identity(observation.observation_id),
             "observed_at": observation.observed_at.isoformat(),
             "version": _CURSOR_VERSION,
         },
@@ -118,7 +132,7 @@ def _decode_cursor(cursor: str) -> tuple[datetime, str]:
         raise ValueError("worklist cursor is invalid") from exc
     if parsed_at.tzinfo is None or parsed_at.utcoffset() is None:
         raise ValueError("worklist cursor is invalid")
-    return parsed_at, str(parsed_id)
+    return parsed_at, _logical_identity(parsed_id)
 
 
 def render_quarantine_worklist_item(item: QuarantineWorklistItem) -> str:
@@ -292,6 +306,12 @@ class QuarantineWorklistReadService:
         is ambiguous evidence and returns ``UNAVAILABLE``. Duplicates are
         detected on the logical identity alone; the timestamp remains part of
         the ordering and pagination key.
+
+        Identity comparisons use the canonical text of the underlying UUID
+        value, never its ``str()`` rendering, so a ``UUID`` subclass with a
+        noncanonical ``__str__`` cannot bypass the duplicate check or cause
+        cursor attribution to fail. Ordinary UUIDs render identically, so
+        existing cursor values keep their meaning.
         """
         if isinstance(limit, bool) or not isinstance(limit, int):
             raise ValueError("worklist limit must be an integer")
@@ -312,11 +332,11 @@ class QuarantineWorklistReadService:
                     observations,
                     key=lambda observation: (
                         observation.observed_at,
-                        str(observation.observation_id),
+                        _logical_identity(observation.observation_id),
                     ),
                 )
             )
-            logical_ids = [str(observation.observation_id) for observation in ordered]
+            logical_ids = [_logical_identity(observation.observation_id) for observation in ordered]
             if len(set(logical_ids)) != len(logical_ids):
                 # The ordering key includes the timestamp, so a repeated
                 # logical identity under a different timestamp would otherwise

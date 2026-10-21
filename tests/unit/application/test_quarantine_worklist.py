@@ -130,6 +130,20 @@ class _RaisingQuarantinePort:
         raise self._error
 
 
+class _UppercaseUUID(UUID):
+    """A valid UUID whose text rendering is not the canonical one."""
+
+    def __str__(self) -> str:
+        return super().__str__().upper()
+
+
+class _BracedUUID(UUID):
+    """A valid UUID whose text rendering uses the braced form."""
+
+    def __str__(self) -> str:
+        return "{" + super().__str__() + "}"
+
+
 def _durable_snapshot(database: SqliteDatabase) -> dict[str, object]:
     connection = database.connection()
     return {
@@ -308,6 +322,78 @@ def test_legacy_uuid_renderings_of_one_identity_are_unavailable(tmp_path) -> Non
     assert worklist.items == ()
     assert worklist.error is not None
     assert "duplicate logical observation identities" in worklist.error
+
+
+def test_uuid_subclass_rendering_cannot_bypass_the_duplicate_identity_check() -> None:
+    identity = UUID("00000000-0000-0000-0000-0000000000ab")
+    first = _observation(
+        observation_id=_UppercaseUUID(str(identity)),
+        observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    second = _observation(
+        observation_id=_BracedUUID(str(identity)),
+        observed_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    worklist = QuarantineWorklistReadService(
+        quarantine=_StrictReadOnlyQuarantinePort((first, second))
+    ).read()
+
+    # Both values hold one UUID; only their text renderings differ. A
+    # rendering-based identity check would pass them as two observations.
+    assert str(first.observation_id) != str(second.observation_id)
+    assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert worklist.items == ()
+    assert worklist.truncated is False
+    assert worklist.next_cursor is None
+    assert worklist.error is not None
+    assert "duplicate logical observation identities" in worklist.error
+
+
+def test_cursor_traversal_uses_the_canonical_uuid_identity_across_renderings() -> None:
+    identities = (
+        UUID("00000000-0000-0000-0000-0000000000aa"),
+        UUID("00000000-0000-0000-0000-0000000000b0"),
+        UUID("00000000-0000-0000-0000-00000000000f"),
+        UUID("00000000-0000-0000-0000-000000000010"),
+        UUID("00000000-0000-0000-0000-0000000000cc"),
+    )
+    renderings = (_UppercaseUUID, _BracedUUID, UUID, _BracedUUID, _UppercaseUUID)
+    observations = tuple(
+        _observation(
+            observation_id=renderer(str(identity)),
+            observed_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        for identity, renderer in zip(identities, renderings, strict=True)
+    )
+    service = QuarantineWorklistReadService(quarantine=_StrictReadOnlyQuarantinePort(observations))
+
+    first = service.read(limit=2)
+    assert first.truncated is True
+    assert first.next_cursor is not None
+    anchor_cursor = first.next_cursor
+
+    seen = [item.observation.observation_id for item in first.items]
+    cursor = anchor_cursor
+    for _ in range(10):
+        page = service.read(limit=2, cursor=cursor)
+        seen.extend(item.observation.observation_id for item in page.items)
+        if page.next_cursor is None:
+            break
+        cursor = page.next_cursor
+    else:
+        pytest.fail("cursor pagination did not terminate")
+
+    # Ordering is by identity value, so the mixed renderings cannot reorder
+    # items or break cursor attribution between pages.
+    assert seen == sorted(identities)
+    assert len({str(UUID(int=value.int)) for value in seen}) == len(seen)
+
+    # The anchor is the canonical identity, not the subclass rendering, so the
+    # next page can still attribute it to the evidence it came from.
+    cursor_payload = json.loads(base64.urlsafe_b64decode(anchor_cursor))
+    assert cursor_payload["observation_id"] == str(
+        UUID(int=first.items[-1].observation.observation_id.int)
+    )
 
 
 def test_worklist_reports_wrong_typed_persisted_metadata_as_corruption(tmp_path) -> None:

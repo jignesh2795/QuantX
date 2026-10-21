@@ -166,7 +166,11 @@ normalizes to an id another row already carries, under the same or a different
 timestamp — makes the evidence ambiguous and returns `UNAVAILABLE` rather than
 presenting one logical observation as two items. The timestamp remains part of
 the ordering and pagination key; duplicate detection is on the logical identity
-alone.
+alone. Identity, ordering, and cursor anchors use the canonical text of the
+underlying 128-bit UUID value, never an observation object's `str()` rendering,
+so a `UUID` subclass with a noncanonical `__str__` (uppercase, braced, or
+otherwise) cannot bypass uniqueness or break cursor attribution. Ordinary UUIDs
+keep the same text and the same cursor values.
 
 Cursor lifetime is **one inspection pass against one unchanged store**. A cursor
 is not persisted, not durable, and not bound to a database identity. Reusing a
