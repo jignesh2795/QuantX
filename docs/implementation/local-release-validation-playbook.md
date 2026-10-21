@@ -59,19 +59,44 @@ worktree.
 ## 3. Two locked dependency configurations
 
 The suite has an optional Dhan surface. Both configurations are required; they
-answer different questions. Each producer run must follow the sync that selected
-its configuration, because `uv sync` makes the environment match the lockfile
-and the chosen extras.
+answer different questions. `uv sync` makes the environment match the lockfile
+and the chosen extras, so every producer run must happen immediately after its
+own sync, before the other configuration is installed.
+
+Run the two step groups below in order, from inside the worktree. The producer
+command itself is described in section 4; its placement here is what makes the
+measured configuration unambiguous.
+
+### 3.1 Default configuration, then its producer run
 
 ```powershell
 cd "$env:TEMP\quantx-validation\<task>\wt"
-
-# Default configuration, then the producer run from section 4.
 uv sync --dev --locked
+```
 
-# Dhan-extra configuration, then the producer run again with validation-dhan.json.
+```powershell
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py `
+  --expected-head <candidate-sha> `
+  --base <base-sha> `
+  --output "$env:TEMP\quantx-validation\<task>\validation-default.json"
+```
+
+### 3.2 Dhan-extra configuration, then its producer run
+
+```powershell
 uv sync --dev --extra dhan --locked
 ```
+
+```powershell
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py `
+  --expected-head <candidate-sha> `
+  --base <base-sha> `
+  --output "$env:TEMP\quantx-validation\<task>\validation-dhan.json"
+```
+
+Do not run the Dhan-extra sync until the default producer has written
+`validation-default.json`, and never run the default producer after the Dhan
+extra has been installed.
 
 - `uv sync --dev --locked` proves the locked base environment (test tooling
   included) works without the optional SDK.
@@ -84,18 +109,9 @@ configuration never substitutes for the other.
 
 ## 4. Producer evidence
 
-Run the producer after the matching `uv sync`, from inside the worktree:
-
-```powershell
-python .opencode/skills/quantx-validation-gate/scripts/run_validation.py `
-  --expected-head <candidate-sha> `
-  --base <base-sha> `
-  --output "$env:TEMP\quantx-validation\<task>\validation-default.json"
-```
-
-Repeat with a distinct path after enabling the extra. `--expected-head` is not
-optional: it is what binds the record to the commit instead of to whatever HEAD
-happened to be.
+The producer command is the one shown twice in section 3, immediately after each
+`uv sync`. `--expected-head` is not optional: it is what binds the record to the
+commit instead of to whatever HEAD happened to be.
 
 The [producer script](../../.opencode/skills/quantx-validation-gate/scripts/run_validation.py)
 runs six mandatory checks, named in the record as `pytest`,
