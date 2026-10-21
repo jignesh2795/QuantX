@@ -2,7 +2,7 @@
 
 import json
 from datetime import UTC, datetime, timedelta, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -572,3 +572,103 @@ def _insert_observations(
             "(observation_id, client_order_id, payload, created_at) VALUES (?, ?, ?, ?)",
             rows,
         )
+
+
+def test_list_by_client_order_canonicalizes_uuid_write_and_uuid_lookup(tmp_path) -> None:
+    client_order_id = uuid4()
+    observation = _observation(client_order_id=client_order_id)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        found = repository.list_by_client_order(client_order_id)
+    assert len(found) == 1
+    assert found[0].observation_id == observation.observation_id
+
+
+def test_list_by_client_order_uuid_parsable_string_write_and_same_string_lookup(tmp_path) -> None:
+    client_text = str(uuid4()).upper()
+    observation = _observation(client_order_id=client_text)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        found = repository.list_by_client_order(client_text)
+    assert len(found) == 1
+    assert found[0].observation_id == observation.observation_id
+    assert str(found[0].client_order_id) == client_text.lower()
+
+
+def test_list_by_client_order_uuid_parsable_string_write_and_canonical_lookup(tmp_path) -> None:
+    client_text = str(uuid4()).upper()
+    observation = _observation(client_order_id=client_text)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        found = repository.list_by_client_order(UUID(client_text))
+    assert len(found) == 1
+    assert found[0].observation_id == observation.observation_id
+
+
+def test_list_by_client_order_handles_noncanonical_valid_uuid_text(tmp_path) -> None:
+    base = uuid4()
+    client_text = "{" + str(base) + "}"
+    observation = _observation(client_order_id=client_text)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        assert len(repository.list_by_client_order(client_text)) == 1
+        assert len(repository.list_by_client_order(UUID(client_text))) == 1
+        assert len(repository.list_by_client_order(str(base).upper())) == 1
+
+
+def test_list_by_client_order_preserves_opaque_string_lookup(tmp_path) -> None:
+    client_text = "opaque-client-order-123"
+    observation = _observation(client_order_id=client_text)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        found = repository.list_by_client_order(client_text)
+        assert len(found) == 1
+        assert found[0].observation_id == observation.observation_id
+        assert repository.list_by_client_order("different-opaque-client") == ()
+
+
+def test_list_by_client_order_preserves_insertion_order(tmp_path) -> None:
+    client_text = "shared-opaque-client"
+    first = _observation(client_order_id=client_text)
+    second = _observation(client_order_id=client_text)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(first)
+        repository.record(second)
+        found = repository.list_by_client_order(client_text)
+    assert [item.observation_id for item in found] == [first.observation_id, second.observation_id]
+
+
+def test_list_by_client_order_fails_closed_on_corrupt_row(tmp_path) -> None:
+    client_text = "opaque-client-order-456"
+    observation = _observation(client_order_id="different-opaque-client")
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(_observation(client_order_id=client_text))
+        _insert_payload(
+            database,
+            str(uuid4()),
+            client_text,
+            observation.to_payload(),
+        )
+        with pytest.raises(QuarantineEvidenceDecodeError):
+            repository.list_by_client_order(client_text)
+
+
+def test_list_by_client_order_reads_from_read_only_database(tmp_path) -> None:
+    client_text = "opaque-client-order-789"
+    observation = _observation(client_order_id=client_text)
+    path = tmp_path / "quantx.db"
+    with SqliteDatabase(path) as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+    with SqliteDatabase.open_existing(path) as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        found = repository.list_by_client_order(client_text)
+    assert len(found) == 1
+    assert found[0].observation_id == observation.observation_id

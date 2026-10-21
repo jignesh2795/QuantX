@@ -48,6 +48,21 @@ def _identity_key(value: object) -> tuple[str, str]:
         return ("text", str(value))
 
 
+def _client_order_sql_key(value: object) -> str:
+    """Canonical textual key for a client-order lookup.
+
+    The writer stores a canonical UUID text for every UUID-parsable client
+    order id, so a lookup must use the same canonical text rather than the
+    caller's raw rendering. Genuinely opaque strings are not UUID-parsable
+    and retain their raw textual form. This is a SQL scalar key, not the
+    tuple-valued :func:`_identity_key` used for row identity comparison.
+    """
+    try:
+        return str(UUID(str(value)))
+    except (AttributeError, TypeError, ValueError):
+        return str(value)
+
+
 class SqliteSubmissionQuarantineRepository:
     """Durable quarantined-observation boundary; rows are immutable."""
 
@@ -165,7 +180,7 @@ class SqliteSubmissionQuarantineRepository:
             rows = connection.execute(
                 "SELECT observation_id, client_order_id, payload "
                 "FROM submission_quarantine WHERE client_order_id = ? ORDER BY rowid",
-                (str(client_order_id),),
+                (_client_order_sql_key(client_order_id),),
             ).fetchall()
         return tuple(self._decode_row(row[0], row[1], row[2]) for row in rows)
 
