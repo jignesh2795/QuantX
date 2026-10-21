@@ -62,11 +62,65 @@ class _OversizedClientOrderId(str):
         return "x" * (MAX_SERIALIZED_PAYLOAD_CHARS + 1)
 
 
+class _AlternatingClientOrderId(str):
+    calls = 0
+
+    def __str__(self) -> str:
+        type(self).calls += 1
+        if type(self).calls % 2:
+            return "short"
+        return "x" * 40_000
+
+
+class _OverlongClientOrderId(str):
+    def __str__(self) -> str:
+        return "x" * 300
+
+
 def test_record_rejects_serialized_payload_over_shared_bound(tmp_path) -> None:
     observation = _observation(client_order_id=_OversizedClientOrderId("x"))
     with SqliteDatabase(tmp_path / "quantx.db") as database:
         repository = SqliteSubmissionQuarantineRepository(database)
         with pytest.raises(ValueError, match="serialized quarantine observation"):
+            repository.record(observation)
+        stored = (
+            database.connection()
+            .execute("SELECT COUNT(*) FROM submission_quarantine")
+            .fetchone()[0]
+        )
+
+    assert stored == 0
+
+
+def test_record_derives_identity_columns_from_the_serialized_payload(tmp_path) -> None:
+    _AlternatingClientOrderId.calls = 0
+    observation = _observation(client_order_id=_AlternatingClientOrderId("seed"))
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        listed = repository.list_all()
+        row = (
+            database.connection()
+            .execute(
+                "SELECT observation_id, client_order_id, length(payload) FROM submission_quarantine"
+            )
+            .fetchone()
+        )
+
+    # A type whose identity rendering changes between calls cannot store a row
+    # whose columns disagree with the payload: the second rendering is never
+    # used, and the stored record remains readable.
+    assert len(listed) == 1
+    assert listed[0].client_order_id == "short"
+    assert row[1] == "short"
+    assert row[2] <= MAX_SERIALIZED_PAYLOAD_CHARS
+
+
+def test_record_rejects_a_payload_the_default_reader_would_refuse(tmp_path) -> None:
+    observation = _observation(client_order_id=_OverlongClientOrderId("seed"))
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        with pytest.raises(ValueError, match="not decodable by the default reader"):
             repository.record(observation)
         stored = (
             database.connection()
@@ -479,6 +533,23 @@ def test_list_all_maps_driver_failure_to_static_unavailable(tmp_path) -> None:
     assert str(raised.value) == (
         "quarantine evidence store could not be read: "
         "the SQLite evidence connection is not usable for reading"
+    )
+
+
+def test_list_all_maps_missing_table_to_static_unavailable(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        with database.transaction() as connection:
+            connection.execute("DROP TABLE submission_quarantine")
+        with pytest.raises(QuarantineEvidenceUnavailable) as raised:
+            repository.list_all()
+    finally:
+        database.close()
+
+    assert str(raised.value) == (
+        "quarantine evidence store could not be read: "
+        "the SQLite database is not readable in its current state"
     )
 
 

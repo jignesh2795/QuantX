@@ -220,12 +220,16 @@ exactly this long, so the bound is proved tight rather than guessed.
 
 Consequences:
 
-- Every observation produced by the validated constructor serializes within the
-  bound and is readable by the default reader. The write boundary still rejects
-  an over-bound serialization before the insert (only a value whose runtime type
-  lies about its serialized form can trigger it); it never stores a row the
-  default reader would refuse, and the caller treats that rejection as a
-  persistence failure and latches the existing fail-closed safety fault.
+- A normal observation serializes within the bound and is readable by the
+  default reader. A runtime type can still lie about its serialized form (for
+  example a ``str`` subclass overriding ``__str__``). The write boundary rejects
+  such a value before the insert when its serialization exceeds the bound or
+  when the default reader cannot decode it, and it derives the stored identity
+  columns from that decoded record. A type whose identity rendering changes
+  between calls therefore cannot store a row whose columns disagree with its
+  payload. The boundary never stores a row the default reader would refuse, and
+  the caller treats that rejection as a persistence failure and latches the
+  existing fail-closed safety fault.
 - A genuinely over-bound stored payload is reported as `UNAVAILABLE` with
   "payload exceeds the 24856-character bound"; it is never truncated, skipped,
   or rendered as a partial worklist.

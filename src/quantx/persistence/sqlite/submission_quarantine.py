@@ -80,9 +80,16 @@ class SqliteSubmissionQuarantineRepository:
         The serialized size is checked against the same canonical bound the
         reader uses. Every value produced by the validated constructor fits the
         bound, so this check is not reachable for a normal observation; it
-        rejects only a value whose runtime type lies about its serialized form
-        (for example a ``str`` subclass overriding ``__str__``). Rejecting such
-        a payload before the insert is deliberate: storing it would create a
+        rejects a value whose runtime type lies about its serialized form (for
+        example a ``str`` subclass overriding ``__str__``).
+
+        The serialized payload is then decoded with the default reader's own
+        contract before the insert, and the identity columns are derived from
+        that decoded record. This closes the second half of the write/read
+        invariant: a runtime type whose identity rendering changes between the
+        payload and the column write can neither store a payload the reader
+        refuses nor store columns that disagree with the payload. Rejecting
+        such a value before the insert is deliberate: storing it would create a
         durable row no default reader can decode, silently losing the evidence.
         The caller treats a rejected record as a persistence failure and latches
         the existing fail-closed safety fault; it never stores an unreadable row.
@@ -93,10 +100,18 @@ class SqliteSubmissionQuarantineRepository:
                 "serialized quarantine observation exceeds the "
                 f"{MAX_SERIALIZED_PAYLOAD_CHARS}-character write bound"
             )
+        try:
+            stored = QuarantinedSubmissionObservation.from_payload(payload)
+        except (AttributeError, KeyError, RecursionError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "serialized quarantine observation is not decodable by the default reader"
+            ) from exc
+        observation_id_text = str(stored.observation_id)
+        client_order_id_text = str(stored.client_order_id)
         with self._database.transaction() as connection:
             row = connection.execute(
                 "SELECT payload FROM submission_quarantine WHERE observation_id = ?",
-                (str(observation.observation_id),),
+                (observation_id_text,),
             ).fetchone()
             if row is not None:
                 if row[0] != payload:
@@ -106,10 +121,10 @@ class SqliteSubmissionQuarantineRepository:
                 "INSERT INTO submission_quarantine "
                 "(observation_id, client_order_id, payload, created_at) VALUES (?, ?, ?, ?)",
                 (
-                    str(observation.observation_id),
-                    str(observation.client_order_id),
+                    observation_id_text,
+                    client_order_id_text,
                     payload,
-                    observation.observed_at.isoformat(),
+                    stored.observed_at.isoformat(),
                 ),
             )
 
