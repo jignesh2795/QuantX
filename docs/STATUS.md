@@ -130,19 +130,19 @@ QX-05 was merged through PR [#252](https://github.com/jignesh2795/QuantX/pull/25
 ```powershell
 # Default configuration
 uv sync --dev --locked
-python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head cfa89ac704e7fd28422eb55355d7fd3760621d02 --base bbf572b5aa56c42f9ae06afea1705fcb44d4fbf9 --output "%TEMP%\\qx05-remediation-cfa89ac-default.json"
-python .opencode/skills/quantx-release-gate/scripts/release_check.py --expected-head cfa89ac704e7fd28422eb55355d7fd3760621d02 --base bbf572b5aa56c42f9ae06afea1705fcb44d4fbf9 --evidence "%TEMP%\\qx05-remediation-cfa89ac-default.json" --output "%TEMP%\\qx05-remediation-cfa89ac-release-default.json"
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head cfa89ac704e7fd28422eb55355d7fd3760621d02 --base bbf572b5aa56c42f9ae06afea1705fcb44d4fbf9 --output "%TEMP%\qx05-remediation-cfa89ac-default.json"
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --expected-head cfa89ac704e7fd28422eb55355d7fd3760621d02 --base bbf572b5aa56c42f9ae06afea1705fcb44d4fbf9 --evidence "%TEMP%\qx05-remediation-cfa89ac-default.json" --output "%TEMP%\qx05-remediation-cfa89ac-release-default.json"
 
 # Dhan-extra configuration
 uv sync --dev --extra dhan --locked
-python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head cfa89ac704e7fd28422eb55355d7fd3760621d02 --base bbf572b5aa56c42f9ae06afea1705fcb44d4fbf9 --output "%TEMP%\\qx05-remediation-cfa89ac-dhan.json"
-python .opencode/skills/quantx-release-gate/scripts/release_check.py --expected-head cfa89ac704e7fd28422eb55355d7fd3760621d02 --base bbf572b5aa56c42f9ae06afea1705fcb44d4fbf9 --evidence "%TEMP%\\qx05-remediation-cfa89ac-dhan.json" --output "%TEMP%\\qx05-remediation-cfa89ac-release-dhan.json"
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head cfa89ac704e7fd28422eb55355d7fd3760621d02 --base bbf572b5aa56c42f9ae06afea1705fcb44d4fbf9 --output "%TEMP%\qx05-remediation-cfa89ac-dhan.json"
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --expected-head cfa89ac704e7fd28422eb55355d7fd3760621d02 --base bbf572b5aa56c42f9ae06afea1705fcb44d4fbf9 --evidence "%TEMP%\qx05-remediation-cfa89ac-dhan.json" --output "%TEMP%\qx05-remediation-cfa89ac-release-dhan.json"
 ```
 
 - Default: full suite **2,557 passed, 1 skipped**; changed-file Ruff check/format, strict mypy (197 source files), `git diff --check`, and worktree integrity **PASS**; validation and release gates **PASS**.
 - Dhan-extra: full suite **2,558 passed, 0 skipped**; changed-file Ruff check/format, strict mypy (197 source files), `git diff --check`, and worktree integrity **PASS**; validation and release gates **PASS**.
 - Changed feature scope against base: **29 files, 28 Python files**. The reported focused QX-05 slice had **189 passed**; those results, as well as the counts above, are tied to feature head `cfa89ac...`, not the merge commit.
-- Evidence paths: `%TEMP%\\qx05-remediation-cfa89ac-default.json`, `%TEMP%\\qx05-remediation-cfa89ac-dhan.json`, `%TEMP%\\qx05-remediation-cfa89ac-release-default.json`, `%TEMP%\\qx05-remediation-cfa89ac-release-dhan.json`.
+- Evidence paths: `%TEMP%\qx05-remediation-cfa89ac-default.json`, `%TEMP%\qx05-remediation-cfa89ac-dhan.json`, `%TEMP%\qx05-remediation-cfa89ac-release-default.json`, `%TEMP%\qx05-remediation-cfa89ac-release-dhan.json`.
 
 No broker I/O, LIVE operation, real order, GitHub Actions or paid CI was used. The resolver is an opt-in composition seam whose effective-dated records are caller-supplied: no production derivative contract catalog, historical backfill, automatic contract discovery, or symbol-derived metadata is shipped. Existing notional/margin arithmetic is unchanged; no derivative-specific margin/charges model is introduced. The resolution binding claims the ADR-012 domain and resolution contract only; it does not claim production derivative readiness or that QX-07 shared-contract migration is complete.
 
