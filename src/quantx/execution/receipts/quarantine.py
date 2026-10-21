@@ -27,6 +27,7 @@ from uuid import UUID
 
 _MAX_TEXT_LENGTH = 256
 _MAX_REASON_LENGTH = 512
+_MAX_OBSERVATION_ID_DISPLAY = 128
 
 
 class QuarantineEvidenceDecodeError(ValueError):
@@ -35,12 +36,17 @@ class QuarantineEvidenceDecodeError(ValueError):
     Raised by storage adapters listing durable evidence when a stored payload
     is unreadable or violates the record contract. Readers must surface this
     as an explicit unavailable result: a corrupt evidence row is not an empty
-    worklist, and it must never be silently skipped.
+    worklist, and it must never be silently skipped. The row identity is kept
+    whole for callers, but its rendered form is bounded so a hostile row key
+    cannot make the failure report unbounded.
     """
 
     def __init__(self, observation_id: str) -> None:
-        super().__init__(f"quarantined observation {observation_id} could not be decoded")
         self.observation_id = observation_id
+        display = observation_id
+        if len(display) > _MAX_OBSERVATION_ID_DISPLAY:
+            display = f"{display[:_MAX_OBSERVATION_ID_DISPLAY]}..."
+        super().__init__(f"quarantined observation {display} could not be decoded")
 
 
 class QuarantineObservationKind(StrEnum):

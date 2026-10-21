@@ -278,6 +278,35 @@ def test_corrupt_evidence_is_unavailable_not_an_empty_worklist(tmp_path) -> None
     assert str(observation_id) in worklist.error
 
 
+def test_overlong_corrupt_row_identity_stays_unavailable_and_bounded(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        overlong_observation_id = "x" * 2000
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO submission_quarantine "
+                "(observation_id, client_order_id, payload, created_at) VALUES (?, ?, ?, ?)",
+                (
+                    overlong_observation_id,
+                    str(uuid4()),
+                    "not-json",
+                    datetime(2026, 1, 2, tzinfo=UTC).isoformat(),
+                ),
+            )
+        worklist = QuarantineWorklistReadService(
+            quarantine=SqliteSubmissionQuarantineRepository(database)
+        ).read()
+    finally:
+        database.close()
+
+    assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert worklist.items == ()
+    assert worklist.error is not None
+    assert worklist.error.startswith("quarantine evidence could not be decoded for observation ")
+    assert 0 < len(worklist.error) <= 512
+    assert overlong_observation_id not in worklist.error
+
+
 def test_store_read_failure_is_unavailable_and_requires_attention() -> None:
     worklist = QuarantineWorklistReadService(quarantine=_FailingQuarantinePort()).read()
 

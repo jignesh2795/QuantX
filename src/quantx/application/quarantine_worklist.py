@@ -40,6 +40,11 @@ MAX_WORKLIST_LIMIT = 1000
 _MAX_ERROR_LENGTH = 512
 
 
+def _bounded_error(message: str) -> str:
+    """Keep an operator-facing failure reason bounded, whatever caused it."""
+    return message[:_MAX_ERROR_LENGTH]
+
+
 class QuarantineWorklistStatus(StrEnum):
     """Whether the durable evidence was actually read."""
 
@@ -136,14 +141,14 @@ class QuarantineWorklistReadService:
         except QuarantineEvidenceDecodeError as exc:
             return QuarantineWorklist(
                 status=QuarantineWorklistStatus.UNAVAILABLE,
-                error=(
+                error=_bounded_error(
                     f"quarantine evidence could not be decoded for observation {exc.observation_id}"
                 ),
             )
         except Exception as exc:
             return QuarantineWorklist(
                 status=QuarantineWorklistStatus.UNAVAILABLE,
-                error=f"quarantine evidence read failed: {type(exc).__name__}",
+                error=_bounded_error(f"quarantine evidence read failed: {type(exc).__name__}"),
             )
 
         ordered = tuple(
