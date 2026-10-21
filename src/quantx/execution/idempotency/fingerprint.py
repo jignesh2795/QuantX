@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Protocol
 
 from quantx.domain.deployment import ExecutionContext
 from quantx.domain.enums import PositionEffect
+from quantx.domain.instrument_registry import InstrumentResolution
 from quantx.domain.orders import Order
 from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
 from quantx.domain.product_selection import ProductSelectionResolution
-from quantx.domain.value_objects import ProductCode
+from quantx.domain.value_objects import ProductCode, canonical_decimal, canonical_instant
 
 
 class FingerprintableRequest(Protocol):
@@ -57,14 +58,13 @@ class FingerprintableRequest(Protocol):
     @property
     def position_effect_policy_resolution(self) -> AbsentPositionEffectResolution | None: ...
 
+    @property
+    def instrument_resolution(self) -> InstrumentResolution | None: ...
+
 
 def _canonical_decimal(value: Decimal) -> str:
     """Render finite Decimals independent of trailing-zero representation."""
-    if not value.is_finite():
-        return str(value)
-    if value == 0:
-        return "0"
-    return format(value.normalize(), "f")
+    return canonical_decimal(value)
 
 
 def _json_value(value: object) -> object:
@@ -91,7 +91,7 @@ def _canonical_datetime(value: datetime) -> str:
     """
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("fingerprint timestamps must be timezone-aware")
-    return value.astimezone(UTC).isoformat(timespec="microseconds")
+    return canonical_instant(value)
 
 
 def _timedelta_microseconds(value: object) -> int | None:
@@ -110,9 +110,11 @@ def fingerprint_payload(request: FingerprintableRequest) -> dict[str, object]:
     account/portfolio/deployment identity, the market, the required
     capabilities, the resolved product, the requested and effective position
     effect, the market-pack/rule identity, the position evidence and its
-    freshness, and the product and position-effect proofs.
+    freshness, and the product and position-effect proofs. A selected
+    contract/rule identity participates only when the request carries one:
+    requests that bind no contract retain their pre-QX-05 digest.
     """
-    return {
+    payload: dict[str, object] = {
         "instrument": str(request.order.instrument),
         "side": request.order.side.value,
         "order_type": request.order.order_type.value,
@@ -177,6 +179,14 @@ def fingerprint_payload(request: FingerprintableRequest) -> dict[str, object]:
             else request.position_effect_policy_resolution.to_payload()
         ),
     }
+    if request.instrument_resolution is not None:
+        # The resolved instrument facts and the selected contract/rule identity
+        # change execution semantics, so they participate in the canonical
+        # fingerprint. ``resolved_at`` is provenance, not semantics: two
+        # resolutions selecting the same facts and records must fingerprint
+        # identically.
+        payload["instrument_resolution"] = request.instrument_resolution.identity_payload()
+    return payload
 
 
 def request_fingerprint(request: FingerprintableRequest) -> str:

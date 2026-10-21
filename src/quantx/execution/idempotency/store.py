@@ -21,9 +21,11 @@ from quantx.domain.enums import OrderSide, OrderStatus, OrderType, PositionEffec
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
     PendingExecutionRecoveryRequest,
+    validate_instrument_resolution,
     validate_order_product_symmetry,
     validate_position_effect_fields,
 )
+from quantx.domain.instrument_registry import InstrumentResolution
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.orders import Order
 from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
@@ -56,12 +58,14 @@ class PendingExecutionContext:
     position_effect_approval_instant: datetime | None = None
     product_resolution: ProductSelectionResolution | None = None
     position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
+    instrument_resolution: InstrumentResolution | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_fingerprint, str) or not self.request_fingerprint.strip():
             raise ValueError("pending execution context fingerprint must not be empty")
         if self.execution_context.execution_mode is not ExecutionMode.LIVE:
             raise ValueError("pending execution context must describe LIVE execution")
+        validate_instrument_resolution(self.order, self.instrument_resolution)
         validate_order_product_symmetry(
             self.order,
             self.product,
@@ -101,6 +105,7 @@ class PendingExecutionContext:
             position_effect_approval_instant=request.position_effect_approval_instant,
             product_resolution=request.product_resolution,
             position_effect_policy_resolution=request.position_effect_policy_resolution,
+            instrument_resolution=request.instrument_resolution,
         )
 
     def to_recovery_request(self) -> PendingExecutionRecoveryRequest:
@@ -117,11 +122,12 @@ class PendingExecutionContext:
             position_effect_approval_instant=self.position_effect_approval_instant,
             product_resolution=self.product_resolution,
             position_effect_policy_resolution=self.position_effect_policy_resolution,
+            instrument_resolution=self.instrument_resolution,
         )
 
     def to_json(self) -> str:
         payload = {
-            "version": 1,
+            "version": 2,
             "request_fingerprint": self.request_fingerprint,
             "order": {
                 "client_order_id": str(self.order.client_order_id),
@@ -210,6 +216,11 @@ class PendingExecutionContext:
                 if self.position_effect_policy_resolution is None
                 else self.position_effect_policy_resolution.to_payload()
             ),
+            "instrument_resolution": (
+                None
+                if self.instrument_resolution is None
+                else self.instrument_resolution.to_payload()
+            ),
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -217,7 +228,12 @@ class PendingExecutionContext:
     def from_json(cls, payload_json: str) -> PendingExecutionContext:
         try:
             payload = json.loads(payload_json)
-            if not isinstance(payload, dict) or payload.get("version") != 1:
+            if not isinstance(payload, dict):
+                raise ValueError("unsupported pending execution context version")
+            # Version 1 is a pre-QX-05 row: it never carried instrument
+            # resolution evidence. Version 2 names that evidence explicitly.
+            version = payload.get("version")
+            if type(version) is not int or version not in (1, 2):
                 raise ValueError("unsupported pending execution context version")
             order_data = payload["order"]
             context_data = payload["execution_context"]
@@ -301,6 +317,15 @@ class PendingExecutionContext:
             instant_value = payload.get("position_effect_approval_instant")
             product_resolution_value = payload.get("product_resolution")
             policy_resolution_value = payload.get("position_effect_policy_resolution")
+            if version == 1:
+                if "instrument_resolution" in payload:
+                    raise ValueError(
+                        "a version 1 pending execution context cannot carry an "
+                        "instrument resolution"
+                    )
+                instrument_resolution_value = None
+            else:
+                instrument_resolution_value = payload["instrument_resolution"]
             product_resolution = (
                 None
                 if product_resolution_value is None
@@ -310,6 +335,11 @@ class PendingExecutionContext:
                 None
                 if policy_resolution_value is None
                 else AbsentPositionEffectResolution.from_payload(policy_resolution_value)
+            )
+            instrument_resolution = (
+                None
+                if instrument_resolution_value is None
+                else InstrumentResolution.from_payload(instrument_resolution_value)
             )
             restored = cls(
                 request_fingerprint=payload["request_fingerprint"],
@@ -329,6 +359,7 @@ class PendingExecutionContext:
                 ),
                 product_resolution=product_resolution,
                 position_effect_policy_resolution=policy_resolution,
+                instrument_resolution=instrument_resolution,
             )
         except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid pending execution context") from exc

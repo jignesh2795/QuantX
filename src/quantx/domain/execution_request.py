@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from .deployment import ExecutionContext, ExecutionMode
 from .enums import PositionEffect
+from .instrument_registry import InstrumentResolution
 from .order_intents import TradeIntent
 from .orders import Order
 from .policy import PolicyResult
@@ -240,6 +241,25 @@ def validate_position_effect_fields(
         raise ValueError("effective position effect does not match the resolved position effect")
 
 
+def validate_instrument_resolution(
+    order: Order,
+    instrument_resolution: InstrumentResolution | None,
+) -> None:
+    """Fail closed unless any supplied resolution describes the executed instrument.
+
+    The resolution is the point-in-time claim that binds the executed
+    ``InstrumentId`` to its selected contract/rule identity. A request can
+    never carry a resolution for a different instrument, and the claim is
+    authenticated separately by the composed market-pack verifier.
+    """
+    if instrument_resolution is None:
+        return
+    if not isinstance(instrument_resolution, InstrumentResolution):
+        raise ValueError("instrument resolution has an unsupported type")
+    if instrument_resolution.instrument.instrument_id != order.instrument:
+        raise ValueError("instrument resolution does not describe the executed instrument")
+
+
 @dataclass(frozen=True, slots=True)
 class ApprovedExecutionRequest:
     order: Order
@@ -257,6 +277,7 @@ class ApprovedExecutionRequest:
     position_effect_approval_instant: datetime | None = None
     product_resolution: ProductSelectionResolution | None = None
     position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
+    instrument_resolution: InstrumentResolution | None = None
 
     def __post_init__(self) -> None:
         if self.required_margin < 0:
@@ -268,6 +289,7 @@ class ApprovedExecutionRequest:
                 raise ValueError("live execution requires a broker connection")
             if self.policy_result is None or not self.policy_result.approved:
                 raise ValueError("live execution requires an approved execution policy")
+        validate_instrument_resolution(self.order, self.instrument_resolution)
         validate_order_product_symmetry(
             self.order,
             self.product,
@@ -308,8 +330,10 @@ class PendingExecutionRecoveryRequest:
     position_effect_approval_instant: datetime | None = None
     product_resolution: ProductSelectionResolution | None = None
     position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
+    instrument_resolution: InstrumentResolution | None = None
 
     def __post_init__(self) -> None:
+        validate_instrument_resolution(self.order, self.instrument_resolution)
         validate_order_product_symmetry(
             self.order,
             self.product,
@@ -356,6 +380,7 @@ __all__ = [
     "ApprovedExecutionRequest",
     "PendingExecutionRecoveryRequest",
     "build_order_from_intent",
+    "validate_instrument_resolution",
     "validate_order_product_symmetry",
     "validate_position_effect_fields",
 ]

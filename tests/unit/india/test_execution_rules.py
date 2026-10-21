@@ -281,9 +281,10 @@ def test_option_missing_fields_rejected() -> None:
 
 
 def test_option_invalid_type_rejected() -> None:
-    result = _validate(_derivative_spec(AssetClass.OPTION, option_type="WEIRD"), _option_order())
-    assert result.decision is IndiaRuleDecision.REJECT
-    assert "INDIA_DERIVATIVE_METADATA_INVALID" in result.reason
+    # The source spec is the alias boundary: an unsupported option spelling
+    # fails construction closed instead of circulating as a free string.
+    with pytest.raises(ValueError, match="CALL or PUT"):
+        _derivative_spec(AssetClass.OPTION, option_type="WEIRD")
 
 
 def test_equity_with_derivative_metadata_rejected() -> None:

@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.accounts import AccountId
@@ -11,11 +12,13 @@ from quantx.domain.deployment import (
 from quantx.domain.enums import AssetClass, OrderSide, PositionEffect
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint, CapitalSourceType
 from quantx.domain.instruments import (
+    Contract,
     Instrument,
     InstrumentId,
     MarketContext,
     MarketFamily,
     MarketRegion,
+    OptionType,
 )
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision
@@ -64,6 +67,62 @@ def _intent(**overrides) -> TradeIntent:
     )
     values.update(overrides)
     return TradeIntent(**values)
+
+
+def _option_instrument() -> Instrument:
+    market = MarketContext(MarketRegion.INDIA, MarketFamily.DERIVATIVES, "NSE", "IN")
+    return Instrument(
+        InstrumentId("NSE", "NIFTY26JAN25000CE"),
+        "NIFTY26JAN25000CE",
+        AssetClass.OPTION,
+        market,
+        "INR",
+        Decimal("0.05"),
+        Decimal("25"),
+    )
+
+
+def _option_contract(**overrides) -> Contract:
+    values = dict(
+        instrument_id=_option_instrument().instrument_id,
+        asset_class=AssetClass.OPTION,
+        underlying=InstrumentId("NSE", "NIFTY"),
+        expiry=datetime(2026, 1, 29, 15, 30, tzinfo=UTC),
+        strike=Decimal("25000"),
+        option_type=OptionType.CALL,
+    )
+    values.update(overrides)
+    return Contract(**values)
+
+
+def _option_context(contract: Contract | None = None) -> RiskContext:
+    base = _context()
+    return RiskContext(
+        _option_instrument(),
+        base.financial_state,
+        reference_price=Decimal("100"),
+        contract=contract,
+    )
+
+
+def _option_intent() -> TradeIntent:
+    market = MarketContext(MarketRegion.INDIA, MarketFamily.DERIVATIVES, "NSE", "IN")
+    context = ExecutionContext(
+        account_id=AccountId("acct-1"),
+        portfolio_id=PortfolioId("portfolio-1"),
+        deployment_id=StrategyDeploymentId("deploy-1"),
+        market=market,
+        broker_connection_id=None,
+        execution_mode=ExecutionMode.PAPER,
+    )
+    return TradeIntent(
+        instrument=_option_instrument().instrument_id,
+        side=OrderSide.BUY,
+        quantity=Decimal("10"),
+        required_margin=Decimal("1000"),
+        position_effect=PositionEffect.OPEN,
+        execution_context=context,
+    )
 
 
 def test_pre_trade_risk_approves_valid_intent() -> None:
@@ -149,3 +208,54 @@ def test_explicit_open_cannot_carry_a_resolved_effect() -> None:
 
     assert result.decision is RiskDecision.REJECT
     assert "explicit OPEN request cannot carry" in result.reason
+
+
+def test_derivative_risk_requires_resolved_contract_metadata() -> None:
+    result = PreTradeRiskEngine().evaluate(_option_intent(), _option_context())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "derivative instrument requires resolved contract metadata" in result.reason
+
+
+def test_derivative_risk_accepts_matching_contract_metadata() -> None:
+    contract = _option_contract()
+
+    result = PreTradeRiskEngine().evaluate(_option_intent(), _option_context(contract))
+
+    assert result.decision is RiskDecision.APPROVE
+
+
+def test_derivative_risk_rejects_contract_for_another_instrument() -> None:
+    foreign = _option_contract(instrument_id=InstrumentId("NSE", "NIFTY26JAN26000CE"))
+
+    result = PreTradeRiskEngine().evaluate(_option_intent(), _option_context(foreign))
+
+    assert result.decision is RiskDecision.REJECT
+    assert "resolved contract instrument does not match" in result.reason
+
+
+def test_non_derivative_risk_rejects_contract_metadata() -> None:
+    result = PreTradeRiskEngine().evaluate(
+        _intent(),
+        replace(_context(), contract=_option_contract()),
+    )
+
+    assert result.decision is RiskDecision.REJECT
+    assert "non-derivative instrument cannot carry contract metadata" in result.reason
+
+
+def test_risk_rejects_a_context_instrument_that_does_not_match_the_intent() -> None:
+    result = PreTradeRiskEngine().evaluate(
+        _intent(instrument=InstrumentId("NSE", "INFY")),
+        _context(),
+    )
+
+    assert result.decision is RiskDecision.REJECT
+    assert "risk context instrument does not match" in result.reason
+
+
+def test_derivative_intent_cannot_borrow_an_equity_context() -> None:
+    result = PreTradeRiskEngine().evaluate(_option_intent(), _context())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "risk context instrument does not match" in result.reason

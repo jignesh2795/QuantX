@@ -21,6 +21,8 @@ from typing import Protocol
 
 from .deployment import ExecutionContext
 from .enums import PositionEffect
+from .instrument_registry import InstrumentResolution, InstrumentResolutionResolver
+from .orders import Order
 from .position_effect import AbsentPositionEffectResolution, PositionEffectPolicy
 from .product_selection import ProductSelectionPolicy, ProductSelectionResolution
 from .value_objects import ProductCode
@@ -32,6 +34,9 @@ class ProofVerificationError(ValueError):
 
 class VerifiableRequest(Protocol):
     """The request fields a proof verification depends on."""
+
+    @property
+    def order(self) -> Order: ...
 
     @property
     def execution_context(self) -> ExecutionContext: ...
@@ -51,6 +56,9 @@ class VerifiableRequest(Protocol):
     @property
     def position_effect_policy_resolution(self) -> AbsentPositionEffectResolution | None: ...
 
+    @property
+    def instrument_resolution(self) -> InstrumentResolution | None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class MarketPackPolicyVerifier:
@@ -64,6 +72,7 @@ class MarketPackPolicyVerifier:
 
     product_selection_policies: tuple[ProductSelectionPolicy, ...] = ()
     position_effect_policies: tuple[PositionEffectPolicy, ...] = ()
+    instrument_resolver: InstrumentResolutionResolver | None = None
 
     def __post_init__(self) -> None:
         if not all(
@@ -85,6 +94,10 @@ class MarketPackPolicyVerifier:
         ]
         if len(set(effect_identities)) != len(effect_identities):
             raise ValueError("position effect policies must have unique market-pack identities")
+        if self.instrument_resolver is not None and not callable(
+            getattr(self.instrument_resolver, "resolve_at", None)
+        ):
+            raise ValueError("instrument resolver must implement resolve_at")
 
     def product_policy_for(self, market_pack_id: str, rule_version: str) -> ProductSelectionPolicy:
         """Return the trusted product policy for one identity, or fail closed."""
@@ -171,6 +184,46 @@ class MarketPackPolicyVerifier:
         except ValueError as exc:
             raise ProofVerificationError(str(exc)) from exc
 
+    def verify_instrument_resolution(
+        self,
+        resolution: InstrumentResolution,
+        *,
+        instrument_id: str,
+    ) -> None:
+        """Verify one instrument/contract claim against the trusted PIT resolver.
+
+        The claim names a canonical instrument and the rule/contract identity
+        selected at one instant. Only the trusted resolver can authenticate it:
+        the same instrument is resolved again at the recorded instant and the
+        selected identities must agree exactly. A claim that omits derivative
+        metadata, selects a different historical record, or contradicts the
+        canonical instrument is rejected, never repaired.
+        """
+        if self.instrument_resolver is None:
+            raise ProofVerificationError(
+                "an instrument resolution requires a trusted point-in-time resolver"
+            )
+        if not isinstance(resolution, InstrumentResolution):
+            raise ProofVerificationError("instrument resolution has an unsupported type")
+        if str(resolution.instrument.instrument_id) != instrument_id:
+            raise ProofVerificationError(
+                "instrument resolution does not describe the executed instrument"
+            )
+        try:
+            trusted = self.instrument_resolver.resolve_at(
+                resolution.instrument.instrument_id, resolution.resolved_at
+            )
+        except Exception as exc:
+            raise ProofVerificationError(str(exc)) from exc
+        if trusted.instrument != resolution.instrument:
+            raise ProofVerificationError(
+                "instrument resolution contradicts the canonical instrument"
+            )
+        if trusted.identity_payload() != resolution.identity_payload():
+            raise ProofVerificationError(
+                "instrument resolution does not match the trusted point-in-time resolution"
+            )
+
     def verify_request(self, request: VerifiableRequest) -> None:
         """Verify every proof one request carries, or fail closed.
 
@@ -182,6 +235,20 @@ class MarketPackPolicyVerifier:
         context = request.execution_context
         product = request.product
         product_resolution = request.product_resolution
+        instrument_resolution: InstrumentResolution | None = getattr(
+            request, "instrument_resolution", None
+        )
+        if instrument_resolution is None:
+            if self.instrument_resolver is not None:
+                raise ProofVerificationError(
+                    "a deployment with a point-in-time instrument resolver requires "
+                    "an instrument resolution"
+                )
+        else:
+            self.verify_instrument_resolution(
+                instrument_resolution,
+                instrument_id=str(request.order.instrument),
+            )
         if product is None:
             if product_resolution is not None:
                 raise ProofVerificationError(

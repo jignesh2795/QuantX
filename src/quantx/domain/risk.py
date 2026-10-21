@@ -20,7 +20,7 @@ from .constraints import (
 )
 from .enums import OrderSide, PositionEffect
 from .finance import AccountFinancialState, BrokerConstraint
-from .instruments import Instrument
+from .instruments import DERIVATIVE_ASSET_CLASSES, Contract, Instrument
 from .order_intents import TradeIntent
 from .value_objects import Money, ProductCode, Quantity
 
@@ -38,7 +38,9 @@ class RiskContext:
     ``product``, ``effective_position_effect``, ``market_pack_id`` and
     ``rule_version`` carry the *already resolved* pre-approval semantics. Risk
     never resolves them itself and never falls back to instrument identity;
-    it validates that the supplied resolution is internally coherent.
+    it validates that the supplied resolution is internally coherent. A
+    derivative evaluation consumes the resolved contract metadata; a
+    non-derivative evaluation never carries one.
     """
 
     instrument: Instrument
@@ -49,6 +51,11 @@ class RiskContext:
     effective_position_effect: PositionEffect | None = None
     market_pack_id: str | None = None
     rule_version: str | None = None
+    contract: Contract | None = None
+
+    def __post_init__(self) -> None:
+        if self.contract is not None and not isinstance(self.contract, Contract):
+            raise ValueError("risk context contract must be canonical contract metadata")
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +164,8 @@ def _resolution_violation(intent: TradeIntent, context: RiskContext) -> str | No
     a documented, versioned market-pack rule: to OPEN, with the rule identity
     supplied, or to no effective effect at all.
     """
+    if context.instrument.instrument_id != intent.instrument:
+        return "risk context instrument does not match the intent instrument"
     if context.product is not None:
         if intent.product is not None and intent.product != context.product:
             return "resolved product does not match the intent product"
@@ -164,6 +173,15 @@ def _resolution_violation(intent: TradeIntent, context: RiskContext) -> str | No
             return "a resolved product requires a market-pack id"
         if not (context.rule_version or "").strip():
             return "a resolved product requires a market-pack rule version"
+    if context.instrument.asset_class in DERIVATIVE_ASSET_CLASSES:
+        if context.contract is None:
+            return "a derivative instrument requires resolved contract metadata"
+        if context.contract.instrument_id != context.instrument.instrument_id:
+            return "resolved contract instrument does not match the risk instrument"
+        if context.contract.asset_class is not context.instrument.asset_class:
+            return "resolved contract asset class does not match the risk instrument"
+    elif context.contract is not None:
+        return "a non-derivative instrument cannot carry contract metadata"
     if context.effective_position_effect is not None:
         if context.effective_position_effect not in {
             PositionEffect.OPEN,

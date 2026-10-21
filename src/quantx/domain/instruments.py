@@ -8,7 +8,36 @@ from decimal import Decimal
 from enum import StrEnum
 
 from .enums import AssetClass
-from .value_objects import InstrumentId
+from .value_objects import InstrumentId, canonical_decimal, canonical_instant
+
+
+class OptionType(StrEnum):
+    """The one canonical option-right vocabulary owned by the domain.
+
+    Vendor or source spellings are normalized through :meth:`parse` at the
+    explicit catalog/adapter boundary. Core domain objects only carry this
+    type, never a free string, so no consumer can invent a competing
+    vocabulary.
+    """
+
+    CALL = "CALL"
+    PUT = "PUT"
+
+    @classmethod
+    def parse(cls, value: object) -> OptionType:
+        """Normalize one source/vendor spelling at the boundary."""
+        if isinstance(value, OptionType):
+            return value
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("option_type must be CALL or PUT")
+        try:
+            return cls(value.strip().upper())
+        except ValueError as exc:
+            raise ValueError("option_type must be CALL or PUT") from exc
+
+
+#: Asset classes whose canonical metadata includes a derivative contract record.
+DERIVATIVE_ASSET_CLASSES: frozenset[AssetClass] = frozenset({AssetClass.FUTURE, AssetClass.OPTION})
 
 
 class MarketRegion(StrEnum):
@@ -118,21 +147,161 @@ class Instrument:
         if self.multiplier <= 0:
             raise ValueError("multiplier must be positive")
 
+    def to_payload(self) -> dict[str, object]:
+        """Canonical serializable instrument facts, independent of any contract."""
+        return {
+            "instrument_id": self.instrument_id.to_payload(),
+            "symbol": self.symbol,
+            "asset_class": self.asset_class.value,
+            "market": self.market.to_payload(),
+            "currency": self.currency,
+            "tick_size": canonical_decimal(self.tick_size),
+            "lot_size": canonical_decimal(self.lot_size),
+            "multiplier": canonical_decimal(self.multiplier),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: object) -> Instrument:
+        """Rebuild an instrument, rejecting missing or unexpected fields."""
+        if not isinstance(payload, dict):
+            raise ValueError("instrument must be an object")
+        expected = {
+            "instrument_id",
+            "symbol",
+            "asset_class",
+            "market",
+            "currency",
+            "tick_size",
+            "lot_size",
+            "multiplier",
+        }
+        if set(payload) != expected:
+            raise ValueError("instrument has unexpected fields")
+        symbol = payload["symbol"]
+        asset_class = payload["asset_class"]
+        currency = payload["currency"]
+        tick_size = payload["tick_size"]
+        lot_size = payload["lot_size"]
+        multiplier = payload["multiplier"]
+        if not isinstance(symbol, str) or not isinstance(currency, str):
+            raise ValueError("instrument symbol and currency must be strings")
+        if not isinstance(asset_class, str):
+            raise ValueError("instrument asset class must be a string")
+        for name, value in (
+            ("tick_size", tick_size),
+            ("lot_size", lot_size),
+            ("multiplier", multiplier),
+        ):
+            if not isinstance(value, str):
+                raise ValueError(f"instrument {name} must be a decimal string")
+        return cls(
+            instrument_id=InstrumentId.from_payload(payload["instrument_id"]),
+            symbol=symbol,
+            asset_class=AssetClass(asset_class),
+            market=MarketContext.from_payload(payload["market"]),
+            currency=currency,
+            tick_size=Decimal(tick_size),
+            lot_size=Decimal(lot_size),
+            multiplier=Decimal(multiplier),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Contract:
-    """Derivative/venue contract metadata layered over an instrument."""
+    """Canonical derivative contract metadata keyed by stable instrument identity.
 
-    instrument: Instrument
-    underlying: InstrumentId | None = None
-    expiry: datetime | None = None
+    The contract owns derivative facts only (underlying, expiry, strike, option
+    type). It refers to its instrument by ``InstrumentId`` and never embeds a
+    second ``Instrument`` copy, so the canonical instrument facts and the
+    contract facts cannot contradict each other. Derivative completeness is
+    enforced here: an option needs underlying, timezone-aware expiry, a
+    positive strike and an ``OptionType``; a future needs underlying and
+    timezone-aware expiry and rejects option-only fields. Non-derivative
+    instruments have no contract record at all.
+    """
+
+    instrument_id: InstrumentId
+    asset_class: AssetClass
+    underlying: InstrumentId
+    expiry: datetime
     strike: Decimal | None = None
-    option_type: str | None = None
+    option_type: OptionType | None = None
 
     def __post_init__(self) -> None:
-        if self.strike is not None and self.strike <= 0:
-            raise ValueError("strike must be positive when supplied")
-        if self.option_type is not None:
-            normalized = self.option_type.upper()
-            if normalized not in {"CALL", "PUT"}:
-                raise ValueError("option_type must be CALL or PUT")
+        if not isinstance(self.instrument_id, InstrumentId):
+            raise ValueError("contract requires a canonical InstrumentId")
+        if not isinstance(self.asset_class, AssetClass):
+            raise ValueError("contract requires a canonical AssetClass")
+        if self.asset_class not in DERIVATIVE_ASSET_CLASSES:
+            raise ValueError("contract metadata requires a derivative asset class")
+        if not isinstance(self.underlying, InstrumentId):
+            raise ValueError("contract underlying must be an InstrumentId")
+        if self.underlying == self.instrument_id:
+            raise ValueError("contract underlying must differ from the contract instrument")
+        if not isinstance(self.expiry, datetime):
+            raise ValueError("contract expiry must be a datetime")
+        if self.expiry.tzinfo is None or self.expiry.utcoffset() is None:
+            raise ValueError("contract expiry must be timezone-aware")
+        if self.option_type is not None and not isinstance(self.option_type, OptionType):
+            raise ValueError("option_type must be a canonical OptionType")
+        if self.strike is not None and not isinstance(self.strike, Decimal):
+            raise ValueError("strike must be a Decimal")
+
+        if self.asset_class is AssetClass.OPTION:
+            if self.strike is None:
+                raise ValueError("option strike must be supplied")
+            if self.option_type is None:
+                raise ValueError("option_type must be supplied")
+        else:
+            if self.strike is not None or self.option_type is not None:
+                raise ValueError("futures must not define strike or option_type")
+        if self.strike is not None:
+            if not self.strike.is_finite() or self.strike <= 0:
+                raise ValueError("strike must be positive when supplied")
+
+    def to_payload(self) -> dict[str, object]:
+        """Lossless, scale-independent serializable derivative metadata."""
+        return {
+            "instrument_id": self.instrument_id.to_payload(),
+            "asset_class": self.asset_class.value,
+            "underlying": self.underlying.to_payload(),
+            "expiry": canonical_instant(self.expiry),
+            "strike": None if self.strike is None else canonical_decimal(self.strike),
+            "option_type": None if self.option_type is None else self.option_type.value,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: object) -> Contract:
+        """Rebuild derivative metadata, rejecting missing or unexpected fields."""
+        if not isinstance(payload, dict):
+            raise ValueError("contract metadata must be an object")
+        expected = {
+            "instrument_id",
+            "asset_class",
+            "underlying",
+            "expiry",
+            "strike",
+            "option_type",
+        }
+        if set(payload) != expected:
+            raise ValueError("contract metadata has unexpected fields")
+        asset_class = payload["asset_class"]
+        expiry = payload["expiry"]
+        strike = payload["strike"]
+        option_type = payload["option_type"]
+        if not isinstance(asset_class, str):
+            raise ValueError("contract asset class must be a string")
+        if not isinstance(expiry, str):
+            raise ValueError("contract expiry must be a string")
+        if strike is not None and not isinstance(strike, str):
+            raise ValueError("contract strike must be a decimal string or None")
+        if option_type is not None and not isinstance(option_type, str):
+            raise ValueError("contract option type must be a string or None")
+        return cls(
+            instrument_id=InstrumentId.from_payload(payload["instrument_id"]),
+            asset_class=AssetClass(asset_class),
+            underlying=InstrumentId.from_payload(payload["underlying"]),
+            expiry=datetime.fromisoformat(expiry),
+            strike=None if strike is None else Decimal(strike),
+            option_type=None if option_type is None else OptionType(option_type),
+        )

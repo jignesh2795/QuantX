@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.instruments import Instrument
+from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES, Instrument
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.receipts.models import (
     ExecutionEvidenceKind,
@@ -103,6 +103,44 @@ class DhanBrokerAdapter:
                 f"unsupported product for Dhan adapter: {request.product.value}"
             ) from exc
 
+    def _validate_contract(
+        self,
+        request: ApprovedExecutionRequest,
+        instrument: Instrument,
+    ) -> None:
+        """Require canonical contract metadata for a derivative submission.
+
+        Contract facts come only from the canonical point-in-time resolution;
+        the adapter never parses expiry, strike, underlying, or option type
+        from a trading symbol or vendor reference. A derivative request whose
+        resolution is missing or contradicts the mapped canonical instrument
+        is rejected locally, before transport.
+        """
+        resolution = request.instrument_resolution
+        if resolution is not None and resolution.instrument != instrument:
+            raise BrokerPreflightRejected(
+                "resolved instrument contradicts the mapped Dhan instrument"
+            )
+        if instrument.asset_class in DERIVATIVE_ASSET_CLASSES:
+            if resolution is None or resolution.contract is None:
+                raise BrokerPreflightRejected(
+                    "Dhan submission requires resolved derivative contract metadata"
+                )
+            contract = resolution.contract
+            if contract.instrument_id != instrument.instrument_id:
+                raise BrokerPreflightRejected(
+                    "resolved contract metadata does not match the mapped Dhan instrument"
+                )
+            if contract.asset_class is not instrument.asset_class:
+                raise BrokerPreflightRejected(
+                    "resolved contract asset class does not match the mapped Dhan instrument"
+                )
+            return
+        if resolution is not None and resolution.contract is not None:
+            raise BrokerPreflightRejected(
+                "a non-derivative Dhan submission cannot carry contract metadata"
+            )
+
     def health(self) -> bool:
         return self._transport.health(timeout=self._read_timeout)
 
@@ -122,6 +160,7 @@ class DhanBrokerAdapter:
         try:
             self._validate_connection(request)
             broker_instrument = self._resolve(request.order.instrument)
+            self._validate_contract(request, broker_instrument[0])
             self._validate_market(broker_instrument[0], broker_instrument[1])
             self._validate_product(request)
             wire = build_order_request(
