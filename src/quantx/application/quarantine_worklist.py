@@ -141,9 +141,7 @@ class QuarantineWorklistReadService:
         except QuarantineEvidenceDecodeError as exc:
             return QuarantineWorklist(
                 status=QuarantineWorklistStatus.UNAVAILABLE,
-                error=_bounded_error(
-                    f"quarantine evidence could not be decoded for observation {exc.observation_id}"
-                ),
+                error=_bounded_error(f"quarantine evidence could not be decoded: {exc}"),
             )
         except Exception as exc:
             return QuarantineWorklist(

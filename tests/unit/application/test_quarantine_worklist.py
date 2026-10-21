@@ -302,8 +302,10 @@ def test_overlong_corrupt_row_identity_stays_unavailable_and_bounded(tmp_path) -
     assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
     assert worklist.items == ()
     assert worklist.error is not None
-    assert worklist.error.startswith("quarantine evidence could not be decoded for observation ")
+    assert worklist.error.startswith("quarantine evidence could not be decoded: ")
     assert 0 < len(worklist.error) <= 512
+    assert "x" * 128 in worklist.error
+    assert "x" * 129 not in worklist.error
     assert overlong_observation_id not in worklist.error
 
 
