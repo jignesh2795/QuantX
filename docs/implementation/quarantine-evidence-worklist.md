@@ -238,6 +238,46 @@ Consequences:
   bound instead of admitting an over-bound row. The default read bound equals
   the write bound.
 
+## Identity-column contract (writer = reader)
+
+Two identity columns carry the lookup keys: `observation_id` and
+`client_order_id`. The payload is the evidence; the columns are the keys the
+adapter queries by. Both follow one writer/reader contract.
+
+- **The writer** derives both columns from the decoded payload, never from the
+  caller's runtime objects. A UUID-parsable identity is stored as its canonical
+  UUID text (lowercase, hyphenated); an opaque identity is stored as its raw
+  text. The same identity therefore has the same stored text however the caller
+  rendered it.
+- **The reader** keys a lookup by that canonical text and, for a UUID-parsable
+  identity, additionally by the caller's own rendering. The identity is
+  rendered **once** and parsed from that exact rendering, so a runtime type
+  whose `__str__` changes between calls cannot make the parsed identity and
+  the queried key disagree.
+
+`observation_id` is a UUID-typed field, so its column is canonical in every
+writer version to date. `client_order_id` is `UUID | str`, and the writer
+before the canonicalizing change stored `str(observation.client_order_id)`:
+the canonical text for the UUID client order ids the supported execution flow
+supplies (`Order.client_order_id` is a `UUID`), and the caller's own text for
+a string client order id.
+
+### Compatibility with rows written before the canonicalizing writer
+
+Compatibility is **provided**, not assumed away:
+
+- A client-order lookup also queries the caller's own rendering, so a row
+  stored under that rendering stays reachable exactly as it was before the
+  canonicalizing change. No stored row is rewritten, no schema change or
+  migration is introduced, and each matched row is returned exactly once.
+- A UUID-typed lookup does not match a row stored under a rendering it does
+  not supply. That is the behavior the pre-canonicalizing lookup already had,
+  so this is not a new loss of evidence: the row is still in the store, and the
+  bounded full-store scan returns it.
+
+A row whose stored identity disagrees with its payload is still reported as
+undecodable; identity normalization never repairs or hides a corrupt row.
+
 ## Result semantics
 
 | Field | Meaning |

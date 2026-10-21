@@ -22,10 +22,11 @@ def _observation(
     kind: QuarantineObservationKind = QuarantineObservationKind.TRANSPORT_UNCERTAIN,
     observed_at: datetime | None = None,
     client_order_id=None,
+    observation_id=None,
     broker_order_id: str | None = "BR-1",
 ) -> QuarantinedSubmissionObservation:
     return QuarantinedSubmissionObservation(
-        observation_id=uuid4(),
+        observation_id=observation_id or uuid4(),
         kind=kind,
         client_order_id=client_order_id or uuid4(),
         observed_at=observed_at or datetime(2026, 1, 2, tzinfo=UTC),
@@ -75,6 +76,36 @@ class _AlternatingClientOrderId(str):
 class _OverlongClientOrderId(str):
     def __str__(self) -> str:
         return "x" * 300
+
+
+class _UppercaseUUID(UUID):
+    """A UUID whose text rendering is not the canonical one."""
+
+    def __str__(self) -> str:
+        return super().__str__().upper()
+
+
+class _BracedUUID(UUID):
+    """A UUID whose text rendering uses the braced form."""
+
+    def __str__(self) -> str:
+        return "{" + super().__str__() + "}"
+
+
+class _AlternatingRenderingClientOrderId(str):
+    """A client order id whose text rendering changes on every call."""
+
+    def __new__(cls, renderings: tuple[str, ...]) -> "_AlternatingRenderingClientOrderId":
+        return super().__new__(cls, renderings[0])
+
+    def __init__(self, renderings: tuple[str, ...]) -> None:
+        self._renderings = renderings
+        self.calls = 0
+
+    def __str__(self) -> str:
+        rendering = self._renderings[self.calls % len(self._renderings)]
+        self.calls += 1
+        return rendering
 
 
 def test_record_rejects_serialized_payload_over_shared_bound(tmp_path) -> None:
@@ -672,3 +703,157 @@ def test_list_by_client_order_reads_from_read_only_database(tmp_path) -> None:
         found = repository.list_by_client_order(client_text)
     assert len(found) == 1
     assert found[0].observation_id == observation.observation_id
+
+
+def test_get_returns_the_recorded_observation_for_a_plain_uuid(tmp_path) -> None:
+    observation = _observation()
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        found = repository.get(observation.observation_id)
+    assert found == observation
+
+
+def test_get_returns_none_for_an_unrecorded_observation_id(tmp_path) -> None:
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(_observation())
+        assert repository.get(uuid4()) is None
+
+
+@pytest.mark.parametrize("uuid_type", (_UppercaseUUID, _BracedUUID))
+def test_get_finds_the_row_for_a_noncanonical_uuid_subclass(tmp_path, uuid_type) -> None:
+    observation_id = uuid_type(str(uuid4()))
+    observation = _observation(observation_id=observation_id)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        stored_column = (
+            database.connection()
+            .execute("SELECT observation_id FROM submission_quarantine")
+            .fetchone()[0]
+        )
+        found = repository.get(observation_id)
+    # The writer stores the canonical text; the lookup uses the same key, so a
+    # caller whose own rendering is not canonical still finds its row.
+    assert stored_column == str(UUID(str(observation_id)))
+    assert found == observation
+
+
+def test_get_finds_a_legacy_row_stored_with_its_own_noncanonical_text(tmp_path) -> None:
+    observation_id = _UppercaseUUID(str(uuid4()))
+    observation = _observation(observation_id=observation_id)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        # A row as the pre-canonicalizing writer stored it: the identity
+        # column keeps the caller's own text.
+        _insert_payload(
+            database,
+            str(observation_id),
+            str(observation.client_order_id),
+            observation.to_payload(),
+        )
+        found = repository.get(observation_id)
+    assert found == observation
+
+
+def test_list_by_client_order_finds_the_row_for_a_noncanonical_uuid_subclass(tmp_path) -> None:
+    client_order_id = _UppercaseUUID(str(uuid4()))
+    observation = _observation(client_order_id=client_order_id)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        found = repository.list_by_client_order(client_order_id)
+    assert [item.observation_id for item in found] == [observation.observation_id]
+
+
+def test_list_by_client_order_evaluates_an_opaque_client_order_rendering_once(tmp_path) -> None:
+    client_text = "opaque-client-order-rendered-once"
+    observation = _observation(client_order_id=client_text)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        probe = _AlternatingRenderingClientOrderId((client_text, "second-rendering"))
+        found = repository.list_by_client_order(probe)
+    # The parsed identity and the queried key come from one rendering: a
+    # stateful ``__str__`` cannot make the lookup use a second rendering.
+    assert probe.calls == 1
+    assert [item.observation_id for item in found] == [observation.observation_id]
+
+
+def test_list_by_client_order_evaluates_a_uuid_client_order_rendering_once(tmp_path) -> None:
+    client_text = str(uuid4())
+    observation = _observation(client_order_id=client_text)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        repository.record(observation)
+        probe = _AlternatingRenderingClientOrderId((client_text, str(uuid4())))
+        found = repository.list_by_client_order(probe)
+    assert probe.calls == 1
+    assert [item.observation_id for item in found] == [observation.observation_id]
+
+
+def test_list_by_client_order_finds_a_row_stored_with_its_own_noncanonical_text(tmp_path) -> None:
+    client_text = str(uuid4()).upper()
+    observation = _observation(client_order_id=client_text)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        # A row as the pre-canonicalizing writer stored it: the client-order
+        # column keeps the caller's own text, and the payload carries the
+        # same text.
+        _insert_payload(
+            database,
+            str(observation.observation_id),
+            client_text,
+            observation.to_payload(),
+        )
+        found = repository.list_by_client_order(client_text)
+    assert [item.observation_id for item in found] == [observation.observation_id]
+    assert str(found[0].client_order_id) == client_text.lower()
+
+
+def test_list_by_client_order_returns_a_legacy_and_a_canonical_row_once_each(tmp_path) -> None:
+    base = uuid4()
+    legacy_text = str(base).upper()
+    legacy_observation = _observation(client_order_id=legacy_text)
+    canonical_observation = _observation(client_order_id=base)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        _insert_payload(
+            database,
+            str(legacy_observation.observation_id),
+            legacy_text,
+            legacy_observation.to_payload(),
+        )
+        repository.record(canonical_observation)
+        found = repository.list_by_client_order(legacy_text)
+    # Both representations name one client order id, and each stored row is
+    # returned exactly once.
+    assert len(found) == 2
+    assert {item.observation_id for item in found} == {
+        legacy_observation.observation_id,
+        canonical_observation.observation_id,
+    }
+
+
+def test_list_by_client_order_does_not_match_a_legacy_row_for_another_rendering(tmp_path) -> None:
+    base = uuid4()
+    legacy_text = str(base).upper()
+    legacy_observation = _observation(client_order_id=legacy_text)
+    with SqliteDatabase(tmp_path / "quantx.db") as database:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        _insert_payload(
+            database,
+            str(legacy_observation.observation_id),
+            legacy_text,
+            legacy_observation.to_payload(),
+        )
+        # The canonical key names the canonical rendering. A row stored under
+        # a different rendering was not reachable through a UUID-typed lookup
+        # before the canonicalizing change either, so the lookup does not
+        # widen beyond the caller's own rendering. The evidence is not lost:
+        # the bounded full-store scan still returns it.
+        assert repository.list_by_client_order(base) == ()
+        assert [item.observation_id for item in repository.list_all()] == [
+            legacy_observation.observation_id
+        ]

@@ -4,6 +4,23 @@ Rows are immutable and separate from the authoritative receipts table:
 they never satisfy idempotency completion and are never returned as
 canonical receipts. Writes are idempotent on ``observation_id`` — an
 identical re-record is a no-op, a conflicting payload fails closed.
+
+Identity columns follow one writer/reader contract. The writer derives every
+identity column from the decoded payload, so a UUID-parsable identity is
+stored as its canonical UUID text and an opaque identity is stored as its raw
+text. A lookup therefore keys a UUID-parsable identity by that canonical text
+and an opaque identity by its raw text.
+
+The writer before the canonicalizing change stored ``str(client_order_id)``,
+which is the canonical text for the UUID client order ids the supported
+execution flow supplies and the raw text for a string client order id. A row
+written that way with a UUID-parsable string keeps its own rendering, so the
+lookup also queries the caller's own rendering: such a row stays reachable
+exactly as it was before the canonicalizing change, no stored row is changed,
+and no row is returned twice. A UUID-typed lookup does not match a row stored
+under a rendering the caller does not supply, which is the behavior the
+pre-canonicalizing lookup already had; such evidence is not lost and remains
+visible to the bounded full-store scan.
 """
 
 from __future__ import annotations
@@ -41,26 +58,64 @@ def _sqlite_read_detail(error: sqlite3.Error) -> str:
     return "the SQLite driver could not complete the evidence read"
 
 
-def _identity_key(value: object) -> tuple[str, str]:
-    try:
-        return ("uuid", str(UUID(str(value))))
-    except (AttributeError, TypeError, ValueError):
-        return ("text", str(value))
+def _canonical_uuid_text(text: str) -> str | None:
+    """Return the canonical UUID text for ``text``, or ``None`` if opaque.
 
-
-def _client_order_sql_key(value: object) -> str:
-    """Canonical textual key for a client-order lookup.
-
-    The writer stores a canonical UUID text for every UUID-parsable client
-    order id, so a lookup must use the same canonical text rather than the
-    caller's raw rendering. Genuinely opaque strings are not UUID-parsable
-    and retain their raw textual form. This is a SQL scalar key, not the
-    tuple-valued :func:`_identity_key` used for row identity comparison.
+    The canonical text is the exact text the writer stores in an identity
+    column for every UUID-parsable identity, so a lookup key and a stored
+    column can be compared without re-deriving the caller's rendering.
     """
     try:
-        return str(UUID(str(value)))
+        return str(UUID(text))
     except (AttributeError, TypeError, ValueError):
-        return str(value)
+        return None
+
+
+def _identity_key(value: object) -> tuple[str, str]:
+    """Comparable identity key for a stored column and a decoded payload.
+
+    The value is rendered exactly once and parsed from that exact rendering,
+    so a runtime type whose ``__str__`` changes between calls cannot make the
+    compared key depend on how many times it was rendered. A UUID-parsable
+    rendering compares by its canonical text; an opaque rendering compares by
+    its raw text.
+    """
+    text = str(value)
+    canonical = _canonical_uuid_text(text)
+    if canonical is None:
+        return ("text", text)
+    return ("uuid", canonical)
+
+
+def _identity_sql_keys(value: object) -> tuple[str, ...]:
+    """SQL lookup keys for one identity value.
+
+    The value is rendered exactly once and parsed from that exact rendering,
+    so a runtime type whose ``__str__`` changes between calls cannot make the
+    parsed identity and the queried key disagree.
+
+    A UUID-parsable rendering is keyed by its canonical text -- the text the
+    writer stores -- and additionally by the caller's own rendering. The second
+    key keeps a row written before the writer canonicalized the column
+    reachable, exactly as the pre-canonicalization lookup reached it. It
+    changes no stored row and never returns one row twice, because the query
+    tests set membership rather than concatenating result sets. A rendering
+    that is not UUID-parsable has no other representation and keeps its raw
+    text, which is the identity the writer stored for it.
+
+    This is a SQL scalar key, not the tuple-valued :func:`_identity_key` used
+    for row identity comparison.
+    """
+    text = str(value)
+    canonical = _canonical_uuid_text(text)
+    if canonical is None or canonical == text:
+        return (text,)
+    return (canonical, text)
+
+
+def _sql_key_params(keys: tuple[str, ...]) -> tuple[str, str]:
+    """Bind one or two identity keys to a two-placeholder ``IN`` predicate."""
+    return (keys[0], keys[1] if len(keys) > 1 else keys[0])
 
 
 class SqliteSubmissionQuarantineRepository:
@@ -163,11 +218,21 @@ class SqliteSubmissionQuarantineRepository:
         return observation
 
     def get(self, observation_id: UUID) -> QuarantinedSubmissionObservation | None:
+        """Return the durable observation with this identity, or ``None``.
+
+        The lookup uses the same canonical key the writer stores, so a
+        UUID-parsable identity finds its row however the caller renders it.
+        The caller's own rendering is queried as well, so a row written
+        before the writer canonicalized the observation column stays
+        reachable. The row order is stable, so the same store and the same
+        argument always resolve to the same row.
+        """
+        params = _sql_key_params(_identity_sql_keys(observation_id))
         with self._database.read_transaction() as connection:
             row = connection.execute(
                 "SELECT observation_id, client_order_id, payload "
-                "FROM submission_quarantine WHERE observation_id = ?",
-                (str(observation_id),),
+                "FROM submission_quarantine WHERE observation_id IN (?, ?) ORDER BY rowid",
+                params,
             ).fetchone()
         if row is None:
             return None
@@ -176,11 +241,21 @@ class SqliteSubmissionQuarantineRepository:
     def list_by_client_order(
         self, client_order_id: UUID | str
     ) -> tuple[QuarantinedSubmissionObservation, ...]:
+        """Return the durable observations recorded for this client order id.
+
+        A UUID-parsable id is matched by the canonical text the writer
+        stores, and also by the caller's own rendering, so a row written
+        before the writer canonicalized the client-order column stays
+        reachable. A genuinely opaque id is matched by its raw text, which is
+        the only representation such an identity has. Every matched row is
+        returned once, in storage order, and no stored row is changed.
+        """
+        params = _sql_key_params(_identity_sql_keys(client_order_id))
         with self._database.read_transaction() as connection:
             rows = connection.execute(
                 "SELECT observation_id, client_order_id, payload "
-                "FROM submission_quarantine WHERE client_order_id = ? ORDER BY rowid",
-                (_client_order_sql_key(client_order_id),),
+                "FROM submission_quarantine WHERE client_order_id IN (?, ?) ORDER BY rowid",
+                params,
             ).fetchall()
         return tuple(self._decode_row(row[0], row[1], row[2]) for row in rows)
 
