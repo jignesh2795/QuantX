@@ -1,6 +1,6 @@
 {
   "schema": "quantx.skills-manifest.v1",
-  "generated_at": "2026-10-18T13:05:19+00:00",
+  "generated_at": "2026-10-21T06:16:10+00:00",
   "files": {
     "quantx-adversarial-review/SKILL.md": "54fa7fcd8090095a179ab837f7d9b79110c6f08b13a9eb7e68abc79728585325",
     "quantx-architecture/SKILL.md": "652ffcdf3392a460dd6356b574a290570cf0b4a7a4253c9fae0e92e2b0250931",
@@ -34,7 +34,7 @@
     "quantx-skills-maintainer/scripts/skill_integrity.py": "e1f99399c89d9027a18ca1f0e624463bd638dfcb01bd6c8f191c3461d363cfe4",
     "quantx-strategy-plugins/SKILL.md": "65e8eaec68c8c8ba2091d9f52b26d27390c6dcd380b97bba14fb4d84a21109fc",
     "quantx-testing/SKILL.md": "f59049fc14adc0e4f4b438b72b1a1117e8b182a3027560bde3bd225778a986b4",
-    "quantx-validation-gate/SKILL.md": "0485d6db277cb59f5ad63056d3ee4e5d8915f2347ea0c273689106d1cc610d05",
-    "quantx-validation-gate/scripts/run_validation.py": "6ceee033ac7041257dc9fac88d1318dbc86ac00af89d613b03d7b1871acf897a"
+    "quantx-validation-gate/SKILL.md": "2b702b5b0310d89062fbd77655599c75f74bb206d70911ad620f7a14854972ce",
+    "quantx-validation-gate/scripts/run_validation.py": "9544c08fd5e7df448034ac82bd0c39f029e4d29d59180d28abb5102a768edae2"
   }
 }
