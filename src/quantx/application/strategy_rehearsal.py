@@ -19,7 +19,10 @@ from quantx.domain.clock import SimulatedClock
 from quantx.domain.deployment import ExecutionMode, StrategyDeployment
 from quantx.domain.enums import OrderStatus
 from quantx.domain.finance import AccountFinancialState
-from quantx.domain.instrument_registry import InstrumentRegistry
+from quantx.domain.instrument_registry import (
+    InstrumentRegistry,
+    InstrumentResolutionResolver,
+)
 from quantx.domain.market_data import Candle, MarketDataEvent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext
 from quantx.domain.position_effect import PositionEffectPolicy
@@ -141,6 +144,7 @@ class StrategyRehearsalSession:
         policy_context: PolicyContext | None = None,
         product_selection: ProductSelectionPolicy,
         position_effect_policy: PositionEffectPolicy,
+        instrument_resolver: InstrumentResolutionResolver | None = None,
     ) -> None:
         if deployment.execution_mode is not ExecutionMode.PAPER:
             raise ValueError("strategy rehearsal admits PAPER deployments only")
@@ -162,6 +166,7 @@ class StrategyRehearsalSession:
             policy_engine=policy_engine,
             product_selection=product_selection,
             position_effect_policy=position_effect_policy,
+            instrument_resolver=instrument_resolver,
         )
         self._paper_executor = paper_executor
         self._financial_state = financial_state

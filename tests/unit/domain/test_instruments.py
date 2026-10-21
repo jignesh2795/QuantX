@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -10,8 +11,11 @@ from quantx.domain.instruments import (
     MarketContext,
     MarketFamily,
     MarketRegion,
+    OptionType,
 )
 from quantx.domain.value_objects import InstrumentId
+
+EXPIRY = datetime(2026, 12, 31, 15, 30, tzinfo=UTC)
 
 
 def market() -> MarketContext:
@@ -43,19 +47,58 @@ def test_instrument_rejects_non_positive_tick_size() -> None:
         )
 
 
-def test_contract_accepts_call_option_metadata() -> None:
+def test_contract_accepts_complete_call_option_metadata() -> None:
     contract = Contract(
-        instrument=make_instrument(),
+        instrument_id=InstrumentId("NSE", "NIFTY26DEC25000CE"),
+        asset_class=AssetClass.OPTION,
         underlying=InstrumentId("NSE", "NIFTY"),
+        expiry=EXPIRY,
         strike=Decimal("25000"),
-        option_type="call",
+        option_type=OptionType.CALL,
     )
-    assert contract.option_type == "call"
+
+    assert contract.option_type is OptionType.CALL
+    assert contract.instrument_id == InstrumentId("NSE", "NIFTY26DEC25000CE")
+    assert contract.underlying == InstrumentId("NSE", "NIFTY")
 
 
-def test_contract_rejects_invalid_option_type() -> None:
-    with pytest.raises(ValueError, match="option_type"):
-        Contract(instrument=make_instrument(), option_type="future")
+def test_contract_rejects_a_free_string_option_type() -> None:
+    with pytest.raises(ValueError, match="canonical OptionType"):
+        Contract(
+            instrument_id=InstrumentId("NSE", "NIFTY26DEC25000CE"),
+            asset_class=AssetClass.OPTION,
+            underlying=InstrumentId("NSE", "NIFTY"),
+            expiry=EXPIRY,
+            strike=Decimal("25000"),
+            option_type="CALL",
+        )
+
+
+def test_option_type_parse_normalizes_source_spellings() -> None:
+    assert OptionType.parse("call") is OptionType.CALL
+    assert OptionType.parse(" put ") is OptionType.PUT
+    assert OptionType.parse(OptionType.PUT) is OptionType.PUT
+    with pytest.raises(ValueError, match="CALL or PUT"):
+        OptionType.parse("future")
+
+
+def test_contract_payload_round_trips_losslessly() -> None:
+    contract = Contract(
+        instrument_id=InstrumentId("NSE", "NIFTY26DEC25000CE"),
+        asset_class=AssetClass.OPTION,
+        underlying=InstrumentId("NSE", "NIFTY"),
+        expiry=EXPIRY,
+        strike=Decimal("25000.50"),
+        option_type=OptionType.PUT,
+    )
+
+    assert Contract.from_payload(contract.to_payload()) == contract
+
+
+def test_instrument_payload_round_trips() -> None:
+    instrument = make_instrument()
+
+    assert Instrument.from_payload(instrument.to_payload()) == instrument
 
 
 @pytest.mark.parametrize(

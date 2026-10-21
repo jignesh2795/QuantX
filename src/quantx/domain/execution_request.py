@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from .deployment import ExecutionContext, ExecutionMode
 from .enums import PositionEffect
+from .instrument_registry import InstrumentResolution
 from .order_intents import TradeIntent
 from .orders import Order
 from .policy import PolicyResult
@@ -240,6 +241,54 @@ def validate_position_effect_fields(
         raise ValueError("effective position effect does not match the resolved position effect")
 
 
+def validate_instrument_resolution(
+    order: Order,
+    instrument_resolution: InstrumentResolution | None,
+) -> None:
+    """Fail closed unless any supplied resolution describes the executed instrument.
+
+    The resolution is the point-in-time claim that binds the executed
+    ``InstrumentId`` to its selected contract/rule identity. A request can
+    never carry a resolution for a different instrument, and the claim is
+    authenticated separately by the composed market-pack verifier.
+    """
+    if instrument_resolution is None:
+        return
+    if not isinstance(instrument_resolution, InstrumentResolution):
+        raise ValueError("instrument resolution has an unsupported type")
+    if instrument_resolution.instrument.instrument_id != order.instrument:
+        raise ValueError("instrument resolution does not describe the executed instrument")
+
+
+def validate_risk_resolution_binding(
+    risk_result: RiskResult,
+    instrument_resolution: InstrumentResolution | None,
+) -> None:
+    """Fail closed unless the request retains the resolution risk evaluated.
+
+    Risk binds the point-in-time resolution it consumed onto its result. When
+    it did, an approved request that carries a different resolution - a
+    different contract, a different metadata version, a different rule
+    version/effective identity, or different provenance - would execute
+    semantics that were never risk approved, and one that drops the
+    resolution would hide them. The comparison is therefore the canonical
+    resolution identity - instrument facts, contract, rule and contract
+    versions, effective instants and provenance - never contract equality,
+    and never the resolution instant, which the canonical seam treats as
+    provenance rather than identity. A risk result that consumed no
+    resolution (legacy request paths) asserts nothing and stays compatible.
+    """
+    evaluated = risk_result.instrument_resolution
+    if evaluated is None:
+        return
+    if instrument_resolution is None:
+        raise ValueError("the approved request must retain the resolution risk evaluated")
+    selected = evaluated.identity_payload()
+    retained = instrument_resolution.identity_payload()
+    if retained != selected:
+        raise ValueError("the approved request resolution does not match the risk resolution")
+
+
 @dataclass(frozen=True, slots=True)
 class ApprovedExecutionRequest:
     order: Order
@@ -257,6 +306,7 @@ class ApprovedExecutionRequest:
     position_effect_approval_instant: datetime | None = None
     product_resolution: ProductSelectionResolution | None = None
     position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
+    instrument_resolution: InstrumentResolution | None = None
 
     def __post_init__(self) -> None:
         if self.required_margin < 0:
@@ -268,6 +318,8 @@ class ApprovedExecutionRequest:
                 raise ValueError("live execution requires a broker connection")
             if self.policy_result is None or not self.policy_result.approved:
                 raise ValueError("live execution requires an approved execution policy")
+        validate_instrument_resolution(self.order, self.instrument_resolution)
+        validate_risk_resolution_binding(self.risk_result, self.instrument_resolution)
         validate_order_product_symmetry(
             self.order,
             self.product,
@@ -308,8 +360,10 @@ class PendingExecutionRecoveryRequest:
     position_effect_approval_instant: datetime | None = None
     product_resolution: ProductSelectionResolution | None = None
     position_effect_policy_resolution: AbsentPositionEffectResolution | None = None
+    instrument_resolution: InstrumentResolution | None = None
 
     def __post_init__(self) -> None:
+        validate_instrument_resolution(self.order, self.instrument_resolution)
         validate_order_product_symmetry(
             self.order,
             self.product,
@@ -356,6 +410,8 @@ __all__ = [
     "ApprovedExecutionRequest",
     "PendingExecutionRecoveryRequest",
     "build_order_from_intent",
+    "validate_instrument_resolution",
     "validate_order_product_symmetry",
     "validate_position_effect_fields",
+    "validate_risk_resolution_binding",
 ]

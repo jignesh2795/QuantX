@@ -16,7 +16,12 @@ from quantx.domain.deployment import ExecutionContext, StrategyDeployment
 from quantx.domain.enums import OrderSide, PositionEffect
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
-from quantx.domain.instrument_registry import InstrumentRegistry
+from quantx.domain.instrument_registry import (
+    InstrumentRegistry,
+    InstrumentResolution,
+    InstrumentResolutionResolver,
+)
+from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES
 from quantx.domain.market_data import Candle, MarketDataEvent, Quote
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import ExecutionPolicyEngine, PolicyContext, PolicyResult
@@ -81,12 +86,14 @@ class StrategyExecutionPreparer:
         policy_engine: ExecutionPolicyEngine | None = None,
         product_selection: ProductSelectionPolicy | None = None,
         position_effect_policy: PositionEffectPolicy | None = None,
+        instrument_resolver: InstrumentResolutionResolver | None = None,
     ) -> None:
         self._instrument_registry = instrument_registry
         self._risk_engine = risk_engine or PreTradeRiskEngine()
         self._policy_engine = policy_engine or ExecutionPolicyEngine()
         self._product_selection = product_selection
         self._position_effect_policy = position_effect_policy
+        self._instrument_resolver = instrument_resolver
 
     def prepare(
         self,
@@ -109,6 +116,26 @@ class StrategyExecutionPreparer:
         instrument = self._instrument_registry.resolve(event.instrument)
         if instrument is None:
             raise ValueError(f"instrument metadata unavailable for {event.instrument}")
+
+        # Point-in-time resolution is explicit: when a resolver is composed,
+        # the canonical instrument, the applicable contract record, and the
+        # selected rule/contract versions are fixed here, before risk. The
+        # very same resolution object is handed to risk and then attached to
+        # the approved request, so the identity risk approved is exactly the
+        # identity the request and its fingerprint retain. A derivative that
+        # has no contract resolution is never approved.
+        instrument_resolution: InstrumentResolution | None = None
+        if self._instrument_resolver is not None:
+            instrument_resolution = self._instrument_resolver.resolve_at(
+                event.instrument, event.timestamp
+            )
+            if instrument_resolution.instrument != instrument:
+                raise ValueError("instrument resolution contradicts the canonical instrument")
+            instrument = instrument_resolution.instrument
+        elif instrument.asset_class in DERIVATIVE_ASSET_CLASSES:
+            raise ValueError(
+                "derivative instrument metadata requires a point-in-time instrument resolver"
+            )
 
         if intent.execution_context is None:
             raise ValueError("execution context is required")
@@ -197,6 +224,7 @@ class StrategyExecutionPreparer:
                 effective_position_effect=effective_position_effect,
                 market_pack_id=context.market_pack_id,
                 rule_version=context.rule_version,
+                instrument_resolution=instrument_resolution,
             ),
         )
         if risk.decision is not RiskDecision.APPROVE:
@@ -221,6 +249,7 @@ class StrategyExecutionPreparer:
             position_effect_approval_instant=approval,
             product_resolution=product_resolution,
             position_effect_policy_resolution=position_evidence_policy_resolution,
+            instrument_resolution=instrument_resolution,
         )
         # The request carries claims about the resolved product and the
         # permitted absent effect. They are re-derived here from the very
@@ -233,6 +262,7 @@ class StrategyExecutionPreparer:
             position_effect_policies=(
                 () if self._position_effect_policy is None else (self._position_effect_policy,)
             ),
+            instrument_resolver=self._instrument_resolver,
         ).verify_request(request)
         return StrategyExecutionPreparation(decision, risk, policy, request)
 

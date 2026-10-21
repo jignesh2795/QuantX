@@ -22,7 +22,12 @@ from quantx.domain.execution_request import (
     build_order_from_intent,
 )
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
-from quantx.domain.instrument_registry import InstrumentRegistry
+from quantx.domain.instrument_registry import (
+    InstrumentRegistry,
+    InstrumentResolution,
+    InstrumentResolutionResolver,
+)
+from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES
 from quantx.domain.market_data import Candle
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Order
@@ -489,6 +494,7 @@ class DeterministicBacktestService:
         accounting: FillAccounting | None = None,
         product_selection: ProductSelectionPolicy | None = None,
         position_effect_policy: PositionEffectPolicy | None = None,
+        instrument_resolver: InstrumentResolutionResolver | None = None,
     ) -> None:
         self._instrument_registry = instrument_registry
         self._risk_engine = risk_engine or PreTradeRiskEngine()
@@ -497,6 +503,7 @@ class DeterministicBacktestService:
         self._accounting_override = accounting
         self._product_selection = product_selection
         self._position_effect_policy = position_effect_policy
+        self._instrument_resolver = instrument_resolver
 
     @staticmethod
     def _validate_strategy_result(strategy_result: StrategyResult, frame: ReplayFrame) -> None:
@@ -1006,6 +1013,64 @@ class DeterministicBacktestService:
                 )
                 continue
 
+            # Point-in-time resolution fixes the canonical instrument and, for
+            # a derivative, the applicable contract record and rule/contract
+            # versions before risk. The very same resolution object is handed
+            # to risk and then attached to the approved request, so the
+            # identity risk approved is exactly the identity the request and
+            # its fingerprint retain. Historical frames never adopt current
+            # metadata, and a derivative without a resolver never executes.
+            instrument_resolution: InstrumentResolution | None = None
+            if self._instrument_resolver is not None:
+                try:
+                    instrument_resolution = self._instrument_resolver.resolve_at(
+                        frame.observation.instrument, frame_time
+                    )
+                except LookupError as exc:
+                    steps.append(
+                        BacktestStep(
+                            frame.index,
+                            timestamp,
+                            strategy_result,
+                            None,
+                            None,
+                            None,
+                            BacktestDisposition.BLOCKED,
+                            f"instrument resolution unavailable: {exc}",
+                        )
+                    )
+                    continue
+                if instrument_resolution.instrument != instrument:
+                    steps.append(
+                        BacktestStep(
+                            frame.index,
+                            timestamp,
+                            strategy_result,
+                            None,
+                            None,
+                            None,
+                            BacktestDisposition.BLOCKED,
+                            "instrument resolution contradicts the canonical instrument",
+                        )
+                    )
+                    continue
+                instrument = instrument_resolution.instrument
+            elif instrument.asset_class in DERIVATIVE_ASSET_CLASSES:
+                steps.append(
+                    BacktestStep(
+                        frame.index,
+                        timestamp,
+                        strategy_result,
+                        None,
+                        None,
+                        None,
+                        BacktestDisposition.BLOCKED,
+                        "derivative instrument metadata requires a point-in-time "
+                        "instrument resolver",
+                    )
+                )
+                continue
+
             if intent.execution_context is None:
                 steps.append(
                     BacktestStep(
@@ -1170,6 +1235,7 @@ class DeterministicBacktestService:
                         effective_position_effect=effective_position_effect,
                         market_pack_id=resolved_context.market_pack_id,
                         rule_version=resolved_context.rule_version,
+                        instrument_resolution=instrument_resolution,
                     ),
                 )
             except Exception as exc:
@@ -1287,6 +1353,7 @@ class DeterministicBacktestService:
                 position_effect_approval_instant=approval,
                 product_resolution=product_resolution,
                 position_effect_policy_resolution=position_effect_policy_resolution,
+                instrument_resolution=instrument_resolution,
             )
             # The request's claims are re-derived from the very versioned
             # policies that produced them, so a replay never executes a
@@ -1299,6 +1366,7 @@ class DeterministicBacktestService:
                 position_effect_policies=(
                     () if self._position_effect_policy is None else (self._position_effect_policy,)
                 ),
+                instrument_resolver=self._instrument_resolver,
             ).verify_request(request)
             try:
                 engine_time = self._require_engine_time_coherent(

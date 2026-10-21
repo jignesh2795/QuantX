@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from quantx.domain.enums import AssetClass
-from quantx.domain.instruments import MarketFamily
+from quantx.domain.instruments import MarketFamily, OptionType
 from quantx.domain.value_objects import InstrumentId
 from quantx.india import (
     IndianExchange,
@@ -92,8 +92,8 @@ def test_future_spec_derives_canonical_contract() -> None:
     contract = spec.to_contract()
 
     assert contract is not None
-    assert contract.instrument.instrument_id == spec.instrument_id
-    assert contract.instrument.market.family is MarketFamily.DERIVATIVES
+    assert contract.instrument_id == spec.instrument_id
+    assert spec.to_instrument().market.family is MarketFamily.DERIVATIVES
     assert contract.expiry == expiry
     assert contract.underlying == InstrumentId("NSE", "NIFTY")
     assert contract.strike is None
@@ -118,11 +118,11 @@ def test_option_spec_derives_canonical_contract() -> None:
     contract = spec.to_contract()
 
     assert contract is not None
-    assert contract.instrument.instrument_id == spec.instrument_id
+    assert contract.instrument_id == spec.instrument_id
     assert contract.expiry == expiry
     assert contract.underlying == InstrumentId("NSE", "NIFTY")
     assert contract.strike == Decimal("23000")
-    assert contract.option_type == "CALL"
+    assert contract.option_type is OptionType.CALL
 
 
 def test_option_contract_spec_validates_contract_metadata() -> None:
@@ -134,7 +134,7 @@ def test_option_contract_spec_validates_contract_metadata() -> None:
         lot_size=Decimal("65"),
     )
 
-    assert spec.option_type == "put"
+    assert spec.option_type is OptionType.PUT
 
     with pytest.raises(ValueError, match="strike must be positive"):
         OptionContractSpec(
