@@ -25,9 +25,11 @@ reconcile anything.
 ## Opening the evidence
 
 Use `SqliteDatabase.open_existing` for offline or quiesced inspection. It opens
-only an existing file, requires the exact current schema, never creates or
-migrates anything, and rejects write transactions. A missing path raises
-`FileNotFoundError`; it is never reported as an empty worklist.
+only an existing file, requires the current schema version, never creates or
+migrates anything, and rejects write transactions. Missing or unreadable tables
+are not repaired; the read fails closed until the database is repaired. A
+missing path raises `FileNotFoundError`; it is never reported as an empty
+worklist.
 
 ```python
 from quantx.application.quarantine_worklist import (
@@ -70,9 +72,10 @@ ordering key, so pages are deterministic and never overlap. Ordering is not
 based on rowid or an offset, and evidence inserted between reads does not cause
 an already returned item to move into a later page.
 
-The SQLite adapter bounds each read to 10,000 rows and 4,096 payload characters
-per row by default. Exceeding either bound returns `UNAVAILABLE`; it is never
-presented as `truncated`, an empty worklist, or a partial page. Those defaults
+The SQLite adapter's `list_all` read used by this worklist is bounded to 10,000
+rows and 4,096 payload characters per row by default. Exceeding either bound
+returns `UNAVAILABLE`; it is never presented as `truncated`, an empty worklist,
+or a partial page. Those defaults
 can be raised explicitly on `SqliteSubmissionQuarantineRepository`, but a
 backlog beyond the configured row bound requires a separately reviewed indexed
 pagination/schema change. Until then it is reported as unreadable rather than

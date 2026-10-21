@@ -43,8 +43,9 @@ class SqliteDatabase:
         Missing paths raise :class:`FileNotFoundError` and are never created.
         SQLite is opened with ``mode=rw`` (which refuses creation) and
         ``query_only`` as defense in depth, while the explicit write
-        transaction guard rejects all writes. The schema must already be
-        exactly current.
+        transaction guard rejects all writes. The schema version must already
+        be current; missing or unreadable tables are never repaired here, and
+        reads fail closed until the database is repaired.
         """
         candidate = Path(path).absolute()
         if not candidate.is_file():

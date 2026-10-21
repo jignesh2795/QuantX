@@ -253,9 +253,11 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
 
 
 def require_current_schema(connection: sqlite3.Connection) -> None:
-    """Reject an existing database that is not exactly at the current schema.
+    """Reject an existing database whose schema version is not current.
 
-    Used by read-only openers: they must never create or migrate a schema.
+    This is a version gate, not a full DDL comparison; read paths still fail
+    closed if a required table is missing or unreadable. Used by read-only
+    openers: they must never create or migrate a schema.
     """
     try:
         rows = connection.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
