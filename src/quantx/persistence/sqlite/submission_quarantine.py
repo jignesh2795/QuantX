@@ -73,7 +73,10 @@ class SqliteSubmissionQuarantineRepository:
         A payload that cannot be decoded raises
         :class:`QuarantineEvidenceDecodeError` carrying the affected row
         identity, so a corrupt record can never be mistaken for an empty
-        worklist or silently dropped from an operator's view.
+        worklist or silently dropped from an operator's view. Structurally
+        malformed payloads can fail with any of the decode exceptions below;
+        ``AttributeError`` is included because ``UUID(<non-string>)`` raises
+        it instead of a ``ValueError``.
         """
         with self._database.transaction() as connection:
             rows = connection.execute(
@@ -83,6 +86,6 @@ class SqliteSubmissionQuarantineRepository:
         for observation_id, payload in rows:
             try:
                 observations.append(QuarantinedSubmissionObservation.from_payload(payload))
-            except (KeyError, TypeError, ValueError) as exc:
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
                 raise QuarantineEvidenceDecodeError(str(observation_id)) from exc
         return tuple(observations)

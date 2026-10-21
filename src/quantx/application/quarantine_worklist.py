@@ -105,7 +105,13 @@ class QuarantineWorklist:
 
     @property
     def requires_operator_reconciliation(self) -> bool:
-        return bool(self.items)
+        """Whether an operator must act; unreadable evidence is never "clear".
+
+        An ``UNAVAILABLE`` read always requires attention: nothing may be
+        concluded about outstanding work, so it must not present as a resolved
+        or empty queue to an operator or automated caller.
+        """
+        return self.status is QuarantineWorklistStatus.UNAVAILABLE or bool(self.items)
 
 
 class QuarantineWorklistReadService:

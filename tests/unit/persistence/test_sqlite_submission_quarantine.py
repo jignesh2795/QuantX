@@ -1,5 +1,6 @@
 """Read-boundary tests for the SQLite submission-quarantine repository."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -70,6 +71,39 @@ def test_list_all_rejects_corrupt_payload_with_row_identity(tmp_path) -> None:
                     str(observation_id),
                     str(uuid4()),
                     "{not-valid-json",
+                    datetime(2026, 1, 2, tzinfo=UTC).isoformat(),
+                ),
+            )
+
+        with pytest.raises(QuarantineEvidenceDecodeError) as raised:
+            repository.list_all()
+    finally:
+        database.close()
+
+    assert str(observation_id) in str(raised.value)
+
+
+def test_list_all_rejects_structurally_malformed_payload_with_row_identity(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        repository = SqliteSubmissionQuarantineRepository(database)
+        observation_id = uuid4()
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO submission_quarantine "
+                "(observation_id, client_order_id, payload, created_at) VALUES (?, ?, ?, ?)",
+                (
+                    str(observation_id),
+                    str(uuid4()),
+                    json.dumps(
+                        {
+                            "observation_id": {"not": "a uuid"},
+                            "kind": "BROKER_UNKNOWN",
+                            "client_order_id": str(uuid4()),
+                            "observed_at": "2026-01-02T00:00:00+00:00",
+                            "reason": "malformed evidence",
+                        }
+                    ),
                     datetime(2026, 1, 2, tzinfo=UTC).isoformat(),
                 ),
             )

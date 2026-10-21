@@ -65,6 +65,13 @@ class _StrictReadOnlyQuarantinePort:
         raise AssertionError(f"worklist must not use quarantine port member {name!r}")
 
 
+class _FailingQuarantinePort:
+    """Port double whose durable read fails closed."""
+
+    def list_all(self) -> tuple[QuarantinedSubmissionObservation, ...]:
+        raise OSError("quarantine store unavailable")
+
+
 def _durable_snapshot(database: SqliteDatabase) -> dict[str, object]:
     connection = database.connection()
     return {
@@ -271,6 +278,16 @@ def test_corrupt_evidence_is_unavailable_not_an_empty_worklist(tmp_path) -> None
     assert str(observation_id) in worklist.error
 
 
+def test_store_read_failure_is_unavailable_and_requires_attention() -> None:
+    worklist = QuarantineWorklistReadService(quarantine=_FailingQuarantinePort()).read()
+
+    assert worklist.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert worklist.available is False
+    assert worklist.items == ()
+    assert worklist.error == "quarantine evidence read failed: OSError"
+    assert worklist.requires_operator_reconciliation is True
+
+
 def test_empty_worklist_is_ok_and_distinct_from_unavailable(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -297,7 +314,9 @@ def test_empty_worklist_is_ok_and_distinct_from_unavailable(tmp_path) -> None:
     assert empty.status is QuarantineWorklistStatus.OK
     assert empty.items == ()
     assert empty.error is None
+    assert empty.requires_operator_reconciliation is False
     assert corrupt.status is QuarantineWorklistStatus.UNAVAILABLE
+    assert corrupt.requires_operator_reconciliation is True
     assert corrupt != empty
 
 
