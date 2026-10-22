@@ -1,15 +1,20 @@
-"""Compatibility re-exports of the database-neutral persistence contracts.
+"""Compatibility re-exports of the execution-owned persistence contracts.
 
-The protocols live in :mod:`quantx.ports.persistence` — the stable-contract
-layer that execution and application code depend on. This module preserves the
-established ``quantx.persistence`` import path for application composition and
-existing consumers; new execution-layer code must import the contracts from
-``quantx.ports.persistence`` instead of depending on persistence infrastructure.
+The protocols live in :mod:`quantx.execution.persistence` — the execution-owned
+contract layer that execution and application code depend on. This module
+preserves the established ``quantx.persistence`` import path for application
+composition and existing consumers; the objects are the same objects, not a
+second definition.
+
+Import direction: ``quantx.persistence`` (the implementing side) depends on
+``quantx.execution``. The reverse direction remains forbidden, so this
+compatibility path cannot be satisfied by execution importing persistence
+infrastructure.
 """
 
 from __future__ import annotations
 
-from quantx.ports.persistence import (
+from quantx.execution.persistence import (
     PersistentIdempotencyStore,
     ReceiptRepository,
     UnitOfWork,

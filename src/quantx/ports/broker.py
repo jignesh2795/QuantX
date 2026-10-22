@@ -3,20 +3,21 @@
 The canonical broker capability, connection, and adapter contracts live at
 this boundary. Concrete brokers implement them in plugins. Vendor SDK types
 and credentials must remain outside this module.
+
+The receipt-bearing ``BrokerPort`` deliberately does not live here: its
+``submit``/``cancel``/``reconcile`` methods return canonical execution
+receipts, so it is execution-owned (``quantx.execution.ports``). Keeping it
+here would make this neutral boundary depend on execution records and form a
+package cycle.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Protocol
 
-from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.instruments import Instrument
-from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
-
-if TYPE_CHECKING:
-    from quantx.execution.ports import ExecutionReceipt
+from quantx.domain.value_objects import AccountId, BrokerConnectionId
 
 
 class BrokerCapability(StrEnum):
@@ -82,34 +83,10 @@ class BrokerAdapter(Protocol):
     def capabilities(self) -> CapabilitySet: ...
 
 
-@runtime_checkable
-class BrokerPort(BrokerAdapter, Protocol):
-    """Canonical broker port consumed by application services."""
-
-    @property
-    def descriptor(self) -> BrokerDescriptor: ...
-
-    @property
-    def connection(self) -> BrokerConnectionRef: ...
-
-    def health(self) -> bool: ...
-
-    def capabilities(self) -> CapabilitySet: ...
-
-    def instrument(self, instrument_id: InstrumentId) -> Instrument | None: ...
-
-    def submit(self, request: ApprovedExecutionRequest) -> ExecutionReceipt: ...
-
-    def cancel(self, request: ApprovedExecutionRequest) -> ExecutionReceipt: ...
-
-    def reconcile(self, request: ApprovedExecutionRequest) -> ExecutionReceipt: ...
-
-
 __all__ = [
     "BrokerAdapter",
     "BrokerCapability",
     "BrokerConnectionRef",
     "BrokerDescriptor",
-    "BrokerPort",
     "CapabilitySet",
 ]

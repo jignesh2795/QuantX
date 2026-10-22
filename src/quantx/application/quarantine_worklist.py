@@ -43,6 +43,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
+from quantx.execution.persistence import QuarantineEvidenceReader
 from quantx.execution.receipts.quarantine import (
     QuarantinedSubmissionObservation,
     QuarantineEvidenceDecodeError,
@@ -50,7 +51,6 @@ from quantx.execution.receipts.quarantine import (
     QuarantineEvidenceUnavailable,
     neutralize_display_text,
 )
-from quantx.ports.persistence import QuarantineEvidenceReader
 
 DEFAULT_WORKLIST_LIMIT = 100
 MAX_WORKLIST_LIMIT = 1000

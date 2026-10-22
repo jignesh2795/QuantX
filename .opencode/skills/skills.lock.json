@@ -1,11 +1,11 @@
 {
   "schema": "quantx.skills-manifest.v1",
-  "generated_at": "2026-10-22T15:51:43+00:00",
+  "generated_at": "2026-10-22T18:18:30+00:00",
   "files": {
     "quantx-adversarial-review/SKILL.md": "54fa7fcd8090095a179ab837f7d9b79110c6f08b13a9eb7e68abc79728585325",
-    "quantx-architecture/SKILL.md": "652ffcdf3392a460dd6356b574a290570cf0b4a7a4253c9fae0e92e2b0250931",
+    "quantx-architecture/SKILL.md": "60867bdb6982eb1fa5c2b97a9c0eab4cd4a70972fd1c0c7d644dcdf3d36553ed",
     "quantx-architecture/references/module-boundaries.md": "0f8df1221f8bac2391ee4d11960a0121ca7efb730fbae64f0245c04b8eacb1cd",
-    "quantx-architecture/references/ports-and-adapters.md": "0915a5952ac9a8411b49651f8d68109002d130be81177033bf10536a930e7eac",
+    "quantx-architecture/references/ports-and-adapters.md": "a49485db8b00e595514fed743045642336bb467410090ea89777b4777e7ac8c7",
     "quantx-core-governance/SKILL.md": "43fb86f7cbe2ea23baed3afda92bd88e69bfdc79ca3c9628e4a3425e5abb96b9",
     "quantx-dev-workflow/SKILL.md": "1f3e1f34162557c53ed4359e30cfad1a4324f1bdaa69947e100af8903fc5c069",
     "quantx-dev-workflow/references/commands.md": "eb94f794d161da417a7b025270659378cd919e107be969b0d47d26db078efaba",

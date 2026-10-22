@@ -10,14 +10,13 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument
 from quantx.domain.orders import Fill
 from quantx.domain.value_objects import InstrumentId
-from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.ports import BrokerPort, ExecutionOutcome, ExecutionReceipt
 from quantx.integrations.brokers import (
     BrokerCapability,
     BrokerConnectionRef,
     BrokerDescriptor,
     CapabilitySet,
 )
-from quantx.ports.broker import BrokerPort
 
 from .transport import (
     ReferenceBrokerTransport,
