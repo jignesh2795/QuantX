@@ -221,6 +221,9 @@ class _FakeSubmissionQuarantine:
             if observation.client_order_id == client_order_id
         )
 
+    def list_all(self):
+        return tuple(self._observations.values())
+
 
 def _durable_gate() -> DurableTradingGate:
     return DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True)
