@@ -199,7 +199,28 @@ Reported exact-feature-head local validation (read-only producer and release gat
 
 Limitation: the worklist is a bounded inspection view over one readable snapshot, intended for manual reconciliation pending a separately authorized operator action. It is not automated reconciliation, not complete-inventory monitoring at arbitrary table sizes, and not a production-certification or LIVE-readiness proof; quarantine evidence remains reconciliation input only.
 
-## Current state — P0.1/P0.2/P0.3 fixed and merged; QX-04/QX-05 implemented and merged; QX-06 design accepted; QX-08 acceptance complete; QX-09 complete; quarantine evidence worklist merged
+## QX-07 package-boundary slice 1 — implemented and merged (2026-10-22)
+
+The first bounded slice of issue [#181](https://github.com/jignesh2795/QuantX/issues/181) is implemented and merged in PR [#257](https://github.com/jignesh2795/QuantX/pull/257) as merge commit `7b41c230bbd5bcaf4036aca8fc9015c5dee7f7a2`, preserving validated feature head `081c31c882057277badba6084b2312ae8c810631` (validation base `fdf5bc45281e6635530a09b17d7329029403efe2`). The slice is 10 files (5 production, 5 test) and stays inside the dependency-direction audit recorded in [architecture/56-live-execution-safety-audit-and-priority.md](architecture/56-live-execution-safety-audit-and-priority.md) and the dependency rules in [architecture/02-dependency-rules.md](architecture/02-dependency-rules.md); the audit itself is not duplicated here.
+
+- **Broker capability contracts moved to the ports boundary.** `BrokerCapability`, `BrokerConnectionRef`, `CapabilitySet`, `BrokerDescriptor`, and `BrokerAdapter` now canonically live in `quantx.ports.broker` beside `BrokerPort`. `quantx.integrations.brokers` remains an identity-preserving compatibility export, so the old and new import paths resolve to the same objects rather than to a second definition.
+- **Runtime `ports -> execution` imports removed.** Port modules reference canonical execution records only in postponed annotations, so `quantx.ports` no longer imports `quantx.execution` at runtime.
+- **`OperatorResolutionAction` ownership moved to the persistence port.** The enum is defined once in `quantx.ports.persistence`; the legacy `quantx.execution.idempotency` import path, the `CLOSE_UNRESOLVED` default at the application, port-protocol, and SQLite boundaries, and the persisted `CLOSE_UNRESOLVED` value are unchanged.
+- **Import-boundary regression added.** `tests/unit/architecture/test_import_boundaries.py` builds a deterministic AST package import graph that separates runtime from `TYPE_CHECKING` imports, reports offending edges with `file:line`, enforces an explicit allowed-edge matrix, registers deferred dependencies with owning issue, reason, and removal condition, asserts `domain` has no outbound package edges, and self-tests cycle detection against a synthetic cycle.
+
+Reported final graph at the feature head: **198 source modules**, **431 intra-QuantX import-statement edges** (**426 runtime**, **5 type-only**), **zero runtime package cycles**, and **zero outbound `domain` edges**.
+
+Reported exact-feature-head local validation (read-only producer and release gate, feature head `081c31c882057277badba6084b2312ae8c810631`, base `fdf5bc45281e6635530a09b17d7329029403efe2`): focused architecture/compatibility/execution/persistence suite **64 passed**; default configuration **OVERALL PASS** — full suite **2,678 passed, 1 skipped**; Dhan-extra configuration **OVERALL PASS** — **2,679 passed**; Ruff check and format passed for the **10 changed files**; strict mypy passed for **199 source files**; `git diff --check` was clean; and the supporting worktree/scope integrity checks, skill-integrity and trigger-asset checks, validation- and release-gate self-tests, and both configuration release gates passed. These results apply to the feature head, are local and operator-reported, and are not GitHub Actions or authenticated CI evidence; the merge commit itself was not separately revalidated.
+
+**Issue #181 remains open**; this slice does not satisfy its full acceptance criteria. Outstanding boundaries:
+
+- Runtime `india -> research` and `strategy -> research` edges remain explicitly registered follow-ups; the India historical normalizer and the strategy replay evaluation were deliberately not relocated in this slice.
+- `ports -> execution` remains a declared type-only dependency, pending the canonical-record ownership decision or a successor ADR.
+- Canonical receipt/outcome, idempotency/recovery, and quarantine records were not relocated or duplicated.
+- `persistence -> research` remains permitted because the research package owns the related repository protocols.
+- No SQLite schema, payload format, broker runtime behavior, transaction semantics, reconciliation, startup-readiness, risk-gate, or LIVE behavior change is claimed.
+
+## Current state — P0.1/P0.2/P0.3 fixed and merged; QX-04/QX-05 implemented and merged; QX-06 design accepted; QX-08 acceptance complete; QX-09 complete; quarantine evidence worklist merged; QX-07 package-boundary slice 1 merged (issue #181 open)
 
 The consolidated LIVE-safety audit is recorded in [architecture/56-live-execution-safety-audit-and-priority.md](architecture/56-live-execution-safety-audit-and-priority.md). Its source analysis is a historical snapshot at `2ce04cf40952124e8b2ef0414cbc4ded9d660292`, not current `main`.
 
