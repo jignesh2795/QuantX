@@ -17,6 +17,7 @@ from quantx.application.backtest import (
     DeterministicBacktestService,
     _reference_price,
 )
+from quantx.application.replay import evaluate_replay_frame, event_from_replay_frame
 from quantx.domain.accounts import AccountId
 from quantx.domain.deployment import (
     ExecutionContext,
@@ -52,10 +53,7 @@ from quantx.strategy.engine_snapshot import (
     EvidenceCollection,
     build_engine_snapshot,
 )
-from quantx.strategy.evaluation import (
-    StrategyEvaluationService,
-    _event_from_replay_frame,
-)
+from quantx.strategy.evaluation import StrategyEvaluationService
 from quantx.strategy.reference import BuyAndHoldStrategy
 
 T0 = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
@@ -226,7 +224,7 @@ def _buy_once_strategy(context: ExecutionContext):
 # 1. Candle-backed replay reaches the supported evaluation boundary.
 def test_candle_frame_evaluation_preserves_exact_payload() -> None:
     frame = HistoricalReplay(_candle_series()).frames()[0]
-    event = _event_from_replay_frame(frame)
+    event = event_from_replay_frame(frame)
     adapter = EngineEvidenceAdapter(
         positions=EvidenceCollection.known(()),
         orders=EvidenceCollection.known(()),
@@ -234,8 +232,8 @@ def test_candle_frame_evaluation_preserves_exact_payload() -> None:
         account_reason="test provides no account-state tracker",
     )
     engine = build_engine_snapshot(adapter, as_of=event.timestamp)
-    evaluated = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(
-        frame, _ir(), engine=engine
+    evaluated = evaluate_replay_frame(
+        StrategyEvaluationService(BuyAndHoldStrategy()), frame, _ir(), engine=engine
     )
 
     assert evaluated.event.data_type is MarketDataType.CANDLE
@@ -252,7 +250,7 @@ def test_candle_frame_evaluation_preserves_exact_payload() -> None:
 
 def test_quote_frame_evaluation_unchanged() -> None:
     frame = HistoricalReplay(_quote_series()).frames()[0]
-    evaluated = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(frame, _ir())
+    evaluated = evaluate_replay_frame(StrategyEvaluationService(BuyAndHoldStrategy()), frame, _ir())
 
     assert evaluated.event.data_type is MarketDataType.QUOTE
     assert evaluated.event.payload == frame.observation.snapshot
@@ -279,7 +277,7 @@ def test_quote_reference_price_unchanged() -> None:
 def test_unsupported_payloads_fail_explicitly() -> None:
     frame = SimpleNamespace(observation=SimpleNamespace(snapshot=object()))
     with pytest.raises(TypeError, match="unsupported replay observation payload"):
-        _event_from_replay_frame(frame)  # type: ignore[arg-type]
+        event_from_replay_frame(frame)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="unsupported backtest observation payload"):
         _reference_price(object())  # type: ignore[arg-type]
 
@@ -706,8 +704,8 @@ def test_candle_run_consumes_no_future_information() -> None:
 def test_candle_evaluation_is_reproducible() -> None:
     frame = HistoricalReplay(_candle_series()).frames()[1]
 
-    first = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(frame, _ir())
-    second = StrategyEvaluationService(BuyAndHoldStrategy()).evaluate_replay_frame(frame, _ir())
+    first = evaluate_replay_frame(StrategyEvaluationService(BuyAndHoldStrategy()), frame, _ir())
+    second = evaluate_replay_frame(StrategyEvaluationService(BuyAndHoldStrategy()), frame, _ir())
 
     assert first.event == second.event
     assert first.result.signal.action is second.result.signal.action

@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
+from quantx.application.replay import evaluate_replay_frame
 from quantx.application.strategy_preflight import assess_backtest_event_time_support
 from quantx.domain.clock import SimulatedClock
 from quantx.domain.deployment import ExecutionContext, ExecutionMode
@@ -933,7 +934,8 @@ class DeterministicBacktestService:
                         limit=history_limit,
                     )
                     assert isinstance(strategy, StrategyEvaluationService)
-                    strategy_evaluation = strategy.evaluate_replay_frame(
+                    strategy_evaluation = evaluate_replay_frame(
+                        strategy,
                         frame,
                         strategy_ir,
                         engine=market_engine,

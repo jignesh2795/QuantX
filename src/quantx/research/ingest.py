@@ -13,6 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
 
+from quantx.domain.instrument_registry import InstrumentRegistry
 from quantx.domain.market_data import Candle
 from quantx.domain.value_objects import InstrumentId
 
@@ -82,6 +83,53 @@ class CanonicalOHLCVNormalizer:
             source_id=self.dataset_id,
             dataset_version=self.dataset_version,
             sequence=record.sequence,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogOHLCVNormalizer:
+    """Normalize OHLCV records to catalog-resolved canonical identity."""
+
+    registry: InstrumentRegistry
+    instrument_id: InstrumentId
+    dataset_id: str
+    dataset_version: str
+    calendar: MarketCalendar | None = None
+
+    def normalize(self, record: RawMarketRecord) -> HistoricalObservation:
+        instrument = self.registry.resolve(self.instrument_id)
+        if instrument is None:
+            raise ValueError(f"unknown instrument: {self.instrument_id}")
+        if record.instrument != instrument.symbol:
+            raise ValueError(
+                f"source symbol {record.instrument!r} does not match "
+                f"instrument {instrument.symbol!r}"
+            )
+
+        observation = CanonicalOHLCVNormalizer(
+            dataset_id=self.dataset_id,
+            dataset_version=self.dataset_version,
+            calendar=self.calendar,
+        ).normalize(record)
+        snapshot = observation.snapshot
+        if not isinstance(snapshot, Candle):
+            raise TypeError("historical OHLCV normalization must produce a Candle")
+
+        canonical_snapshot = Candle(
+            instrument=instrument.instrument_id,
+            timeframe=snapshot.timeframe,
+            timestamp=snapshot.timestamp,
+            open=snapshot.open,
+            high=snapshot.high,
+            low=snapshot.low,
+            close=snapshot.close,
+            volume=snapshot.volume,
+        )
+        return HistoricalObservation(
+            snapshot=canonical_snapshot,
+            source_id=observation.source_id,
+            dataset_version=observation.dataset_version,
+            sequence=observation.sequence,
         )
 
 

@@ -1,6 +1,6 @@
 {
   "schema": "quantx.skills-manifest.v1",
-  "generated_at": "2026-10-21T06:16:10+00:00",
+  "generated_at": "2026-10-22T15:51:43+00:00",
   "files": {
     "quantx-adversarial-review/SKILL.md": "54fa7fcd8090095a179ab837f7d9b79110c6f08b13a9eb7e68abc79728585325",
     "quantx-architecture/SKILL.md": "652ffcdf3392a460dd6356b574a290570cf0b4a7a4253c9fae0e92e2b0250931",
@@ -16,7 +16,7 @@
     "quantx-execution/references/paper-trading.md": "01faeb7170499b58edd31e66372effb5608df97e3fe916ddc716c55a9bc966d0",
     "quantx-execution/references/reconciliation.md": "5b1df7094808f2c81ea67c8c6ff6331746543f4c306aa9e68df019e4791ae2cf",
     "quantx-execution/references/startup-recovery.md": "15989d251ecc08a5bf8a66e4125050a6acb8c266aaf265e2ba76d19d605ef487",
-    "quantx-india-market/SKILL.md": "bcba32eb5ff383e94a982b571d7170a39840f9e3d68221adf8934249fc20f4fe",
+    "quantx-india-market/SKILL.md": "30e722f6922e4d1997b8eb2f844e4e151e08169e4eb9af22abbdf838e10a0545",
     "quantx-india-market/references/dhan-plugin.md": "cf329a2dd6ef90fe80366b049706914cb998e5cd976b0857fccb862abad8bccd",
     "quantx-india-market/references/plugin-registration.md": "3d7545905dbe73fc265c1fce251c16c07e3619847fabed636ab830445ce2c882",
     "quantx-migration-consolidation/SKILL.md": "7c353f0cf397054cd8d0da1bb10b6b7d8ecab400aeda2b42cdf64eb2c580ca7a",
