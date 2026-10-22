@@ -149,3 +149,22 @@ def test_reference_broker_conforms_to_live_execution_boundary() -> None:
     assert receipt.source == "reference-broker"
     assert adapter.cancel(_request()).source == "reference-broker"
     assert adapter.reconcile(_request()).source == "reference-broker"
+
+
+def test_broker_contracts_are_canonical_in_ports_and_legacy_paths_are_identical() -> None:
+    import quantx.integrations.brokers as legacy
+    import quantx.ports.broker as canonical
+
+    names = (
+        "BrokerAdapter",
+        "BrokerCapability",
+        "BrokerConnectionRef",
+        "BrokerDescriptor",
+        "CapabilitySet",
+    )
+    for name in names:
+        contract = getattr(canonical, name)
+        assert contract.__module__ == "quantx.ports.broker"
+        assert getattr(legacy, name) is contract
+        assert name in canonical.__all__
+        assert name in legacy.__all__

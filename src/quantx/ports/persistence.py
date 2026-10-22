@@ -10,21 +10,28 @@ and idempotency completion commit atomically. No storage mechanics live here.
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from types import TracebackType
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
-from quantx.execution.idempotency import (
-    IdempotencyDecision,
-    NotSubmittedResolution,
-    NotSubmittedSource,
-    OperatorResolution,
-    OperatorResolutionAction,
-    PendingExecutionContext,
-    PendingExecutionRecoveryRecord,
-)
-from quantx.execution.ports import ExecutionReceipt
-from quantx.execution.receipts.quarantine import QuarantinedSubmissionObservation
+if TYPE_CHECKING:
+    from quantx.execution.idempotency import (
+        IdempotencyDecision,
+        NotSubmittedResolution,
+        NotSubmittedSource,
+        OperatorResolution,
+        PendingExecutionContext,
+        PendingExecutionRecoveryRecord,
+    )
+    from quantx.execution.ports import ExecutionReceipt
+    from quantx.execution.receipts.quarantine import QuarantinedSubmissionObservation
+
+
+class OperatorResolutionAction(StrEnum):
+    """The only explicit operator closure for an unresolvable PENDING reservation."""
+
+    CLOSE_UNRESOLVED = "CLOSE_UNRESOLVED"
 
 
 class PersistentIdempotencyStore(Protocol):
@@ -156,6 +163,7 @@ class UnitOfWork(Protocol):
 
 
 __all__ = [
+    "OperatorResolutionAction",
     "PersistentIdempotencyStore",
     "QuarantineEvidenceReader",
     "ReceiptRepository",
