@@ -31,6 +31,7 @@ from quantx.domain.orders import Order
 from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
 from quantx.domain.product_selection import ProductSelectionResolution
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId, ProductCode
+from quantx.ports.persistence import OperatorResolutionAction
 
 from .fingerprint import request_fingerprint
 
@@ -386,12 +387,6 @@ class PendingExecutionRecoveryRecord:
     def __post_init__(self) -> None:
         if (self.context is None) == (self.error is None):
             raise ValueError("pending recovery record needs context or error")
-
-
-class OperatorResolutionAction(StrEnum):
-    """The only explicit operator closure for an unresolvable PENDING reservation."""
-
-    CLOSE_UNRESOLVED = "CLOSE_UNRESOLVED"
 
 
 @dataclass(frozen=True, slots=True)

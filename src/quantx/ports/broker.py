@@ -1,23 +1,85 @@
 """Broker adapter port contracts.
 
-Concrete brokers implement this interface in plugins. Vendor SDK types and
-credentials must remain outside this module.
+The canonical broker capability, connection, and adapter contracts live at
+this boundary. Concrete brokers implement them in plugins. Vendor SDK types
+and credentials must remain outside this module.
 """
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument
-from quantx.domain.value_objects import InstrumentId
-from quantx.execution.ports import ExecutionReceipt
-from quantx.integrations.brokers import (
-    BrokerAdapter,
-    BrokerConnectionRef,
-    BrokerDescriptor,
-    CapabilitySet,
-)
+from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
+
+if TYPE_CHECKING:
+    from quantx.execution.ports import ExecutionReceipt
+
+
+class BrokerCapability(StrEnum):
+    MARKET_DATA = "MARKET_DATA"
+    ORDER_SUBMISSION = "ORDER_SUBMISSION"
+    ORDER_CANCELLATION = "ORDER_CANCELLATION"
+    ORDER_REPLACEMENT = "ORDER_REPLACEMENT"
+    POSITIONS = "POSITIONS"
+    BALANCES = "BALANCES"
+    DERIVATIVES = "DERIVATIVES"
+    OPTIONS = "OPTIONS"
+    SHORT_SELLING = "SHORT_SELLING"
+    FRACTIONAL_QUANTITY = "FRACTIONAL_QUANTITY"
+    PAPER_TRADING = "PAPER_TRADING"
+
+
+@dataclass(frozen=True, slots=True)
+class BrokerConnectionRef:
+    """Account-scoped connection identity, not a reusable global credential."""
+
+    account_id: AccountId
+    connection_id: BrokerConnectionId
+    broker_id: str
+    market_context_id: str
+
+    def __post_init__(self) -> None:
+        if not self.broker_id.strip():
+            raise ValueError("broker_id must not be empty")
+        if not self.market_context_id.strip():
+            raise ValueError("market_context_id must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilitySet:
+    values: frozenset[BrokerCapability] = frozenset()
+
+    def supports(self, capability: BrokerCapability) -> bool:
+        return capability in self.values
+
+    def require(self, required: frozenset[str]) -> bool:
+        return required.issubset(self.values)
+
+
+@dataclass(frozen=True, slots=True)
+class BrokerDescriptor:
+    broker_id: str
+    display_name: str
+    capabilities: CapabilitySet
+    adapter_version: str
+
+
+class BrokerAdapter(Protocol):
+    """Minimal adapter boundary used by execution/routing infrastructure."""
+
+    @property
+    def descriptor(self) -> BrokerDescriptor: ...
+
+    @property
+    def connection(self) -> BrokerConnectionRef: ...
+
+    def health(self) -> bool: ...
+
+    def capabilities(self) -> CapabilitySet: ...
 
 
 @runtime_checkable
@@ -41,3 +103,13 @@ class BrokerPort(BrokerAdapter, Protocol):
     def cancel(self, request: ApprovedExecutionRequest) -> ExecutionReceipt: ...
 
     def reconcile(self, request: ApprovedExecutionRequest) -> ExecutionReceipt: ...
+
+
+__all__ = [
+    "BrokerAdapter",
+    "BrokerCapability",
+    "BrokerConnectionRef",
+    "BrokerDescriptor",
+    "BrokerPort",
+    "CapabilitySet",
+]
