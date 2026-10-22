@@ -31,9 +31,14 @@ from quantx.domain.orders import Order
 from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
 from quantx.domain.product_selection import ProductSelectionResolution
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId, ProductCode
-from quantx.ports.persistence import OperatorResolutionAction
 
 from .fingerprint import request_fingerprint
+
+
+class OperatorResolutionAction(StrEnum):
+    """The only explicit operator closure for an unresolvable PENDING reservation."""
+
+    CLOSE_UNRESOLVED = "CLOSE_UNRESOLVED"
 
 
 def _timedelta_microseconds(value: timedelta | None) -> int | None:

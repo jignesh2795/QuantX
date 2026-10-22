@@ -27,7 +27,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
-from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.ports import BrokerPort, ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
@@ -48,7 +48,6 @@ from quantx.plugins.reference_broker import (
     InMemoryReferenceBrokerTransport,
     ReferenceBrokerAdapter,
 )
-from quantx.ports.broker import BrokerPort
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 

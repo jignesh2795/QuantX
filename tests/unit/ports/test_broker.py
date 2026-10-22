@@ -1,157 +1,13 @@
-from decimal import Decimal
-from uuid import uuid4
+"""Neutral broker-contract ownership regressions.
 
-from quantx.domain.accounts import AccountId, BrokerConnectionId
-from quantx.domain.deployment import (
-    ExecutionContext,
-    ExecutionMode,
-    PortfolioId,
-    StrategyDeploymentId,
-)
-from quantx.domain.enums import AssetClass, OrderSide, OrderStatus, OrderType
-from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
-from quantx.domain.instruments import (
-    Instrument,
-    InstrumentId,
-    MarketContext,
-    MarketFamily,
-    MarketRegion,
-)
-from quantx.domain.order_intents import TradeIntent
-from quantx.domain.orders import Fill
-from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, LiveExecutionPort
-from quantx.integrations.brokers import (
-    BrokerCapability,
-    BrokerConnectionRef,
-    BrokerDescriptor,
-    CapabilitySet,
-)
-from quantx.ports.broker import BrokerPort
-from tests.unit._execution_request_proofs import approved_request
+``quantx.ports.broker`` owns the vendor-neutral adapter, capability,
+connection, and descriptor contracts only. The receipt-bearing ``BrokerPort``
+is execution-owned (``quantx.execution.ports``), and its behavioral
+conformance tests live in the execution test mirror.
+"""
 
 
-def _instrument() -> Instrument:
-    market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
-    return Instrument(
-        InstrumentId("NSE", "TCS"),
-        "TCS",
-        AssetClass.EQUITY,
-        market,
-        "INR",
-        Decimal("0.05"),
-        Decimal("1"),
-    )
-
-
-def _request() -> ApprovedExecutionRequest:
-    instrument = _instrument()
-    context = ExecutionContext(
-        account_id=AccountId("acct-1"),
-        portfolio_id=PortfolioId("portfolio-1"),
-        deployment_id=StrategyDeploymentId("deploy-1"),
-        market=instrument.market,
-        broker_connection_id=BrokerConnectionId("conn-1"),
-        execution_mode=ExecutionMode.PAPER,
-        market_pack_id="india-equity",
-        rule_version="india-products-v1",
-    )
-    intent = TradeIntent(
-        instrument=instrument.instrument_id,
-        side=OrderSide.BUY,
-        quantity=Decimal("1"),
-        order_type=OrderType.MARKET,
-        execution_context=context,
-    )
-    order = build_order_from_intent(intent)
-    return approved_request(order, context, RiskResult(RiskDecision.APPROVE, "approved"))
-
-
-class ReferenceBroker:
-    def __init__(self, instrument: Instrument) -> None:
-        self._instrument = instrument
-        self._connection = BrokerConnectionRef(
-            AccountId("acct-1"),
-            BrokerConnectionId("conn-1"),
-            "reference",
-            "NSE",
-        )
-        self._capabilities = CapabilitySet(
-            frozenset({BrokerCapability.ORDER_SUBMISSION, BrokerCapability.MARKET_DATA})
-        )
-        self.descriptor = BrokerDescriptor(
-            "reference", "Reference Broker", self._capabilities, "1.0"
-        )
-
-    @property
-    def connection(self) -> BrokerConnectionRef:
-        return self._connection
-
-    def health(self) -> bool:
-        return True
-
-    def capabilities(self) -> CapabilitySet:
-        return self._capabilities
-
-    def instrument(self, instrument_id: InstrumentId) -> Instrument | None:
-        return self._instrument if instrument_id == self._instrument.instrument_id else None
-
-    def submit(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
-        now = request.order.created_at
-        fill = Fill(
-            client_order_id=request.order.client_order_id,
-            instrument=request.order.instrument,
-            side=request.order.side,
-            quantity=request.order.quantity,
-            price=Decimal("100"),
-            filled_at=now,
-        )
-        return ExecutionReceipt(
-            request_id=uuid4(),
-            client_order_id=request.order.client_order_id,
-            outcome=ExecutionOutcome.FILLED,
-            order_status=OrderStatus.FILLED,
-            executed_at=now,
-            fills=(fill,),
-            simulated=False,
-            source="reference-broker",
-            account_id=request.execution_context.account_id,
-            connection_id=request.execution_context.broker_connection_id,
-        )
-
-    def cancel(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
-        return self.submit(request)
-
-    def reconcile(self, request: ApprovedExecutionRequest) -> ExecutionReceipt:
-        return self.submit(request)
-
-
-def test_reference_broker_conforms_to_broker_port_behavior() -> None:
-    instrument = _instrument()
-    adapter: BrokerPort = ReferenceBroker(instrument)
-
-    assert adapter.health()
-    assert adapter.connection == adapter._connection
-    assert adapter.capabilities().supports(BrokerCapability.ORDER_SUBMISSION)
-    assert adapter.instrument(instrument.instrument_id) == instrument
-
-    receipt = adapter.submit(_request())
-    assert receipt.source == "reference-broker"
-    assert receipt.account_id == AccountId("acct-1")
-    assert receipt.connection_id == BrokerConnectionId("conn-1")
-    assert receipt.outcome is ExecutionOutcome.FILLED
-
-
-def test_reference_broker_conforms_to_live_execution_boundary() -> None:
-    adapter: LiveExecutionPort = ReferenceBroker(_instrument())
-
-    receipt = adapter.submit(_request())
-    assert receipt.source == "reference-broker"
-    assert adapter.cancel(_request()).source == "reference-broker"
-    assert adapter.reconcile(_request()).source == "reference-broker"
-
-
-def test_broker_contracts_are_canonical_in_ports_and_legacy_paths_are_identical() -> None:
+def test_broker_contracts_are_canonical_in_ports_and_legacy_identity_is_preserved() -> None:
     import quantx.integrations.brokers as legacy
     import quantx.ports.broker as canonical
 
@@ -168,3 +24,11 @@ def test_broker_contracts_are_canonical_in_ports_and_legacy_paths_are_identical(
         assert getattr(legacy, name) is contract
         assert name in canonical.__all__
         assert name in legacy.__all__
+
+
+def test_ports_layer_exposes_no_execution_receipt_bearing_broker_port() -> None:
+    import quantx.ports.broker as canonical
+
+    assert "BrokerPort" not in canonical.__all__
+    assert not hasattr(canonical, "BrokerPort")
+    assert not hasattr(canonical, "ExecutionReceipt")

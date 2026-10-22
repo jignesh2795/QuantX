@@ -1,7 +1,5 @@
 """Idempotency and duplicate-submission protection."""
 
-from quantx.ports.persistence import OperatorResolutionAction
-
 from .fingerprint import request_fingerprint
 from .store import (
     IdempotencyDecision,
@@ -10,6 +8,7 @@ from .store import (
     NotSubmittedResolution,
     NotSubmittedSource,
     OperatorResolution,
+    OperatorResolutionAction,
     PendingExecutionContext,
     PendingExecutionRecoveryRecord,
 )

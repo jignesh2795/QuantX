@@ -1,22 +1,34 @@
-"""Database-neutral persistence contracts consumed by the execution core.
+"""Execution-owned persistence contracts consumed by the execution core.
 
 These protocols are the stable boundary that execution and application code
 depend on; persistence adapters (``quantx.persistence.sqlite``) implement them.
 The application layer owns transaction boundaries through :class:`UnitOfWork`.
 Repository implementations participate in that boundary so receipt persistence
 and idempotency completion commit atomically. No storage mechanics live here.
+
+Ownership: every method on these protocols accepts or returns an execution
+record — a canonical receipt, a pending execution context, an idempotency
+decision, an operator resolution, or quarantined submission evidence. They are
+therefore execution persistence contracts, not database-neutral contracts, and
+they live with the records they describe. Persistence remains the implementing
+side (``quantx.persistence`` re-exports these protocols for compatibility).
+
+Keeping them here is what lets ``quantx.ports`` depend on ``domain`` only:
+the previous placement made ``ports`` reference execution records, which formed
+a package cycle in the all-edge graph.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
 from types import TracebackType
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
+from .idempotency.store import OperatorResolutionAction
+
 if TYPE_CHECKING:
-    from quantx.execution.idempotency import (
+    from .idempotency import (
         IdempotencyDecision,
         NotSubmittedResolution,
         NotSubmittedSource,
@@ -24,14 +36,8 @@ if TYPE_CHECKING:
         PendingExecutionContext,
         PendingExecutionRecoveryRecord,
     )
-    from quantx.execution.ports import ExecutionReceipt
-    from quantx.execution.receipts.quarantine import QuarantinedSubmissionObservation
-
-
-class OperatorResolutionAction(StrEnum):
-    """The only explicit operator closure for an unresolvable PENDING reservation."""
-
-    CLOSE_UNRESOLVED = "CLOSE_UNRESOLVED"
+    from .receipts.models import ExecutionReceipt
+    from .receipts.quarantine import QuarantinedSubmissionObservation
 
 
 class PersistentIdempotencyStore(Protocol):
@@ -163,7 +169,6 @@ class UnitOfWork(Protocol):
 
 
 __all__ = [
-    "OperatorResolutionAction",
     "PersistentIdempotencyStore",
     "QuarantineEvidenceReader",
     "ReceiptRepository",

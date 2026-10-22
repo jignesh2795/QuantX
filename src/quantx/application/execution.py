@@ -17,7 +17,13 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import NotSubmittedSource, PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
-from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt, MarketDataExecutionPort
+from quantx.execution.persistence import SubmissionQuarantineRepository
+from quantx.execution.ports import (
+    BrokerPort,
+    ExecutionOutcome,
+    ExecutionReceipt,
+    MarketDataExecutionPort,
+)
 from quantx.execution.receipts.identity import (
     ReceiptIdentityViolation,
     validate_live_receipt_identity,
@@ -32,7 +38,6 @@ from quantx.execution.session_guard import SessionExecutionGuard
 from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.execution.trading_gate import TradingGate
 from quantx.persistence import UnitOfWork
-from quantx.ports.broker import BrokerPort
 from quantx.ports.market_checks import (
     SKIPPED_STAGE_STATUS_CODE,
     MarketCheckEvidence,
@@ -58,7 +63,6 @@ from quantx.ports.market_checks import (
     select_market_policy,
     trusted_failure_codes,
 )
-from quantx.ports.persistence import SubmissionQuarantineRepository
 
 from .runtime import ApplicationRuntime
 

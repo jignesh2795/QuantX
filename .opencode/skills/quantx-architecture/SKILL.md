@@ -26,8 +26,8 @@ QuantX is a **modular monolith first, distributed-ready later**: event-driven, d
 
 Direction: `Applications → Control Services → Domain+Application Ports ← Adapters/Plugins`.
 
-- Allowed: `DhanAdapter → BrokerPort`.
-- Forbidden: `RiskEngine → DhanAdapter`, `DomainOrder → SQLAlchemy model`, domain importing UI/web frameworks/AI SDKs/storage implementations/broker SDKs.
+- Allowed: `DhanAdapter → BrokerPort` (`quantx.execution.ports`).
+- Forbidden: `ports → execution` in any import kind (the receipt-bearing `BrokerPort` and the execution persistence protocols are execution-owned), `RiskEngine → DhanAdapter`, `DomainOrder → SQLAlchemy model`, domain importing UI/web frameworks/AI SDKs/storage implementations/broker SDKs.
 - Market-specific code never lives in universal `domain/` — that is what `india/` is for.
 - Plugin implementations live outside the universal core.
 

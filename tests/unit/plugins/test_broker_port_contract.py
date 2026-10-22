@@ -28,14 +28,13 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
-from quantx.execution.ports import ExecutionReceipt
+from quantx.execution.ports import BrokerPort, ExecutionReceipt
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
 from quantx.plugins.reference_broker import (
     InMemoryReferenceBrokerTransport,
     ReferenceBrokerAdapter,
 )
-from quantx.ports.broker import BrokerPort
 from tests.unit._execution_request_proofs import approved_request
 
 

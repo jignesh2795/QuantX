@@ -3,6 +3,12 @@
 The matrix records the intended dependency direction. Deferred entries are
 separate so a known violation cannot hide behind a broad allowed edge, and so
 removing the violation requires deleting its registry entry.
+
+QX-07 Slice 2B removed the last deferred entry: execution-owned persistence
+protocols and the receipt-bearing broker port moved into ``execution``, so
+``ports`` no longer references execution records in postponed annotations.
+Both registries are intentionally empty; a reintroduced violation must fail
+here rather than be re-registered.
 """
 
 from __future__ import annotations
@@ -48,25 +54,13 @@ class DeferredDependency:
 
 _DEFERRED_RUNTIME: dict[tuple[str, str], DeferredDependency] = {}
 
-_KNOWN_ALL_EDGE_PACKAGE_CYCLES: tuple[tuple[str, ...], ...] = (("execution", "ports"),)
-_KNOWN_ALL_EDGE_MODULE_CYCLES: tuple[tuple[str, ...], ...] = (
-    ("quantx.execution.idempotency", "quantx.ports.persistence"),
-)
+_KNOWN_ALL_EDGE_PACKAGE_CYCLES: tuple[tuple[str, ...], ...] = ()
+_KNOWN_ALL_EDGE_MODULE_CYCLES: tuple[tuple[str, ...], ...] = ()
 
-_DEFERRED_TYPE_ONLY: dict[tuple[str, str], DeferredDependency] = {
-    ("ports", "execution"): DeferredDependency(
-        issue="#181",
-        reason=(
-            "Port contracts reference canonical execution records only in postponed "
-            "annotations; this removes the runtime import without relocating "
-            "receipt/idempotency/quarantine ownership."
-        ),
-        removal_condition=(
-            "Delete this entry when the canonical execution records move below the "
-            "ports boundary or a successor ADR accepts the type-only exception."
-        ),
-    ),
-}
+# No deferred type-only dependency remains. QX-07 Slice 2B moved the
+# receipt-bearing BrokerPort and the execution-specific persistence protocols
+# into execution-owned modules, so this registry must stay empty.
+_DEFERRED_TYPE_ONLY: dict[tuple[str, str], DeferredDependency] = {}
 
 
 def test_runtime_package_edges_are_allowed_or_registered() -> None:
@@ -102,28 +96,24 @@ def test_runtime_graph_has_no_package_cycles() -> None:
     assert cycles == (), "runtime package cycle:\n" + "\n".join(described)
 
 
-def test_all_edge_package_graph_has_only_the_known_deferred_cycle() -> None:
-    """Characterize the known type-only cycle; this is not an acceptance claim."""
+def test_all_edge_package_graph_has_no_cycles() -> None:
+    """Runtime plus type-only package edges must be acyclic."""
 
     graph = build_import_graph()
     cycles = find_package_cycles(
         graph.package_pairs(type_only=False) | graph.package_pairs(type_only=True)
     )
     described = [" -> ".join((*cycle, cycle[0])) for cycle in cycles]
-    assert cycles == _KNOWN_ALL_EDGE_PACKAGE_CYCLES, (
-        "all-edge package cycle set changed:\n" + "\n".join(described)
-    )
+    assert cycles == (), "all-edge package cycle:\n" + "\n".join(described)
 
 
-def test_all_edge_module_graph_has_only_the_known_cross_package_cycle() -> None:
-    """The current helper drops same-package edges; see the audit continuation."""
+def test_all_edge_module_graph_has_no_cross_package_cycles() -> None:
+    """The helper drops same-package edges; this covers cross-package modules."""
 
     graph = build_import_graph()
     cycles = find_package_cycles({(edge.source_module, edge.target_module) for edge in graph.edges})
     described = [" -> ".join((*cycle, cycle[0])) for cycle in cycles]
-    assert cycles == _KNOWN_ALL_EDGE_MODULE_CYCLES, (
-        "all-edge cross-package module cycle set changed:\n" + "\n".join(described)
-    )
+    assert cycles == (), "all-edge cross-package module cycle:\n" + "\n".join(described)
 
 
 def test_domain_has_no_outbound_package_dependencies() -> None:

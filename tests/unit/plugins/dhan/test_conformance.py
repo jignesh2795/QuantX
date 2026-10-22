@@ -20,13 +20,13 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
+from quantx.execution.ports import BrokerPort
 from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
 from quantx.plugins.dhan import (
     DhanBrokerAdapter,
     DhanInstrumentRef,
     InMemoryDhanTransport,
 )
-from quantx.ports.broker import BrokerPort
 from tests.unit._execution_request_proofs import approved_request
 
 

@@ -45,6 +45,17 @@ application/
 
 The exact tree may evolve incrementally. Ownership of invariants matters more than directory symmetry.
 
+### Current receipt and persistence contract ownership (QX-07 Slice 2B)
+
+Canonical execution records stay execution-owned: `ExecutionReceipt`, `ExecutionOutcome`, and `ExecutionEvidenceKind` in `execution/receipts/models.py`, idempotency/recovery records and `OperatorResolutionAction` in `execution/idempotency/store.py`, and quarantined submission evidence in `execution/receipts/quarantine.py`.
+
+The contracts that carry those records are execution-owned too:
+
+- `execution/ports.py` owns the receipt-bearing `BrokerPort`, whose `submit`/`cancel`/`reconcile` return canonical `ExecutionReceipt` values.
+- `execution/persistence.py` owns `PersistentIdempotencyStore`, `ReceiptRepository`, `SubmissionQuarantineRepository`, `QuarantineEvidenceReader`, and `UnitOfWork`.
+
+`ports/broker.py` keeps only the vendor-neutral `BrokerAdapter`, `BrokerCapability`, `BrokerConnectionRef`, `BrokerDescriptor`, and `CapabilitySet` contracts, so `ports/` depends on `domain/` only. `quantx.persistence` and `quantx.integrations.brokers` remain identity-preserving re-export paths; `ports/persistence.py` and `ports/broker.BrokerPort` are retired and must not return as shims, because a shim importing execution from `ports/` recreates the package cycle.
+
 ### Current LIVE startup/control boundaries
 
 `application/runtime.py` owns the one-shot recovery-backed application startup lifecycle; `application/production.py` composes the durable process runtime; `application/execution.py` is the application-owned LIVE submission boundary and now requires a started `ApplicationRuntime` plus final trading-gate authorization before broker submission. `execution/trading_gate.py` owns gate state and submission authorization, while `persistence/sqlite/trading_gate.py` supplies durable gate synchronization.
