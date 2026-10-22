@@ -185,7 +185,21 @@ Implemented behavior:
 
 Non-claims: no real broker I/O, no LIVE operation, and no GitHub Actions were used; all regression coverage is deterministic and offline. Quarantine evidence is reconciliation input only; no automated reconciliation behavior consumes it yet. The quarantine store is a mandatory LIVE-admission dependency: LIVE compositions without it are blocked before any reservation or broker contact rather than degrading to UNKNOWN-plus-pending-reservation without durable evidence; non-LIVE flows are unaffected.
 
-## Current state — P0.1/P0.2/P0.3 fixed and merged; QX-04/QX-05 implemented and merged; QX-06 design accepted; QX-08 acceptance complete; QX-09 complete
+## Quarantine evidence worklist — implemented and merged (2026-10-22)
+
+The bounded read-only quarantine evidence worklist is implemented and merged in PR [#255](https://github.com/jignesh2795/QuantX/pull/255) as merge commit `a4d27955c56f2a49fec1f1593d0a806d25588766`, preserving validated feature head `4acdce19e4d25d2be4c1c2caf27b2542714ae1e4`. The cumulative change is 17 files against base `0e14395e0c04f2d06cf8db7262ff8e0c906b0237`; the full contract is in [implementation/quarantine-evidence-worklist.md](implementation/quarantine-evidence-worklist.md) and is not duplicated here.
+
+- **Bounded read-only operator view.** `QuarantineWorklistReadService` presents quarantined observations with a caller-bounded page limit, deterministic `(observed_at, observation_id)` ordering, and an opaque single-pass continuation cursor. It only reads: no acknowledgement, resolution, retry, receipt, idempotency, trading-gate, or lifecycle state is created, updated, or consumed.
+- **SQLite payload-integrity checks.** Stored payloads are measured and read as bytes, so SQLite TEXT semantics cannot stop at an embedded NUL; the per-row payload bound and the per-scan row bound fail closed as `UNAVAILABLE`, and embedded NUL, invalid UTF-8, and over-bound payloads are rejected instead of being decoded from a truncated prefix.
+- **Logical identity and cursor hardening.** Ordering, duplicate detection, and cursor anchors use the canonical 128-bit UUID identity rather than an object's `str()` rendering, so duplicate logical observations — including legacy and noncanonical UUID renderings — return `UNAVAILABLE`, and a `UUID` subclass cannot bypass uniqueness or break cursor attribution between pages.
+- **Unicode display neutralization.** Operator-facing text escapes control characters, bidi controls, and every invisible Unicode format character (category `Cf`, including U+200B, U+2060, and U+FEFF) while retaining ordinary printable Unicode and the script-joining ZWNJ/ZWJ.
+- **Regression coverage.** Real-SQLite persistence tests plus worklist and renderer tests cover embedded-NUL and oversized payloads, duplicate and legacy identities, UUID subclass renderings, cursor traversal, maximal valid payloads, immutable evidence rows, and the absence of broker or network imports.
+
+Reported exact-feature-head local validation (read-only producer and release gate, feature head `4acdce19e4d25d2be4c1c2caf27b2542714ae1e4`, base `0e14395e0c04f2d06cf8db7262ff8e0c906b0237`): default configuration **OVERALL PASS** — full suite **2,663 passed, 1 skipped** (the known optional-Dhan-extra test); Dhan-extra configuration **OVERALL PASS** — **2,664 passed, 0 skipped**; the matching validation-gate and release-gate reports passed for both configurations. These results apply to the feature head, are local and operator-reported, and are not GitHub Actions or authenticated CI evidence; the merge commit itself was not separately validated.
+
+Limitation: the worklist is a bounded inspection view over one readable snapshot, intended for manual reconciliation pending a separately authorized operator action. It is not automated reconciliation, not complete-inventory monitoring at arbitrary table sizes, and not a production-certification or LIVE-readiness proof; quarantine evidence remains reconciliation input only.
+
+## Current state — P0.1/P0.2/P0.3 fixed and merged; QX-04/QX-05 implemented and merged; QX-06 design accepted; QX-08 acceptance complete; QX-09 complete; quarantine evidence worklist merged
 
 The consolidated LIVE-safety audit is recorded in [architecture/56-live-execution-safety-audit-and-priority.md](architecture/56-live-execution-safety-audit-and-priority.md). Its source analysis is a historical snapshot at `2ce04cf40952124e8b2ef0414cbc4ded9d660292`, not current `main`.
 
