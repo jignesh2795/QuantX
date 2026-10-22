@@ -16,7 +16,6 @@ Market-specific rules live in `src/quantx/india/` — **never in universal `doma
 | `rule_data.py` | Versioned venue rule snapshots — `PriceBandRuleSnapshot`, allowed order-type/TIF/product sets with version/provenance/effective time (**rules as data**) |
 | `session_calendar.py` | `ZoneInfo`-based IST calendar → `IndiaSessionPermission` (ORDER_SUBMISSION / MODIFICATION / CANCELLATION) → `IndiaSessionDecision` ALLOW/BLOCK |
 | `instrument_catalog.py` | `IndianInstrumentCatalog` implements `InstrumentRegistry` — resolves, never manufactures metadata |
-| `historical.py` | `IndianHistoricalOHLCVNormalizer` |
 
 F&O spec enforcement in `IndianInstrumentSpec.to_instrument()` / `to_contract()`:
 

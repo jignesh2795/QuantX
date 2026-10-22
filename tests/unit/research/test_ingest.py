@@ -3,9 +3,18 @@ from decimal import Decimal
 
 import pytest
 
+from quantx.domain.enums import AssetClass
+from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.market_data import Candle
+from quantx.domain.value_objects import InstrumentId
 from quantx.research.data import HistoricalDataSeries
-from quantx.research.ingest import CanonicalOHLCVNormalizer, RawMarketRecord, ingest_source
+from quantx.research.ingest import (
+    CanonicalOHLCVNormalizer,
+    CatalogOHLCVNormalizer,
+    RawMarketRecord,
+    ingest_source,
+)
+from quantx.research.replay import HistoricalReplay
 
 
 class Source:
@@ -106,3 +115,79 @@ def test_calendar_classification_does_not_change_candle_payload() -> None:
         close=Decimal("105"),
         volume=Decimal("1234.5"),
     )
+
+
+class _Registry:
+    def __init__(self, instruments: tuple[Instrument, ...] = ()) -> None:
+        self._instruments = {instrument.instrument_id: instrument for instrument in instruments}
+
+    def resolve(self, instrument_id: InstrumentId) -> Instrument | None:
+        return self._instruments.get(instrument_id)
+
+
+def _catalog_instrument() -> Instrument:
+    market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
+    return Instrument(
+        InstrumentId("NSE", "TCS"),
+        "TCS",
+        AssetClass.EQUITY,
+        market,
+        "INR",
+        Decimal("0.05"),
+        Decimal("1"),
+    )
+
+
+def _catalog_normalizer(*instruments: Instrument) -> CatalogOHLCVNormalizer:
+    return CatalogOHLCVNormalizer(
+        registry=_Registry(instruments),
+        instrument_id=InstrumentId("NSE", "TCS"),
+        dataset_id="nse-fixture",
+        dataset_version="v1",
+    )
+
+
+def _catalog_record(instrument: str = "TCS") -> RawMarketRecord:
+    return RawMarketRecord(
+        timestamp=datetime(2026, 1, 2, 9, 15, tzinfo=UTC),
+        instrument=instrument,
+        sequence=0,
+        fields={
+            "open": Decimal("100.100000000000000001"),
+            "high": Decimal("101.00000000000001"),
+            "low": Decimal("99.09799999999999999"),
+            "close": Decimal("100.00000000000001"),
+            "volume": Decimal("25000"),
+        },
+        timeframe="5m",
+    )
+
+
+def test_catalog_normalizer_preserves_decimal_payload_and_identity() -> None:
+    observation = _catalog_normalizer(_catalog_instrument()).normalize(_catalog_record())
+
+    assert observation.instrument == InstrumentId("NSE", "TCS")
+    assert isinstance(observation.snapshot, Candle)
+    assert observation.snapshot.instrument == InstrumentId("NSE", "TCS")
+    assert observation.snapshot.timeframe == "5m"
+    assert observation.snapshot.open == Decimal("100.100000000000000001")
+    assert observation.snapshot.high == Decimal("101.00000000000001")
+    assert observation.snapshot.low == Decimal("99.09799999999999999")
+    assert observation.snapshot.close == Decimal("100.00000000000001")
+    assert observation.snapshot.volume == Decimal("25000")
+    assert observation.source_id == "nse-fixture"
+    assert observation.dataset_version == "v1"
+    assert observation.sequence == 0
+
+    series = HistoricalDataSeries((observation,))
+    assert HistoricalReplay(series).run(lambda _frame: None) == 1
+
+
+def test_catalog_normalizer_rejects_symbol_identity_mismatch() -> None:
+    with pytest.raises(ValueError, match="does not match"):
+        _catalog_normalizer(_catalog_instrument()).normalize(_catalog_record("INFY"))
+
+
+def test_catalog_normalizer_fails_closed_for_unknown_instrument() -> None:
+    with pytest.raises(ValueError, match="unknown instrument"):
+        _catalog_normalizer().normalize(_catalog_record())

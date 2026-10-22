@@ -46,30 +46,12 @@ class DeferredDependency:
     removal_condition: str
 
 
-_DEFERRED_RUNTIME: dict[tuple[str, str], DeferredDependency] = {
-    ("india", "research"): DeferredDependency(
-        issue="#181",
-        reason=(
-            "The India historical normalizer consumes research-owned calendar and "
-            "observation contracts; relocating it is a separate follow-up slice."
-        ),
-        removal_condition=(
-            "Move the India historical adapter beside the research contracts and "
-            "delete the india -> research import."
-        ),
-    ),
-    ("strategy", "research"): DeferredDependency(
-        issue="#181",
-        reason=(
-            "The strategy replay evaluation consumes the research-owned ReplayFrame; "
-            "moving the method is a separate follow-up slice."
-        ),
-        removal_condition=(
-            "Relocate evaluate_replay_frame to the application replay boundary and "
-            "delete the strategy -> research import."
-        ),
-    ),
-}
+_DEFERRED_RUNTIME: dict[tuple[str, str], DeferredDependency] = {}
+
+_KNOWN_ALL_EDGE_PACKAGE_CYCLES: tuple[tuple[str, ...], ...] = (("execution", "ports"),)
+_KNOWN_ALL_EDGE_MODULE_CYCLES: tuple[tuple[str, ...], ...] = (
+    ("quantx.execution.idempotency", "quantx.ports.persistence"),
+)
 
 _DEFERRED_TYPE_ONLY: dict[tuple[str, str], DeferredDependency] = {
     ("ports", "execution"): DeferredDependency(
@@ -118,6 +100,30 @@ def test_runtime_graph_has_no_package_cycles() -> None:
     cycles = find_package_cycles(graph.package_pairs(type_only=False))
     described = [" -> ".join((*cycle, cycle[0])) for cycle in cycles]
     assert cycles == (), "runtime package cycle:\n" + "\n".join(described)
+
+
+def test_all_edge_package_graph_has_only_the_known_deferred_cycle() -> None:
+    """Characterize the known type-only cycle; this is not an acceptance claim."""
+
+    graph = build_import_graph()
+    cycles = find_package_cycles(
+        graph.package_pairs(type_only=False) | graph.package_pairs(type_only=True)
+    )
+    described = [" -> ".join((*cycle, cycle[0])) for cycle in cycles]
+    assert cycles == _KNOWN_ALL_EDGE_PACKAGE_CYCLES, (
+        "all-edge package cycle set changed:\n" + "\n".join(described)
+    )
+
+
+def test_all_edge_module_graph_has_only_the_known_cross_package_cycle() -> None:
+    """The current helper drops same-package edges; see the audit continuation."""
+
+    graph = build_import_graph()
+    cycles = find_package_cycles({(edge.source_module, edge.target_module) for edge in graph.edges})
+    described = [" -> ".join((*cycle, cycle[0])) for cycle in cycles]
+    assert cycles == _KNOWN_ALL_EDGE_MODULE_CYCLES, (
+        "all-edge cross-package module cycle set changed:\n" + "\n".join(described)
+    )
 
 
 def test_domain_has_no_outbound_package_dependencies() -> None:

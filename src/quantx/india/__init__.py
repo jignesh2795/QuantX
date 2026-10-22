@@ -13,7 +13,6 @@ from .execution_rules import (
     IndiaRuleDecision,
     IndiaRuleResult,
 )
-from .historical import IndianHistoricalOHLCVNormalizer
 from .instrument_catalog import IndianInstrumentCatalog
 from .market_checks import (
     IndiaCompatCheck,
@@ -56,7 +55,6 @@ __all__ = [
     "IndiaRuleScope",
     "IndiaVenueRuleSnapshot",
     "IndianExchange",
-    "IndianHistoricalOHLCVNormalizer",
     "IndianInstrumentCatalog",
     "IndianInstrumentSpec",
     "IndianSegment",

@@ -11,6 +11,7 @@ from quantx.application.backtest import (
     BacktestResult,
     DeterministicBacktestService,
 )
+from quantx.application.replay import evaluate_replay_frame
 from quantx.application.strategy_preflight import EventTimeSupport
 from quantx.domain.accounts import AccountId
 from quantx.domain.clock import Clock, FixedClock, SimulatedClock, SystemClock
@@ -1209,7 +1210,7 @@ def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
     strategy = _ParityStrategy()
     evaluation = StrategyEvaluationService(strategy)
     frame = HistoricalReplay(_series()).frames()[0]
-    evaluated = evaluation.evaluate_replay_frame(frame, ir)
+    evaluated = evaluate_replay_frame(evaluation, frame, ir)
     assert evaluated.result.intent is not None
 
     engine = PaperExecutionEngine(clock=SimulatedClock(frame.observation.timestamp))
