@@ -1,5 +1,7 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -15,15 +17,20 @@ from quantx.domain.execution_request import ApprovedExecutionRequest, build_orde
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Order
+from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.position_effect import AbsentPositionEffectResolution, PositionEvidence
 from quantx.domain.product_selection import ProductSelectionResolution
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.domain.value_objects import InstrumentId, ProductCode
+from quantx.domain.value_objects import BrokerConnectionId, InstrumentId, ProductCode
 
 NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
 PACK = {"market_pack_id": "india", "rule_version": "india-products-v1"}
 MAX_AGE = timedelta(minutes=5)
 MARKET = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
+
+
+class _UUIDSubclass(UUID):
+    pass
 
 
 def _product_resolution(
@@ -165,6 +172,7 @@ def _paper_request(
     rule_version: str | None = PACK["rule_version"],
     product_resolution: ProductSelectionResolution | None = None,
     position_effect_policy_resolution: AbsentPositionEffectResolution | None = None,
+    mode: ExecutionMode = ExecutionMode.PAPER,
 ) -> ApprovedExecutionRequest:
     requested_effect = order.position_effect if position_effect is None else position_effect
     resolved_product = order.product if product is None else product
@@ -188,7 +196,7 @@ def _paper_request(
     return ApprovedExecutionRequest(
         order=order,
         execution_context=_context(
-            ExecutionMode.PAPER,
+            mode,
             market_pack_id=market_pack_id,
             rule_version=rule_version,
         ),
@@ -203,6 +211,71 @@ def _paper_request(
         product_resolution=product_resolution,
         position_effect_policy_resolution=position_effect_policy_resolution,
     )
+
+
+def _live_request(order: Order) -> ApprovedExecutionRequest:
+    return ApprovedExecutionRequest(
+        order=order,
+        execution_context=_context(
+            ExecutionMode.LIVE,
+            BrokerConnectionId("conn-live-1"),
+            market_pack_id=PACK["market_pack_id"],
+            rule_version=PACK["rule_version"],
+        ),
+        risk_result=RiskResult(RiskDecision.APPROVE, "approved"),
+        policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        position_effect_policy_resolution=_absent_effect_resolution(),
+    )
+
+
+def test_live_execution_accepts_exact_uuid_client_order_id() -> None:
+    request = _live_request(_order())
+
+    assert type(request.order.client_order_id) is UUID
+
+
+@pytest.mark.parametrize(
+    "client_order_id",
+    [
+        pytest.param(str(uuid4()), id="canonical-str"),
+        pytest.param(str(uuid4()).upper(), id="uppercase-str"),
+        pytest.param(_UUIDSubclass(str(uuid4())), id="uuid-subclass"),
+        pytest.param(7, id="int"),
+        pytest.param(None, id="none"),
+    ],
+)
+def test_live_execution_rejects_non_exact_uuid_client_order_id(client_order_id) -> None:
+    with pytest.raises(ValueError) as exc_info:
+        _live_request(replace(_order(), client_order_id=client_order_id))
+
+    assert str(exc_info.value) == "live execution requires an exact UUID client_order_id"
+
+
+def test_live_request_replace_revalidates_exact_uuid_client_order_id() -> None:
+    request = _live_request(_order())
+
+    with pytest.raises(ValueError) as exc_info:
+        replace(request, order=replace(request.order, client_order_id="opaque-client"))
+
+    assert str(exc_info.value) == "live execution requires an exact UUID client_order_id"
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        ExecutionMode.PAPER,
+        ExecutionMode.SHADOW,
+        ExecutionMode.REPLAY,
+        ExecutionMode.BACKTEST,
+    ],
+)
+def test_non_live_modes_accept_opaque_client_order_id(mode: ExecutionMode) -> None:
+    request = _paper_request(
+        replace(_order(), client_order_id="opaque-client"),
+        mode=mode,
+    )
+
+    assert request.order.client_order_id == "opaque-client"
 
 
 def test_explicit_product_requires_market_pack_identity() -> None:

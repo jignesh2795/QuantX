@@ -1,5 +1,12 @@
 # QuantX Status
 
+## LIVE request client order id must be an exact UUID (2026-10-23)
+
+`ApprovedExecutionRequest` now rejects an `ExecutionMode.LIVE` request whose
+`order.client_order_id` is not exactly `uuid.UUID`; non-LIVE modes are unchanged.
+Global `Order` tightening remains tracked by [#271](https://github.com/jignesh2795/QuantX/issues/271).
+**Non-claims:** no broker I/O, LIVE operation, or global `Order` tightening.
+
 ## LIVE prerequisite declarations require exact booleans (2026-10-23)
 
 `ExecutionOrchestrator.execute()` now proceeds past the LIVE `TradingGate.is_durable` and `ApplicationRuntime.started` prerequisites only on exact `True`; a real `False` keeps its existing reason, while any other value (for example `"false"`, `1`, `None`, or a bool-like such as `numpy.bool_`) returns `BLOCKED` with a distinct fixed reason. `is True` intentionally rejects bool-likes. Check order, signatures, serialization, fingerprints, schema, adapters, recovery, and non-LIVE behavior are unchanged. Highest-priority remaining LIVE probe truthiness finding: `broker.health()` at `execution.py:801`, tracked as [#269](https://github.com/jignesh2795/QuantX/issues/269).
