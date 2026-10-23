@@ -103,3 +103,7 @@ class ExecutionContext:
     execution_mode: ExecutionMode
     market_pack_id: str | None = None
     rule_version: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.execution_mode) is not ExecutionMode:
+            raise ValueError("execution_context.execution_mode must be exact ExecutionMode")
