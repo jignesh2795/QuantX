@@ -3007,6 +3007,26 @@ class _CountingGate(DurableTradingGate):
         return super().admit_submission()
 
 
+def _live_risk_orchestrator(evaluator):
+    store = _CountingIdempotencyStore()
+    unit_of_work = _FakeUnitOfWork(store)
+    gate = _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
+    broker = FakeBroker()
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=gate,
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=evaluator,
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    )
+    return orchestrator, gate, store, broker, unit_of_work
+
+
 def test_live_without_risk_evaluator_blocks_before_gate_reservation_and_broker() -> None:
     """A missing LIVE pre-trade risk evaluator is a fail-closed prerequisite.
 
@@ -3035,6 +3055,38 @@ def test_live_without_risk_evaluator_blocks_before_gate_reservation_and_broker()
     assert gate.allow_calls == 0
     assert gate.permit_calls == 0
     assert gate.admit_calls == 0
+    assert store.reserve_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.committed is False
+
+
+@pytest.mark.parametrize(
+    "evaluator",
+    [
+        lambda request: None,
+        lambda request: "approve",
+        lambda request: object(),
+        lambda request: RiskResult("approve", "malformed decision"),
+        lambda request: RiskResult(RiskDecision.REJECT, object()),
+    ],
+    ids=[
+        "none",
+        "plain-string",
+        "missing-decision",
+        "wrong-decision-type",
+        "wrong-reason-type",
+    ],
+)
+def test_live_risk_evaluator_malformed_result_blocks_before_submit(evaluator) -> None:
+    orchestrator, gate, store, broker, unit_of_work = _live_risk_orchestrator(evaluator)
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "live pre-trade risk evaluation returned an invalid result"
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert store.check_calls == 0
     assert store.reserve_calls == 0
     assert broker.submit_calls == 0
     assert unit_of_work.committed is False

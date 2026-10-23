@@ -858,11 +858,24 @@ class ExecutionOrchestrator:
         if self._live_risk_evaluator is not None:
             try:
                 live_risk = self._live_risk_evaluator(request)
+                valid_live_risk = (
+                    type(live_risk) is RiskResult
+                    and type(live_risk.decision) is RiskDecision
+                    and type(live_risk.reason) is str
+                )
             except Exception as exc:
                 return self._with_evidence_prefix(
                     ExecutionResult(
                         ExecutionDispatchStatus.BLOCKED,
                         reason=f"live pre-trade risk evaluation failed closed: {exc}",
+                    ),
+                    check_entries,
+                )
+            if not valid_live_risk:
+                return self._with_evidence_prefix(
+                    ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason="live pre-trade risk evaluation returned an invalid result",
                     ),
                     check_entries,
                 )
