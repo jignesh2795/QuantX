@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -41,6 +42,7 @@ from quantx.execution.idempotency import InMemoryIdempotencyStore, NotSubmittedS
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.quarantine import QuarantineObservationKind
+from quantx.execution.session_guard import SessionExecutionGuard, SessionGuardResult
 from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.execution.trading_gate import (
     DurableTradingGate,
@@ -85,6 +87,7 @@ from quantx.persistence.sqlite import (
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
 )
+from quantx.ports.market_checks import MarketPolicyConfig
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 
@@ -3027,6 +3030,87 @@ def _live_risk_orchestrator(evaluator):
     return orchestrator, gate, store, broker, unit_of_work
 
 
+def _live_callback_orchestrator(
+    *,
+    session_guard=None,
+    trading_gate=None,
+    market_policy=None,
+):
+    store = _CountingIdempotencyStore()
+    unit_of_work = _FakeUnitOfWork(store)
+    gate = trading_gate or _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
+    broker = FakeBroker()
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=gate,
+        session_guard=session_guard,
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
+        market_policy=market_policy
+        or india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    )
+    return orchestrator, gate, store, broker, unit_of_work
+
+
+class _ScriptedSessionGuard(SessionExecutionGuard):
+    def __init__(self, result) -> None:
+        self._result = result
+
+    def check(self, mode):
+        return self._result
+
+
+class _ScriptedGate(DurableTradingGate):
+    def __init__(
+        self,
+        *,
+        allow_result=True,
+        permit_result=True,
+        admit_result=True,
+    ) -> None:
+        super().__init__(InMemoryTradingGateStateStore(), default_enabled=True)
+        self._allow_result = allow_result
+        self._permit_result = permit_result
+        self._admit_result = admit_result
+        self.allow_calls = 0
+        self.permit_calls = 0
+        self.admit_calls = 0
+
+    def allow(self):
+        self.allow_calls += 1
+        return self._allow_result
+
+    @contextmanager
+    def submission_permit(self):
+        self.permit_calls += 1
+        yield self._permit_result
+
+    def admit_submission(self):
+        self.admit_calls += 1
+        return self._admit_result
+
+
+def _india_policy_with_core_session_guard() -> MarketPolicyConfig:
+    policy = india_market_policy(
+        session_evaluator=_approving_india_session_evaluator(),
+        rule_evaluator=_approving_india_evaluator(),
+    )
+    return MarketPolicyConfig(
+        regions=tuple(
+            replace(region, replaces_session_guard=False)
+            if region.region is MarketRegion.INDIA
+            else region
+            for region in policy.regions
+        ),
+        checks=policy.checks,
+    )
+
+
 def test_live_without_risk_evaluator_blocks_before_gate_reservation_and_broker() -> None:
     """A missing LIVE pre-trade risk evaluator is a fail-closed prerequisite.
 
@@ -3090,6 +3174,136 @@ def test_live_risk_evaluator_malformed_result_blocks_before_submit(evaluator) ->
     assert store.reserve_calls == 0
     assert broker.submit_calls == 0
     assert unit_of_work.committed is False
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        SessionGuardResult(allowed="false"),
+        SessionGuardResult(allowed=1),
+        SessionGuardResult(allowed=True, reason=object()),
+        None,
+        object(),
+    ],
+    ids=[
+        "string-false",
+        "integer-one",
+        "wrong-reason-type",
+        "none",
+        "wrong-type",
+    ],
+)
+def test_live_session_guard_malformed_result_blocks_before_submit(result) -> None:
+    orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
+        session_guard=_ScriptedSessionGuard(result),
+        market_policy=_india_policy_with_core_session_guard(),
+    )
+
+    execution = orchestrator.execute(_live_request(), broker=broker)
+
+    assert execution.status is ExecutionDispatchStatus.BLOCKED
+    assert execution.reason == "live session guard returned an invalid result"
+    assert gate.allow_calls == 1
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert store.check_calls == 0
+    assert store.reserve_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.committed is False
+
+
+def test_live_session_guard_denial_preserves_reason() -> None:
+    reason = "trading session is closed for test"
+    orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
+        session_guard=_ScriptedSessionGuard(SessionGuardResult(False, reason)),
+        market_policy=_india_policy_with_core_session_guard(),
+    )
+
+    execution = orchestrator.execute(_live_request(), broker=broker)
+
+    assert execution.status is ExecutionDispatchStatus.BLOCKED
+    assert execution.reason == reason
+    assert gate.allow_calls == 1
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert store.check_calls == 0
+    assert store.reserve_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.committed is False
+
+
+def test_live_trading_gate_malformed_allow_blocks_before_reservation() -> None:
+    gate = _ScriptedGate(allow_result=1)
+    orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
+        trading_gate=gate,
+    )
+
+    execution = orchestrator.execute(_live_request(), broker=broker)
+
+    assert execution.status is ExecutionDispatchStatus.BLOCKED
+    assert execution.reason == "live trading gate returned an invalid result"
+    assert gate.allow_calls == 1
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert store.check_calls == 0
+    assert store.reserve_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.committed is False
+
+
+def test_live_trading_gate_malformed_permit_blocks_before_reservation() -> None:
+    gate = _ScriptedGate(permit_result="true")
+    orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
+        trading_gate=gate,
+    )
+
+    execution = orchestrator.execute(_live_request(), broker=broker)
+
+    assert execution.status is ExecutionDispatchStatus.BLOCKED
+    assert execution.reason == "live trading gate returned an invalid result"
+    assert gate.allow_calls == 1
+    assert gate.permit_calls == 1
+    assert gate.admit_calls == 0
+    assert store.reserve_calls == 0
+    assert broker.submit_calls == 0
+
+
+def test_live_trading_gate_malformed_admission_blocks_before_submit() -> None:
+    gate = _ScriptedGate(admit_result=object())
+    orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
+        trading_gate=gate,
+    )
+
+    execution = orchestrator.execute(_live_request(), broker=broker)
+
+    assert execution.status is ExecutionDispatchStatus.BLOCKED
+    assert execution.reason == "live trading gate returned an invalid result"
+    assert gate.allow_calls == 1
+    assert gate.permit_calls == 1
+    assert gate.admit_calls == 1
+    assert store.reserve_calls == 1
+    assert broker.submit_calls == 0
+    assert unit_of_work.committed is True
+
+
+def test_live_valid_session_guard_and_gate_proceed() -> None:
+    gate = _ScriptedGate()
+    orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
+        session_guard=_ScriptedSessionGuard(SessionGuardResult(True)),
+        trading_gate=gate,
+        market_policy=_india_policy_with_core_session_guard(),
+    )
+
+    execution = orchestrator.execute(_live_request(), broker=broker)
+
+    assert execution.status is ExecutionDispatchStatus.EXECUTED
+    assert execution.receipt is not None
+    assert gate.allow_calls == 1
+    assert gate.permit_calls == 1
+    assert gate.admit_calls == 1
+    assert store.reserve_calls == 1
+    assert broker.submit_calls == 1
+    assert unit_of_work.committed is True
 
 
 def test_live_risk_rejection_blocks_without_broker_submit() -> None:

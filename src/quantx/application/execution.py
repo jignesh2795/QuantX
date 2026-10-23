@@ -34,7 +34,7 @@ from quantx.execution.receipts.quarantine import (
     QuarantinedSubmissionObservation,
     QuarantineObservationKind,
 )
-from quantx.execution.session_guard import SessionExecutionGuard
+from quantx.execution.session_guard import SessionExecutionGuard, SessionGuardResult
 from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.execution.trading_gate import TradingGate
 from quantx.persistence import UnitOfWork
@@ -615,7 +615,13 @@ class ExecutionOrchestrator:
                     reason="live execution requires a configured pre-trade risk evaluator",
                 )
 
-        if not self._trading_gate.allow():
+        gate_allowed = self._trading_gate.allow()
+        if mode is ExecutionMode.LIVE and gate_allowed is not True and gate_allowed is not False:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="live trading gate returned an invalid result",
+            )
+        if not gate_allowed:
             state = self._trading_gate.state()
             return ExecutionResult(
                 ExecutionDispatchStatus.BLOCKED,
@@ -683,6 +689,18 @@ class ExecutionOrchestrator:
 
         if self._session_guard is not None and not selection.skip_session_guard:
             session = self._session_guard.check(mode)
+            if mode is ExecutionMode.LIVE and (
+                type(session) is not SessionGuardResult
+                or type(session.allowed) is not bool
+                or type(session.reason) is not str
+            ):
+                return self._with_evidence_prefix(
+                    ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason="live session guard returned an invalid result",
+                    ),
+                    check_entries,
+                )
             if not session.allowed:
                 return self._with_evidence_prefix(
                     ExecutionResult(
@@ -1040,11 +1058,16 @@ class ExecutionOrchestrator:
         # be delayed by a slow/unbounded broker submission.
         # The gate check + reservation creation remain atomic under the lock.
         with self._trading_gate.submission_permit() as permitted:
-            if not permitted:
-                state = self._trading_gate.state()
+            if permitted is not True:
+                if permitted is False:
+                    state = self._trading_gate.state()
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=f"trading is blocked: {state.reason}",
+                    )
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
-                    reason=f"trading is blocked: {state.reason}",
+                    reason="live trading gate returned an invalid result",
                 )
 
             with unit_of_work:
@@ -1114,11 +1137,17 @@ class ExecutionOrchestrator:
         # leaves the PENDING reservation intact for reconciliation and
         # operator resolution; the attempt is reported BLOCKED (never
         # submitted, never uncertain) and is never automatically retried.
-        if not self._trading_gate.admit_submission():
-            state = self._trading_gate.state()
+        admitted = self._trading_gate.admit_submission()
+        if admitted is not True:
+            if admitted is False:
+                state = self._trading_gate.state()
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=f"trading is blocked: {state.reason}",
+                )
             return ExecutionResult(
                 ExecutionDispatchStatus.BLOCKED,
-                reason=f"trading is blocked: {state.reason}",
+                reason="live trading gate returned an invalid result",
             )
 
         # Broker call happens OUTSIDE the trading-gate lock.
