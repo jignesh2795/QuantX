@@ -6,7 +6,7 @@ constraints. Execution-time and post-trade risk can be layered on later.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -19,6 +19,7 @@ from .constraints import (
     evaluate_capital,
 )
 from .enums import OrderSide, PositionEffect
+from .errors import ValidationError
 from .finance import AccountFinancialState, BrokerConstraint
 from .instrument_registry import InstrumentResolution
 from .instruments import DERIVATIVE_ASSET_CLASSES, Contract, Instrument
@@ -30,6 +31,10 @@ class RiskDecision(StrEnum):
     APPROVE = "approve"
     REJECT = "reject"
     APPROVAL_REQUIRED = "approval_required"
+
+
+class LiveRiskLimitsError(ValidationError):
+    """Raised when LIVE risk limits omit or misdeclare a mandatory field."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +167,39 @@ class RiskLimits:
                 raise ValueError(f"{name} must be a ratio in [0, 1]")
         if self.max_snapshot_age is not None and self.max_snapshot_age < timedelta(0):
             raise ValueError("max_snapshot_age must not be negative")
+
+
+_LIVE_REQUIRED_MONEY_FIELDS = (
+    "max_order_notional",
+    "max_position_notional",
+    "max_daily_loss",
+)
+
+
+def require_live_risk_limits(limits: RiskLimits) -> RiskLimits:
+    """Return a validated copy of limits for LIVE use.
+
+    LIVE requires explicit, strictly positive values for order notional,
+    position notional, daily loss and snapshot age. Validation is exact:
+    booleans, ints, floats, strings, subclasses and non-finite Decimals are
+    rejected without coercion. The returned copy isolates the caller from
+    later mutation of the source object.
+    """
+    if type(limits) is not RiskLimits:
+        raise LiveRiskLimitsError("LIVE risk limits must be a RiskLimits")
+    invalid: list[str] = []
+    for name in _LIVE_REQUIRED_MONEY_FIELDS:
+        value = getattr(limits, name)
+        if type(value) is not Decimal or not value.is_finite() or value <= 0:
+            invalid.append(name)
+    age = limits.max_snapshot_age
+    if type(age) is not timedelta or age <= timedelta(0):
+        invalid.append("max_snapshot_age")
+    if invalid:
+        raise LiveRiskLimitsError(
+            "LIVE risk limits require explicit valid values for: " + ", ".join(invalid)
+        )
+    return replace(limits)
 
 
 @dataclass(frozen=True, slots=True)

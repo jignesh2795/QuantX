@@ -1,5 +1,11 @@
 # QuantX Status
 
+## LIVE risk limits require explicit values (2026-10-23)
+
+`require_live_risk_limits` rejects LIVE limits unless per-order notional, per-symbol position notional, daily loss and maximum snapshot age are explicit exact positive `Decimal`/`timedelta` values; bools, ints, floats, strings, non-finite values, subclasses and duck types are rejected without coercion, and errors name fields only. `LivePreTradeRiskEvaluator` validates at construction, stores a copy, requires exact provider inputs and delegates unchanged to `PreTradeRiskEngine`; it reads no clock. `RiskLimits` defaults/`__post_init__` and non-LIVE behavior are unchanged. Report-only gaps: daily loss remains realized-only ([#266](https://github.com/jignesh2795/QuantX/issues/266)); arbitrary evaluator callables remain injectable until the composition root ([#267](https://github.com/jignesh2795/QuantX/issues/267)).
+
+Local validation on branch `fix/live-require-risk-limits-v1` (base `ccab47de`): full suite **2,764 passed, 1 skipped**; Ruff check/format and strict mypy pass. **Non-claims:** no CI, no broker I/O, no LIVE operation, no composition root.
+
 ## LIVE session guard and trading gate results fail closed (2026-10-23)
 
 `ExecutionOrchestrator.execute()` now validates LIVE injected callback results instead of truth-testing them. A session guard result that is not an exact `SessionGuardResult` with a bool `allowed` and string `reason` returns `BLOCKED` with reason `live session guard returned an invalid result`; valid denials keep the guard's reason. `TradingGate.allow()`, `submission_permit()` and `admit_submission()` proceed only on exact `True`; invalid non-bool values return `BLOCKED` with reason `live trading gate returned an invalid result` before broker contact, and before reservation except at the admission boundary, where the existing pending reservation remains for reconciliation. PAPER/SHADOW/REPLAY/BACKTEST behavior, signatures, schema, fingerprints, adapters, recovery and existing reason strings are unchanged. Regression coverage includes string, integer, wrong-type and non-string-reason session results, plus truthy non-`True` gate values.

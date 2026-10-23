@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import cast
 
 import pytest
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
+from quantx.application.live_risk import LivePreTradeRiskEvaluator, LiveRiskEvaluationInputs
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
@@ -29,6 +31,7 @@ from quantx.domain.instruments import (
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import (
+    LiveRiskLimitsError,
     PreTradeRiskEngine,
     RiskContext,
     RiskDecision,
@@ -258,6 +261,31 @@ def _evaluator(intent=None, context=None, limits=None, snapshot=None):
         )
 
     return run
+
+
+def _live_evaluation_inputs(**overrides) -> LiveRiskEvaluationInputs:
+    values: dict = {
+        "intent": _intent(),
+        "context": _context(),
+        "snapshot": _snapshot(),
+        "evaluated_at": EVALUATED_AT,
+    }
+    values.update(overrides)
+    return LiveRiskEvaluationInputs(**values)
+
+
+def _live_pre_trade_evaluator(
+    limits: RiskLimits,
+    inputs: LiveRiskEvaluationInputs | None = None,
+) -> LivePreTradeRiskEvaluator:
+    def inputs_for_request(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
+        return inputs if inputs is not None else _live_evaluation_inputs()
+
+    return LivePreTradeRiskEvaluator(
+        engine=PreTradeRiskEngine(),
+        limits=limits,
+        inputs_for_request=inputs_for_request,
+    )
 
 
 # Existing behavior regression.
@@ -816,3 +844,98 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
         assert transport.submitted == ()
     finally:
         database.close()
+
+
+# LivePreTradeRiskEvaluator composition boundary.
+
+
+def test_live_pre_trade_evaluator_requires_explicit_limits() -> None:
+    with pytest.raises(LiveRiskLimitsError):
+        _live_pre_trade_evaluator(RiskLimits())
+
+
+def test_live_pre_trade_evaluator_approves_within_limits() -> None:
+    evaluator = _live_pre_trade_evaluator(_limits())
+
+    result = evaluator(_request())
+
+    assert result.decision is RiskDecision.APPROVE
+
+
+def test_live_pre_trade_evaluator_rejects_order_notional_over_limit() -> None:
+    evaluator = _live_pre_trade_evaluator(_limits(max_order_notional=Decimal("100")))
+
+    result = evaluator(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "ORDER_NOTIONAL_LIMIT_EXCEEDED" in result.reason
+
+
+def test_live_pre_trade_evaluator_rejects_position_notional_over_limit() -> None:
+    evaluator = _live_pre_trade_evaluator(_limits(max_position_notional=Decimal("100")))
+
+    result = evaluator(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "POSITION_EXPOSURE_LIMIT_EXCEEDED" in result.reason
+
+
+def test_live_pre_trade_evaluator_rejects_daily_loss_over_limit() -> None:
+    inputs = _live_evaluation_inputs(snapshot=_snapshot(daily_pnl=Decimal("-100")))
+    evaluator = _live_pre_trade_evaluator(_limits(max_daily_loss=Decimal("1")), inputs)
+
+    result = evaluator(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "DAILY_LOSS_LIMIT_EXCEEDED" in result.reason
+
+
+def test_live_pre_trade_evaluator_rejects_stale_snapshot() -> None:
+    snapshot = _snapshot(observed_at=datetime(2026, 1, 1, 9, 0, tzinfo=UTC))
+    inputs = _live_evaluation_inputs(snapshot=snapshot)
+    evaluator = _live_pre_trade_evaluator(
+        _limits(max_snapshot_age=timedelta(minutes=1)),
+        inputs,
+    )
+
+    result = evaluator(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "RISK_SNAPSHOT_STALE" in result.reason
+
+
+def test_live_pre_trade_evaluator_uses_provider_evaluated_at() -> None:
+    inputs = _live_evaluation_inputs(
+        snapshot=_snapshot(observed_at=datetime(2020, 1, 1, 9, 29, tzinfo=UTC)),
+        evaluated_at=datetime(2020, 1, 1, 9, 30, tzinfo=UTC),
+    )
+    evaluator = _live_pre_trade_evaluator(
+        _limits(max_snapshot_age=timedelta(minutes=5)),
+        inputs,
+    )
+
+    result = evaluator(_request())
+
+    assert result.decision is RiskDecision.APPROVE
+
+
+def test_live_pre_trade_evaluator_rejects_wrong_inputs_type() -> None:
+    evaluator = LivePreTradeRiskEvaluator(
+        engine=PreTradeRiskEngine(),
+        limits=_limits(),
+        inputs_for_request=lambda request: cast(LiveRiskEvaluationInputs, object()),
+    )
+
+    with pytest.raises(TypeError, match="LIVE risk evaluation inputs"):
+        evaluator(_request())
+
+
+def test_live_pre_trade_evaluator_keeps_validated_copy_after_source_mutation() -> None:
+    limits = _limits(max_order_notional=Decimal("100"))
+    evaluator = _live_pre_trade_evaluator(limits)
+    object.__setattr__(limits, "max_order_notional", Decimal("1000000"))
+
+    result = evaluator(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "ORDER_NOTIONAL_LIMIT_EXCEEDED" in result.reason

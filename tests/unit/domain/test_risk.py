@@ -1,6 +1,7 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import cast
 
 import pytest
 
@@ -24,7 +25,15 @@ from quantx.domain.instruments import (
     OptionType,
 )
 from quantx.domain.order_intents import TradeIntent
-from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
+from quantx.domain.risk import (
+    LiveRiskLimitsError,
+    PreTradeRiskEngine,
+    RiskContext,
+    RiskDecision,
+    RiskLimits,
+    RiskResult,
+    require_live_risk_limits,
+)
 from quantx.domain.value_objects import Money
 
 RULE_FROM = datetime(2026, 1, 1, tzinfo=UTC)
@@ -404,3 +413,162 @@ def test_derivative_intent_cannot_borrow_an_equity_context() -> None:
 
     assert result.decision is RiskDecision.REJECT
     assert "risk context instrument does not match" in result.reason
+
+
+_LIVE_LIMIT_FIELDS = (
+    "max_order_notional",
+    "max_position_notional",
+    "max_daily_loss",
+    "max_snapshot_age",
+)
+_LIVE_MONEY_FIELDS = _LIVE_LIMIT_FIELDS[:3]
+
+
+def _live_limit_values() -> dict:
+    return {
+        "max_order_notional": Decimal("100000"),
+        "max_position_notional": Decimal("100000"),
+        "max_daily_loss": Decimal("10000"),
+        "max_snapshot_age": timedelta(minutes=5),
+    }
+
+
+def _live_limits(**overrides) -> RiskLimits:
+    values = _live_limit_values()
+    values.update(overrides)
+    return RiskLimits(**values)
+
+
+def _forged_live_limit(name: str, value: object) -> RiskLimits:
+    limits = _live_limits()
+    object.__setattr__(limits, name, value)
+    return limits
+
+
+def test_live_risk_limits_require_all_mandatory_fields() -> None:
+    with pytest.raises(LiveRiskLimitsError) as exc:
+        require_live_risk_limits(RiskLimits())
+
+    message = str(exc.value)
+    for field in _LIVE_LIMIT_FIELDS:
+        assert field in message
+    assert "None" not in message
+
+
+@pytest.mark.parametrize("field", _LIVE_LIMIT_FIELDS)
+def test_live_risk_limits_name_only_the_missing_field(field: str) -> None:
+    limits = replace(_live_limits(), **{field: None})
+
+    with pytest.raises(LiveRiskLimitsError) as exc:
+        require_live_risk_limits(limits)
+
+    message = str(exc.value)
+    assert field in message
+    for other in _LIVE_LIMIT_FIELDS:
+        if other != field:
+            assert other not in message
+
+
+@pytest.mark.parametrize("field", _LIVE_MONEY_FIELDS)
+@pytest.mark.parametrize("value", (Decimal("0"), Decimal("-1")))
+def test_live_risk_limits_reject_non_positive_money_values(
+    field: str,
+    value: Decimal,
+) -> None:
+    with pytest.raises(LiveRiskLimitsError) as exc:
+        require_live_risk_limits(_forged_live_limit(field, value))
+
+    message = str(exc.value)
+    assert field in message
+    assert str(value) not in message
+
+
+@pytest.mark.parametrize("field", _LIVE_MONEY_FIELDS)
+@pytest.mark.parametrize("value", (True, 1, 1.5, "100"))
+def test_live_risk_limits_reject_non_decimal_money_values(
+    field: str,
+    value: object,
+) -> None:
+    with pytest.raises(LiveRiskLimitsError) as exc:
+        require_live_risk_limits(_forged_live_limit(field, value))
+
+    message = str(exc.value)
+    assert field in message
+    assert str(value) not in message
+
+
+@pytest.mark.parametrize("field", _LIVE_MONEY_FIELDS)
+@pytest.mark.parametrize(
+    "value",
+    (Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")),
+)
+def test_live_risk_limits_reject_non_finite_money_values(
+    field: str,
+    value: Decimal,
+) -> None:
+    with pytest.raises(LiveRiskLimitsError) as exc:
+        require_live_risk_limits(_forged_live_limit(field, value))
+
+    message = str(exc.value)
+    assert field in message
+    assert str(value) not in message
+
+
+@pytest.mark.parametrize("value", (timedelta(0), timedelta(seconds=-1)))
+def test_live_risk_limits_reject_non_positive_snapshot_age(value: timedelta) -> None:
+    with pytest.raises(LiveRiskLimitsError) as exc:
+        require_live_risk_limits(_forged_live_limit("max_snapshot_age", value))
+
+    message = str(exc.value)
+    assert "max_snapshot_age" in message
+    assert str(value) not in message
+
+
+@pytest.mark.parametrize("value", (True, 5, 1.5, "5m"))
+def test_live_risk_limits_reject_non_timedelta_snapshot_age(value: object) -> None:
+    with pytest.raises(LiveRiskLimitsError) as exc:
+        require_live_risk_limits(_forged_live_limit("max_snapshot_age", value))
+
+    message = str(exc.value)
+    assert "max_snapshot_age" in message
+    assert str(value) not in message
+
+
+def test_live_risk_limits_accept_valid_and_preserve_optional_fields() -> None:
+    limits = _live_limits(
+        max_portfolio_exposure=Decimal("1000000"),
+        max_instrument_concentration=Decimal("0.5"),
+        max_drawdown=Decimal("0.2"),
+    )
+
+    validated = require_live_risk_limits(limits)
+
+    assert validated == limits
+    assert validated is not limits
+
+
+def test_live_risk_limits_reject_subclass_and_duck_typed_objects() -> None:
+    class _RiskLimitsSubclass(RiskLimits):
+        pass
+
+    class _DuckLimits:
+        max_order_notional = Decimal("100000")
+        max_position_notional = Decimal("100000")
+        max_daily_loss = Decimal("10000")
+        max_snapshot_age = timedelta(minutes=5)
+
+    for limits in (
+        _RiskLimitsSubclass(**_live_limit_values()),
+        cast(RiskLimits, _DuckLimits()),
+    ):
+        with pytest.raises(LiveRiskLimitsError, match="RiskLimits"):
+            require_live_risk_limits(limits)
+
+
+def test_live_risk_limits_copy_is_independent_of_source_mutation() -> None:
+    limits = _live_limits()
+
+    validated = require_live_risk_limits(limits)
+    object.__setattr__(limits, "max_order_notional", None)
+
+    assert validated.max_order_notional == Decimal("100000")
