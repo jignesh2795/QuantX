@@ -1,5 +1,11 @@
 # QuantX Status
 
+## LIVE session guard and trading gate results fail closed (2026-10-23)
+
+`ExecutionOrchestrator.execute()` now validates LIVE injected callback results instead of truth-testing them. A session guard result that is not an exact `SessionGuardResult` with a bool `allowed` and string `reason` returns `BLOCKED` with reason `live session guard returned an invalid result`; valid denials keep the guard's reason. `TradingGate.allow()`, `submission_permit()` and `admit_submission()` proceed only on exact `True`; invalid non-bool values return `BLOCKED` with reason `live trading gate returned an invalid result` before broker contact, and before reservation except at the admission boundary, where the existing pending reservation remains for reconciliation. PAPER/SHADOW/REPLAY/BACKTEST behavior, signatures, schema, fingerprints, adapters, recovery and existing reason strings are unchanged. Regression coverage includes string, integer, wrong-type and non-string-reason session results, plus truthy non-`True` gate values.
+
+Local validation on branch `fix/live-callback-truthiness-v1` (base `20af647c`): full suite **2,714 passed, 1 skipped**; Ruff check/format and strict mypy pass. **Non-claims:** no CI, no broker I/O, no LIVE operation.
+
 ## LIVE risk evaluator malformed results fail closed (2026-10-23)
 
 `ExecutionOrchestrator.execute()` now validates the configured LIVE risk evaluator's result in the existing fail-closed handler. Values that are not `RiskResult` or that carry a non-`RiskDecision` decision or non-string reason return `BLOCKED` with reason `live pre-trade risk evaluation returned an invalid result` before any permit, reservation, or broker contact. Evaluator exceptions, valid non-APPROVE decisions, and all other execution modes are unchanged; no signatures, schema, fingerprints, adapters, or recovery code changed. Regression coverage: `None`, plain string, object without decision, wrong decision type, and non-string reason, each with zero permits/reservations/submits.
