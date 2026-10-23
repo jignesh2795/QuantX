@@ -1,5 +1,11 @@
 # QuantX Status
 
+## LIVE risk evaluator malformed results fail closed (2026-10-23)
+
+`ExecutionOrchestrator.execute()` now validates the configured LIVE risk evaluator's result in the existing fail-closed handler. Values that are not `RiskResult` or that carry a non-`RiskDecision` decision or non-string reason return `BLOCKED` with reason `live pre-trade risk evaluation returned an invalid result` before any permit, reservation, or broker contact. Evaluator exceptions, valid non-APPROVE decisions, and all other execution modes are unchanged; no signatures, schema, fingerprints, adapters, or recovery code changed. Regression coverage: `None`, plain string, object without decision, wrong decision type, and non-string reason, each with zero permits/reservations/submits.
+
+Local validation on branch `fix/live-risk-evaluator-malformed-result-v1` (base `3285092a`): full suite **2,704 passed, 1 skipped**; Ruff check/format and strict mypy pass. **Non-claims:** no CI, no broker I/O, no LIVE operation.
+
 ## LIVE execution requires a pre-trade risk evaluator — fail-closed guard (2026-10-23)
 
 `ExecutionOrchestrator.execute()` now returns `BLOCKED` with reason `live execution requires a configured pre-trade risk evaluator` for `ExecutionMode.LIVE` when no evaluator is configured. The check sits with the other LIVE composition prerequisites, before any gate permit, idempotency reservation, or broker contact. PAPER/SHADOW/REPLAY/BACKTEST behavior, signatures, serialization, SQLite schema, fingerprints, broker adapters, and recovery are unchanged; a configured evaluator keeps its existing fail-closed exception and non-APPROVE handling. Regression coverage: LIVE without an evaluator blocks with zero gate permits/reservations/submits; evaluator REJECT blocks with zero submits; approving evaluator still executes; PAPER without an evaluator still executes.
