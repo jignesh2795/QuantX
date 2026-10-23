@@ -1,5 +1,11 @@
 # QuantX Status
 
+## LIVE prerequisite declarations require exact booleans (2026-10-23)
+
+`ExecutionOrchestrator.execute()` now proceeds past the LIVE `TradingGate.is_durable` and `ApplicationRuntime.started` prerequisites only on exact `True`; a real `False` keeps its existing reason, while any other value (for example `"false"`, `1`, `None`, or a bool-like such as `numpy.bool_`) returns `BLOCKED` with a distinct fixed reason. `is True` intentionally rejects bool-likes. Check order, signatures, serialization, fingerprints, schema, adapters, recovery, and non-LIVE behavior are unchanged. Highest-priority remaining LIVE probe truthiness finding: `broker.health()` at `execution.py:801`, tracked as [#269](https://github.com/jignesh2795/QuantX/issues/269).
+
+Local validation on branch `fix/live-prerequisite-exact-bools-v1` (base `23018ab`): full suite **2,773 passed, 1 skipped**; focused execution file **113 passed**; Ruff check/format, strict mypy and `git diff --check` pass. **Non-claims:** no composition root, broker I/O, LIVE operation, or CI run.
+
 ## LIVE risk limits require explicit values (2026-10-23)
 
 `require_live_risk_limits` rejects LIVE limits unless per-order notional, per-symbol position notional, daily loss and maximum snapshot age are explicit exact positive `Decimal`/`timedelta` values; bools, ints, floats, strings, non-finite values, subclasses and duck types are rejected without coercion, and errors name fields only. `LivePreTradeRiskEvaluator` validates at construction, stores a copy, requires exact provider inputs and delegates unchanged to `PreTradeRiskEngine`; it reads no clock. `RiskLimits` defaults/`__post_init__` and non-LIVE behavior are unchanged. Report-only gaps: daily loss remains realized-only ([#266](https://github.com/jignesh2795/QuantX/issues/266)); arbitrary evaluator callables remain injectable until the composition root ([#267](https://github.com/jignesh2795/QuantX/issues/267)).

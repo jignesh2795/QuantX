@@ -580,20 +580,33 @@ class ExecutionOrchestrator:
                     ExecutionDispatchStatus.BLOCKED,
                     reason="live execution requires an explicitly configured durable TradingGate",
                 )
-            if not self._trading_gate.is_durable:
+            is_durable = self._trading_gate.is_durable
+            if is_durable is not True:
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
-                    reason="live execution requires a durable TradingGate",
+                    reason=(
+                        "live execution requires a durable TradingGate"
+                        if is_durable is False
+                        else "live execution requires a boolean durable TradingGate declaration"
+                    ),
                 )
             if self._application_runtime is None:
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason="live execution requires the recovery-backed ApplicationRuntime",
                 )
-            if not self._application_runtime.started:
+            started = self._application_runtime.started
+            if started is not True:
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
-                    reason="live execution requires a started ApplicationRuntime",
+                    reason=(
+                        "live execution requires a started ApplicationRuntime"
+                        if started is False
+                        else (
+                            "live execution requires a boolean started "
+                            "ApplicationRuntime declaration"
+                        )
+                    ),
                 )
             if self._submission_quarantine is None:
                 # LIVE admission requires the capability that preserves
