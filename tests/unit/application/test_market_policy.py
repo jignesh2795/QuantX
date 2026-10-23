@@ -146,11 +146,22 @@ class _FakeSubmissionQuarantine:
         return tuple(self._observations.values())
 
 
+def _approving_live_risk_evaluator():
+    """LIVE pre-trade risk is not under test here; approve explicitly."""
+
+    def approve(request) -> RiskResult:
+        return RiskResult(RiskDecision.APPROVE, "approved for test")
+
+    return approve
+
+
 def _live_orchestrator(**overrides) -> ExecutionOrchestrator:
+    live_risk_evaluator = overrides.pop("live_risk_evaluator", _approving_live_risk_evaluator())
     return ExecutionOrchestrator(
         trading_gate=DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True),
         application_runtime=_started_runtime(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=live_risk_evaluator,
         **overrides,
         policy_verifier=policy_verifier(),
     )

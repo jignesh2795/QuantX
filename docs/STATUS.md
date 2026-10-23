@@ -1,5 +1,11 @@
 # QuantX Status
 
+## LIVE execution requires a pre-trade risk evaluator — fail-closed guard (2026-10-23)
+
+`ExecutionOrchestrator.execute()` now returns `BLOCKED` with reason `live execution requires a configured pre-trade risk evaluator` for `ExecutionMode.LIVE` when no evaluator is configured. The check sits with the other LIVE composition prerequisites, before any gate permit, idempotency reservation, or broker contact. PAPER/SHADOW/REPLAY/BACKTEST behavior, signatures, serialization, SQLite schema, fingerprints, broker adapters, and recovery are unchanged; a configured evaluator keeps its existing fail-closed exception and non-APPROVE handling. Regression coverage: LIVE without an evaluator blocks with zero gate permits/reservations/submits; evaluator REJECT blocks with zero submits; approving evaluator still executes; PAPER without an evaluator still executes.
+
+Local validation on branch `fix/live-require-risk-evaluator-v1` (base `8f86f8f8`): full suite **2,699 passed, 1 skipped**; Ruff check/format and strict mypy pass. **Non-claims:** no GitHub Actions or paid CI, no broker I/O, no LIVE operation, and no production LIVE composition readiness claim.
+
 ## QX-08 v3.2.0 acceptance reconciliation — complete (2026-10-16)
 
 PR [#234](https://github.com/jignesh2795/QuantX/pull/234) merged the final acceptance-evidence slice as merge commit `fe832fc21b5e714b3e1827a94e381cf84bb43746`, preserving the validated feature commit `9bd0d0e8fe983e3f415d97aed205a5175447635b` in history. The patch changes only `tests/unit/application/test_backtest.py` and `tests/unit/application/test_strategy_rehearsal.py`; no production code changed.

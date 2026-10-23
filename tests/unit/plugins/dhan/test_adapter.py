@@ -179,6 +179,15 @@ def _approving_india_session_evaluator():
     return allow
 
 
+def _approving_live_risk_evaluator():
+    """LIVE pre-trade risk is not under test here; approve explicitly."""
+
+    def approve(request) -> RiskResult:
+        return RiskResult(RiskDecision.APPROVE, "approved for test")
+
+    return approve
+
+
 def _started_runtime() -> ApplicationRuntime:
     class NoopRecovery:
         def run(self, *, checked_at=None) -> PendingRecoveryRun:
@@ -568,6 +577,7 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             application_runtime=_started_runtime(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
@@ -713,6 +723,7 @@ def _quarantine_orchestrator(database) -> ExecutionOrchestrator:
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         policy_verifier=policy_verifier(),
     )
 

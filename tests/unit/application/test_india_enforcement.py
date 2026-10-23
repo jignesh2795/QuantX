@@ -182,6 +182,15 @@ def _evaluator(specs=None, product: ProductType | None = ProductType.CNC):
     return run
 
 
+def _approving_live_risk_evaluator():
+    """LIVE pre-trade risk is not under test here; approve explicitly."""
+
+    def approve(request) -> RiskResult:
+        return RiskResult(RiskDecision.APPROVE, "approved for test")
+
+    return approve
+
+
 def _approving_india_session_evaluator():
     def allow(request) -> IndiaSessionResult:
         return IndiaSessionResult(
@@ -205,6 +214,7 @@ def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
         "india_session_evaluator", _approving_india_session_evaluator()
     )
     rule_evaluator = overrides.pop("india_rule_evaluator", None)
+    live_risk_evaluator = overrides.pop("live_risk_evaluator", _approving_live_risk_evaluator())
     return ExecutionOrchestrator(
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(
@@ -216,6 +226,7 @@ def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
             rule_evaluator=rule_evaluator,
         ),
         submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+        live_risk_evaluator=live_risk_evaluator,
         **overrides,
         policy_verifier=policy_verifier(),
     )

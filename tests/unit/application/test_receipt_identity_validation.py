@@ -229,6 +229,15 @@ def _durable_gate() -> DurableTradingGate:
     return DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True)
 
 
+def _approving_live_risk_evaluator():
+    """LIVE pre-trade risk is not under test here; approve explicitly."""
+
+    def approve(request) -> RiskResult:
+        return RiskResult(RiskDecision.APPROVE, "approved for test")
+
+    return approve
+
+
 def _approving_india_evaluator():
     def approve(request) -> IndiaRuleResult:
         return IndiaRuleResult(
@@ -281,6 +290,7 @@ def _orchestrator(unit_of_work: _FakeUnitOfWork) -> ExecutionOrchestrator:
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         policy_verifier=policy_verifier(),
     )
 

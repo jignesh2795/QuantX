@@ -609,6 +609,11 @@ class ExecutionOrchestrator:
                     ExecutionDispatchStatus.BLOCKED,
                     reason=("live execution requires a durable submission quarantine repository"),
                 )
+            if self._live_risk_evaluator is None:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live execution requires a configured pre-trade risk evaluator",
+                )
 
         if not self._trading_gate.allow():
             state = self._trading_gate.state()
