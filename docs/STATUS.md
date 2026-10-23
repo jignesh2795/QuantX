@@ -1,5 +1,15 @@
 # QuantX Status
 
+## ExecutionContext.execution_mode must be an exact ExecutionMode enum (2026-10-23)
+
+`ExecutionContext.__post_init__` now rejects any mode that is not exactly an
+`ExecutionMode` enum member (`type(...) is ExecutionMode`); a plain `"live"`
+or `"paper"` string, a value string, `None` or an integer is blocked before any
+LIVE prerequisite, gate or adapter path. Global `execution_mode` tightening and
+annotation-only fields (`broker_connection_id`, `market_pack_id`, `rule_version`)
+remain tracked by [#271](https://github.com/jignesh2795/QuantX/issues/271).
+**Non-claims:** no broker I/O, no LIVE operation, no CI run.
+
 ## LIVE request client order id must be an exact UUID (2026-10-23)
 
 `ApprovedExecutionRequest` now rejects an `ExecutionMode.LIVE` request whose
