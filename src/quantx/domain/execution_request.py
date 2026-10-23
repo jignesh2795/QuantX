@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 from .deployment import ExecutionContext, ExecutionMode
 from .enums import PositionEffect
@@ -318,6 +319,8 @@ class ApprovedExecutionRequest:
                 raise ValueError("live execution requires a broker connection")
             if self.policy_result is None or not self.policy_result.approved:
                 raise ValueError("live execution requires an approved execution policy")
+            if type(self.order.client_order_id) is not UUID:
+                raise ValueError("live execution requires an exact UUID client_order_id")
         validate_instrument_resolution(self.order, self.instrument_resolution)
         validate_risk_resolution_binding(self.risk_result, self.instrument_resolution)
         validate_order_product_symmetry(
