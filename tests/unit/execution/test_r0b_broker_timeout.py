@@ -98,6 +98,15 @@ def _approving_india_session_evaluator():
     return allow
 
 
+def _approving_live_risk_evaluator():
+    """LIVE pre-trade risk is not under test here; approve explicitly."""
+
+    def approve(request) -> RiskResult:
+        return RiskResult(RiskDecision.APPROVE, "approved for test")
+
+    return approve
+
+
 class SlowTransport(InMemoryDhanTransport):
     """Transport whose submit/health block on events until released."""
 
@@ -288,6 +297,7 @@ def test_gate_block_completes_while_broker_submit_blocked(tmp_path) -> None:
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -362,6 +372,7 @@ def test_slow_health_probe_does_not_serialize_block(tmp_path) -> None:
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -415,6 +426,7 @@ def test_blocked_gate_creates_no_reservation_or_submission(tmp_path) -> None:
             trading_gate=gate,
             application_runtime=_started_runtime(),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -455,6 +467,7 @@ def test_authorized_reservation_continues_after_block(tmp_path) -> None:
             trading_gate=gate,
             application_runtime=_started_runtime(),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -509,6 +522,7 @@ def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -587,6 +601,7 @@ def test_late_broker_success_reconciles_without_resubmission(tmp_path) -> None:
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),
@@ -720,6 +735,7 @@ def test_idempotency_preserved_after_timeout(tmp_path) -> None:
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             market_policy=india_market_policy(
                 session_evaluator=_approving_india_session_evaluator(),
                 rule_evaluator=_approving_india_evaluator(),

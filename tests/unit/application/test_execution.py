@@ -293,6 +293,15 @@ def _durable_gate() -> DurableTradingGate:
     return DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True)
 
 
+def _approving_live_risk_evaluator():
+    """LIVE pre-trade risk is not under test here; approve explicitly."""
+
+    def approve(request) -> RiskResult:
+        return RiskResult(RiskDecision.APPROVE, "approved for test")
+
+    return approve
+
+
 def _approving_india_evaluator():
     """India layer is not under test here; approve explicitly to reach it."""
 
@@ -437,6 +446,7 @@ def test_live_requires_a_broker() -> None:
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -458,6 +468,7 @@ def test_live_blocks_account_mismatch() -> None:
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -478,6 +489,7 @@ def test_live_blocks_connection_mismatch() -> None:
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -497,6 +509,7 @@ def test_live_blocks_unhealthy_broker() -> None:
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -525,6 +538,7 @@ def test_live_blocks_missing_required_capability() -> None:
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -548,6 +562,7 @@ def test_live_blocks_broker_instrument_market_mismatch() -> None:
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -572,6 +587,7 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -597,6 +613,7 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -631,6 +648,7 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -670,6 +688,7 @@ def test_live_unknown_receipt_preserves_pending_reservation() -> None:
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -705,6 +724,7 @@ def test_live_unit_of_work_groups_receipt_and_completion() -> None:
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -747,6 +767,7 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -797,6 +818,7 @@ def test_live_without_application_runtime_is_blocked() -> None:
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -824,6 +846,7 @@ def test_live_with_unstarted_application_runtime_is_blocked() -> None:
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -859,6 +882,7 @@ def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1351,6 +1375,7 @@ def test_live_with_malformed_recovery_report_is_blocked_without_submit(
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1389,6 +1414,7 @@ def test_live_gate_block_not_blocked_by_slow_broker() -> None:
         unit_of_work=unit_of_work,
         trading_gate=gate,
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         application_runtime=_started_runtime(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
@@ -1436,6 +1462,7 @@ def test_live_without_unit_of_work_is_blocked() -> None:
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1561,6 +1588,7 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1593,6 +1621,7 @@ def _sqlite_setup(tmp_path):
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         policy_verifier=policy_verifier(),
     )
     return database, unit_of_work, orchestrator
@@ -1691,6 +1720,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database_a),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             policy_verifier=policy_verifier(),
         )
         first = orchestrator_a.execute(request, broker=FakeBroker())
@@ -1711,6 +1741,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
                 rule_evaluator=_approving_india_evaluator(),
             ),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database_b),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             policy_verifier=policy_verifier(),
         )
         second = orchestrator_b.execute(request, broker=broker_b)
@@ -1759,6 +1790,7 @@ def test_live_without_unit_of_work_does_not_submit() -> None:
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -1932,6 +1964,7 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
         unit_of_work=unit_of_work,
         trading_gate=gate,
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -2014,6 +2047,7 @@ def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
         unit_of_work=unit_of_work,
         trading_gate=gate,
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -2066,6 +2100,7 @@ def _sqlite_setup_with_quarantine(tmp_path):
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=quarantine,
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         policy_verifier=policy_verifier(),
     )
     return database, unit_of_work, orchestrator, quarantine
@@ -2173,6 +2208,7 @@ def _quarantine_orchestrator(database, *, gate=None):
             rule_evaluator=_approving_india_evaluator(),
         ),
         submission_quarantine=quarantine,
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         policy_verifier=policy_verifier(),
     )
     return unit_of_work, quarantine, orchestrator
@@ -2230,6 +2266,7 @@ def test_sqlite_commit_boundary_failure_is_unknown_not_false_success(tmp_path) -
                 rule_evaluator=_approving_india_evaluator(),
             ),
             submission_quarantine=quarantine,
+            live_risk_evaluator=_approving_live_risk_evaluator(),
             policy_verifier=policy_verifier(),
         )
         request = _live_request()
@@ -2469,6 +2506,7 @@ def test_quarantine_record_failure_latches_fault_without_permissive_path() -> No
         unit_of_work=unit_of_work,
         trading_gate=gate,
         submission_quarantine=FailingQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -2512,6 +2550,7 @@ def test_preflight_rejection_is_typed_not_submitted_without_operator_record() ->
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -2576,6 +2615,7 @@ def test_preflight_rejection_closure_failure_is_unresolved_without_resubmit(monk
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
@@ -2967,6 +3007,105 @@ class _CountingGate(DurableTradingGate):
         return super().admit_submission()
 
 
+def test_live_without_risk_evaluator_blocks_before_gate_reservation_and_broker() -> None:
+    """A missing LIVE pre-trade risk evaluator is a fail-closed prerequisite.
+
+    It must be established beside the other LIVE composition prerequisites,
+    before any gate permit, idempotency reservation, or broker contact.
+    """
+    store = _CountingIdempotencyStore()
+    unit_of_work = _FakeUnitOfWork(store)
+    gate = _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
+    broker = FakeBroker(connection_id=BrokerConnectionId("conn-1"))
+
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=gate,
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    ).execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "live execution requires a configured pre-trade risk evaluator"
+    assert gate.allow_calls == 0
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert store.reserve_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.committed is False
+
+
+def test_live_risk_rejection_blocks_without_broker_submit() -> None:
+    store = _CountingIdempotencyStore()
+    unit_of_work = _FakeUnitOfWork(store)
+    broker = FakeBroker()
+
+    def reject(request) -> RiskResult:
+        return RiskResult(RiskDecision.REJECT, "test risk rejected")
+
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=reject,
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    ).execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "live pre-trade risk rejected the request: test risk rejected" in result.reason
+    assert store.reserve_calls == 0
+    assert broker.submit_calls == 0
+
+
+def test_live_with_approving_risk_evaluator_proceeds() -> None:
+    broker = FakeBroker()
+
+    result = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=_FakeUnitOfWork(),
+        trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    ).execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+    assert broker.submit_calls == 1
+
+
+def test_paper_execution_does_not_require_live_risk_evaluator() -> None:
+    orchestrator = ExecutionOrchestrator(
+        paper_executor=FakePaperExecutor(),
+        policy_verifier=policy_verifier(),
+    )
+    request = _request(ExecutionMode.PAPER)
+    snapshot = Quote(
+        instrument=request.order.instrument,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        ask=Decimal("100"),
+    )
+
+    result = orchestrator.execute(request, snapshot=snapshot)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+
+
 def test_live_unresolved_product_blocks_before_gate_reservation_and_broker() -> None:
     """The LIVE unresolved-product guard is a real control-path regression.
 
@@ -3012,6 +3151,7 @@ def test_live_unresolved_product_blocks_before_gate_reservation_and_broker() -> 
         trading_gate=gate,
         application_runtime=_started_runtime(),
         submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
         policy_verifier=policy_verifier(),
     ).execute(request, broker=broker)
 
