@@ -3057,6 +3057,60 @@ def _live_callback_orchestrator(
     return orchestrator, gate, store, broker, unit_of_work
 
 
+class _GateReportingDurability(_CountingGate):
+    """Counting durable gate that can report a non-boolean declaration."""
+
+    def __init__(self, is_durable: object) -> None:
+        super().__init__(InMemoryTradingGateStateStore(), default_enabled=True)
+        object.__setattr__(self, "is_durable", is_durable)
+
+
+class _RuntimeReportingStarted:
+    """Minimal runtime stand-in exposing a chosen started value."""
+
+    def __init__(self, started: object) -> None:
+        self.started = started
+
+
+def _runtime_reporting(started: object) -> ApplicationRuntime:
+    return cast(ApplicationRuntime, _RuntimeReportingStarted(started))
+
+
+def _live_prerequisite_orchestrator(
+    *,
+    gate: _CountingGate,
+    runtime: ApplicationRuntime,
+) -> tuple[ExecutionOrchestrator, _CountingIdempotencyStore, FakeBroker]:
+    store = _CountingIdempotencyStore()
+    broker = FakeBroker()
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=runtime,
+        unit_of_work=_FakeUnitOfWork(store),
+        trading_gate=gate,
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    )
+    return orchestrator, store, broker
+
+
+def _assert_no_live_prerequisite_side_effects(
+    gate: _CountingGate,
+    store: _CountingIdempotencyStore,
+    broker: FakeBroker,
+) -> None:
+    assert gate.allow_calls == 0
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert store.reserve_calls == 0
+    assert store.check_calls == 0
+    assert broker.submit_calls == 0
+
+
 class _ScriptedSessionGuard(SessionExecutionGuard):
     def __init__(self, result) -> None:
         self._result = result
@@ -3440,3 +3494,85 @@ def test_orchestrator_does_not_resolve_products_at_submission_time() -> None:
             product_selection=INDIA_EQUITY_PRODUCT_SELECTION,  # type: ignore[call-arg]
             policy_verifier=policy_verifier(),
         )
+
+
+@pytest.mark.parametrize("declared", ["false", 1, None])
+def test_live_gate_durability_non_boolean_declaration_is_blocked(
+    declared: object,
+) -> None:
+    gate = _GateReportingDurability(declared)
+    orchestrator, store, broker = _live_prerequisite_orchestrator(
+        gate=gate,
+        runtime=_started_runtime(),
+    )
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == ("live execution requires a boolean durable TradingGate declaration")
+    _assert_no_live_prerequisite_side_effects(gate, store, broker)
+
+
+def test_live_gate_durability_false_keeps_existing_reason() -> None:
+    gate = _GateReportingDurability(False)
+    orchestrator, store, broker = _live_prerequisite_orchestrator(
+        gate=gate,
+        runtime=_started_runtime(),
+    )
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "live execution requires a durable TradingGate"
+    _assert_no_live_prerequisite_side_effects(gate, store, broker)
+
+
+@pytest.mark.parametrize("declared", ["false", 1, None])
+def test_live_runtime_started_non_boolean_declaration_is_blocked(
+    declared: object,
+) -> None:
+    gate = _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
+    orchestrator, store, broker = _live_prerequisite_orchestrator(
+        gate=gate,
+        runtime=_runtime_reporting(declared),
+    )
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == (
+        "live execution requires a boolean started ApplicationRuntime declaration"
+    )
+    _assert_no_live_prerequisite_side_effects(gate, store, broker)
+
+
+def test_live_runtime_started_false_keeps_existing_reason() -> None:
+    gate = _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
+    orchestrator, store, broker = _live_prerequisite_orchestrator(
+        gate=gate,
+        runtime=_runtime_reporting(False),
+    )
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "live execution requires a started ApplicationRuntime"
+    _assert_no_live_prerequisite_side_effects(gate, store, broker)
+
+
+def test_live_exact_true_prerequisites_proceed() -> None:
+    gate = _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
+    orchestrator, store, broker = _live_prerequisite_orchestrator(
+        gate=gate,
+        runtime=_started_runtime(),
+    )
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is not None
+    assert broker.submit_calls == 1
+    assert gate.allow_calls == 1
+    assert gate.permit_calls == 1
+    assert gate.admit_calls == 1
+    assert store.reserve_calls == 1
