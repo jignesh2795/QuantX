@@ -20,6 +20,12 @@ from .experiment_comparison_read import ExperimentComparisonReadService
 from .experiment_detail_read import ExperimentDetailReadService, ExperimentDetailSnapshot
 from .experiment_read import ExperimentReadService, ExperimentSnapshot
 from .experiment_write import ExperimentWriteService
+from .live_execution import (
+    LiveExecutionCompositionError,
+    LiveExecutionConfig,
+    LiveExecutionStack,
+    build_live_execution,
+)
 from .pending_reconciliation import reconcile_pending_execution
 from .pending_recovery import (
     PendingExecutionRecoveryRunner,
@@ -78,6 +84,9 @@ __all__ = [
     "ExecutionDispatchStatus",
     "ExecutionOrchestrator",
     "ExecutionResult",
+    "LiveExecutionCompositionError",
+    "LiveExecutionConfig",
+    "LiveExecutionStack",
     "OrderStateReconciliationResult",
     "OrderStateReconciliationWorkflow",
     "OrderWorkflowStatus",
@@ -97,6 +106,7 @@ __all__ = [
     "ResolvedRecoveryEndpoint",
     "recover_pending_live_executions",
     "build_production_runtime",
+    "build_live_execution",
     "reconcile_pending_execution",
     "ReconciliationEvidenceProvider",
     "ReconciliationEvidenceRefresher",
