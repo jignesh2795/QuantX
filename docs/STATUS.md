@@ -1,5 +1,13 @@
 # QuantX Status
 
+## LIVE region lock: India-only composition root (2026-10-24)
+
+`build_live_execution` derives its market policy from `MarketRegion` members: India keeps the
+caller's classification and placements unchanged; every other region requires both stages
+with no registered checks, so a non-India LIVE request is blocked by the market stage after
+the gate and request-proof checks. A caller policy placing a non-India check fails the build.
+Non-claims: no broker I/O, no LIVE operation; risk inputs stay caller-supplied; clock is later.
+
 ## LIVE gate disarms on every process start — slice A2 (2026-10-24)
 
 The candidate for slice A2 updates `build_live_execution(runtime, config)` to persist a disarmed

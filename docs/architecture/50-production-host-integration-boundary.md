@@ -111,8 +111,12 @@ state left by a prior process; an operator must explicitly enable the gate after
 start. If the disarm write fails, composition raises and the host must not expose execution.
 Invalid configuration is rejected before gate construction and writes no durable state.
 
-- India-only by contract: the build requires the India pack with at least one pre-dispatch and
-  one pre-submit check.
+- India-only by enforcement: the factory derives a restrictive market policy from
+  `MarketRegion` members. India keeps the caller's classification and check placements
+  unchanged; every other region requires both policy stages with no registered checks, so a
+  non-India LIVE request is blocked by the market stage after the gate and request-proof
+  checks and before risk evaluation, reservation, or broker observations.
+- A caller policy that places any check for a non-India region is rejected at build time.
 - Risk inputs are caller-supplied; the factory neither produces nor verifies them.
 - The trusted clock is a later slice (slice B); none is composed here.
 - `ExecutionOrchestrator` still accepts arbitrary callables when constructed directly, so this
