@@ -285,7 +285,14 @@ class ExecutionOrchestrator:
         market_policy: MarketPolicyConfig | None = None,
         submission_quarantine: SubmissionQuarantineRepository | None = None,
         policy_verifier: MarketPackPolicyVerifier,
+        live_region_allowlist: frozenset[MarketRegion] | None = None,
     ) -> None:
+        if live_region_allowlist is not None and (
+            type(live_region_allowlist) is not frozenset
+            or any(type(region) is not MarketRegion for region in live_region_allowlist)
+        ):
+            raise ValueError("live_region_allowlist must be a frozenset of MarketRegion values")
+        self._live_region_allowlist = live_region_allowlist
         self._paper_executor = paper_executor
         self._unit_of_work = unit_of_work
         self._trading_gate = trading_gate or TradingGate()
@@ -567,6 +574,21 @@ class ExecutionOrchestrator:
         broker: BrokerPort | None = None,
     ) -> ExecutionResult:
         mode = request.execution_context.execution_mode
+
+        # The sanctioned LIVE composition may be limited to an explicit set
+        # of regions. Enforce that restriction before proof verification,
+        # risk evaluation, trading-gate access, or broker observations.
+        if mode is ExecutionMode.LIVE and self._live_region_allowlist is not None:
+            market = getattr(request.execution_context, "market", None)
+            region = getattr(market, "region", None)
+            if (
+                type(region) is not MarketRegion
+                or region not in self._live_region_allowlist
+            ):
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE execution is not enabled for this market region",
+                )
 
         # The request's product and position-effect claims are verified
         # against the deployment's canonical versioned market-pack policies

@@ -1,5 +1,18 @@
 # QuantX Status
 
+## LIVE composition enforces India-only region allowlist — slice A3 (2026-10-24)
+
+The draft slice A3 adds an explicit LIVE region allowlist to `ExecutionOrchestrator`; the
+sanctioned `build_live_execution` composition sets it to `{MarketRegion.INDIA}`. A non-India LIVE
+request is blocked before request-proof verification, risk evidence evaluation, trading-gate
+access, reservation, or broker observations. The former test that demonstrated a non-India submit
+is replaced with a regression requiring `BLOCKED`, zero broker submissions, no risk-input
+provider call, and no quarantine record after explicit gate enablement.
+
+**Validation status:** local exact-SHA tests and static checks are pending. Do not merge until the
+focused composition tests, relevant execution/gate tests, full suite, Ruff check/format, strict
+mypy, and `git diff --check` pass on the exact candidate SHA. No GitHub Actions or paid CI.
+
 ## LIVE gate disarms on every process start — slice A2 (2026-10-24)
 
 The candidate for slice A2 updates `build_live_execution(runtime, config)` to persist a disarmed

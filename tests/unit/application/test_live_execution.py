@@ -520,33 +520,43 @@ def test_built_stack_blocks_a_malformed_risk_evaluator_result(tmp_path, monkeypa
         database.close()
 
 
-def test_non_india_live_request_through_the_built_stack_is_recorded(tmp_path) -> None:
-    """Recorded residual gap: the factory's guards are India-complete only.
-
-    The request resolves through a trusted test-policy pack and the broker
-    exposes a matching instrument, so nothing in the factory's guard set can
-    stop it: the India market policy does not apply to another region and no
-    session guard is composed. The observed outcome is recorded here rather
-    than fixed; the slice-A adversarial review flags it.
-    """
+def test_non_india_live_request_through_the_built_stack_is_blocked(tmp_path) -> None:
+    """The sanctioned LIVE composition is India-only, even after gate enablement."""
     database = SqliteDatabase(tmp_path / "quantx.db")
+    risk_input_calls: list[ApprovedExecutionRequest] = []
+
+    def record_risk_inputs(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
+        risk_input_calls.append(request)
+        return _approving_risk_inputs(request)
+
     try:
         runtime = _runtime(database)
-        stack = build_live_execution(runtime, _config())
+        stack = build_live_execution(
+            runtime,
+            _config(risk_inputs_for_request=record_risk_inputs),
+        )
         stack.gate.enable()
         broker = FakeBroker(instrument=_north_america_instrument())
-
-        result = stack.orchestrator.execute(
-            _request(_north_america_market(), pack_id=TEST_PACK_ID, rule_version=TEST_RULE_VERSION),
-            broker=broker,
+        request = _request(
+            _north_america_market(),
+            pack_id=TEST_PACK_ID,
+            rule_version=TEST_RULE_VERSION,
         )
 
-        assert result.status is ExecutionDispatchStatus.EXECUTED
-        assert result.receipt is not None
-        assert broker.submit_calls == 1
+        result = stack.orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert result.reason == "LIVE execution is not enabled for this market region"
+        assert broker.submit_calls == 0
+        assert risk_input_calls == []
+        assert (
+            SqliteSubmissionQuarantineRepository(database).list_by_client_order(
+                request.order.client_order_id
+            )
+            == ()
+        )
     finally:
         database.close()
-
 
 def test_build_rejects_a_duck_typed_runtime(tmp_path) -> None:
     """A runtime-shaped object that is not a ProductionRuntime cannot build."""

@@ -149,5 +149,6 @@ def build_live_execution(
         market_policy=config.market_policy,
         submission_quarantine=quarantine,
         policy_verifier=config.policy_verifier,
+        live_region_allowlist=frozenset({MarketRegion.INDIA}),
     )
     return LiveExecutionStack(orchestrator=orchestrator, gate=gate)
