@@ -9,10 +9,18 @@ must explicitly enable the gate after each process start. Regression coverage se
 store as enabled, rebuilds the stack, and verifies the persisted gate is disabled and a LIVE
 request is blocked before broker submission.
 
-**Validation status:** exact-candidate-SHA local tests and static checks are pending. No GitHub
-Actions or paid CI is used. This behavior is separate from region authorization: after an explicit
-enable, the previously measured non-India LIVE execution path remains a distinct review finding
-and is not fixed by startup disarming.
+**Validation evidence (code-bearing SHA `f6deba4594a25fc2b5af82627f8777fe2ed77417`):**
+the focused composition-root module reports **14 passed**; the trading-gate/execution persistence
+tests report **29 passed**; the full suite reports **2,904 passed, 1 skipped, 1 warning** (the
+base SHA reported **2,903 passed, 1 skipped, 1 warning**). Ruff check passes with no findings;
+Ruff format check reports **404 files already formatted**; strict mypy reports **no issues in
+201 source files**; and `git diff --check` is clean. These measurements bind to the code-bearing
+candidate SHA above. This status-text correction is documentation-only and does not claim that the
+new documentation commit itself was re-tested. No GitHub Actions or paid CI was used.
+
+This behavior is separate from region authorization: after an explicit enable, the previously
+measured non-India LIVE execution path remains a distinct review finding and is not fixed by
+startup disarming.
 
 ## LIVE execution composition root, slice A (2026-10-24)
 
