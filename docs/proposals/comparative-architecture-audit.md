@@ -120,3 +120,27 @@ Do not copy a reference project's architecture wholesale. Respect license terms 
 ## 7. Exit criteria
 
 The comparative audit is complete only when each high-priority conclusion is backed by source evidence, the current QuantX behavior is verified, conflicting patterns are explained, and the recommended changes can be implemented incrementally without broad unproven refactors.
+
+
+## 8. Required Indian-market and broker/API coverage
+
+OpenAlgo is a starting reference, not a sufficient survey of the Indian ecosystem. Add an evidence-based review of relevant projects and official integration surfaces, selecting examples based on current maintenance, documented APIs, license, tests, and practical fit. At minimum, evaluate:
+
+- OpenAlgo — self-hosted Indian multi-broker control plane and broker-normalization patterns.
+- Official broker APIs: Zerodha Kite Connect, Upstox API, Dhan HQ API, Angel One SmartAPI, Fyers API, and Shoonya API, where current documentation and access terms permit meaningful evaluation.
+- Other actively maintained Indian open-source broker adapters or gateways discovered during research; verify repository identity, license, recent activity, and actual implementation before inclusion.
+- Global engine/connector references: LEAN, NautilusTrader, Hummingbot, CCXT, Backtrader/VectorBT, Freqtrade, and Jesse, comparing each only on capabilities relevant to its purpose.
+
+This is a research checklist, not an endorsement, compatibility claim, or promise to implement every broker. Verify official API documentation and repository evidence at audit time; record retrieval date and pinned repository revision.
+
+## 9. Mandatory comparison output
+
+For each reference, record: project/API and official URL; license and maintenance signal; repository revision or documentation version and audit date; purpose and applicable asset classes/venues; relevant architecture boundaries; actual connector/order/data capabilities and unsupported cases; tests, sandbox/paper support, and failure/recovery coverage; authentication/security and rate-limit considerations; QuantX equivalent with exact source/test paths or explicit absence; finding severity, confidence, recommendation (adopt/adapt/defer/reject), and evidence.
+
+Do not compare raw feature counts as if projects have identical purposes. Separate product breadth from engine correctness, connector breadth from tested reliability, and documentation claims from source-confirmed behavior.
+
+## 10. Required QuantX conformance checks
+
+Inspect actual source and tests for: (1) import/dependency direction; (2) canonical instrument identity and derivative metadata; (3) explicit money, quantity, fee, margin, funding, settlement, and corporate-action units; (4) timezone-aware timestamps, calendars, sessions, holidays, data gaps, and trusted-clock behavior; (5) partial fills, cancel/replace, rejects, unknown submission outcomes, idempotency, reconciliation, and restart recovery; (6) capability negotiation and fail-closed handling of unsupported operations; (7) point-in-time data, look-ahead/survivorship bias, transaction costs, slippage, deterministic replay, and research/live parity limits; (8) account/market isolation, risk freshness, durable kill-switch/trading gates, startup readiness, and LIVE eligibility; (9) persistence, audit trail, observability, secrets, and operator recovery; and (10) licensing, compatibility/versioning, and support claims.
+
+Each check must produce pass/partial/fail/not assessed, evidence paths, test evidence, risk, and next action. Do not mark a check passed based on an enum, interface name, or README statement alone.
