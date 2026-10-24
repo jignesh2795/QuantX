@@ -19,7 +19,7 @@ from quantx.execution.idempotency import (
     NotSubmittedSource,
     PendingExecutionContext,
     validate_decision_for_request,
-    validate_decision_intrinsic,
+    validate_decision_state,
 )
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
@@ -32,6 +32,7 @@ from quantx.execution.ports import (
 )
 from quantx.execution.receipts.identity import (
     ReceiptIdentityViolation,
+    validate_cached_receipt_identity,
     validate_live_receipt_identity,
     validate_receipt_runtime_shape,
 )
@@ -116,6 +117,18 @@ _QUARANTINE_REASONS: dict[QuarantineObservationKind, str] = {
 
 def _quarantine_reason(kind: QuarantineObservationKind) -> str:
     return _QUARANTINE_REASONS[kind]
+
+
+# Fixed operator-facing reasons. A contract violation must never echo a foreign
+# identity value back to the caller; the diagnostic belongs in sanitized
+# reconciliation evidence instead.
+_LIVE_DECISION_REJECTED_REASON = (
+    "live idempotency decision failed contract validation; no broker submission was attempted"
+)
+_CACHED_RECEIPT_IDENTITY_REASON = (
+    "cached receipt for a completed reservation does not belong to the approved request; "
+    "reconciliation is required"
+)
 
 
 def _validated_evidence(
@@ -929,7 +942,7 @@ class ExecutionOrchestrator:
         except IdempotencyDecisionValidationError:
             return ExecutionResult(
                 ExecutionDispatchStatus.BLOCKED,
-                reason="live idempotency decision validation failed safely",
+                reason=_LIVE_DECISION_REJECTED_REASON,
             )
         if pack_applies:
             return self._with_evidence_prefix(live_result, check_entries)
@@ -1009,6 +1022,53 @@ class ExecutionOrchestrator:
             receipt=receipt,
         )
 
+    def _cached_receipt_result(
+        self,
+        request: ApprovedExecutionRequest,
+        fingerprint: str,
+        receipt_id: UUID,
+        receipt: ExecutionReceipt,
+    ) -> ExecutionResult:
+        """Return the receipt already stored against a completed reservation.
+
+        A duplicate never submits again, so the stored receipt becomes the
+        authoritative execution evidence for this request. Its identity must be
+        proven against the request first, at both duplicate paths. A mismatch is
+        an unresolved duplicate: the foreign receipt is never returned as this
+        request's result and never persisted as this request's evidence, so the
+        outcome is UNKNOWN with a fixed reason and the diagnostic stays in
+        sanitized reconciliation evidence. The reservation is left untouched.
+        """
+        try:
+            violation = validate_cached_receipt_identity(
+                request, receipt_id=receipt_id, receipt=receipt
+            )
+        except Exception:
+            return self._fail_closed_unknown(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.MALFORMED_RECEIPT,
+                receipt=receipt,
+                expose_receipt=False,
+                reason=_CACHED_RECEIPT_IDENTITY_REASON,
+                quarantine_reason="cached receipt could not be inspected safely",
+            )
+        if violation is not None:
+            return self._fail_closed_unknown(
+                request,
+                fingerprint,
+                kind=QuarantineObservationKind.IDENTITY_REJECTED,
+                receipt=receipt,
+                expose_receipt=False,
+                reason=_CACHED_RECEIPT_IDENTITY_REASON,
+                quarantine_reason=violation.reason,
+            )
+        return ExecutionResult(
+            ExecutionDispatchStatus.EXECUTED,
+            receipt=receipt,
+            reason=f"idempotent duplicate; receipt={receipt_id}",
+        )
+
     def _execute_live_transactional(
         self,
         request: ApprovedExecutionRequest,
@@ -1039,6 +1099,19 @@ class ExecutionOrchestrator:
         # Completed duplicates and existing pending reservations never submit.
         with unit_of_work:
             existing = unit_of_work.idempotency.check(client_order_id, fingerprint)
+            # A decision is evidence about one client order. It is usable only
+            # when it is bound to this request and its state is one a reservation
+            # store can actually produce; anything else is a contract violation
+            # raised inside the unit of work so the read rolls back.
+            violation = validate_decision_for_request(
+                existing,
+                client_order_id=client_order_id,
+                request_fingerprint=fingerprint,
+            )
+            if violation is None:
+                violation = validate_decision_state(existing)
+            if violation is not None:
+                raise IdempotencyDecisionValidationError(violation)
             if existing.existing_receipt_id is not None:
                 authoritative = unit_of_work.receipts.get(existing.existing_receipt_id)
                 if authoritative is None:
@@ -1049,22 +1122,11 @@ class ExecutionOrchestrator:
                             "reconciliation is required"
                         ),
                     )
-                try:
-                    identity_check = validate_live_receipt_identity(request, authoritative)
-                except Exception:
-                    return ExecutionResult(
-                        ExecutionDispatchStatus.BLOCKED,
-                        reason="cached receipt identity validation failed safely",
-                    )
-                if identity_check is not None:
-                    return ExecutionResult(
-                        ExecutionDispatchStatus.BLOCKED,
-                        reason=f"cached receipt identity rejected: {identity_check.reason}",
-                    )
-                return ExecutionResult(
-                    ExecutionDispatchStatus.EXECUTED,
-                    receipt=authoritative,
-                    reason=f"idempotent duplicate; receipt={existing.existing_receipt_id}",
+                return self._cached_receipt_result(
+                    request,
+                    fingerprint,
+                    existing.existing_receipt_id,
+                    authoritative,
                 )
             if existing.reservation_pending:
                 return ExecutionResult(
@@ -1114,12 +1176,15 @@ class ExecutionOrchestrator:
                     fingerprint,
                     pending_context,
                 )
-                violation_request = validate_decision_for_request(decision)
-                violation_intrinsic = validate_decision_intrinsic(decision)
-                if violation_request is not None or violation_intrinsic is not None:
-                    raise IdempotencyDecisionValidationError(
-                        violation_request or violation_intrinsic
-                    )
+                violation_request = validate_decision_for_request(
+                    decision,
+                    client_order_id=client_order_id,
+                    request_fingerprint=fingerprint,
+                )
+                if violation_request is None:
+                    violation_request = validate_decision_state(decision)
+                if violation_request is not None:
+                    raise IdempotencyDecisionValidationError(violation_request)
                 if decision.existing_receipt_id is not None:
                     authoritative = unit_of_work.receipts.get(decision.existing_receipt_id)
                     if authoritative is None:
@@ -1130,10 +1195,11 @@ class ExecutionOrchestrator:
                                 "reconciliation is required"
                             ),
                         )
-                    return ExecutionResult(
-                        ExecutionDispatchStatus.EXECUTED,
-                        receipt=authoritative,
-                        reason=f"idempotent duplicate; receipt={decision.existing_receipt_id}",
+                    return self._cached_receipt_result(
+                        request,
+                        fingerprint,
+                        decision.existing_receipt_id,
+                        authoritative,
                     )
                 if decision.reservation_pending and not decision.reservation_acquired:
                     return ExecutionResult(

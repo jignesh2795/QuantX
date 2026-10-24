@@ -25,9 +25,12 @@ Safety invariants tested:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
+
+import pytest
 
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.application.pending_recovery import PendingRecoveryRun
@@ -53,14 +56,16 @@ from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
-from quantx.execution.idempotency import InMemoryIdempotencyStore
+from quantx.execution.idempotency import IdempotencyDecision, InMemoryIdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.identity import (
     ReceiptIdentityViolation,
+    validate_cached_receipt_identity,
     validate_live_receipt_identity,
 )
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+from quantx.execution.receipts.quarantine import QuarantineObservationKind
 from quantx.execution.trading_gate import DurableTradingGate, InMemoryTradingGateStateStore
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
@@ -172,8 +177,8 @@ class _FakeReceiptRepository(ReceiptRepository):
 
 
 class _FakeUnitOfWork(UnitOfWork):
-    def __init__(self) -> None:
-        self._store = InMemoryIdempotencyStore()
+    def __init__(self, store: InMemoryIdempotencyStore | None = None) -> None:
+        self._store = store or InMemoryIdempotencyStore()
         self._repository = _FakeReceiptRepository()
         self.committed = False
         self.rolled_back = False
@@ -280,7 +285,11 @@ def _started_runtime() -> ApplicationRuntime:
     return runtime
 
 
-def _orchestrator(unit_of_work: _FakeUnitOfWork) -> ExecutionOrchestrator:
+def _orchestrator(
+    unit_of_work: _FakeUnitOfWork,
+    *,
+    submission_quarantine=None,
+) -> ExecutionOrchestrator:
     return ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
@@ -289,7 +298,7 @@ def _orchestrator(unit_of_work: _FakeUnitOfWork) -> ExecutionOrchestrator:
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),
         ),
-        submission_quarantine=_FakeSubmissionQuarantine(),
+        submission_quarantine=submission_quarantine or _FakeSubmissionQuarantine(),
         live_risk_evaluator=_approving_live_risk_evaluator(),
         policy_verifier=policy_verifier(),
     )
@@ -1150,3 +1159,321 @@ def test_continuation_child_receipt_rejected_with_foreign_client_order_id() -> N
     result = validate_live_receipt_identity(child_request, child_receipt)
     assert isinstance(result, ReceiptIdentityViolation)
     assert "client_order_id" in result.reason
+
+
+# ---------------------------------------------------------------------------
+# Cached receipt identity for a completed reservation (both duplicate paths)
+# ---------------------------------------------------------------------------
+
+# A fixed identity so the canonical/non-canonical string forms are decided by the
+# test, never by which hex digits a random UUID happens to contain.
+_CANONICAL_UUID = UUID("abcdef01-2345-4678-89ab-cdef01234567")
+_CACHED_RECEIPT_IDENTITY_REASON = (
+    "cached receipt for a completed reservation does not belong to the approved request; "
+    "reconciliation is required"
+)
+
+
+def _bound_request(client_order_id: UUID | None = None) -> ApprovedExecutionRequest:
+    """A LIVE request whose order identity is a chosen UUID."""
+    request = _live_request()
+    if client_order_id is None:
+        return request
+    return replace(request, order=replace(request.order, client_order_id=client_order_id))
+
+
+def _cached_receipt(
+    request: ApprovedExecutionRequest,
+    *,
+    receipt_id: UUID | None = None,
+    **overrides,
+) -> ExecutionReceipt:
+    """A valid receipt for ``request`` with individually corrupted identity fields."""
+    return replace(_valid_receipt(request), receipt_id=receipt_id or uuid4(), **overrides)
+
+
+def _cached_violation(request, receipt, *, receipt_id: UUID | None = None):
+    return validate_cached_receipt_identity(
+        request,
+        receipt_id=receipt.receipt_id if receipt_id is None else receipt_id,
+        receipt=receipt,
+    )
+
+
+def test_cached_validator_accepts_uuid_client_order_id() -> None:
+    request = _bound_request(_CANONICAL_UUID)
+    receipt = _cached_receipt(request)
+    assert _cached_violation(request, receipt) is None
+
+
+def test_cached_validator_accepts_the_canonical_string_identity() -> None:
+    """A stored receipt may carry the canonical string rendering of the same UUID."""
+    request = _bound_request(_CANONICAL_UUID)
+    receipt = _cached_receipt(request, client_order_id=str(_CANONICAL_UUID))
+    assert _cached_violation(request, receipt) is None
+
+
+@pytest.mark.parametrize(
+    "render",
+    [
+        lambda value: value.upper(),
+        lambda value: "{" + value + "}",
+        lambda value: " " + value,
+        lambda value: value + " ",
+        lambda value: value.replace("-", ""),
+        lambda value: "urn:uuid:" + value,
+    ],
+    ids=[
+        "uppercase",
+        "braced",
+        "leading-space",
+        "trailing-space",
+        "unhyphenated",
+        "urn-prefixed",
+    ],
+)
+def test_cached_validator_rejects_non_canonical_string_identity(render) -> None:
+    """Only the canonical rendering is identity; nothing is parsed or normalised."""
+    request = _bound_request(_CANONICAL_UUID)
+    canonical = str(_CANONICAL_UUID)
+    rendered = render(canonical)
+    assert rendered != canonical
+
+    violation = _cached_violation(request, _cached_receipt(request, client_order_id=rendered))
+
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "canonical request identity" in violation.reason
+
+
+def test_cached_validator_rejects_a_foreign_client_order_id() -> None:
+    request = _bound_request()
+    violation = _cached_violation(request, _cached_receipt(request, client_order_id=uuid4()))
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "client_order_id" in violation.reason
+
+
+def test_cached_validator_rejects_a_different_reservation_receipt_id() -> None:
+    request = _bound_request()
+    receipt = _cached_receipt(request)
+    violation = _cached_violation(request, receipt, receipt_id=uuid4())
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "reservation receipt id" in violation.reason
+
+
+def test_cached_validator_rejects_a_non_uuid_receipt_id() -> None:
+    request = _bound_request()
+    receipt = _cached_receipt(request)
+    violation = _cached_violation(request, receipt, receipt_id=str(receipt.receipt_id))
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "exact UUID" in violation.reason
+
+
+def test_cached_validator_rejects_a_payload_that_is_not_a_receipt() -> None:
+    request = _bound_request()
+    violation = validate_cached_receipt_identity(request, receipt_id=uuid4(), receipt=object())
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "not an ExecutionReceipt" in violation.reason
+
+
+def test_cached_validator_rejects_a_foreign_correlation() -> None:
+    request = _bound_request()
+    violation = _cached_violation(
+        request, _cached_receipt(request, correlation_id="foreign-correlation")
+    )
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "correlation_id" in violation.reason
+
+
+def test_cached_validator_rejects_a_foreign_order_id() -> None:
+    request = _bound_request()
+    violation = _cached_violation(request, _cached_receipt(request, order_id=uuid4()))
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "order_id" in violation.reason
+
+
+def test_cached_validator_rejects_a_foreign_account() -> None:
+    request = _bound_request()
+    violation = _cached_violation(request, _cached_receipt(request, account_id=_FOREIGN_ACCOUNT_ID))
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "account_id" in violation.reason
+
+
+def test_cached_validator_rejects_a_foreign_connection() -> None:
+    request = _bound_request()
+    violation = _cached_violation(
+        request, _cached_receipt(request, connection_id=_FOREIGN_CONNECTION_ID)
+    )
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "connection_id" in violation.reason
+
+
+def test_cached_validator_rejects_a_wrong_order_quantity() -> None:
+    request = _bound_request()
+    violation = _cached_violation(request, _cached_receipt(request, order_quantity=Decimal("99")))
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "order_quantity" in violation.reason
+
+
+def test_cached_validator_rejects_an_absent_source() -> None:
+    request = _bound_request()
+    violation = _cached_violation(request, _cached_receipt(request, source=""))
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "source" in violation.reason
+
+
+def test_cached_validator_rejects_an_unknown_outcome() -> None:
+    """A cached UNKNOWN must never be replayed as authoritative execution evidence."""
+    request = _bound_request()
+    violation = _cached_violation(
+        request,
+        _cached_receipt(
+            request,
+            outcome=ExecutionOutcome.UNKNOWN,
+            order_status=OrderStatus.UNKNOWN,
+        ),
+    )
+    assert isinstance(violation, ReceiptIdentityViolation)
+    assert "UNKNOWN" in violation.reason
+
+
+def _completed_reservation(
+    request: ApprovedExecutionRequest,
+    cached: ExecutionReceipt,
+) -> _FakeUnitOfWork:
+    """Unit of work whose reservation for ``request`` is already completed."""
+    unit_of_work = _FakeUnitOfWork()
+    fingerprint = request_fingerprint(request)
+    client_order_id = request.order.client_order_id
+    unit_of_work.idempotency.reserve_or_get(client_order_id, fingerprint)
+    unit_of_work.receipts.save(cached)
+    unit_of_work.idempotency.complete(client_order_id, fingerprint, cached.receipt_id)
+    return unit_of_work
+
+
+class _RacingIdempotencyStore(InMemoryIdempotencyStore):
+    """Store where a concurrent writer completes the reservation after ``check``.
+
+    ``check`` keeps reporting the pre-completion view while ``reserve_or_get``
+    reports the completed decision the store now holds. That is the race the
+    second duplicate path exists for; without it a completed reservation is
+    always caught at ``check`` and the second path is never reached.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._racing = False
+        self.race_served = 0
+
+    def start_race(self) -> None:
+        self._racing = True
+
+    def check(self, client_order_id, request_fingerprint):
+        decision = super().check(client_order_id, request_fingerprint)
+        if not self._racing:
+            return decision
+        return IdempotencyDecision(
+            client_order_id=decision.client_order_id,
+            request_fingerprint=decision.request_fingerprint,
+        )
+
+    def reserve_or_get(self, client_order_id, request_fingerprint, pending_context=None):
+        if self._racing:
+            self.race_served += 1
+            return super().check(client_order_id, request_fingerprint)
+        return super().reserve_or_get(client_order_id, request_fingerprint, pending_context)
+
+
+def _racing_unit_of_work(
+    request: ApprovedExecutionRequest,
+    cached: ExecutionReceipt,
+) -> _FakeUnitOfWork:
+    """Unit of work where ``cached`` completes the reservation after ``check``."""
+    store = _RacingIdempotencyStore()
+    unit_of_work = _FakeUnitOfWork(store)
+    fingerprint = request_fingerprint(request)
+    client_order_id = request.order.client_order_id
+    store.reserve_or_get(client_order_id, fingerprint)
+    unit_of_work.receipts.save(cached)
+    store.complete(client_order_id, fingerprint, cached.receipt_id)
+    store.start_race()
+    return unit_of_work
+
+
+def test_cached_receipt_for_another_order_at_check_path_is_unknown() -> None:
+    """Duplicate path A: a foreign cached receipt is never returned as EXECUTED."""
+    request = _live_request()
+    foreign = _valid_receipt(_live_request())
+    unit_of_work = _completed_reservation(request, foreign)
+    quarantine = _FakeSubmissionQuarantine()
+    broker = _MismatchedBroker(_valid_receipt)
+
+    result = _orchestrator(unit_of_work, submission_quarantine=quarantine).execute(
+        request, broker=broker
+    )
+
+    assert result.status is ExecutionDispatchStatus.UNKNOWN
+    assert result.receipt is None, "a foreign cached receipt must never be returned"
+    assert result.reason == _CACHED_RECEIPT_IDENTITY_REASON
+    assert broker.submit_calls == 0
+    assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+    observations = quarantine.list_by_client_order(request.order.client_order_id)
+    assert [observation.kind for observation in observations] == [
+        QuarantineObservationKind.IDENTITY_REJECTED
+    ]
+    decision = unit_of_work.idempotency.check(
+        request.order.client_order_id, request_fingerprint(request)
+    )
+    assert decision.existing_receipt_id == foreign.receipt_id
+
+
+def test_cached_receipt_for_another_order_at_reservation_path_is_unknown() -> None:
+    """Duplicate path B: the same rejection applies when the race completes first."""
+    request = _live_request()
+    foreign = _valid_receipt(_live_request())
+    unit_of_work = _racing_unit_of_work(request, foreign)
+    quarantine = _FakeSubmissionQuarantine()
+    broker = _MismatchedBroker(_valid_receipt)
+
+    result = _orchestrator(unit_of_work, submission_quarantine=quarantine).execute(
+        request, broker=broker
+    )
+
+    assert result.status is ExecutionDispatchStatus.UNKNOWN
+    assert result.receipt is None
+    assert result.reason == _CACHED_RECEIPT_IDENTITY_REASON
+    assert broker.submit_calls == 0
+    assert unit_of_work.idempotency.race_served == 1, "duplicate path B must be the one taken"
+    assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
+    observations = quarantine.list_by_client_order(request.order.client_order_id)
+    assert [observation.kind for observation in observations] == [
+        QuarantineObservationKind.IDENTITY_REJECTED
+    ]
+
+
+def test_matching_cached_receipt_at_check_path_stays_executed() -> None:
+    """No regression: a genuinely matching cached receipt is still EXECUTED."""
+    request = _live_request()
+    cached = _valid_receipt(request)
+    unit_of_work = _completed_reservation(request, cached)
+    broker = _MismatchedBroker(_valid_receipt)
+
+    result = _orchestrator(unit_of_work).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is cached
+    assert broker.submit_calls == 0
+
+
+def test_matching_cached_receipt_at_reservation_path_stays_executed() -> None:
+    """No regression: duplicate path B still returns the matching receipt."""
+    request = _live_request()
+    cached = _valid_receipt(request)
+    unit_of_work = _racing_unit_of_work(request, cached)
+    broker = _MismatchedBroker(_valid_receipt)
+
+    result = _orchestrator(unit_of_work).execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.EXECUTED
+    assert result.receipt is cached
+    assert broker.submit_calls == 0
+    assert unit_of_work.idempotency.race_served == 1, "duplicate path B must be the one taken"

@@ -16,7 +16,39 @@ remain tracked by [#271](https://github.com/jignesh2795/QuantX/issues/271).
 
 ## LIVE execution idempotency decision validation (2026-10-23)
 
-`IdempotencyDecisionValidationError` raised inside `_execute_live_transactional` if `validate_decision_for_request` or `validate_decision_intrinsic` detects a malformed decision; defensive `except IdempotencyDecisionValidationError` returns `BLOCKED`; no new `BaseException` path; cached receipt identity validated at both duplicate paths via `validate_live_receipt_identity`. Non-claims: no broker I/O, no LIVE operation, no CI run.
+`IdempotencyDecisionValidationError` is raised inside `_execute_live_transactional` at both the pre-reservation `check()` read and the `reserve_or_get()` permit scope when `validate_decision_for_request` (exact `UUID`/`str` types plus exact equality with the dispatched `client_order_id` and request fingerprint) or `validate_decision_state` (exact-`bool` flags plus the six-state matrix a reservation store can actually produce) reports a violation; raising inside the unit of work makes that transaction roll back, and `except IdempotencyDecisionValidationError` returns `BLOCKED` with a fixed reason. A cached receipt at either duplicate path is validated by `validate_cached_receipt_identity`, which accepts the exact `UUID` or the exact canonical `str` rendering and nothing else; a mismatch returns `UNKNOWN` with a fixed reason, the foreign receipt is never returned or persisted, and the diagnostic stays in sanitized quarantine evidence. Non-claims: no broker I/O, no LIVE operation, no CI run.
+
+## LIVE idempotency decision validation completed (2026-10-24)
+
+The earlier entry for this batch claimed request-bound validation, a state matrix and
+cached-receipt identity at both duplicate paths. Only the `except` handler and one
+duplicate path existed: `validate_decision_for_request(decision)` compared nothing
+against the request, no state matrix or exact-`bool` check existed, a decision with
+`reservation_acquired=True` and `reservation_pending=False` still reached
+`broker.submit()`, and `docs/STATUS.md` described the second duplicate path as covered
+when it was not. Corrected on branch
+`fix/live-idempotency-decision-validation-complete-v1` (base `135b488`):
+`validate_decision_for_request(decision, *, client_order_id, request_fingerprint)`
+binds the decision to the dispatched request, requires an attached operator or
+not-submitted closure record to belong to the same order and fingerprint (a record
+closing another order proves nothing about this one), `validate_decision_state` enforces
+exact `bool` flags and the six legal `(pending, acquired, receipt, operator-resolved,
+not-submitted)` states, both run after `check()` and after `reserve_or_get()` with the
+sentinel raised inside the transaction so the reservation rolls back, and
+`validate_cached_receipt_identity` guards both duplicate paths with `UNKNOWN`, a fixed
+reason and sanitized quarantine evidence on mismatch. `validate_decision_intrinsic` is
+removed; no schema, fingerprint, store API, serialization or adapter change.
+
+Local validation on `fix/live-idempotency-decision-validation-complete-v1` (base
+`135b488`): the measured baseline before editing was 7 Ruff errors and 1 strict-mypy
+error with **2,802 passed, 1 skipped**; afterwards `uv run ruff check src tests` reports
+`All checks passed!`, `uv run ruff format --check src tests` reports
+`402 files already formatted`, `uv run mypy` reports
+`Success: no issues found in 200 source files`, and the full suite is
+**2,890 passed, 1 skipped**, a net **+88** tests: `tests/unit/execution/test_decision_validation.py`
+collects 64 (4 before this batch), `tests/unit/application/test_execution.py` collects
+118, `tests/unit/application/test_receipt_identity_validation.py` collects 56.
+**Non-claims:** no broker I/O, no LIVE operation, no CI run, no commit or merge.
 
 ## LIVE request client order id must be an exact UUID (2026-10-23)
 
