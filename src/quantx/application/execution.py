@@ -14,7 +14,13 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.execution.idempotency import NotSubmittedSource, PendingExecutionContext
+from quantx.execution.idempotency import (
+    IdempotencyDecisionValidationError,
+    NotSubmittedSource,
+    PendingExecutionContext,
+    validate_decision_for_request,
+    validate_decision_intrinsic,
+)
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.market_data import MarketSnapshot
 from quantx.execution.persistence import SubmissionQuarantineRepository
@@ -918,7 +924,13 @@ class ExecutionOrchestrator:
                     ),
                     check_entries,
                 )
-        live_result = self._execute_live_transactional(request, broker, unit_of_work)
+        try:
+            live_result = self._execute_live_transactional(request, broker, unit_of_work)
+        except IdempotencyDecisionValidationError:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason="live idempotency decision validation failed safely",
+            )
         if pack_applies:
             return self._with_evidence_prefix(live_result, check_entries)
         return live_result
@@ -1037,6 +1049,18 @@ class ExecutionOrchestrator:
                             "reconciliation is required"
                         ),
                     )
+                try:
+                    identity_check = validate_live_receipt_identity(request, authoritative)
+                except Exception:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason="cached receipt identity validation failed safely",
+                    )
+                if identity_check is not None:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=f"cached receipt identity rejected: {identity_check.reason}",
+                    )
                 return ExecutionResult(
                     ExecutionDispatchStatus.EXECUTED,
                     receipt=authoritative,
@@ -1090,6 +1114,12 @@ class ExecutionOrchestrator:
                     fingerprint,
                     pending_context,
                 )
+                violation_request = validate_decision_for_request(decision)
+                violation_intrinsic = validate_decision_intrinsic(decision)
+                if violation_request is not None or violation_intrinsic is not None:
+                    raise IdempotencyDecisionValidationError(
+                        violation_request or violation_intrinsic
+                    )
                 if decision.existing_receipt_id is not None:
                     authoritative = unit_of_work.receipts.get(decision.existing_receipt_id)
                     if authoritative is None:

@@ -10,6 +10,14 @@ annotation-only fields (`broker_connection_id`, `market_pack_id`, `rule_version`
 remain tracked by [#271](https://github.com/jignesh2795/QuantX/issues/271).
 **Non-claims:** no broker I/O, no LIVE operation, no CI run.
 
+## ExecutionContext.execution_mode must be an exact ExecutionMode enum (2026-10-23)
+
+`ExecutionContext.__post_init__` now requires `type(self.execution_mode) is ExecutionMode`; a plain `"live"` or `"paper"` skips LIVE prerequisites; `"paper"` takes the paper adapter; a `ValueError` is raised with a fixed message, no exception text included. Non-LIVE modes unchanged; `#271` tracks annotation-only fields (`broker_connection_id`, etc.). Non-claims: no broker I/O, no LIVE operation, no CI run.
+
+## LIVE execution idempotency decision validation (2026-10-23)
+
+`IdempotencyDecisionValidationError` raised inside `_execute_live_transactional` if `validate_decision_for_request` or `validate_decision_intrinsic` detects a malformed decision; defensive `except IdempotencyDecisionValidationError` returns `BLOCKED`; no new `BaseException` path; cached receipt identity validated at both duplicate paths via `validate_live_receipt_identity`. Non-claims: no broker I/O, no LIVE operation, no CI run.
+
 ## LIVE request client order id must be an exact UUID (2026-10-23)
 
 `ApprovedExecutionRequest` now rejects an `ExecutionMode.LIVE` request whose
