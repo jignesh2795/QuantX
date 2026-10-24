@@ -558,6 +558,7 @@ def test_non_india_live_request_through_the_built_stack_is_blocked(tmp_path) -> 
     finally:
         database.close()
 
+
 def test_build_rejects_a_duck_typed_runtime(tmp_path) -> None:
     """A runtime-shaped object that is not a ProductionRuntime cannot build."""
 
