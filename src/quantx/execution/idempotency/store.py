@@ -466,6 +466,52 @@ class NotSubmittedResolution:
             raise ValueError("recorded_at must be timezone-aware")
 
 
+class IdempotencyDecisionValidationError(Exception):
+    """Private sentinel raised when an idempotency decision fails its non-negotiable contract."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def validate_decision_for_request(decision: IdempotencyDecision) -> str | None:
+    """Non-raising validator for request-bound identity evidence on a decision."""
+    if type(decision.client_order_id) is not UUID:
+        return "idempotency decision client_order_id is not an exact UUID"
+    if decision.request_fingerprint == "" or not isinstance(decision.request_fingerprint, str):
+        return "idempotency decision fingerprint is not a non-empty string"
+    if decision.pending_context is not None:
+        if type(decision.pending_context.execution_context.execution_mode) is not ExecutionMode:
+            return "pending execution context mode is not an exact ExecutionMode"
+        if decision.pending_context.execution_context.execution_mode is not ExecutionMode.LIVE:
+            return "pending execution context mode must be LIVE"
+    if decision.existing_receipt_id is not None:
+        if type(decision.existing_receipt_id) is not UUID:
+            return "existing receipt id is not an exact UUID"
+    if decision.operator_resolved and (
+        decision.operator_resolution is None
+        or not isinstance(decision.operator_resolution, OperatorResolution)
+    ):
+        return "operator-resolved decision requires a typed OperatorResolution"
+    return None
+
+
+def validate_decision_intrinsic(decision: IdempotencyDecision) -> str | None:
+    """Non-raising validator for intrinsic structural coherence of a decision."""
+    if decision.operator_resolved and decision.operator_resolution is None:
+        return "operator-resolved requires its resolution record"
+    if decision.not_submitted_resolution is not None:
+        if decision.reservation_pending:
+            return "not-submitted closure cannot leave reservation pending"
+        if decision.operator_resolution is not None:
+            return "operator and not-submitted resolutions are mutually exclusive"
+        if decision.not_submitted_resolution.client_order_id != decision.client_order_id:
+            return "not-submitted decision client_order_id mismatch"
+        if decision.not_submitted_resolution.request_fingerprint != decision.request_fingerprint:
+            return "not-submitted decision fingerprint mismatch"
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class IdempotencyDecision:
     client_order_id: UUID

@@ -3,6 +3,7 @@
 from .fingerprint import request_fingerprint
 from .store import (
     IdempotencyDecision,
+    IdempotencyDecisionValidationError,
     IdempotencyStore,
     InMemoryIdempotencyStore,
     NotSubmittedResolution,
@@ -11,10 +12,13 @@ from .store import (
     OperatorResolutionAction,
     PendingExecutionContext,
     PendingExecutionRecoveryRecord,
+    validate_decision_for_request,
+    validate_decision_intrinsic,
 )
 
 __all__ = [
     "IdempotencyDecision",
+    "IdempotencyDecisionValidationError",
     "IdempotencyStore",
     "InMemoryIdempotencyStore",
     "NotSubmittedResolution",
@@ -24,4 +28,6 @@ __all__ = [
     "PendingExecutionContext",
     "PendingExecutionRecoveryRecord",
     "request_fingerprint",
+    "validate_decision_for_request",
+    "validate_decision_intrinsic",
 ]
