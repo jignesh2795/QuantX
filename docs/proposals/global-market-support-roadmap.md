@@ -135,3 +135,20 @@ This roadmap itself is planning-only. It changes no release scope, code behavior
 3. What evidence qualifies a market as supported versus LIVE-eligible?
 4. Which reference-project patterns are worth adopting after the comparative audit?
 5. Which current documentation should eventually be updated on `main`, and in what order?
+
+
+## 7. Initial venue priorities and sequencing clarification
+
+The first delivery is aimed at Indian traders, but the target architecture is global. Evaluate Delta Exchange India and Binance as initial candidate venue priorities alongside the Indian-market broker/API ecosystem. Do not treat either venue as implemented, validated, or supported until the audit confirms it from source and tests. For Binance, record product scope separately (for example spot versus derivatives); for Delta Exchange India, record exact products, account mode, sandbox/test environment, and jurisdiction-specific constraints.
+
+Implementation order is evidence-led: complete the baseline/reference audit; confirm universal contracts and a synthetic non-India pack; select one vertical based on user value, API/data access, cost, and safety; complete data/research and paper/sandbox execution with failure-path evidence; then conduct a separate LIVE eligibility review. Do not change the current India-only LIVE policy in the meantime.
+
+## 8. Indian broker/API research gate
+
+Before selecting or expanding Indian broker coverage, compare official API documentation and relevant open-source projects for Zerodha Kite Connect, Upstox, Dhan HQ, Angel One SmartAPI, Fyers, Shoonya, OpenAlgo, and other actively maintained candidates found. Record authentication/session behavior, order/product semantics, rate limits, streaming and historical data, instrument-master quality, sandbox availability, reconciliation support, API terms, and current access restrictions. These are evaluation candidates only; no integration is promised by this list.
+
+Distinguish a broker gateway/control plane from a trading engine. Learn from broker-normalization and onboarding patterns without moving strategy semantics, risk controls, or execution integrity into an untrusted external gateway.
+
+## 9. Market acceptance evidence
+
+A vertical is not complete until its acceptance package contains: exact baseline SHA and supported venue/product scope; official rule/API sources and review date; instrument and market-rule fixtures with provenance/versioning; data-quality and deterministic replay/backtest evidence; adapter contract tests including negative/unsupported-capability cases; paper/sandbox lifecycle tests for partial fills, rejects, cancellation, timeout/unknown outcome, reconciliation, and restart recovery where applicable; security, rate-limit, logging, operator runbook, and known-limitations notes; and explicit implemented, validated, supported, and LIVE-eligible decisions.
