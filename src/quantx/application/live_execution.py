@@ -34,7 +34,11 @@ from quantx.persistence.sqlite import (
     SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
 )
-from quantx.ports.market_checks import MarketCheckStage, MarketPolicyConfig
+from quantx.ports.market_checks import (
+    MarketCheckStage,
+    MarketPolicyConfig,
+    RegionMarketPolicy,
+)
 
 from .execution import ExecutionOrchestrator
 from .live_risk import LivePreTradeRiskEvaluator, LiveRiskEvaluationInputs
@@ -43,6 +47,10 @@ from .production import ProductionRuntime
 _LIMITS_REQUIRED_REASON = (
     "LIVE risk limits require explicit positive limits for order notional, "
     "position notional, daily loss and snapshot age"
+)
+
+_NON_INDIA_PLACEMENT_REASON = (
+    "market_policy must not place checks for a non-India region: LIVE execution is India-only"
 )
 
 
@@ -83,6 +91,33 @@ class LiveExecutionStack:
     gate: DurableTradingGate
 
 
+def _india_only_market_policy(policy: MarketPolicyConfig) -> MarketPolicyConfig:
+    """Derive the India-only policy the sanctioned LIVE stack runs under.
+
+    India keeps the caller's classification and check placements exactly as
+    supplied, in registration order. Every other ``MarketRegion`` member
+    requires both policy stages with no registered checks, so the
+    orchestrator's existing missing-required-stage path blocks a non-India
+    LIVE request before risk evaluation, reservation, or broker observations.
+    Iterating the enum members locks a newly added region by default instead
+    of leaving it core-only. The caller policy is validated before this runs;
+    filtering is a second line of defence, not the rejection path.
+    """
+    regions = tuple(
+        policy.policy_for(member)
+        if member is MarketRegion.INDIA
+        else RegionMarketPolicy(
+            region=member,
+            requires_pack=True,
+            required_stages=frozenset({MarketCheckStage.PRE_DISPATCH, MarketCheckStage.PRE_SUBMIT}),
+            replaces_session_guard=False,
+        )
+        for member in MarketRegion
+    )
+    checks = tuple(placed for placed in policy.checks if placed.region is MarketRegion.INDIA)
+    return MarketPolicyConfig(regions=regions, checks=checks)
+
+
 def build_live_execution(
     runtime: ProductionRuntime,
     config: LiveExecutionConfig,
@@ -99,6 +134,9 @@ def build_live_execution(
     in both India stages. Construction already rejects a core-only India or a
     missing required stage, but an empty required stage is otherwise only
     detected when a request arrives, which is too late to be a build failure.
+    The supplied policy is narrowed to India before it reaches the
+    orchestrator: every other region requires both stages with no registered
+    checks, so a non-India LIVE request is blocked by the market stage.
     """
     if type(runtime) is not ProductionRuntime:
         raise LiveExecutionCompositionError("runtime must be a ProductionRuntime")
@@ -112,6 +150,8 @@ def build_live_execution(
         raise LiveExecutionCompositionError("risk_inputs_for_request must be callable")
     if type(config.market_policy) is not MarketPolicyConfig:
         raise LiveExecutionCompositionError("market_policy must be a MarketPolicyConfig")
+    if any(placed.region is not MarketRegion.INDIA for placed in config.market_policy.checks):
+        raise LiveExecutionCompositionError(_NON_INDIA_PLACEMENT_REASON)
     if type(config.policy_verifier) is not MarketPackPolicyVerifier:
         raise LiveExecutionCompositionError("policy_verifier must be a MarketPackPolicyVerifier")
     if config.market_policy.policy_for(MarketRegion.INDIA).requires_pack is not True:
@@ -146,7 +186,7 @@ def build_live_execution(
         application_runtime=runtime.application,
         unit_of_work=runtime.unit_of_work,
         live_risk_evaluator=evaluator,
-        market_policy=config.market_policy,
+        market_policy=_india_only_market_policy(config.market_policy),
         submission_quarantine=quarantine,
         policy_verifier=config.policy_verifier,
     )

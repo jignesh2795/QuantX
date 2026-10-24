@@ -18,6 +18,7 @@ from quantx.application.execution import ExecutionDispatchStatus
 from quantx.application.live_execution import (
     LiveExecutionCompositionError,
     LiveExecutionConfig,
+    _india_only_market_policy,
     build_live_execution,
 )
 from quantx.application.live_risk import LiveRiskEvaluationInputs
@@ -52,6 +53,7 @@ from quantx.domain.risk import (
     RiskSnapshot,
 )
 from quantx.domain.value_objects import Money, ProductCode
+from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.trading_gate import TradingGateState
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
@@ -67,6 +69,12 @@ from quantx.persistence.sqlite import (
     SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
+)
+from quantx.ports.market_checks import (
+    MarketCheckResult,
+    MarketCheckStage,
+    MarketPolicyConfig,
+    PlacedCheck,
 )
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 from tests.unit.application.test_execution import FakeBroker
@@ -520,30 +528,141 @@ def test_built_stack_blocks_a_malformed_risk_evaluator_result(tmp_path, monkeypa
         database.close()
 
 
-def test_non_india_live_request_through_the_built_stack_is_recorded(tmp_path) -> None:
-    """Recorded residual gap: the factory's guards are India-complete only.
+def test_non_india_live_request_through_the_built_stack_is_blocked(tmp_path) -> None:
+    """The sanctioned LIVE stack is India-only: another region never reaches risk.
 
-    The request resolves through a trusted test-policy pack and the broker
-    exposes a matching instrument, so nothing in the factory's guard set can
-    stop it: the India market policy does not apply to another region and no
-    session guard is composed. The observed outcome is recorded here rather
-    than fixed; the slice-A adversarial review flags it.
+    The request carries trusted-pack proofs and the broker exposes a matching
+    instrument, so only the derived market policy can stop it. The block comes
+    after the trading gate and the request-proof checks, and before risk
+    evaluation, reservation, quarantine evidence, or broker submission.
     """
     database = SqliteDatabase(tmp_path / "quantx.db")
+    risk_input_calls: list[ApprovedExecutionRequest] = []
+
+    def record_risk_inputs(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
+        risk_input_calls.append(request)
+        return _approving_risk_inputs(request)
+
     try:
         runtime = _runtime(database)
-        stack = build_live_execution(runtime, _config())
+        stack = build_live_execution(runtime, _config(risk_inputs_for_request=record_risk_inputs))
         stack.gate.enable()
         broker = FakeBroker(instrument=_north_america_instrument())
-
-        result = stack.orchestrator.execute(
-            _request(_north_america_market(), pack_id=TEST_PACK_ID, rule_version=TEST_RULE_VERSION),
-            broker=broker,
+        request = _request(
+            _north_america_market(), pack_id=TEST_PACK_ID, rule_version=TEST_RULE_VERSION
         )
 
-        assert result.status is ExecutionDispatchStatus.EXECUTED
-        assert result.receipt is not None
-        assert broker.submit_calls == 1
+        result = stack.orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert result.reason.startswith(
+            "required pre-dispatch market checks are missing for region NORTH_AMERICA"
+        )
+        evidence = result.check_evidence
+        assert evidence is not None
+        assert evidence.blocking_check_id == "NORTH_AMERICA.pre_dispatch"
+        assert evidence.blocking_failure_code == "market-check.missing-required-stage"
+        assert evidence.short_circuited is True
+        assert evidence.entries == ()
+        assert broker.submit_calls == 0
+        assert risk_input_calls == []
+        assert (
+            SqliteSubmissionQuarantineRepository(database).list_by_client_order(
+                request.order.client_order_id
+            )
+            == ()
+        )
+        decision = runtime.unit_of_work.idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending is False
+        assert decision.reservation_acquired is False
+        assert decision.existing_receipt_id is None
+    finally:
+        database.close()
+
+
+class _NonIndiaCheck:
+    """A caller-placed check for a non-India region; never executed."""
+
+    check_id = "NORTH_AMERICA.pre-a"
+
+    def __call__(self, request: ApprovedExecutionRequest) -> MarketCheckResult:
+        raise AssertionError("a rejected policy must never run a placed check")
+
+
+def _policy_with_a_non_india_placement() -> MarketPolicyConfig:
+    base = _policy()
+    placement = PlacedCheck(
+        region=MarketRegion.NORTH_AMERICA,
+        stage=MarketCheckStage.PRE_DISPATCH,
+        check=_NonIndiaCheck(),
+    )
+    return MarketPolicyConfig(regions=base.regions, checks=(*base.checks, placement))
+
+
+def _assert_placements_preserved(
+    derived: MarketPolicyConfig, expected: tuple[PlacedCheck, ...]
+) -> None:
+    """India's placements survive derivation object for object, in order."""
+    assert len(derived.checks) == len(expected)
+    for derived_placed, expected_placed in zip(derived.checks, expected, strict=True):
+        assert derived_placed.region is expected_placed.region
+        assert derived_placed.stage is expected_placed.stage
+        assert derived_placed.check is expected_placed.check
+        assert derived_placed.validated_check_id == expected_placed.validated_check_id
+
+
+def test_derived_policy_locks_every_region_but_india() -> None:
+    """Every non-India member requires both stages and places no checks."""
+    caller = _policy()
+
+    derived = _india_only_market_policy(caller)
+
+    caller_india = caller.policy_for(MarketRegion.INDIA)
+    india = derived.policy_for(MarketRegion.INDIA)
+    assert india is caller_india
+    assert india.region is caller_india.region
+    assert india.requires_pack is caller_india.requires_pack
+    assert india.required_stages == caller_india.required_stages
+    assert india.optional_stages == caller_india.optional_stages
+    assert india.replaces_session_guard is caller_india.replaces_session_guard
+    _assert_placements_preserved(derived, caller.checks)
+    assert len(derived.regions) == len(MarketRegion)
+    for member in MarketRegion:
+        if member is MarketRegion.INDIA:
+            continue
+        policy = derived.policy_for(member)
+        assert policy.region is member
+        assert policy.requires_pack is True
+        assert policy.required_stages == frozenset(
+            {MarketCheckStage.PRE_DISPATCH, MarketCheckStage.PRE_SUBMIT}
+        )
+        assert policy.optional_stages == frozenset()
+        assert policy.replaces_session_guard is False
+        assert derived.checks_for(member, MarketCheckStage.PRE_DISPATCH) == ()
+        assert derived.checks_for(member, MarketCheckStage.PRE_SUBMIT) == ()
+
+    # The factory rejects a contaminated policy before derivation; the helper
+    # must not resurrect a non-India placement either.
+    contaminated_caller = _policy_with_a_non_india_placement()
+    contaminated = _india_only_market_policy(contaminated_caller)
+    expected_india = tuple(
+        placed for placed in contaminated_caller.checks if placed.region is MarketRegion.INDIA
+    )
+    _assert_placements_preserved(contaminated, expected_india)
+    assert contaminated.checks_for(MarketRegion.NORTH_AMERICA, MarketCheckStage.PRE_DISPATCH) == ()
+
+
+def test_build_rejects_a_non_india_policy_placement(tmp_path) -> None:
+    """A caller policy that places a non-India check cannot build."""
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        _expect_build_error(
+            database,
+            _config(market_policy=_policy_with_a_non_india_placement()),
+            "market_policy must not place checks for a non-India region",
+        )
     finally:
         database.close()
 
