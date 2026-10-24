@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import cast
 
@@ -12,6 +12,7 @@ from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrche
 from quantx.application.live_risk import LivePreTradeRiskEvaluator, LiveRiskEvaluationInputs
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
+from quantx.domain.clock import Clock, FixedClock
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -21,6 +22,7 @@ from quantx.domain.deployment import (
 from quantx.domain.enums import AssetClass, OrderSide
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint, CapitalSourceType
+from quantx.domain.instrument_registry import InstrumentResolution
 from quantx.domain.instruments import (
     Instrument,
     InstrumentId,
@@ -268,7 +270,7 @@ def _live_evaluation_inputs(**overrides) -> LiveRiskEvaluationInputs:
         "intent": _intent(),
         "context": _context(),
         "snapshot": _snapshot(),
-        "evaluated_at": EVALUATED_AT,
+        "claimed_evaluated_at": EVALUATED_AT,
     }
     values.update(overrides)
     return LiveRiskEvaluationInputs(**values)
@@ -277,6 +279,8 @@ def _live_evaluation_inputs(**overrides) -> LiveRiskEvaluationInputs:
 def _live_pre_trade_evaluator(
     limits: RiskLimits,
     inputs: LiveRiskEvaluationInputs | None = None,
+    *,
+    clock: Clock | None = None,
 ) -> LivePreTradeRiskEvaluator:
     def inputs_for_request(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
         return inputs if inputs is not None else _live_evaluation_inputs()
@@ -285,6 +289,7 @@ def _live_pre_trade_evaluator(
         engine=PreTradeRiskEngine(),
         limits=limits,
         inputs_for_request=inputs_for_request,
+        clock=clock if clock is not None else FixedClock(EVALUATED_AT),
     )
 
 
@@ -841,6 +846,8 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
         assert "failed closed" in result.reason
+        # The public reason must not carry the evaluator's internal exception text.
+        assert "risk snapshot unavailable" not in result.reason
         assert transport.submitted == ()
     finally:
         database.close()
@@ -904,10 +911,10 @@ def test_live_pre_trade_evaluator_rejects_stale_snapshot() -> None:
     assert "RISK_SNAPSHOT_STALE" in result.reason
 
 
-def test_live_pre_trade_evaluator_uses_provider_evaluated_at() -> None:
+def test_live_pre_trade_evaluator_uses_the_trusted_clock_not_the_provider_claim() -> None:
     inputs = _live_evaluation_inputs(
         snapshot=_snapshot(observed_at=datetime(2020, 1, 1, 9, 29, tzinfo=UTC)),
-        evaluated_at=datetime(2020, 1, 1, 9, 30, tzinfo=UTC),
+        claimed_evaluated_at=datetime(2020, 1, 1, 9, 30, tzinfo=UTC),
     )
     evaluator = _live_pre_trade_evaluator(
         _limits(max_snapshot_age=timedelta(minutes=5)),
@@ -916,7 +923,8 @@ def test_live_pre_trade_evaluator_uses_provider_evaluated_at() -> None:
 
     result = evaluator(_request())
 
-    assert result.decision is RiskDecision.APPROVE
+    assert result.decision is RiskDecision.REJECT
+    assert result.reason.startswith("LIVE_CLOCK_CLAIM_OUT_OF_TOLERANCE")
 
 
 def test_live_pre_trade_evaluator_rejects_wrong_inputs_type() -> None:
@@ -924,6 +932,7 @@ def test_live_pre_trade_evaluator_rejects_wrong_inputs_type() -> None:
         engine=PreTradeRiskEngine(),
         limits=_limits(),
         inputs_for_request=lambda request: cast(LiveRiskEvaluationInputs, object()),
+        clock=FixedClock(EVALUATED_AT),
     )
 
     with pytest.raises(TypeError, match="LIVE risk evaluation inputs"):
@@ -939,3 +948,203 @@ def test_live_pre_trade_evaluator_keeps_validated_copy_after_source_mutation() -
 
     assert result.decision is RiskDecision.REJECT
     assert "ORDER_NOTIONAL_LIMIT_EXCEEDED" in result.reason
+
+
+# Trusted clock (slice B): the provider timestamp is a claim, not time authority.
+
+
+class _RaisingClock(Clock):
+    def now(self) -> datetime:
+        raise RuntimeError("internal broker clock detail")
+
+
+class _NaiveClock(Clock):
+    def now(self) -> datetime:
+        return datetime(2026, 1, 1, 9, 30)
+
+
+class _UnusableReadingClock(Clock):
+    def now(self) -> datetime:
+        return cast(datetime, "2026-01-01T09:30:00+00:00")
+
+
+class _DriftingClock(Clock):
+    """Returns the intended instant once, then an hour later."""
+
+    def __init__(self) -> None:
+        self.reads = 0
+
+    def now(self) -> datetime:
+        self.reads += 1
+        if self.reads == 1:
+            return EVALUATED_AT
+        return EVALUATED_AT + timedelta(hours=1)
+
+
+def test_live_pre_trade_evaluator_approves_a_fresh_snapshot_with_an_aligned_claim() -> None:
+    inputs = _live_evaluation_inputs(
+        snapshot=_snapshot(observed_at=EVALUATED_AT - timedelta(seconds=30)),
+        claimed_evaluated_at=EVALUATED_AT,
+    )
+
+    result = _live_pre_trade_evaluator(_limits(), inputs)(_request())
+
+    assert result.decision is RiskDecision.APPROVE
+
+
+def test_live_pre_trade_evaluator_rejects_a_claim_close_to_an_hours_old_observed_at() -> None:
+    observed_at = EVALUATED_AT - timedelta(hours=6)
+    inputs = _live_evaluation_inputs(
+        snapshot=_snapshot(observed_at=observed_at),
+        claimed_evaluated_at=observed_at + timedelta(seconds=1),
+    )
+
+    result = _live_pre_trade_evaluator(
+        _limits(max_snapshot_age=timedelta(minutes=5)),
+        inputs,
+    )(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert result.reason.startswith("LIVE_CLOCK_CLAIM_OUT_OF_TOLERANCE")
+
+
+def test_live_pre_trade_evaluator_cannot_move_freshness_with_a_claim_inside_tolerance() -> None:
+    inputs = _live_evaluation_inputs(
+        snapshot=_snapshot(observed_at=EVALUATED_AT - timedelta(hours=6)),
+        claimed_evaluated_at=EVALUATED_AT - timedelta(seconds=2),
+    )
+
+    result = _live_pre_trade_evaluator(
+        _limits(max_snapshot_age=timedelta(minutes=5)),
+        inputs,
+    )(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "RISK_SNAPSHOT_STALE" in result.reason
+    assert "LIVE_CLOCK" not in result.reason
+
+
+def test_live_pre_trade_evaluator_keeps_a_short_freshness_budget_on_trusted_time() -> None:
+    """A tolerated claim cannot recycle two seconds of an already-stale snapshot."""
+    inputs = _live_evaluation_inputs(
+        snapshot=_snapshot(observed_at=EVALUATED_AT - timedelta(seconds=6)),
+        claimed_evaluated_at=EVALUATED_AT - timedelta(seconds=4),
+    )
+
+    result = _live_pre_trade_evaluator(
+        _limits(max_snapshot_age=timedelta(seconds=3)),
+        inputs,
+    )(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert result.reason.startswith("RISK_SNAPSHOT_STALE")
+
+
+def test_live_pre_trade_evaluator_accepts_a_claim_exactly_at_the_tolerance() -> None:
+    inputs = _live_evaluation_inputs(
+        claimed_evaluated_at=EVALUATED_AT - timedelta(seconds=5),
+    )
+
+    result = _live_pre_trade_evaluator(_limits(), inputs)(_request())
+
+    assert result.decision is RiskDecision.APPROVE
+
+
+def test_live_pre_trade_evaluator_rejects_a_claim_beyond_the_tolerance() -> None:
+    inputs = _live_evaluation_inputs(
+        claimed_evaluated_at=EVALUATED_AT - timedelta(seconds=5, microseconds=1),
+    )
+
+    result = _live_pre_trade_evaluator(_limits(), inputs)(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert result.reason.startswith("LIVE_CLOCK_CLAIM_OUT_OF_TOLERANCE")
+
+
+def test_live_pre_trade_evaluator_rejects_a_naive_claim() -> None:
+    inputs = _live_evaluation_inputs(claimed_evaluated_at=datetime(2026, 1, 1, 9, 30))
+
+    result = _live_pre_trade_evaluator(_limits(), inputs)(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert result.reason.startswith("LIVE_CLOCK_CLAIM_INVALID")
+
+
+def test_live_pre_trade_evaluator_rejects_a_non_datetime_claim() -> None:
+    for claim in ("2026-01-01T09:30:00+00:00", 1767263400, True):
+        inputs = _live_evaluation_inputs(claimed_evaluated_at=cast(datetime, claim))
+
+        result = _live_pre_trade_evaluator(_limits(), inputs)(_request())
+
+        assert result.decision is RiskDecision.REJECT
+        assert result.reason.startswith("LIVE_CLOCK_CLAIM_INVALID")
+
+
+def test_live_pre_trade_evaluator_accepts_a_claim_in_another_timezone() -> None:
+    ist = timezone(timedelta(hours=5, minutes=30))
+    claim = EVALUATED_AT.astimezone(ist)
+    assert claim.utcoffset() == timedelta(hours=5, minutes=30)
+    inputs = _live_evaluation_inputs(claimed_evaluated_at=claim)
+
+    result = _live_pre_trade_evaluator(_limits(), inputs)(_request())
+
+    assert result.decision is RiskDecision.APPROVE
+
+
+def test_live_pre_trade_evaluator_rejects_an_unreadable_clock() -> None:
+    result = _live_pre_trade_evaluator(_limits(), clock=_RaisingClock())(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert result.reason.startswith("LIVE_CLOCK_UNAVAILABLE")
+    assert "internal broker clock detail" not in result.reason
+
+
+def test_live_pre_trade_evaluator_rejects_a_naive_clock_reading() -> None:
+    result = _live_pre_trade_evaluator(_limits(), clock=_NaiveClock())(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert result.reason.startswith("LIVE_CLOCK_INVALID")
+
+
+def test_live_pre_trade_evaluator_rejects_an_unusable_clock_reading() -> None:
+    result = _live_pre_trade_evaluator(_limits(), clock=_UnusableReadingClock())(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert result.reason.startswith("LIVE_CLOCK_INVALID")
+
+
+def test_live_pre_trade_evaluator_reads_the_clock_once_per_evaluation() -> None:
+    clock = _DriftingClock()
+    inputs = _live_evaluation_inputs(
+        snapshot=_snapshot(observed_at=EVALUATED_AT - timedelta(seconds=30)),
+        claimed_evaluated_at=EVALUATED_AT,
+    )
+
+    result = _live_pre_trade_evaluator(_limits(), inputs, clock=clock)(_request())
+
+    assert result.decision is RiskDecision.APPROVE
+    assert clock.reads == 1
+
+
+def test_live_pre_trade_evaluator_rejections_keep_the_resolved_instrument() -> None:
+    resolution = InstrumentResolution(
+        instrument=_instrument(),
+        instrument_rule_version="india-products-v1",
+        instrument_rule_effective_from=datetime(2025, 1, 1, tzinfo=UTC),
+        resolved_at=datetime(2025, 12, 1, tzinfo=UTC),
+    )
+    context = RiskContext(
+        _instrument(),
+        _financial(),
+        reference_price=Decimal("100"),
+        instrument_resolution=resolution,
+    )
+    inputs = _live_evaluation_inputs(
+        context=context,
+        claimed_evaluated_at=datetime(2020, 1, 1, 9, 30, tzinfo=UTC),
+    )
+
+    result = _live_pre_trade_evaluator(_limits(), inputs)(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert result.instrument_resolution is resolution

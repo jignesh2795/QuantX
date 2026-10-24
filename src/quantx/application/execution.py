@@ -913,11 +913,11 @@ class ExecutionOrchestrator:
                     and type(live_risk.decision) is RiskDecision
                     and type(live_risk.reason) is str
                 )
-            except Exception as exc:
+            except Exception:
                 return self._with_evidence_prefix(
                     ExecutionResult(
                         ExecutionDispatchStatus.BLOCKED,
-                        reason=f"live pre-trade risk evaluation failed closed: {exc}",
+                        reason="live pre-trade risk evaluation failed closed",
                     ),
                     check_entries,
                 )

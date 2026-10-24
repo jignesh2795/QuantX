@@ -47,6 +47,21 @@ use; never replay evidence).
 - `execution/paper_engine.py:85` — read-only `clock` property exposing the
   injected time authority for preflight checks; the engine never rewrites it.
 
+## LIVE risk freshness (slice B, Issue #198)
+
+- `application/live_risk.py` — injected operation time. `LivePreTradeRiskEvaluator`
+  holds one composition-injected `Clock`, reads it exactly once per evaluation, and
+  passes that reading as `evaluate_with_limits(..., evaluated_at=...)`. The provider's
+  `claimed_evaluated_at` is a claim validated against the same reading within a fixed
+  five-second skew (`_MAX_LIVE_RISK_CLOCK_SKEW`); it never reaches the engine.
+- `application/live_execution.py` — the composition root requires the `Clock` as a
+  mandatory `LiveExecutionConfig` field and rejects any non-`Clock` before writing
+  durable state; a deployment must supply `SystemClock()` and tests supply `FixedClock`.
+- No new wall-clock site in this slice: `SystemClock.now()` still reads `datetime.now(UTC)`
+  at `domain/clock.py:41`, `domain/risk.py` stays clock-free, and every site inventoried
+  above is unchanged. This slice does not complete the repository-wide clock inventory;
+  the #179 inventory line numbers still track its own checkpoint.
+
 ## Replay/event time (explicit; no wall clock)
 
 - `research/replay.py:159` — `ReplayFrame` passthrough of

@@ -8,10 +8,11 @@ required input is absent or mistyped, so LIVE protection is never degraded to
 an optional layer by a convenience default.
 
 It does not make the orchestrator safe by itself: the orchestrator still
-accepts arbitrary callables when it is constructed directly, risk inputs are
-supplied by the caller, and the trusted clock is a later slice. What this
-factory guarantees is that the stack it returns is disarmed, durably gated,
-quarantine-backed, risk-evaluated, and market-policy-complete for India.
+accepts arbitrary callables when it is constructed directly, and the values of
+the risk evidence remain caller-supplied. What this factory guarantees is that
+the stack it returns is disarmed, durably gated, quarantine-backed,
+risk-evaluated against a composition-injected clock, and
+market-policy-complete for India.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from quantx.domain.clock import Clock
 from quantx.domain.errors import ValidationError
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketRegion
@@ -67,13 +69,15 @@ class LiveExecutionConfig:
     """Explicit mandatory inputs for :func:`build_live_execution`.
 
     There are no defaults. A deployment must supply its risk limits, a risk
-    engine, the per-request risk evidence provider, the market policy that
-    carries both India check stages, and the trusted policy verifier.
+    engine, the per-request risk evidence provider, the trusted clock that
+    decides freshness, the market policy that carries both India check stages,
+    and the trusted policy verifier.
     """
 
     risk_limits: RiskLimits
     risk_engine: PreTradeRiskEngine
     risk_inputs_for_request: Callable[[ApprovedExecutionRequest], LiveRiskEvaluationInputs]
+    clock: Clock
     market_policy: MarketPolicyConfig
     policy_verifier: MarketPackPolicyVerifier
 
@@ -146,6 +150,8 @@ def build_live_execution(
         raise LiveExecutionCompositionError("risk_limits must be a RiskLimits")
     if type(config.risk_engine) is not PreTradeRiskEngine:
         raise LiveExecutionCompositionError("risk_engine must be a PreTradeRiskEngine")
+    if not isinstance(config.clock, Clock):
+        raise LiveExecutionCompositionError("clock must be a Clock")
     if not callable(config.risk_inputs_for_request):
         raise LiveExecutionCompositionError("risk_inputs_for_request must be callable")
     if type(config.market_policy) is not MarketPolicyConfig:
@@ -180,6 +186,7 @@ def build_live_execution(
         engine=config.risk_engine,
         limits=limits,
         inputs_for_request=config.risk_inputs_for_request,
+        clock=config.clock,
     )
     orchestrator = ExecutionOrchestrator(
         trading_gate=gate,

@@ -1,5 +1,13 @@
 # QuantX Status
 
+## LIVE trusted clock for risk freshness — slice B (2026-10-24)
+
+`LiveExecutionConfig` requires an injected `Clock`; the factory rejects any non-`Clock` before writing durable state. `LivePreTradeRiskEvaluator` reads it once per evaluation and passes only that reading to the clock-free engine as `evaluated_at`, so the engine computes snapshot age from trusted time against the provider-supplied `snapshot.observed_at`.
+The provider's renamed `claimed_evaluated_at` is a claim validated within a fixed five-second skew of the trusted reading; it never reaches the engine, so a recent claim cannot make an already-old `snapshot.observed_at` pass freshness.
+Clock or claim failures return classified `LIVE_CLOCK_*` rejections that keep the resolved instrument and block before reservation or submission; the orchestrator's generic LIVE risk failure reason no longer carries exception text.
+Non-claims: the truth, accuracy, and provenance of `snapshot.observed_at`, positions, balances, and PnL stay caller-supplied and unverified; the five-second tolerance is a policy threshold, not a measured latency bound.
+No broker I/O, no LIVE operation, no CI run.
+
 ## LIVE region lock: India-only composition root (2026-10-24)
 
 `build_live_execution` derives its market policy from `MarketRegion` members: India keeps the
