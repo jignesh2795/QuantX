@@ -102,6 +102,20 @@ If construction or recovery fails, the host must not advertise execution readine
 
 `ApplicationRuntime.started` is the application readiness gate. `ProductionRuntime.started` exposes that state without creating another lifecycle authority.
 
+## LIVE execution composition
+
+`build_live_execution(runtime, config)` is the supported way to assemble a LIVE-capable
+orchestrator over a validated `ProductionRuntime`. It returns the orchestrator plus the durable
+gate it uses, persisted disarmed; the factory never arms it and writes no durable state when a
+build is rejected.
+
+- India-only by contract: the build requires the India pack with at least one pre-dispatch and
+  one pre-submit check.
+- Risk inputs are caller-supplied; the factory neither produces nor verifies them.
+- The trusted clock is a later slice (slice B); none is composed here.
+- `ExecutionOrchestrator` still accepts arbitrary callables when constructed directly, so this
+  is a supported composition path, not a type-enforced boundary.
+
 ## Determinism and cleanup
 
 The host should provide a deterministic shutdown path by calling `ProductionRuntime.close()`.

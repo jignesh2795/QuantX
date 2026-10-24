@@ -1,5 +1,11 @@
 # QuantX Status
 
+## LIVE execution composition root, slice A (2026-10-24)
+
+`build_live_execution(runtime, config)` is the one supported way to assemble a LIVE-capable `ExecutionOrchestrator` over a validated `ProductionRuntime`: a durable gate persisted disarmed, a SQLite submission quarantine, the real `LivePreTradeRiskEvaluator`, the India market policy and an explicit `MarketPackPolicyVerifier`. Builds fail closed on missing or mistyped limits, risk engine, policy stages, verifier or risk-evidence provider, and a rejected build writes no durable state.
+**Non-claims:** no commit, no push, no broker I/O, no LIVE operation; risk inputs stay caller-supplied and the trusted clock is slice B.
+A non-India LIVE request through this stack currently executes (measured by test 12: `EXECUTED`, one broker submit); a region lock is the next slice.
+
 ## ExecutionContext.execution_mode must be an exact ExecutionMode enum (2026-10-23)
 
 `ExecutionContext.__post_init__` now rejects any mode that is not exactly an
