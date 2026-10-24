@@ -1,35 +1,95 @@
-"""Validated LIVE pre-trade risk evaluator composition."""
+"""Validated LIVE pre-trade risk evaluator composition.
+
+The provider supplies risk evidence and a timestamp claim. The evaluator reads
+one trusted clock and passes only that reading to the deterministic domain
+engine as the evaluation instant. This prevents a provider from making an
+already-old ``snapshot.observed_at`` pass freshness merely by claiming a recent
+evaluation time: the engine computes the snapshot age from the trusted instant
+against the provider-supplied observation instant. This slice does not
+authenticate the accuracy or provenance of ``snapshot.observed_at``, so a
+fabricated observation instant is not detected here.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
+from quantx.domain.clock import Clock
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import (
     PreTradeRiskEngine,
     RiskContext,
+    RiskDecision,
     RiskLimits,
     RiskResult,
     RiskSnapshot,
     require_live_risk_limits,
 )
 
+# Fixed policy threshold for how far a provider timestamp claim may sit from the
+# trusted clock. It bounds claim credibility only: freshness is always computed
+# from the trusted reading, so this value never widens a snapshot's age budget.
+_MAX_LIVE_RISK_CLOCK_SKEW = timedelta(seconds=5)
+
+_CLAIM_INVALID_REASON = "LIVE_CLOCK_CLAIM_INVALID: the provider timestamp claim is unusable"
+_CLAIM_OUT_OF_TOLERANCE_REASON = (
+    "LIVE_CLOCK_CLAIM_OUT_OF_TOLERANCE: the provider timestamp claim is more than "
+    "five seconds from the trusted clock"
+)
+_CLOCK_UNAVAILABLE_REASON = "LIVE_CLOCK_UNAVAILABLE: the trusted clock could not be read"
+_CLOCK_INVALID_REASON = "LIVE_CLOCK_INVALID: the trusted clock returned an unusable instant"
+
 
 @dataclass(frozen=True, slots=True)
 class LiveRiskEvaluationInputs:
-    """Explicit inputs for one LIVE risk evaluation."""
+    """Explicit inputs for one LIVE risk evaluation.
+
+    ``claimed_evaluated_at`` is the provider's claim about when it assembled
+    this evidence. It is validated against the evaluator's trusted clock and
+    never becomes the freshness instant: the trusted reading does.
+    """
 
     intent: TradeIntent
     context: RiskContext
     snapshot: RiskSnapshot
-    evaluated_at: datetime
+    claimed_evaluated_at: datetime
+
+
+def _utc_instant(value: object) -> datetime | None:
+    """Return ``value`` as a UTC instant, or ``None`` when it is not a safe time.
+
+    A naive value is rejected instead of being assumed to be UTC, and a
+    datetime subclass is rejected because it is a different time contract.
+    """
+    if type(value) is not datetime:
+        return None
+    try:
+        if value.tzinfo is None or value.utcoffset() is None:
+            return None
+        return value.astimezone(UTC)
+    except Exception:
+        return None
+
+
+def _reject(inputs: LiveRiskEvaluationInputs, reason: str) -> RiskResult:
+    """Reject while retaining the instrument resolution this evaluation consumed."""
+    return RiskResult(
+        RiskDecision.REJECT,
+        reason,
+        instrument_resolution=inputs.context.instrument_resolution,
+    )
 
 
 class LivePreTradeRiskEvaluator:
-    """Callable LIVE risk evaluator with construction-time limit validation."""
+    """Callable LIVE risk evaluator bound to one trusted clock.
+
+    The provider's timestamp is a claim to validate, not time authority: each
+    evaluation reads the injected clock exactly once, and only that reading
+    reaches the deterministic domain engine.
+    """
 
     def __init__(
         self,
@@ -37,19 +97,35 @@ class LivePreTradeRiskEvaluator:
         engine: PreTradeRiskEngine,
         limits: RiskLimits,
         inputs_for_request: Callable[[ApprovedExecutionRequest], LiveRiskEvaluationInputs],
+        clock: Clock,
     ) -> None:
+        if not isinstance(clock, Clock):
+            raise TypeError("LIVE risk evaluator requires a Clock")
         self._engine = engine
         self._limits = require_live_risk_limits(limits)
         self._inputs_for_request = inputs_for_request
+        self._clock = clock
 
     def __call__(self, request: ApprovedExecutionRequest) -> RiskResult:
         inputs = self._inputs_for_request(request)
         if type(inputs) is not LiveRiskEvaluationInputs:
             raise TypeError("LIVE risk evaluation inputs have an unsupported type")
+        try:
+            reading = self._clock.now()
+        except Exception:
+            return _reject(inputs, _CLOCK_UNAVAILABLE_REASON)
+        trusted = _utc_instant(reading)
+        if trusted is None:
+            return _reject(inputs, _CLOCK_INVALID_REASON)
+        claim = _utc_instant(inputs.claimed_evaluated_at)
+        if claim is None:
+            return _reject(inputs, _CLAIM_INVALID_REASON)
+        if abs(trusted - claim) > _MAX_LIVE_RISK_CLOCK_SKEW:
+            return _reject(inputs, _CLAIM_OUT_OF_TOLERANCE_REASON)
         return self._engine.evaluate_with_limits(
             inputs.intent,
             inputs.context,
             limits=self._limits,
             snapshot=inputs.snapshot,
-            evaluated_at=inputs.evaluated_at,
+            evaluated_at=trusted,
         )

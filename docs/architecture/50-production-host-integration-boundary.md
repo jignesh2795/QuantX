@@ -117,8 +117,24 @@ Invalid configuration is rejected before gate construction and writes no durable
   non-India LIVE request is blocked by the market stage after the gate and request-proof
   checks and before risk evaluation, reservation, or broker observations.
 - A caller policy that places any check for a non-India region is rejected at build time.
-- Risk inputs are caller-supplied; the factory neither produces nor verifies them.
-- The trusted clock is a later slice (slice B); none is composed here.
+- Risk inputs are caller-supplied; the factory neither produces nor verifies them. That
+  includes `snapshot.observed_at`, positions, balances, and PnL.
+- `clock` is mandatory: a deployment must supply `SystemClock()` in production and tests supply
+  a `FixedClock`. This repository contains no production host that calls the factory, so the
+  requirement is enforced here as a mandatory field rather than demonstrated by an in-repo
+  caller. The factory rejects any non-`Clock` before writing durable state.
+- The evaluator reads that clock exactly once per evaluation and passes only that reading to the
+  domain risk engine as `evaluated_at`. The engine computes the snapshot age from that trusted
+  instant against the provider-supplied `snapshot.observed_at`.
+- The provider's `claimed_evaluated_at` is a claim, not time authority: it must be a
+  timezone-aware `datetime` within a fixed five-second skew of the trusted reading, or the
+  request is rejected before admission. It is never passed to the engine, so a recent claim can
+  no longer make an already-old `snapshot.observed_at` pass freshness.
+- This slice does not verify the truth, accuracy, or provenance of `snapshot.observed_at`. A
+  provider that fabricates a recent observation instant is not detected by this clock check;
+  authoritative risk inputs are a later slice.
+- The five-second tolerance is a policy threshold, not a measured provider-latency bound, and
+  it bounds claim credibility only: the supplied positions, balances, and PnL remain unverified.
 - `ExecutionOrchestrator` still accepts arbitrary callables when constructed directly, so this
   is a supported composition path, not a type-enforced boundary.
 

@@ -8,6 +8,7 @@ result.
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import cast
@@ -26,6 +27,7 @@ from quantx.application.pending_recovery import PendingRecoveryRun
 from quantx.application.production import ProductionRuntime
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
+from quantx.domain.clock import Clock, FixedClock
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -155,18 +157,20 @@ def _limits(**overrides) -> RiskLimits:
     return RiskLimits(**values)
 
 
-def _snapshot() -> RiskSnapshot:
-    return RiskSnapshot(
-        observed_at=OBSERVED_AT,
-        current_position_exposure=Decimal("0"),
-        current_instrument_exposure=Decimal("0"),
-        current_portfolio_exposure=Decimal("100000"),
-        available_margin=Decimal("100000"),
-        required_margin=Decimal("1000"),
-        daily_pnl=Decimal("0"),
-        equity=Decimal("100000"),
-        high_water_mark=Decimal("100000"),
-    )
+def _snapshot(**overrides) -> RiskSnapshot:
+    values: dict = {
+        "observed_at": OBSERVED_AT,
+        "current_position_exposure": Decimal("0"),
+        "current_instrument_exposure": Decimal("0"),
+        "current_portfolio_exposure": Decimal("100000"),
+        "available_margin": Decimal("100000"),
+        "required_margin": Decimal("1000"),
+        "daily_pnl": Decimal("0"),
+        "equity": Decimal("100000"),
+        "high_water_mark": Decimal("100000"),
+    }
+    values.update(overrides)
+    return RiskSnapshot(**values)
 
 
 def _risk_intent() -> TradeIntent:
@@ -231,15 +235,35 @@ def _live_request() -> ApprovedExecutionRequest:
 def _approving_risk_inputs(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
     """Approving evidence for the real engine; the provider ignores the request.
 
-    That indifference is the caller-supplied-risk-evidence gap recorded in the
-    slice-A non-claims. It is not something this factory closes.
+    The timestamp here is a *claim* the composed clock validates. Risk-input
+    values and their provenance remain caller-supplied; this factory does not
+    make them authoritative.
     """
     return LiveRiskEvaluationInputs(
         intent=_risk_intent(),
         context=_context(),
         snapshot=_snapshot(),
-        evaluated_at=EVALUATED_AT,
+        claimed_evaluated_at=EVALUATED_AT,
     )
+
+
+def _risk_inputs_at(*, observed_at: datetime, claimed_at: datetime):
+    """Provider evidence with an explicit snapshot age and timestamp claim."""
+
+    def provide(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
+        return LiveRiskEvaluationInputs(
+            intent=_risk_intent(),
+            context=_context(),
+            snapshot=_snapshot(observed_at=observed_at),
+            claimed_evaluated_at=claimed_at,
+        )
+
+    return provide
+
+
+class _RaisingClock(Clock):
+    def now(self) -> datetime:
+        raise RuntimeError("internal clock failure detail")
 
 
 def _approving_india_evaluator():
@@ -286,6 +310,7 @@ def _config(**overrides) -> LiveExecutionConfig:
         "risk_limits": _limits(),
         "risk_engine": PreTradeRiskEngine(),
         "risk_inputs_for_request": _approving_risk_inputs,
+        "clock": FixedClock(EVALUATED_AT),
         "market_policy": _policy(),
         "policy_verifier": policy_verifier(),
     }
@@ -482,6 +507,7 @@ def test_build_rejects_wrong_field_types(tmp_path) -> None:
         _expect_build_error(
             database, _config(risk_engine=object()), "risk_engine must be a PreTradeRiskEngine"
         )
+        _expect_build_error(database, _config(clock=object()), "clock must be a Clock")
         _expect_build_error(
             database,
             _config(market_policy=object()),
@@ -502,7 +528,19 @@ def test_live_execution_config_requires_a_policy_verifier() -> None:
             risk_limits=_limits(),
             risk_engine=PreTradeRiskEngine(),
             risk_inputs_for_request=_approving_risk_inputs,
+            clock=FixedClock(EVALUATED_AT),
             market_policy=_policy(),
+        )
+
+
+def test_live_execution_config_requires_a_trusted_clock() -> None:
+    with pytest.raises(TypeError, match="clock"):
+        LiveExecutionConfig(
+            risk_limits=_limits(),
+            risk_engine=PreTradeRiskEngine(),
+            risk_inputs_for_request=_approving_risk_inputs,
+            market_policy=_policy(),
+            policy_verifier=policy_verifier(),
         )
 
 
@@ -684,5 +722,152 @@ def test_build_rejects_a_duck_typed_runtime(tmp_path) -> None:
         ):
             build_live_execution(cast(ProductionRuntime, duck), _config())
         assert SqliteTradingGateStateStore(database).load() is None
+    finally:
+        database.close()
+
+
+# Trusted clock (slice B): the composition root owns the freshness instant.
+
+
+def test_built_stack_freshness_follows_the_composed_clock(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        runtime = _runtime(database)
+        observed_at = EVALUATED_AT
+        fresh_stack = build_live_execution(
+            runtime,
+            _config(
+                risk_inputs_for_request=_risk_inputs_at(
+                    observed_at=observed_at,
+                    claimed_at=observed_at - timedelta(seconds=1),
+                ),
+                clock=FixedClock(observed_at),
+            ),
+        )
+        fresh_stack.gate.enable()
+        fresh_broker = FakeBroker()
+
+        fresh = fresh_stack.orchestrator.execute(_live_request(), broker=fresh_broker)
+
+        assert fresh.status is ExecutionDispatchStatus.EXECUTED
+        assert fresh_broker.submit_calls == 1
+
+        # The same snapshot instant is six hours old under a later clock.
+        later = observed_at + timedelta(hours=6)
+        stale_stack = build_live_execution(
+            runtime,
+            _config(
+                risk_inputs_for_request=_risk_inputs_at(
+                    observed_at=observed_at,
+                    claimed_at=later - timedelta(seconds=1),
+                ),
+                clock=FixedClock(later),
+            ),
+        )
+        stale_stack.gate.enable()
+        stale_broker = FakeBroker()
+
+        stale = stale_stack.orchestrator.execute(_live_request(), broker=stale_broker)
+
+        assert stale.status is ExecutionDispatchStatus.BLOCKED
+        assert "RISK_SNAPSHOT_STALE" in stale.reason
+        assert stale_broker.submit_calls == 0
+    finally:
+        database.close()
+
+
+def test_built_stack_blocks_when_the_clock_fails_without_tripping_the_gate(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        stack = build_live_execution(_runtime(database), _config(clock=_RaisingClock()))
+        stack.gate.enable()
+        broker = FakeBroker()
+        request = _live_request()
+
+        result = stack.orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "LIVE_CLOCK_UNAVAILABLE" in result.reason
+        assert "internal clock failure detail" not in result.reason
+        assert broker.submit_calls == 0
+        assert stack.gate.state().enabled is True
+        decision = SqliteUnitOfWork(database).idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending is False
+        assert (
+            SqliteSubmissionQuarantineRepository(database).list_by_client_order(
+                request.order.client_order_id
+            )
+            == ()
+        )
+    finally:
+        database.close()
+
+
+def test_built_stack_blocks_a_claim_beyond_the_tolerance(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        stack = build_live_execution(
+            _runtime(database),
+            _config(
+                risk_inputs_for_request=_risk_inputs_at(
+                    observed_at=OBSERVED_AT,
+                    claimed_at=EVALUATED_AT - timedelta(hours=1),
+                ),
+            ),
+        )
+        stack.gate.enable()
+        broker = FakeBroker()
+        request = _live_request()
+
+        result = stack.orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "LIVE_CLOCK_CLAIM_OUT_OF_TOLERANCE" in result.reason
+        assert broker.submit_calls == 0
+        assert (
+            SqliteSubmissionQuarantineRepository(database).list_by_client_order(
+                request.order.client_order_id
+            )
+            == ()
+        )
+    finally:
+        database.close()
+
+
+def test_build_rejects_an_invalid_clock(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        _expect_build_error(database, _config(clock=None), "clock must be a Clock")
+        _expect_build_error(database, _config(clock=object()), "clock must be a Clock")
+    finally:
+        database.close()
+
+
+def test_provider_cannot_replace_the_composed_clock(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        stack = build_live_execution(
+            _runtime(database),
+            _config(
+                risk_inputs_for_request=_risk_inputs_at(
+                    observed_at=EVALUATED_AT,
+                    claimed_at=EVALUATED_AT - timedelta(minutes=10),
+                ),
+            ),
+        )
+        stack.gate.enable()
+        broker = FakeBroker()
+
+        result = stack.orchestrator.execute(_live_request(), broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "LIVE_CLOCK_CLAIM_OUT_OF_TOLERANCE" in result.reason
+        assert broker.submit_calls == 0
+
+        frozen = _config()
+        with pytest.raises(FrozenInstanceError):
+            frozen.clock = FixedClock(EVALUATED_AT + timedelta(hours=1))
     finally:
         database.close()
