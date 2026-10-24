@@ -38,7 +38,11 @@ from quantx.domain.orders import Fill
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
-from quantx.execution.idempotency import InMemoryIdempotencyStore, NotSubmittedSource
+from quantx.execution.idempotency import (
+    IdempotencyDecision,
+    InMemoryIdempotencyStore,
+    NotSubmittedSource,
+)
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.quarantine import QuarantineObservationKind
@@ -83,6 +87,7 @@ from quantx.integrations.reconciliation.positions import (
 from quantx.persistence import ReceiptRepository, UnitOfWork
 from quantx.persistence.sqlite import (
     SqliteDatabase,
+    SqliteIdempotencyStore,
     SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
@@ -3576,3 +3581,293 @@ def test_live_exact_true_prerequisites_proceed() -> None:
     assert gate.permit_calls == 1
     assert gate.admit_calls == 1
     assert store.reserve_calls == 1
+
+
+# The orchestrator validates the idempotency decision returned by ``check()`` and
+# by ``reserve_or_get()`` against the request it is dispatching. The doubles below
+# run the real store logic and then return a decision the store can never produce,
+# so each test proves the fail-closed outcome: BLOCKED with a fixed reason, before
+# submit admission, with no broker call and the reservation transaction rolled
+# back rather than committed.
+_LIVE_DECISION_REJECTED_REASON = (
+    "live idempotency decision failed contract validation; no broker submission was attempted"
+)
+
+
+class _CorruptingIdempotencyStore(_CountingIdempotencyStore):
+    """Counting in-memory store that can return a decision it never produced.
+
+    ``check``/``reserve_or_get`` still run the real store logic, so the
+    reservation is genuinely created before the corrupted decision is returned.
+    """
+
+    def __init__(self, *, check_corruption=None, reserve_corruption=None) -> None:
+        super().__init__()
+        self._check_corruption = check_corruption
+        self._reserve_corruption = reserve_corruption
+
+    def check(self, client_order_id, request_fingerprint):
+        decision = super().check(client_order_id, request_fingerprint)
+        if self._check_corruption is None:
+            return decision
+        return self._check_corruption(decision)
+
+    def reserve_or_get(self, client_order_id, request_fingerprint, pending_context=None):
+        decision = super().reserve_or_get(client_order_id, request_fingerprint, pending_context)
+        if self._reserve_corruption is None:
+            return decision
+        return self._reserve_corruption(decision)
+
+
+class _ScopeRecordingUnitOfWork(_FakeUnitOfWork):
+    """Fake unit of work that records the outcome of every transaction scope.
+
+    The LIVE flow opens a read-only pre-check scope before the reservation
+    scope, so a cumulative flag cannot say which one rolled back. The flags are
+    reset on entry and each outcome is appended, which keeps the reservation
+    scope's own fate visible.
+    """
+
+    def __init__(self, store=None) -> None:
+        super().__init__(store)
+        self.outcomes: list[str] = []
+
+    def __enter__(self):
+        self.committed = False
+        self.rolled_back = False
+        return super().__enter__()
+
+    def commit(self) -> None:
+        super().commit()
+        self.outcomes.append("commit")
+
+    def rollback(self) -> None:
+        super().rollback()
+        self.outcomes.append("rollback")
+
+
+def _live_decision_orchestrator(store):
+    unit_of_work = _ScopeRecordingUnitOfWork(store)
+    gate = _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
+    broker = FakeBroker(connection_id=BrokerConnectionId("conn-1"))
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=gate,
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    )
+    return orchestrator, gate, broker, unit_of_work
+
+
+def test_check_decision_with_receipt_on_a_pending_reservation_is_blocked() -> None:
+    """A receipt on a pending reservation is a state no reservation store produces."""
+    store = _CorruptingIdempotencyStore(
+        check_corruption=lambda decision: replace(
+            decision,
+            existing_receipt_id=uuid4(),
+            reservation_pending=True,
+        )
+    )
+    orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == _LIVE_DECISION_REJECTED_REASON
+    assert result.receipt is None
+    assert store.check_calls == 1
+    assert store.reserve_calls == 0
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.outcomes == ["rollback"]
+    assert unit_of_work.committed is False
+    assert unit_of_work.rolled_back is True
+
+
+def test_check_decision_with_a_foreign_identity_is_blocked() -> None:
+    """A decision about another client order is evidence about another order."""
+    store = _CorruptingIdempotencyStore(
+        check_corruption=lambda decision: replace(decision, client_order_id=uuid4())
+    )
+    orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == _LIVE_DECISION_REJECTED_REASON
+    assert result.receipt is None
+    assert store.check_calls == 1
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.outcomes == ["rollback"]
+    assert unit_of_work.rolled_back is True
+
+
+def test_reserve_decision_acquired_without_pending_is_blocked_and_rolled_back() -> None:
+    """An acquired reservation that is not pending never reaches submit admission.
+
+    The permit is already held at this site by construction (the reservation
+    happens inside ``submission_permit()``), so the provable property is
+    rejection before submit admission, before any broker call, with the
+    reservation transaction rolled back.
+    """
+    store = _CorruptingIdempotencyStore(
+        reserve_corruption=lambda decision: replace(decision, reservation_pending=False)
+    )
+    orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == _LIVE_DECISION_REJECTED_REASON
+    assert result.receipt is None
+    assert store.reserve_calls == 1
+    assert gate.permit_calls == 1
+    assert gate.admit_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.outcomes == ["commit", "rollback"]
+    assert unit_of_work.committed is False
+    assert unit_of_work.rolled_back is True
+
+
+def test_reserve_decision_with_receipt_on_a_pending_reservation_is_blocked() -> None:
+    """A receipt on a pending reservation never becomes an EXECUTED duplicate."""
+    store = _CorruptingIdempotencyStore(
+        reserve_corruption=lambda decision: replace(
+            decision,
+            existing_receipt_id=uuid4(),
+            reservation_acquired=False,
+        )
+    )
+    orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+
+    result = orchestrator.execute(_live_request(), broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == _LIVE_DECISION_REJECTED_REASON
+    assert result.receipt is None
+    assert store.reserve_calls == 1
+    assert gate.admit_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.outcomes == ["commit", "rollback"]
+    assert unit_of_work.rolled_back is True
+
+
+class _CorruptingSqliteIdempotencyStore:
+    """Durable store that corrupts the decision after the genuine reservation INSERT."""
+
+    def __init__(self, inner: SqliteIdempotencyStore, corruption) -> None:
+        self._inner = inner
+        self._corruption = corruption
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+    def reserve_or_get(self, *args, **kwargs):
+        return self._corruption(self._inner.reserve_or_get(*args, **kwargs))
+
+
+class _RecordingSqliteUnitOfWork(SqliteUnitOfWork):
+    """Durable unit of work that records which scope committed and which rolled back.
+
+    ``SqliteUnitOfWork`` delegates the commit/rollback decision to
+    ``SqliteDatabase.transaction``, so that branch is mirrored here for evidence
+    and then delegated unchanged. ``committed``/``rolled_back`` describe the most
+    recent scope because the LIVE flow opens a read-only pre-check scope first.
+    """
+
+    def __init__(self, database: SqliteDatabase, corruption) -> None:
+        super().__init__(database)
+        self._corrupting = _CorruptingSqliteIdempotencyStore(
+            super().idempotency,
+            corruption,
+        )
+        self.committed = False
+        self.rolled_back = False
+        self.outcomes: list[str] = []
+
+    @property
+    def idempotency(self):
+        return self._corrupting
+
+    def __enter__(self):
+        self.committed = False
+        self.rolled_back = False
+        return super().__enter__()
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if exc_type is None:
+            self.committed = True
+            self.outcomes.append("commit")
+        else:
+            self.rolled_back = True
+            self.outcomes.append("rollback")
+        super().__exit__(exc_type, exc_value, traceback)
+
+
+def test_malformed_reserve_decision_rolls_back_and_leaves_no_pending_row(tmp_path) -> None:
+    """A rejected reservation decision leaves no durable trace of its own transaction.
+
+    The PENDING row is genuinely inserted before the corrupted decision is
+    returned, so only a rollback can explain its absence afterwards. The
+    submission is rejected before submit admission with no broker call, and the
+    connection is not left holding the failed transaction.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        reserved: list[IdempotencyDecision] = []
+
+        def corrupt(decision):
+            reserved.append(decision)
+            return replace(decision, reservation_pending=False)
+
+        unit_of_work = _RecordingSqliteUnitOfWork(database, corrupt)
+        gate = _CountingGate(SqliteTradingGateStateStore(database), default_enabled=True)
+        broker = FakeBroker(connection_id=BrokerConnectionId("conn-1"))
+        orchestrator = ExecutionOrchestrator(
+            application_runtime=_started_runtime(),
+            unit_of_work=unit_of_work,
+            trading_gate=gate,
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
+            market_policy=india_market_policy(
+                session_evaluator=_approving_india_session_evaluator(),
+                rule_evaluator=_approving_india_evaluator(),
+            ),
+            policy_verifier=policy_verifier(),
+        )
+        request = _live_request()
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert result.reason == _LIVE_DECISION_REJECTED_REASON
+        assert result.receipt is None
+        assert gate.admit_calls == 0
+        assert broker.submit_calls == 0
+        assert unit_of_work.outcomes == ["commit", "rollback"]
+        assert unit_of_work.committed is False
+        assert unit_of_work.rolled_back is True
+        # The durable store reports acquisition only after it really inserted, so
+        # this is the proof that the absent row was inserted and then rolled back.
+        assert len(reserved) == 1
+        assert reserved[0].reservation_pending is True
+        assert reserved[0].reservation_acquired is True
+        assert reserved[0].pending_context is not None
+        connection = database.connection()
+        assert connection.in_transaction is False
+        remaining = connection.execute(
+            "SELECT COUNT(*) FROM idempotency_reservations WHERE client_order_id = ?",
+            (str(request.order.client_order_id),),
+        ).fetchone()
+        assert remaining[0] == 0
+    finally:
+        database.close()

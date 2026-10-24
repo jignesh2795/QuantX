@@ -474,41 +474,134 @@ class IdempotencyDecisionValidationError(Exception):
         self.reason = reason
 
 
-def validate_decision_for_request(decision: IdempotencyDecision) -> str | None:
-    """Non-raising validator for request-bound identity evidence on a decision."""
-    if type(decision.client_order_id) is not UUID:
-        return "idempotency decision client_order_id is not an exact UUID"
-    if decision.request_fingerprint == "" or not isinstance(decision.request_fingerprint, str):
-        return "idempotency decision fingerprint is not a non-empty string"
-    if decision.pending_context is not None:
-        if type(decision.pending_context.execution_context.execution_mode) is not ExecutionMode:
-            return "pending execution context mode is not an exact ExecutionMode"
-        if decision.pending_context.execution_context.execution_mode is not ExecutionMode.LIVE:
-            return "pending execution context mode must be LIVE"
-    if decision.existing_receipt_id is not None:
-        if type(decision.existing_receipt_id) is not UUID:
-            return "existing receipt id is not an exact UUID"
-    if decision.operator_resolved and (
-        decision.operator_resolution is None
-        or not isinstance(decision.operator_resolution, OperatorResolution)
+# Legal ``(reservation_pending, reservation_acquired, has_receipt, operator_resolved,
+# not_submitted)`` combinations produced by the reference stores. Any other combination
+# is a state no reservation store can reach, so it is rejected rather than interpreted.
+_LEGAL_DECISION_STATES: frozenset[tuple[bool, bool, bool, bool, bool]] = frozenset(
+    {
+        # No reservation row exists yet (``check`` on an unseen client order).
+        (False, False, False, False, False),
+        # Row exists with no receipt and no closure (``check`` on a held reservation).
+        (True, False, False, False, False),
+        # This ``reserve_or_get`` call acquired the row.
+        (True, True, False, False, False),
+        # A receipt completed the reservation.
+        (False, False, True, False, False),
+        # An operator closed the reservation.
+        (False, False, False, True, False),
+        # The adapter proved the request was never submitted.
+        (False, False, False, False, True),
+    }
+)
+
+
+def _exact_bool_violation(decision: IdempotencyDecision) -> str | None:
+    """Reject non-bool flags before any state comparison.
+
+    ``True == 1`` makes an integer flag indistinguishable from a real ``True``
+    inside a state tuple, so the type is checked before the matrix lookup.
+    """
+    for name, value in (
+        ("reservation_pending", decision.reservation_pending),
+        ("reservation_acquired", decision.reservation_acquired),
+        ("operator_resolved", decision.operator_resolved),
     ):
-        return "operator-resolved decision requires a typed OperatorResolution"
+        if type(value) is not bool:
+            return f"idempotency decision {name} is not an exact bool"
     return None
 
 
-def validate_decision_intrinsic(decision: IdempotencyDecision) -> str | None:
-    """Non-raising validator for intrinsic structural coherence of a decision."""
-    if decision.operator_resolved and decision.operator_resolution is None:
-        return "operator-resolved requires its resolution record"
+def validate_decision_state(decision: IdempotencyDecision) -> str | None:
+    """Non-raising validator for the decision state matrix.
+
+    Only the states the in-memory and SQLite stores can actually produce are
+    accepted. A decision outside that set - for example an acquired reservation
+    that is not pending, or a receipt on a pending or acquired reservation -
+    never reaches submission.
+    """
+    violation = _exact_bool_violation(decision)
+    if violation is not None:
+        return violation
+    state = (
+        decision.reservation_pending,
+        decision.reservation_acquired,
+        decision.existing_receipt_id is not None,
+        decision.operator_resolved,
+        decision.not_submitted_resolution is not None,
+    )
+    if state not in _LEGAL_DECISION_STATES:
+        return "idempotency decision is not a state the reservation store can produce"
+    return None
+
+
+def _resolution_matches_decision(
+    resolution: OperatorResolution | NotSubmittedResolution,
+    decision: IdempotencyDecision,
+) -> bool:
+    """A closure record is evidence only about the client order it closes.
+
+    The record carries its own identity, and a record closing a different order
+    says nothing about this one. Both fields are compared exactly, with the
+    types checked first so a string-typed id cannot compare equal by accident.
+    """
+    return (
+        type(resolution.client_order_id) is UUID
+        and resolution.client_order_id == decision.client_order_id
+        and type(resolution.request_fingerprint) is str
+        and resolution.request_fingerprint == decision.request_fingerprint
+    )
+
+
+def validate_decision_for_request(
+    decision: IdempotencyDecision,
+    *,
+    client_order_id: UUID,
+    request_fingerprint: str,
+) -> str | None:
+    """Non-raising validator binding a decision to the request being dispatched.
+
+    A decision is evidence about one client order. It is usable only when its
+    identity is exactly the identity of the request about to be dispatched, so
+    a foreign client order id or fingerprint is rejected even when the decision
+    is otherwise structurally valid.
+    """
+    if type(decision.client_order_id) is not UUID:
+        return "idempotency decision client_order_id is not an exact UUID"
+    if decision.client_order_id != client_order_id:
+        return "idempotency decision client_order_id does not match the request"
+    if type(decision.request_fingerprint) is not str or not decision.request_fingerprint:
+        return "idempotency decision fingerprint is not a non-empty string"
+    if decision.request_fingerprint != request_fingerprint:
+        return "idempotency decision fingerprint does not match the request"
+    if decision.existing_receipt_id is not None and type(decision.existing_receipt_id) is not UUID:
+        return "existing receipt id is not an exact UUID"
+    if decision.operator_resolution is not None:
+        if decision.operator_resolved is not True:
+            return "operator resolution is present but the decision is not operator-resolved"
+        if not isinstance(decision.operator_resolution, OperatorResolution):
+            return "operator-resolved decision requires a typed OperatorResolution"
+        if not _resolution_matches_decision(decision.operator_resolution, decision):
+            return "operator resolution does not belong to this idempotency decision"
+    elif decision.operator_resolved is True:
+        return "operator-resolved decision requires a typed OperatorResolution"
     if decision.not_submitted_resolution is not None:
-        if decision.reservation_pending:
-            return "not-submitted closure cannot leave reservation pending"
-        if decision.operator_resolution is not None:
-            return "operator and not-submitted resolutions are mutually exclusive"
-        if decision.not_submitted_resolution.client_order_id != decision.client_order_id:
-            return "not-submitted decision client_order_id mismatch"
-        if decision.not_submitted_resolution.request_fingerprint != decision.request_fingerprint:
-            return "not-submitted decision fingerprint mismatch"
+        if not isinstance(decision.not_submitted_resolution, NotSubmittedResolution):
+            return "not-submitted decision requires a typed NotSubmittedResolution"
+        if not _resolution_matches_decision(decision.not_submitted_resolution, decision):
+            return "not-submitted resolution does not belong to this idempotency decision"
+    context = decision.pending_context
+    if context is not None:
+        if not isinstance(context, PendingExecutionContext):
+            return "pending execution context is not a typed PendingExecutionContext"
+        if context.request_fingerprint != decision.request_fingerprint:
+            return "pending execution context fingerprint does not match the decision"
+        if context.order.client_order_id != decision.client_order_id:
+            return "pending execution context client_order_id does not match the decision"
+        mode = context.execution_context.execution_mode
+        if type(mode) is not ExecutionMode:
+            return "pending execution context mode is not an exact ExecutionMode"
+        if mode is not ExecutionMode.LIVE:
+            return "pending execution context mode must be LIVE"
     return None
 
 

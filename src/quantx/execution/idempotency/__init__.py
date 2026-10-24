@@ -13,7 +13,7 @@ from .store import (
     PendingExecutionContext,
     PendingExecutionRecoveryRecord,
     validate_decision_for_request,
-    validate_decision_intrinsic,
+    validate_decision_state,
 )
 
 __all__ = [
@@ -29,5 +29,5 @@ __all__ = [
     "PendingExecutionRecoveryRecord",
     "request_fingerprint",
     "validate_decision_for_request",
-    "validate_decision_intrinsic",
+    "validate_decision_state",
 ]

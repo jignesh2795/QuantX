@@ -281,8 +281,97 @@ def validate_live_receipt_identity(
     return None
 
 
+def validate_cached_receipt_identity(
+    request: ApprovedExecutionRequest,
+    *,
+    receipt_id: UUID,
+    receipt: object,
+) -> ReceiptIdentityViolation | None:
+    """Validate a receipt replayed from a completed idempotency reservation.
+
+    A duplicate submission does not submit again: it returns the receipt already
+    stored against the reservation, which then becomes the authoritative
+    execution evidence for the request. That receipt must therefore be proven to
+    belong to this request before it is returned or presented.
+
+    This boundary is deliberately separate from
+    :func:`validate_live_receipt_identity`. A receipt read back from storage may
+    carry its ``client_order_id`` as the canonical string rendering of the same
+    UUID (``ExecutionReceipt.client_order_id`` is ``UUID | str``). Exactly the
+    canonical rendering is accepted as identity, and nothing else is parsed or
+    normalised: a differently cased, braced, prefixed or padded string is a
+    violation, never a coercion target.
+
+    Reasons are static so a cached identity failure can be reported with a fixed
+    reason while the diagnostic is kept as sanitized reconciliation evidence.
+    """
+    if type(receipt_id) is not UUID:
+        return ReceiptIdentityViolation(reason="reservation receipt id is not an exact UUID")
+    if not isinstance(receipt, ExecutionReceipt):
+        return ReceiptIdentityViolation(reason="cached receipt is not an ExecutionReceipt")
+    if type(receipt.receipt_id) is not UUID:
+        return ReceiptIdentityViolation(reason="cached receipt id is not an exact UUID")
+    if receipt.receipt_id != receipt_id:
+        return ReceiptIdentityViolation(
+            reason="cached receipt id does not match the reservation receipt id"
+        )
+
+    expected_client_order_id = request.order.client_order_id
+    stored_client_order_id = receipt.client_order_id
+    if type(stored_client_order_id) is UUID:
+        if stored_client_order_id != expected_client_order_id:
+            return ReceiptIdentityViolation(
+                reason="cached receipt client_order_id does not match the request"
+            )
+    elif type(stored_client_order_id) is str:
+        if stored_client_order_id != str(expected_client_order_id):
+            return ReceiptIdentityViolation(
+                reason="cached receipt client_order_id is not the canonical request identity"
+            )
+    else:
+        return ReceiptIdentityViolation(
+            reason="cached receipt client_order_id is not a UUID or canonical string"
+        )
+
+    if type(receipt.correlation_id) is not str or receipt.correlation_id != request.correlation_id:
+        return ReceiptIdentityViolation(
+            reason="cached receipt correlation_id does not match the request"
+        )
+    if type(receipt.order_id) is not UUID or receipt.order_id != expected_client_order_id:
+        return ReceiptIdentityViolation(
+            reason="cached receipt order_id does not match the request order identity"
+        )
+
+    expected_account = request.execution_context.account_id
+    if receipt.account_id != expected_account:
+        return ReceiptIdentityViolation(
+            reason="cached receipt account_id does not match the request"
+        )
+    expected_connection = request.execution_context.broker_connection_id
+    if receipt.connection_id != expected_connection:
+        return ReceiptIdentityViolation(
+            reason="cached receipt connection_id does not match the request"
+        )
+    if receipt.order_quantity != request.order.quantity:
+        return ReceiptIdentityViolation(
+            reason="cached receipt order_quantity does not match the request quantity"
+        )
+    if not isinstance(receipt.source, str) or not receipt.source.strip():
+        return ReceiptIdentityViolation(reason="cached receipt source is absent")
+
+    if not isinstance(receipt.outcome, ExecutionOutcome):
+        return ReceiptIdentityViolation(reason="cached receipt outcome is not canonical")
+    if receipt.outcome is ExecutionOutcome.UNKNOWN:
+        return ReceiptIdentityViolation(
+            reason="cached receipt outcome is UNKNOWN and cannot be authoritative"
+        )
+
+    return None
+
+
 __all__ = [
     "ReceiptIdentityViolation",
+    "validate_cached_receipt_identity",
     "validate_live_receipt_identity",
     "validate_receipt_runtime_shape",
 ]
