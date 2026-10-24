@@ -106,8 +106,10 @@ If construction or recovery fails, the host must not advertise execution readine
 
 `build_live_execution(runtime, config)` is the supported way to assemble a LIVE-capable
 orchestrator over a validated `ProductionRuntime`. It returns the orchestrator plus the durable
-gate it uses, persisted disarmed; the factory never arms it and writes no durable state when a
-build is rejected.
+gate it uses. Every invocation unconditionally persists a disarmed state, overriding an enabled
+state left by a prior process; an operator must explicitly enable the gate after each process
+start. If the disarm write fails, composition raises and the host must not expose execution.
+Invalid configuration is rejected before gate construction and writes no durable state.
 
 - India-only by contract: the build requires the India pack with at least one pre-dispatch and
   one pre-submit check.

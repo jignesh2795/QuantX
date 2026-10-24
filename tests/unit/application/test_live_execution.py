@@ -52,6 +52,7 @@ from quantx.domain.risk import (
     RiskSnapshot,
 )
 from quantx.domain.value_objects import Money, ProductCode
+from quantx.execution.trading_gate import TradingGateState
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
 from quantx.india.market_checks import india_market_policy
@@ -308,6 +309,29 @@ def _expect_build_error(database: SqliteDatabase, config, message: str) -> None:
     with pytest.raises(LiveExecutionCompositionError, match=message):
         build_live_execution(_runtime(database), config)
     assert SqliteTradingGateStateStore(database).load() is None
+
+
+def test_build_disarms_persisted_enabled_gate_on_new_process_start(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        store = SqliteTradingGateStateStore(database)
+        store.save(TradingGateState(enabled=True))
+        assert store.load() == TradingGateState(enabled=True)
+
+        stack = build_live_execution(_runtime(database), _config())
+
+        persisted = store.load()
+        assert persisted is not None
+        assert persisted.enabled is False
+        assert persisted.reason == "LIVE gate disarmed for new process start"
+        assert stack.gate.state() == persisted
+
+        broker = FakeBroker()
+        result = stack.orchestrator.execute(_live_request(), broker=broker)
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert broker.submit_calls == 0
+    finally:
+        database.close()
 
 
 def test_built_stack_is_disarmed_and_blocks_a_valid_live_request(tmp_path) -> None:

@@ -89,9 +89,11 @@ def build_live_execution(
 ) -> LiveExecutionStack:
     """Build one disarmed, fully guarded LIVE execution stack.
 
-    Validation runs before anything is constructed, so a rejected composition
-    writes no durable state. The gate is then built with the durable store's
-    disarmed default and persists that default; this function never arms it.
+    Validation runs before construction, so invalid configuration writes no
+    durable state. When building the gate, the factory overwrites any enabled
+    state left by a prior process with a durably disarmed state before returning.
+    Each new process therefore requires an explicit operator enable after startup.
+    If disarming cannot be persisted, construction raises and returns no stack.
 
     The market policy must require the India pack and place at least one check
     in both India stages. Construction already rejects a core-only India or a
@@ -130,6 +132,9 @@ def build_live_execution(
         raise LiveExecutionCompositionError(_LIMITS_REQUIRED_REASON) from None
 
     gate = DurableTradingGate(SqliteTradingGateStateStore(runtime.database))
+    # Persist a fresh disarmed state on every process start; do not inherit
+    # authorization that an operator granted to a previous process.
+    gate.block("LIVE gate disarmed for new process start")
     quarantine = SqliteSubmissionQuarantineRepository(runtime.database)
     evaluator = LivePreTradeRiskEvaluator(
         engine=config.risk_engine,
