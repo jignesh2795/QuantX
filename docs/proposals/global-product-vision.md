@@ -96,3 +96,10 @@ Before this proposal is adopted, reviewers should confirm:
 ## 8. Decision requested from maintainers
 
 Review this proposal alongside the comparative audit and market-support roadmap. Accept, amend, or reject it explicitly before any changes are transferred to `main`.
+
+
+## 9. Initial delivery scope — clarification
+
+The product is globally architected, while the first delivery is deliberately narrower. The initial user focus is traders in India, with initial venue priorities to be evaluated around Indian-market access and crypto access through Delta Exchange India and Binance. This is product intent, not evidence that either integration is implemented or supported.
+
+For every venue, maintain separate labels for targeted, implemented, validated, supported, and LIVE-eligible. A venue is not implemented because it appears in a roadmap; it is not supported until compatibility, limitations, tests, and maintenance expectations are documented. Do not describe QuantX as globally LIVE-capable merely because its core is market-neutral. India remains the only LIVE-eligible jurisdiction until a separately reviewed decision changes that policy. Crypto support must be assessed by venue and product type, such as spot versus derivatives.
