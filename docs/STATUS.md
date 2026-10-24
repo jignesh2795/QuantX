@@ -1,5 +1,27 @@
 # QuantX Status
 
+## LIVE gate disarms on every process start — slice A2 (2026-10-24)
+
+The candidate for slice A2 updates `build_live_execution(runtime, config)` to persist a disarmed
+trading-gate state on every composition-root invocation, overriding an enabled state left by a
+prior process. The host must not expose execution if this disarm write fails, and the operator
+must explicitly enable the gate after each process start. Regression coverage seeds the durable
+store as enabled, rebuilds the stack, and verifies the persisted gate is disabled and a LIVE
+request is blocked before broker submission.
+
+**Validation evidence (code-bearing SHA `f6deba4594a25fc2b5af82627f8777fe2ed77417`):**
+the focused composition-root module reports **14 passed**; the trading-gate/execution persistence
+tests report **29 passed**; the full suite reports **2,904 passed, 1 skipped, 1 warning** (the
+base SHA reported **2,903 passed, 1 skipped, 1 warning**). Ruff check passes with no findings;
+Ruff format check reports **404 files already formatted**; strict mypy reports **no issues in
+201 source files**; and `git diff --check` is clean. These measurements bind to the code-bearing
+candidate SHA above. This status-text correction is documentation-only and does not claim that the
+new documentation commit itself was re-tested. No GitHub Actions or paid CI was used.
+
+This behavior is separate from region authorization: after an explicit enable, the previously
+measured non-India LIVE execution path remains a distinct review finding and is not fixed by
+startup disarming.
+
 ## LIVE execution composition root, slice A (2026-10-24)
 
 `build_live_execution(runtime, config)` is the one supported way to assemble a LIVE-capable `ExecutionOrchestrator` over a validated `ProductionRuntime`: a durable gate persisted disarmed, a SQLite submission quarantine, the real `LivePreTradeRiskEvaluator`, the India market policy and an explicit `MarketPackPolicyVerifier`. Builds fail closed on missing or mistyped limits, risk engine, policy stages, verifier or risk-evidence provider, and a rejected build writes no durable state.
