@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from threading import Event, Thread
 from typing import cast
@@ -299,8 +299,16 @@ class _FakeUnitOfWork(UnitOfWork):
 
 
 class _FakePendingScopeGuard:
-    def __init__(self, status: PendingScopeStatus = PendingScopeStatus.CLEAR) -> None:
+    def __init__(
+        self,
+        status: PendingScopeStatus = PendingScopeStatus.CLEAR,
+        *,
+        stale: bool = False,
+        mismatched_account: bool = False,
+    ) -> None:
         self._status = status
+        self._stale = stale
+        self._mismatched_account = mismatched_account
 
     def check(
         self,
@@ -310,11 +318,11 @@ class _FakePendingScopeGuard:
         checked_at: datetime,
     ) -> PendingScopeResult:
         return PendingScopeResult(
-            account_id=account_id,
+            account_id=AccountId("wrong-account") if self._mismatched_account else account_id,
             connection_id=connection_id,
             status=self._status,
             reason="test pending-scope result",
-            checked_at=checked_at,
+            checked_at=checked_at - timedelta(seconds=1) if self._stale else checked_at,
         )
 
 
@@ -3975,6 +3983,41 @@ def test_live_refuses_submission_when_pending_scope_guard_is_missing() -> None:
     )
     assert not decision.reservation_pending
     assert not decision.reservation_acquired
+
+
+def test_live_refuses_stale_or_mismatched_scope_guard_results() -> None:
+    for guard in (
+        _FakePendingScopeGuard(stale=True),
+        _FakePendingScopeGuard(mismatched_account=True),
+    ):
+        request = _live_request()
+        unit_of_work = _FakeUnitOfWork()
+        broker = FakeBroker()
+        orchestrator = ExecutionOrchestrator(
+            application_runtime=_started_runtime(),
+            unit_of_work=unit_of_work,
+            trading_gate=_durable_gate(),
+            submission_quarantine=_FakeSubmissionQuarantine(),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
+            market_policy=india_market_policy(
+                session_evaluator=_approving_india_session_evaluator(),
+                rule_evaluator=_approving_india_evaluator(),
+            ),
+            pending_scope_guard=guard,
+            policy_verifier=policy_verifier(),
+        )
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "malformed or mismatched" in result.reason
+        assert broker.submit_calls == 0
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id,
+            request_fingerprint(request),
+        )
+        assert not decision.reservation_pending
+        assert not decision.reservation_acquired
 
 
 def test_live_refuses_submission_when_scope_is_pending_or_unknown() -> None:
