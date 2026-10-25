@@ -3,7 +3,7 @@
 **Status:** Account base-currency persistence implemented; Dhan C1 financial-state and margin authority remains **BLOCKED**.
 **Base:** `c545818d0c22bcdb320c420a1b3ed737ebf2d98b`
 **Implementation branch:** `feat/slice-c2c-margin-currency-authority-v1`
-**Validation:** Pending exact-SHA local validation. This ADR claims no test result.
+**Validation evidence:** Exact candidate SHA `f6a1c6130d6c7c656d040effff088875187530fc` passed focused and full local tests, Ruff formatting/lint, strict mypy, and both diff checks. Detailed counts and commands are recorded in `docs/STATUS.md`. This ADR documents the already-tested implementation; the documentation-only follow-up itself has not been separately tested.
 
 ## Context
 
