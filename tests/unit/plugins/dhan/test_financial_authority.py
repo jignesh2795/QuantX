@@ -95,14 +95,10 @@ def test_source_rejects_non_dhan_connection() -> None:
 
 
 class _NoIoTransport(InMemoryDhanTransport):
-    def fund_limits(
-        self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
-    ) -> DhanFundsSnapshot:
+    def fund_limits(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanFundsSnapshot:
         raise AssertionError("financial-authority assessment must not query fund limits")
 
-    def positions(
-        self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
-    ) -> DhanPositionsSnapshot:
+    def positions(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanPositionsSnapshot:
         raise AssertionError("financial-authority assessment must not query positions")
 
 

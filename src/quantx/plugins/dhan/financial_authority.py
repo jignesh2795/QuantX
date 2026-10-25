@@ -65,10 +65,7 @@ class DhanFinancialAuthorityAssessment:
         ):
             raise ValueError("configured_base_currency must be a three-letter uppercase code")
         _require_aware(self.assessed_at, "financial assessment assessed_at")
-        if (
-            type(self.status) is not EvidenceStatus
-            or self.status is not EvidenceStatus.UNAVAILABLE
-        ):
+        if type(self.status) is not EvidenceStatus or self.status is not EvidenceStatus.UNAVAILABLE:
             raise ValueError("Dhan financial-authority assessment must remain UNAVAILABLE")
         if type(self.blockers) is not tuple or not self.blockers:
             raise ValueError("financial assessment requires explicit blockers")
