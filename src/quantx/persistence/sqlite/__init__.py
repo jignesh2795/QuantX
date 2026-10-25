@@ -5,6 +5,7 @@ from .database import SqliteDatabase
 from .experiments import SqliteExperimentRepository
 from .idempotency import SqliteIdempotencyStore
 from .market_data import SqliteMarketDataStore
+from .pending_scope import SqlitePendingScopeGuard
 from .receipts import SqliteReceiptRepository, receipt_from_payload, receipt_to_payload
 from .research import SqliteResearchRunRepository, SqliteResearchStore
 from .submission_quarantine import SqliteSubmissionQuarantineRepository
@@ -17,6 +18,7 @@ __all__ = [
     "SqliteExperimentRepository",
     "SqliteIdempotencyStore",
     "SqliteMarketDataStore",
+    "SqlitePendingScopeGuard",
     "SqliteReceiptRepository",
     "SqliteResearchRunRepository",
     "SqliteResearchStore",

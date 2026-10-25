@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 _SCHEMA_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -84,6 +84,38 @@ CREATE TABLE IF NOT EXISTS submission_quarantine (
 _SUBMISSION_QUARANTINE_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_submission_quarantine_client_order
 ON submission_quarantine (client_order_id)
+"""
+
+_PENDING_EXECUTION_SCOPES_TABLE = """
+CREATE TABLE IF NOT EXISTS pending_execution_scopes (
+    client_order_id TEXT PRIMARY KEY
+        REFERENCES idempotency_reservations (client_order_id),
+    request_fingerprint TEXT NOT NULL,
+    scope_status TEXT NOT NULL CHECK (scope_status IN ('KNOWN', 'UNKNOWN')),
+    account_id TEXT NULL,
+    connection_id TEXT NULL,
+    created_at TEXT NOT NULL,
+    CHECK (
+        (
+            scope_status = 'KNOWN'
+            AND typeof(account_id) = 'text'
+            AND length(trim(account_id)) > 0
+            AND typeof(connection_id) = 'text'
+            AND length(trim(connection_id)) > 0
+        )
+        OR (scope_status = 'UNKNOWN' AND account_id IS NULL AND connection_id IS NULL)
+    )
+)
+"""
+
+_PENDING_EXECUTION_SCOPES_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_pending_execution_scopes_by_scope
+ON pending_execution_scopes (scope_status, account_id, connection_id, client_order_id)
+"""
+
+_PENDING_RESERVATIONS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_idempotency_reservations_pending
+ON idempotency_reservations (receipt_id, client_order_id)
 """
 
 _MARKET_CANDLES_TABLE = """
@@ -267,6 +299,9 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
     connection.execute(_TRADING_GATE_TABLE)
     connection.execute(_SUBMISSION_QUARANTINE_TABLE)
     connection.execute(_SUBMISSION_QUARANTINE_INDEX)
+    connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+    connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+    connection.execute(_PENDING_RESERVATIONS_INDEX)
     _create_market_tables(connection)
     _create_research_tables(connection)
     _create_experiment_tables(connection)
@@ -329,6 +364,9 @@ def init_schema(connection: sqlite3.Connection) -> None:
         _create_experiment_tables(connection)
         connection.execute(_ACCOUNTS_TABLE)
         connection.execute(_ACCOUNTS_OWNER_INDEX)
+        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+        connection.execute(_PENDING_RESERVATIONS_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 1",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -346,6 +384,9 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         connection.execute(_ACCOUNTS_TABLE)
         connection.execute(_ACCOUNTS_OWNER_INDEX)
+        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+        connection.execute(_PENDING_RESERVATIONS_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 2",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -362,6 +403,9 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         connection.execute(_ACCOUNTS_TABLE)
         connection.execute(_ACCOUNTS_OWNER_INDEX)
+        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+        connection.execute(_PENDING_RESERVATIONS_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 3",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -377,6 +421,9 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         connection.execute(_ACCOUNTS_TABLE)
         connection.execute(_ACCOUNTS_OWNER_INDEX)
+        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+        connection.execute(_PENDING_RESERVATIONS_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 4",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -391,6 +438,9 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         connection.execute(_ACCOUNTS_TABLE)
         connection.execute(_ACCOUNTS_OWNER_INDEX)
+        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+        connection.execute(_PENDING_RESERVATIONS_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 5",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -404,6 +454,9 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
         connection.execute(_ACCOUNTS_TABLE)
         connection.execute(_ACCOUNTS_OWNER_INDEX)
+        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+        connection.execute(_PENDING_RESERVATIONS_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 6",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -415,6 +468,9 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_NOT_SUBMITTED_RESOLUTIONS_TABLE)
         connection.execute(_ACCOUNTS_TABLE)
         connection.execute(_ACCOUNTS_OWNER_INDEX)
+        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+        connection.execute(_PENDING_RESERVATIONS_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 7",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -425,8 +481,25 @@ def init_schema(connection: sqlite3.Connection) -> None:
     if version == 8:
         connection.execute(_ACCOUNTS_TABLE)
         connection.execute(_ACCOUNTS_OWNER_INDEX)
+        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+        connection.execute(_PENDING_RESERVATIONS_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 8",
+            (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
+        )
+        connection.commit()
+        return
+
+    if version == 9:
+        # Pre-C2d unresolved reservations have no trusted normalized scope row.
+        # The guard treats those missing rows as UNKNOWN globally, rather than
+        # deriving a scope during migration from an old serialized payload.
+        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
+        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
+        connection.execute(_PENDING_RESERVATIONS_INDEX)
+        connection.execute(
+            "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 9",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
         )
         connection.commit()

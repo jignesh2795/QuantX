@@ -6,6 +6,8 @@ import sqlite3
 from datetime import UTC, datetime
 from uuid import UUID
 
+from quantx.domain.accounts import AccountId, BrokerConnectionId
+from quantx.domain.deployment import ExecutionMode
 from quantx.execution.idempotency import (
     IdempotencyDecision,
     NotSubmittedResolution,
@@ -162,6 +164,7 @@ class SqliteIdempotencyStore:
                 (str(client_order_id),),
             ).fetchone()
             if row is None:
+                created_at = datetime.now(UTC).isoformat()
                 connection.execute(
                     "INSERT INTO idempotency_reservations "
                     "(client_order_id, fingerprint, receipt_id, created_at, completed_at, "
@@ -169,8 +172,35 @@ class SqliteIdempotencyStore:
                     (
                         str(client_order_id),
                         request_fingerprint,
-                        datetime.now(UTC).isoformat(),
+                        created_at,
                         None if pending_context is None else pending_context.to_json(),
+                    ),
+                )
+                scope_status = "UNKNOWN"
+                scope_account_id: str | None = None
+                scope_connection_id: str | None = None
+                if pending_context is not None:
+                    execution_context = pending_context.execution_context
+                    if (
+                        type(execution_context.account_id) is AccountId
+                        and type(execution_context.broker_connection_id) is BrokerConnectionId
+                        and type(execution_context.execution_mode) is ExecutionMode
+                        and execution_context.execution_mode is ExecutionMode.LIVE
+                    ):
+                        scope_status = "KNOWN"
+                        scope_account_id = execution_context.account_id.value
+                        scope_connection_id = execution_context.broker_connection_id.value
+                connection.execute(
+                    "INSERT INTO pending_execution_scopes "
+                    "(client_order_id, request_fingerprint, scope_status, account_id, "
+                    "connection_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        str(client_order_id),
+                        request_fingerprint,
+                        scope_status,
+                        scope_account_id,
+                        scope_connection_id,
+                        created_at,
                     ),
                 )
                 return IdempotencyDecision(
