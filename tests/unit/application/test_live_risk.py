@@ -60,6 +60,7 @@ from quantx.persistence.sqlite import (
     SqliteUnitOfWork,
 )
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
+from tests.unit._execution_guards import ClearPendingScopeGuard
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 EVALUATED_AT = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
@@ -775,6 +776,7 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
     try:
         unit_of_work = SqliteUnitOfWork(database)
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
@@ -821,6 +823,7 @@ def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
@@ -847,6 +850,7 @@ def test_upstream_approve_cannot_bypass_authoritative_risk(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
@@ -885,6 +889,7 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
             raise RuntimeError("risk snapshot unavailable")
 
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True

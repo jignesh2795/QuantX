@@ -82,6 +82,7 @@ from quantx.integrations.brokers import (
     CapabilitySet,
 )
 from quantx.persistence import ReceiptRepository, UnitOfWork
+from tests.unit._execution_guards import ClearPendingScopeGuard
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 # ---------------------------------------------------------------------------
@@ -294,6 +295,7 @@ def _orchestrator(
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
+        pending_scope_guard=ClearPendingScopeGuard(),
         market_policy=india_market_policy(
             session_evaluator=_approving_india_session_evaluator(),
             rule_evaluator=_approving_india_evaluator(),

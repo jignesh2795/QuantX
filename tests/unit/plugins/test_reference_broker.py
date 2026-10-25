@@ -48,6 +48,7 @@ from quantx.plugins.reference_broker import (
     InMemoryReferenceBrokerTransport,
     ReferenceBrokerAdapter,
 )
+from tests.unit._execution_guards import ClearPendingScopeGuard
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 
@@ -236,6 +237,7 @@ def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> Non
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         result = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True

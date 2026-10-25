@@ -70,6 +70,7 @@ from quantx.persistence.sqlite import (
     SqliteUnitOfWork,
 )
 from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDhanTransport
+from tests.unit._execution_guards import ClearPendingScopeGuard
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 CHECKED_AT = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
@@ -227,6 +228,7 @@ def _orchestrator(database, unit_of_work, **overrides) -> ExecutionOrchestrator:
         ),
         submission_quarantine=SqliteSubmissionQuarantineRepository(database),
         live_risk_evaluator=live_risk_evaluator,
+        pending_scope_guard=overrides.pop("pending_scope_guard", ClearPendingScopeGuard()),
         **overrides,
         policy_verifier=policy_verifier(),
     )

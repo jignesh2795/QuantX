@@ -72,6 +72,7 @@ from quantx.plugins.dhan.models import (
     DhanOrderResponse,
     DhanPositionsSnapshot,
 )
+from tests.unit._execution_guards import ClearPendingScopeGuard
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 _DEFAULT_PRODUCT = ProductCode("CNC")
@@ -572,6 +573,7 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         result = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
@@ -772,6 +774,7 @@ def test_adapter_rejects_non_positive_read_timeout() -> None:
 
 def _quarantine_orchestrator(database) -> ExecutionOrchestrator:
     return ExecutionOrchestrator(
+        pending_scope_guard=ClearPendingScopeGuard(),
         unit_of_work=SqliteUnitOfWork(database),
         trading_gate=DurableTradingGate(
             SqliteTradingGateStateStore(database), default_enabled=True

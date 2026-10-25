@@ -57,6 +57,7 @@ from quantx.plugins.dhan import DhanBrokerAdapter, DhanInstrumentRef, InMemoryDh
 from quantx.plugins.dhan.host import DhanHostConfig, build_dhan_host_runtime
 from quantx.plugins.dhan.models import DhanOrderDetail
 from quantx.plugins.dhan.transport import DhanSDKTransport, DhanTimeoutError
+from tests.unit._execution_guards import ClearPendingScopeGuard
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
 _PRODUCT_MAP = {"CNC": "CNC"}
@@ -292,6 +293,7 @@ def test_gate_block_completes_while_broker_submit_blocked(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
@@ -367,6 +369,7 @@ def test_slow_health_probe_does_not_serialize_block(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
@@ -422,6 +425,7 @@ def test_blocked_gate_creates_no_reservation_or_submission(tmp_path) -> None:
         gate = DurableTradingGate(SqliteTradingGateStateStore(database))
         gate.block("pre-authorized stop")
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=gate,
             application_runtime=_started_runtime(),
@@ -463,6 +467,7 @@ def test_authorized_reservation_continues_after_block(tmp_path) -> None:
     try:
         gate = DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True)
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=gate,
             application_runtime=_started_runtime(),
@@ -517,6 +522,7 @@ def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
@@ -596,6 +602,7 @@ def test_late_broker_success_reconciles_without_resubmission(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
@@ -730,6 +737,7 @@ def test_idempotency_preserved_after_timeout(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=ClearPendingScopeGuard(),
             unit_of_work=SqliteUnitOfWork(database),
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
