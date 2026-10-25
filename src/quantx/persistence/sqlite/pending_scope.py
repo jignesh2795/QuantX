@@ -76,6 +76,25 @@ class SqlitePendingScopeGuard:
                 if orphaned_quarantine is not None:
                     return self._unknown(account_id, connection_id, checked_at)
 
+                invalid_resolutions = connection.execute(
+                    "SELECT 1 FROM operator_resolutions AS o "
+                    "LEFT JOIN idempotency_reservations AS r "
+                    "ON r.client_order_id = o.client_order_id "
+                    "WHERE r.client_order_id IS NULL OR o.fingerprint <> r.fingerprint "
+                    "UNION ALL "
+                    "SELECT 1 FROM not_submitted_resolutions AS n "
+                    "LEFT JOIN idempotency_reservations AS r "
+                    "ON r.client_order_id = n.client_order_id "
+                    "WHERE r.client_order_id IS NULL OR n.fingerprint <> r.fingerprint "
+                    "UNION ALL "
+                    "SELECT 1 FROM operator_resolutions AS o "
+                    "JOIN not_submitted_resolutions AS n "
+                    "ON n.client_order_id = o.client_order_id "
+                    "LIMIT 1"
+                ).fetchone()
+                if invalid_resolutions is not None:
+                    return self._unknown(account_id, connection_id, checked_at)
+
                 unknown_pending = connection.execute(
                     "SELECT 1 "
                     "FROM idempotency_reservations AS r "
@@ -89,6 +108,10 @@ class SqlitePendingScopeGuard:
                     "AND ("
                     "s.client_order_id IS NULL "
                     "OR s.scope_status <> 'KNOWN' "
+                    "OR typeof(s.request_fingerprint) <> 'text' "
+                    "OR length(trim(s.request_fingerprint)) = 0 "
+                    "OR typeof(r.fingerprint) <> 'text' "
+                    "OR length(trim(r.fingerprint)) = 0 "
                     "OR s.request_fingerprint <> r.fingerprint "
                     "OR typeof(s.account_id) <> 'text' "
                     "OR length(trim(s.account_id)) = 0 "

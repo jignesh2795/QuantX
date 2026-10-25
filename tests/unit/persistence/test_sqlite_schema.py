@@ -402,6 +402,14 @@ def test_v7_schema_is_migrated_to_current_version(tmp_path: Path) -> None:
             );
             INSERT INTO schema_version (version, applied_at)
             VALUES (7, '2026-01-01T00:00:00+00:00');
+            CREATE TABLE idempotency_reservations (
+                client_order_id TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                receipt_id TEXT NULL,
+                created_at TEXT NOT NULL,
+                completed_at TEXT NULL,
+                pending_context_json TEXT NULL
+            );
             CREATE TABLE submission_quarantine_observations (
                 observation_id TEXT PRIMARY KEY,
                 client_order_id TEXT NOT NULL,
