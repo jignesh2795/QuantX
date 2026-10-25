@@ -69,9 +69,7 @@ class DhanFinancialAuthorityAssessment:
             raise ValueError("Dhan financial-authority assessment must remain UNAVAILABLE")
         if type(self.blockers) is not tuple or not self.blockers:
             raise ValueError("financial assessment requires explicit blockers")
-        if any(
-            type(item) is not DhanFinancialAuthorityBlocker for item in self.blockers
-        ):
+        if any(type(item) is not DhanFinancialAuthorityBlocker for item in self.blockers):
             raise ValueError("financial assessment blockers must use the canonical enum")
         if not self.version.strip() or not self.provenance.strip():
             raise ValueError("financial assessment version and provenance are required")
