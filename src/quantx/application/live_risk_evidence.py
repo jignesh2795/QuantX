@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from quantx.domain.deployment import ExecutionMode
