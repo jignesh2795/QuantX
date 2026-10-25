@@ -9,14 +9,14 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from quantx.application.live_risk_evidence import (
+from quantx.domain.deployment import ExecutionMode
+from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.instruments import MarketFamily, MarketRegion
+from quantx.domain.pending_scope import (
     PendingScopeGuard,
     PendingScopeResult,
     PendingScopeStatus,
 )
-from quantx.domain.deployment import ExecutionMode
-from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.instruments import MarketFamily, MarketRegion
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import (
@@ -1212,12 +1212,18 @@ class ExecutionOrchestrator:
             ):
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
-                    reason="LIVE pending-scope result is malformed or mismatched; refusing submission",
+                    reason=(
+                        "LIVE pending-scope result is malformed or mismatched; "
+                        "refusing submission"
+                    ),
                 )
             if scope_result.status is PendingScopeStatus.PENDING:
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
-                    reason="LIVE account/connection has an unresolved submission; refusing submission",
+                    reason=(
+                        "LIVE account/connection has an unresolved submission; "
+                        "refusing submission"
+                    ),
                 )
             if scope_result.status is not PendingScopeStatus.CLEAR:
                 return ExecutionResult(

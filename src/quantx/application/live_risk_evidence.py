@@ -37,6 +37,11 @@ from quantx.domain.risk_evidence import (
     ReferencePriceEvidence,
     WholeAccountPositionEvidence,
 )
+from quantx.domain.pending_scope import (
+    PendingScopeGuard,
+    PendingScopeResult,
+    PendingScopeStatus,
+)
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 
@@ -72,28 +77,6 @@ def _status_error_code(
     return f"{prefix}_INCOMPLETE"
 
 
-class PendingScopeStatus(StrEnum):
-    CLEAR = "CLEAR"
-    PENDING = "PENDING"
-    UNKNOWN = "UNKNOWN"
-
-
-@dataclass(frozen=True, slots=True)
-class PendingScopeResult:
-    account_id: AccountId
-    connection_id: BrokerConnectionId
-    status: PendingScopeStatus
-    reason: str
-    checked_at: datetime
-
-    def __post_init__(self) -> None:
-        if type(self.status) is not PendingScopeStatus:
-            raise ValueError("pending scope status must use PendingScopeStatus")
-        _require_aware(self.checked_at, "pending scope checked_at")
-        if not self.reason.strip():
-            raise ValueError("pending scope result reason is required")
-
-
 @dataclass(frozen=True, slots=True)
 class ConcurrencyAdmission:
     account_id: AccountId
@@ -114,19 +97,6 @@ class ConcurrencyAdmission:
             raise ValueError("concurrency admission expiry must follow acquisition")
         if not self.request_fingerprint.strip() or not self.admission_id.strip():
             raise ValueError("concurrency admission identity is required")
-
-
-@runtime_checkable
-class PendingScopeGuard(Protocol):
-    """Durable scope-aware guard; UNKNOWN is never approval."""
-
-    def check(
-        self,
-        account_id: AccountId,
-        connection_id: BrokerConnectionId,
-        *,
-        checked_at: datetime,
-    ) -> PendingScopeResult: ...
 
 
 @runtime_checkable

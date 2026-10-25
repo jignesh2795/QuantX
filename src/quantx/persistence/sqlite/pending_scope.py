@@ -5,8 +5,8 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 
-from quantx.application.live_risk_evidence import PendingScopeResult, PendingScopeStatus
 from quantx.domain.accounts import AccountId, BrokerConnectionId
+from quantx.domain.pending_scope import PendingScopeResult, PendingScopeStatus
 
 from .database import SqliteDatabase
 
@@ -95,7 +95,8 @@ class SqlitePendingScopeGuard:
                     "OR typeof(o.action) <> 'text' "
                     "OR o.action <> 'CLOSE_UNRESOLVED' "
                     "OR (o.evidence_reference IS NOT NULL AND "
-                    "(typeof(o.evidence_reference) <> 'text' OR length(trim(o.evidence_reference)) = 0)) "
+                    "(typeof(o.evidence_reference) <> 'text' "
+                    "OR length(trim(o.evidence_reference)) = 0)) "
                     "UNION ALL "
                     "SELECT 1 FROM not_submitted_resolutions AS n "
                     "LEFT JOIN idempotency_reservations AS r "

@@ -432,15 +432,9 @@ def init_schema(connection: sqlite3.Connection) -> None:
         return
 
     if version == 5:
-        _create_experiment_tables(connection)
-        connection.execute(_NOT_SUBMITTED_RESOLUTIONS_TABLE)
-        connection.execute(_SUBMISSION_QUARANTINE_TABLE)
-        connection.execute(_SUBMISSION_QUARANTINE_INDEX)
-        connection.execute(_ACCOUNTS_TABLE)
-        connection.execute(_ACCOUNTS_OWNER_INDEX)
-        connection.execute(_PENDING_EXECUTION_SCOPES_TABLE)
-        connection.execute(_PENDING_EXECUTION_SCOPES_INDEX)
-        connection.execute(_PENDING_RESERVATIONS_INDEX)
+        # Some v5 databases predate durable execution tables. Create the current
+        # schema idempotently before adding indexes that depend on those tables.
+        _create_current_schema(connection)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 5",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
