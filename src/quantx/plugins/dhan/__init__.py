@@ -25,6 +25,12 @@ from .models import (
 )
 from .recovery import DhanRecoveryEvidenceProvider, build_dhan_recovery_provider
 from .transport import DhanSDKTransport, DhanTransport, InMemoryDhanTransport
+from .whole_account_positions import (
+    DhanWholeAccountPositionEvidenceAssessment,
+    DhanWholeAccountPositionEvidenceBlocker,
+    DhanWholeAccountPositionEvidenceSource,
+)
+
 
 DHAN_PLUGIN_DESCRIPTOR = PluginDescriptor(
     plugin_id=PluginId("dhan"),
@@ -57,6 +63,9 @@ __all__ = [
     "DhanPositionsSnapshot",
     "DhanRealizedDailyPnlBlocker",
     "DhanRealizedDailyPnlSource",
+    "DhanWholeAccountPositionEvidenceAssessment",
+    "DhanWholeAccountPositionEvidenceBlocker",
+    "DhanWholeAccountPositionEvidenceSource",
     "DhanRecoveryEvidenceProvider",
     "DhanSDKTransport",
     "DhanTransport",

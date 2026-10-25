@@ -146,8 +146,9 @@ execution of the test suite at the final candidate SHA.
    and ledger contracts cannot establish complete whole-account realized daily
    P&L with defined daily charges; see
    `58-dhan-realized-daily-pnl-c2a-blocker.md`.
-2. C2b: implement complete product-aware whole-account positions, holdings,
-   marks, mapping, duplicate policy, and completeness proof.
+2. C2b: **BLOCKED for Dhan** until product/overlap semantics and authorized,
+   timestamped marks can establish a complete whole-account book; see
+   `59-dhan-whole-account-position-evidence-c2b-blocker.md`.
 3. C2c: bind persisted account currency, convert authoritative account
    financial state, and implement margin authority.
 4. C2d: implement durable scope-filtered pending lookup and fail-closed runtime

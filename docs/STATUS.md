@@ -1,5 +1,13 @@
 # QuantX Status
 
+## C2b Dhan whole-account positions, holdings and marks — BLOCKED (2026-10-25)
+
+C2b is **BLOCKED** for Dhan at the verified provider-contract boundary. The documented /positions response is the day's open-position surface (including F&O carry-forward) with productType, but does not document how rows overlap with the separate demat /holdings surface. Holdings exposes quantities and average cost but no product type. QuantX cannot infer product identity or sum overlapping positions and holdings without double-counting risk exposure. The required marks also depend on Dhan Data APIs (currently listed at ₹499 + applicable taxes per month by Dhan support), while the existing adapter path does not provide an authorized, complete, timestamp-validated mark guarantee for every mapped account position.
+
+DhanBrokerAdapter.assess_whole_account_position_evidence(...) returns a typed UNAVAILABLE capability assessment bound to the configured account/connection, with explicit blockers and no broker I/O. It is not a WholeAccountPositionEvidence book and cannot be mistaken for an empty or complete account. Existing position_states() remains a narrower reconciliation observation and must not be promoted to C1 whole-account risk evidence. See docs/architecture/59-dhan-whole-account-position-evidence-c2b-blocker.md.
+
+Validation: Pending exact-SHA local validation. No test result is claimed by this status entry. C2a remains blocked by ADR 0058. C2c–C2e and end-to-end approval-binding enforcement remain unresolved. build_live_execution continues to refuse production LIVE composition. No broker I/O, credentials, orders, or LIVE trading were used.
+
 ## C2a Dhan realized daily P&L authority — BLOCKED (2026-10-25)
 
 C2a is **BLOCKED** for Dhan: the verified DhanHQ v2 provider contracts cannot establish complete, whole-account realized daily P&L with defined daily charges. `/positions` is documented as the open-position surface for the day (plus F&O carry-forward) and exposes per-position `realizedProfit`, but does not guarantee every closed intraday/delivery position, has no daily-charge or account-total field, and an empty list is not proof of zero activity. `/trades/{from}/{to}/{page}` is paginated without a documented page size, total, or end-of-data marker, carries no realized-P&L or opening-basis field, and exposes only per-trade charge columns. `/ledger` exposes debit/credit narration and a running balance, not structured realized P&L. See `docs/architecture/58-dhan-realized-daily-pnl-c2a-blocker.md`.

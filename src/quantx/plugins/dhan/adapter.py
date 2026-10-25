@@ -41,6 +41,10 @@ from .mapping import (
 )
 from .models import DhanInstrumentRef, DhanOrderDetail, DhanPositionSnapshot
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanTimeoutError, DhanTransport
+from .whole_account_positions import (
+    DhanWholeAccountPositionEvidenceAssessment,
+    DhanWholeAccountPositionEvidenceSource,
+)
 
 
 @dataclass(slots=True)
@@ -372,6 +376,22 @@ class DhanBrokerAdapter:
             day_start_at=day_start_at,
             as_of=as_of,
         )
+
+    def assess_whole_account_position_evidence(
+        self,
+        *,
+        assessed_at: datetime,
+    ) -> DhanWholeAccountPositionEvidenceAssessment:
+        """Report why this adapter cannot yet supply C1 whole-account evidence.
+
+        This is a contract-capability assessment, not a portfolio observation.
+        It performs no broker I/O and cannot be consumed as a position book.
+        """
+        return DhanWholeAccountPositionEvidenceSource(
+            account_id=self._connection.account_id,
+            connection_id=self._connection.connection_id,
+            broker_id=self._connection.broker_id,
+        ).assess(assessed_at=assessed_at)
 
     def position_states(self) -> tuple[PositionState, ...]:
         """Expose observed broker positions against canonical instruments.
