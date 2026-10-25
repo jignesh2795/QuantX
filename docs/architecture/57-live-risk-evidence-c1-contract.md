@@ -152,8 +152,9 @@ execution of the test suite at the final candidate SHA.
 3. C2c: account base-currency persistence is introduced, but Dhan financial-state
    and margin authority remain **BLOCKED**; see
    `60-dhan-account-currency-margin-c2c-blocker.md`.
-4. C2d: implement durable scope-filtered pending lookup and fail-closed runtime
-   guard.
+4. C2d: the pending-scope implementation candidate is recorded in
+   `61-durable-pending-scope-c2d.md`; exact-SHA validation is pending, and
+   C2d does not supply C2e's exclusive concurrency admission.
 5. C2e: implement durable concurrent admission/lease and integrate it into
    execution admission/release semantics.
 6. Bind the exact request fingerprint and evidence identity/time to the live
