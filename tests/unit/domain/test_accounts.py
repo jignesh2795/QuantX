@@ -1,3 +1,5 @@
+import pytest
+
 from quantx.domain.accounts import (
     Account,
     AccountId,
@@ -66,3 +68,11 @@ def test_account_market_profile_is_separate_from_broker_connection() -> None:
     assert profile.account_id == account.account_id
     assert profile.market.venue == "NSE"
     assert profile.enabled
+
+
+@pytest.mark.parametrize("currency", ["", "IN", "inr", "INR ", "I1R", "₹INR"])
+def test_account_base_currency_requires_canonical_three_letter_uppercase_code(
+    currency: str,
+) -> None:
+    with pytest.raises(ValueError, match="three-letter uppercase currency code"):
+        Account(AccountId("acct-invalid"), "owner-1", "Invalid", base_currency=currency)

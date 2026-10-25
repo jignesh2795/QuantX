@@ -74,8 +74,14 @@ class Account:
             raise ValueError("owner_id must not be empty")
         if not self.display_name.strip():
             raise ValueError("display_name must not be empty")
-        if not self.base_currency.strip():
-            raise ValueError("base_currency must not be empty")
+        if (
+            type(self.base_currency) is not str
+            or len(self.base_currency) != 3
+            or not self.base_currency.isascii()
+            or not self.base_currency.isalpha()
+            or self.base_currency != self.base_currency.upper()
+        ):
+            raise ValueError("base_currency must be a three-letter uppercase currency code")
 
 
 @dataclass(frozen=True, slots=True)

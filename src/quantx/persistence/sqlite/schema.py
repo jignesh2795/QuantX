@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _SCHEMA_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -138,6 +138,24 @@ CREATE TABLE IF NOT EXISTS market_quotes (
 """
 
 
+_ACCOUNTS_TABLE = """
+CREATE TABLE IF NOT EXISTS accounts (
+    account_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('primary', 'member', 'managed')),
+    base_currency TEXT NOT NULL CHECK (
+        length(base_currency) = 3 AND base_currency GLOB '[A-Z][A-Z][A-Z]'
+    ),
+    created_at TEXT NOT NULL
+)
+"""
+
+_ACCOUNTS_OWNER_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_accounts_owner
+ON accounts (owner_id, account_id)
+"""
+
 _RESEARCH_RUNS_TABLE = """
 CREATE TABLE IF NOT EXISTS research_runs (
     run_id TEXT PRIMARY KEY,
@@ -239,6 +257,8 @@ def _create_experiment_tables(connection: sqlite3.Connection) -> None:
 
 
 def _create_current_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(_ACCOUNTS_TABLE)
+    connection.execute(_ACCOUNTS_OWNER_INDEX)
     connection.execute(_IDEMPOTENCY_TABLE)
     connection.execute(_RECEIPTS_TABLE)
     connection.execute(_RECEIPTS_CLIENT_ORDER_INDEX)
@@ -307,6 +327,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
         _create_market_tables(connection)
         _create_research_tables(connection)
         _create_experiment_tables(connection)
+        connection.execute(_ACCOUNTS_TABLE)
+        connection.execute(_ACCOUNTS_OWNER_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 1",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -322,6 +344,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_NOT_SUBMITTED_RESOLUTIONS_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
+        connection.execute(_ACCOUNTS_TABLE)
+        connection.execute(_ACCOUNTS_OWNER_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 2",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -336,6 +360,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_NOT_SUBMITTED_RESOLUTIONS_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
+        connection.execute(_ACCOUNTS_TABLE)
+        connection.execute(_ACCOUNTS_OWNER_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 3",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -349,6 +375,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_NOT_SUBMITTED_RESOLUTIONS_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
+        connection.execute(_ACCOUNTS_TABLE)
+        connection.execute(_ACCOUNTS_OWNER_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 4",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -361,6 +389,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_NOT_SUBMITTED_RESOLUTIONS_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
+        connection.execute(_ACCOUNTS_TABLE)
+        connection.execute(_ACCOUNTS_OWNER_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 5",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -372,6 +402,8 @@ def init_schema(connection: sqlite3.Connection) -> None:
         connection.execute(_NOT_SUBMITTED_RESOLUTIONS_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_TABLE)
         connection.execute(_SUBMISSION_QUARANTINE_INDEX)
+        connection.execute(_ACCOUNTS_TABLE)
+        connection.execute(_ACCOUNTS_OWNER_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 6",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
@@ -381,8 +413,20 @@ def init_schema(connection: sqlite3.Connection) -> None:
 
     if version == 7:
         connection.execute(_NOT_SUBMITTED_RESOLUTIONS_TABLE)
+        connection.execute(_ACCOUNTS_TABLE)
+        connection.execute(_ACCOUNTS_OWNER_INDEX)
         connection.execute(
             "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 7",
+            (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
+        )
+        connection.commit()
+        return
+
+    if version == 8:
+        connection.execute(_ACCOUNTS_TABLE)
+        connection.execute(_ACCOUNTS_OWNER_INDEX)
+        connection.execute(
+            "UPDATE schema_version SET version = ?, applied_at = ? WHERE version = 8",
             (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
         )
         connection.commit()

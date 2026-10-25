@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from uuid import uuid4
 
+from quantx.domain.accounts import Account
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES, Instrument
@@ -35,6 +36,10 @@ from quantx.integrations.reconciliation.positions import PositionState
 
 from .capabilities import DHAN_CAPABILITIES
 from .daily_pnl import DhanRealizedDailyPnlSource
+from .financial_authority import (
+    DhanFinancialAuthorityAssessment,
+    DhanFinancialAuthoritySource,
+)
 from .mapping import (
     build_order_request,
     dhan_correlation_id,
@@ -382,6 +387,24 @@ class DhanBrokerAdapter:
             day_start_at=day_start_at,
             as_of=as_of,
         )
+
+    def financial_authority_assessment(
+        self,
+        *,
+        account: Account,
+        assessed_at: datetime,
+    ) -> DhanFinancialAuthorityAssessment:
+        """Return explicit C2c financial-authority blockers for this account.
+
+        The caller must load the account from the durable account repository.
+        Dhan fund-limit and margin-calculator contracts cannot construct the
+        complete C1 financial state, so this emits no monetary evidence and
+        performs no broker I/O.
+        """
+        return DhanFinancialAuthoritySource(
+            account=account,
+            connection=self._connection,
+        ).assess(assessed_at=assessed_at)
 
     def whole_account_position_evidence(
         self,

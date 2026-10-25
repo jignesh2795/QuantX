@@ -22,6 +22,7 @@ def test_schema_created_on_first_use(tmp_path) -> None:
         database.close()
     assert {
         "schema_version",
+        "accounts",
         "idempotency_reservations",
         "receipts",
         "trading_gate_state",
@@ -428,3 +429,32 @@ def test_v7_schema_is_migrated_to_current_version(tmp_path: Path) -> None:
     assert version == SCHEMA_VERSION
     assert "not_submitted_resolutions" in tables
     assert "submission_quarantine_observations" in tables
+
+
+def test_v8_schema_migrates_to_v9_with_persisted_accounts_table(tmp_path) -> None:
+    path = tmp_path / "quantx-v8.db"
+    database = SqliteDatabase(path)
+    database.close()
+
+    raw = sqlite3.connect(str(path))
+    try:
+        raw.execute("DROP TABLE accounts")
+        raw.execute("UPDATE schema_version SET version = 8")
+        raw.commit()
+    finally:
+        raw.close()
+
+    database = SqliteDatabase(path)
+    try:
+        version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
+        tables = {
+            row[0]
+            for row in database.connection().execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    finally:
+        database.close()
+
+    assert version == 9
+    assert "accounts" in tables
