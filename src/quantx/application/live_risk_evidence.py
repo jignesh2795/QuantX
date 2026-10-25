@@ -17,6 +17,11 @@ from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint, CapitalSourceType
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.pending_scope import (
+    PendingScopeGuard,
+    PendingScopeResult,
+    PendingScopeStatus,
+)
 from quantx.domain.risk import (
     LiveRiskLimitsError,
     PreTradeRiskEngine,
@@ -35,11 +40,6 @@ from quantx.domain.risk_evidence import (
     RealizedPnlSource,
     ReferencePriceEvidence,
     WholeAccountPositionEvidence,
-)
-from quantx.domain.pending_scope import (
-    PendingScopeGuard,
-    PendingScopeResult,
-    PendingScopeStatus,
 )
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.execution.idempotency.fingerprint import request_fingerprint
