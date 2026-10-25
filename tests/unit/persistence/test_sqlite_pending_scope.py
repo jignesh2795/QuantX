@@ -25,14 +25,16 @@ def _insert_pending(
     with database.transaction() as connection:
         connection.execute(
             "INSERT INTO idempotency_reservations "
-            "(client_order_id, fingerprint, receipt_id, created_at, completed_at, pending_context_json) "
+            "(client_order_id, fingerprint, receipt_id, created_at, completed_at, "
+            "pending_context_json) "
             "VALUES (?, ?, NULL, ?, NULL, '{}')",
             (client_id, fingerprint, CHECKED_AT.isoformat()),
         )
         if scope_status is not None:
             connection.execute(
                 "INSERT INTO pending_execution_scopes "
-                "(client_order_id, request_fingerprint, scope_status, account_id, connection_id, created_at) "
+                "(client_order_id, request_fingerprint, scope_status, account_id, "
+                "connection_id, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     client_id,
@@ -83,15 +85,28 @@ def test_pending_scope_matches_account_and_connection_pair() -> None:
 
 def test_unknown_scope_blocks_every_account_and_connection() -> None:
     with SqliteDatabase(":memory:") as database:
-        _insert_pending(database, scope_status="UNKNOWN", account_id=None, connection_id=None)
-        result = _check(database, account_id="unrelated-account", connection_id="unrelated-connection")
+        _insert_pending(
+            database,
+            scope_status="UNKNOWN",
+            account_id=None,
+            connection_id=None,
+        )
+        result = _check(
+            database,
+            account_id="unrelated-account",
+            connection_id="unrelated-connection",
+        )
     assert result.status is PendingScopeStatus.UNKNOWN
 
 
 def test_missing_legacy_scope_blocks_every_account_and_connection() -> None:
     with SqliteDatabase(":memory:") as database:
         _insert_pending(database, scope_status=None)
-        result = _check(database, account_id="unrelated-account", connection_id="unrelated-connection")
+        result = _check(
+            database,
+            account_id="unrelated-account",
+            connection_id="unrelated-connection",
+        )
     assert result.status is PendingScopeStatus.UNKNOWN
 
 
@@ -100,7 +115,8 @@ def test_completed_reservation_does_not_block_scope() -> None:
         client_id = _insert_pending(database)
         with database.transaction() as connection:
             connection.execute(
-                "UPDATE idempotency_reservations SET receipt_id = ? WHERE client_order_id = ?",
+                "UPDATE idempotency_reservations SET receipt_id = ? "
+                "WHERE client_order_id = ?",
                 ("receipt-1", client_id),
             )
         result = _check(database)
@@ -113,9 +129,16 @@ def test_operator_resolved_reservation_does_not_block_scope() -> None:
         with database.transaction() as connection:
             connection.execute(
                 "INSERT INTO operator_resolutions "
-                "(client_order_id, fingerprint, operator_id, reason, resolved_at, action, evidence_reference, created_at) "
-                "VALUES (?, ?, 'operator-1', 'manually closed unresolved outcome', ?, 'CLOSE_UNRESOLVED', NULL, ?)",
-                (client_id, "fingerprint-operator", CHECKED_AT.isoformat(), CHECKED_AT.isoformat()),
+                "(client_order_id, fingerprint, operator_id, reason, resolved_at, "
+                "action, evidence_reference, created_at) "
+                "VALUES (?, ?, 'operator-1', 'manually closed unresolved outcome', ?, "
+                "'CLOSE_UNRESOLVED', NULL, ?)",
+                (
+                    client_id,
+                    "fingerprint-operator",
+                    CHECKED_AT.isoformat(),
+                    CHECKED_AT.isoformat(),
+                ),
             )
         result = _check(database)
     assert result.status is PendingScopeStatus.CLEAR
@@ -127,11 +150,17 @@ def test_operator_resolution_with_mismatched_fingerprint_blocks_globally() -> No
         with database.transaction() as connection:
             connection.execute(
                 "INSERT INTO operator_resolutions "
-                "(client_order_id, fingerprint, operator_id, reason, resolved_at, action, evidence_reference, created_at) "
-                "VALUES (?, 'different-fingerprint', 'operator-1', 'mismatched legacy resolution', ?, 'CLOSE_UNRESOLVED', NULL, ?)",
+                "(client_order_id, fingerprint, operator_id, reason, resolved_at, "
+                "action, evidence_reference, created_at) "
+                "VALUES (?, 'different-fingerprint', 'operator-1', "
+                "'mismatched legacy resolution', ?, 'CLOSE_UNRESOLVED', NULL, ?)",
                 (client_id, CHECKED_AT.isoformat(), CHECKED_AT.isoformat()),
             )
-        result = _check(database, account_id="other-account", connection_id="other-connection")
+        result = _check(
+            database,
+            account_id="other-account",
+            connection_id="other-connection",
+        )
     assert result.status is PendingScopeStatus.UNKNOWN
 
 
@@ -141,11 +170,17 @@ def test_not_submitted_resolution_with_mismatched_fingerprint_blocks_globally() 
         with database.transaction() as connection:
             connection.execute(
                 "INSERT INTO not_submitted_resolutions "
-                "(client_order_id, fingerprint, source, reason, recorded_at, created_at) "
-                "VALUES (?, 'different-fingerprint', 'ADAPTER_PREFLIGHT_REJECTION', 'resolution mismatch', ?, ?)",
+                "(client_order_id, fingerprint, source, reason, recorded_at, "
+                "created_at) "
+                "VALUES (?, 'different-fingerprint', 'ADAPTER_PREFLIGHT_REJECTION', "
+                "'resolution mismatch', ?, ?)",
                 (client_id, CHECKED_AT.isoformat(), CHECKED_AT.isoformat()),
             )
-        result = _check(database, account_id="other-account", connection_id="other-connection")
+        result = _check(
+            database,
+            account_id="other-account",
+            connection_id="other-connection",
+        )
     assert result.status is PendingScopeStatus.UNKNOWN
 
 
@@ -155,11 +190,17 @@ def test_blank_operator_identity_does_not_close_pending_reservation() -> None:
         with database.transaction() as connection:
             connection.execute(
                 "INSERT INTO operator_resolutions "
-                "(client_order_id, fingerprint, operator_id, reason, resolved_at, action, evidence_reference, created_at) "
-                "VALUES (?, 'fingerprint-blank-operator', '', 'operator closure', ?, 'CLOSE_UNRESOLVED', NULL, ?)",
+                "(client_order_id, fingerprint, operator_id, reason, resolved_at, "
+                "action, evidence_reference, created_at) "
+                "VALUES (?, 'fingerprint-blank-operator', '', 'operator closure', ?, "
+                "'CLOSE_UNRESOLVED', NULL, ?)",
                 (client_id, CHECKED_AT.isoformat(), CHECKED_AT.isoformat()),
             )
-        result = _check(database, account_id="other-account", connection_id="other-connection")
+        result = _check(
+            database,
+            account_id="other-account",
+            connection_id="other-connection",
+        )
     assert result.status is PendingScopeStatus.UNKNOWN
 
 
@@ -169,17 +210,25 @@ def test_conflicting_resolution_kinds_block_globally() -> None:
         with database.transaction() as connection:
             connection.execute(
                 "INSERT INTO operator_resolutions "
-                "(client_order_id, fingerprint, operator_id, reason, resolved_at, action, evidence_reference, created_at) "
-                "VALUES (?, 'fingerprint-conflict', 'operator-1', 'operator closure', ?, 'CLOSE_UNRESOLVED', NULL, ?)",
+                "(client_order_id, fingerprint, operator_id, reason, resolved_at, "
+                "action, evidence_reference, created_at) "
+                "VALUES (?, 'fingerprint-conflict', 'operator-1', 'operator closure', ?, "
+                "'CLOSE_UNRESOLVED', NULL, ?)",
                 (client_id, CHECKED_AT.isoformat(), CHECKED_AT.isoformat()),
             )
             connection.execute(
                 "INSERT INTO not_submitted_resolutions "
-                "(client_order_id, fingerprint, source, reason, recorded_at, created_at) "
-                "VALUES (?, 'fingerprint-conflict', 'ADAPTER_PREFLIGHT_REJECTION', 'not submitted', ?, ?)",
+                "(client_order_id, fingerprint, source, reason, recorded_at, "
+                "created_at) "
+                "VALUES (?, 'fingerprint-conflict', 'ADAPTER_PREFLIGHT_REJECTION', "
+                "'not submitted', ?, ?)",
                 (client_id, CHECKED_AT.isoformat(), CHECKED_AT.isoformat()),
             )
-        result = _check(database, account_id="other-account", connection_id="other-connection")
+        result = _check(
+            database,
+            account_id="other-account",
+            connection_id="other-connection",
+        )
     assert result.status is PendingScopeStatus.UNKNOWN
 
 
@@ -187,7 +236,8 @@ def test_orphaned_quarantine_observation_blocks_globally() -> None:
     with SqliteDatabase(":memory:") as database:
         with database.transaction() as connection:
             connection.execute(
-                "INSERT INTO submission_quarantine (observation_id, client_order_id, payload, created_at) "
+                "INSERT INTO submission_quarantine "
+                "(observation_id, client_order_id, payload, created_at) "
                 "VALUES (?, ?, '{}', ?)",
                 (str(uuid4()), str(uuid4()), CHECKED_AT.isoformat()),
             )
@@ -211,6 +261,8 @@ def test_scope_index_is_present() -> None:
     with SqliteDatabase(":memory:") as database:
         indexes = {
             row[1]
-            for row in database.connection().execute("PRAGMA index_list('pending_execution_scopes')")
+            for row in database.connection().execute(
+                "PRAGMA index_list('pending_execution_scopes')"
+            )
         }
     assert "idx_pending_execution_scopes_by_scope" in indexes

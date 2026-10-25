@@ -388,6 +388,10 @@ def test_v5_schema_is_migrated_to_current_version(tmp_path: Path) -> None:
     assert version == SCHEMA_VERSION
     assert "research_experiments" in tables
     assert "research_experiment_runs" in tables
+    assert "idempotency_reservations" in tables
+    assert "receipts" in tables
+    assert "trading_gate_state" in tables
+    assert "pending_execution_scopes" in tables
 
 
 def test_v7_schema_is_migrated_to_current_version(tmp_path: Path) -> None:
@@ -478,8 +482,10 @@ def test_v9_schema_migrates_to_v10_pending_scope_table(tmp_path: Path) -> None:
     with database.transaction() as connection:
         connection.execute(
             "INSERT INTO idempotency_reservations "
-            "(client_order_id, fingerprint, receipt_id, created_at, completed_at, pending_context_json) "
-            "VALUES ('legacy-client-order', 'legacy-fingerprint', NULL, '2026-01-01T00:00:00+00:00', NULL, NULL)"
+            "(client_order_id, fingerprint, receipt_id, created_at, completed_at, "
+            "pending_context_json) "
+            "VALUES ('legacy-client-order', 'legacy-fingerprint', NULL, "
+            "'2026-01-01T00:00:00+00:00', NULL, NULL)"
         )
         connection.execute("DROP TABLE pending_execution_scopes")
         connection.execute("UPDATE schema_version SET version = 9")

@@ -128,7 +128,11 @@ def test_reservation_persists_indexed_pending_scope_atomically() -> None:
 
     with SqliteDatabase(":memory:") as database:
         store = SqliteIdempotencyStore(database)
-        decision = store.reserve_or_get(client_order_id, context.request_fingerprint, context)
+        decision = store.reserve_or_get(
+            client_order_id,
+            context.request_fingerprint,
+            context,
+        )
         scope_row = database.connection().execute(
             "SELECT request_fingerprint, scope_status, account_id, connection_id "
             "FROM pending_execution_scopes WHERE client_order_id = ?",
@@ -182,13 +186,19 @@ def test_reservation_survives_close_and_reopen(tmp_path) -> None:
     client_order_id = uuid4()
 
     with SqliteDatabase(path) as database:
-        decision = SqliteIdempotencyStore(database).reserve_or_get(client_order_id, FINGERPRINT)
+        decision = SqliteIdempotencyStore(database).reserve_or_get(
+            client_order_id,
+            FINGERPRINT,
+        )
 
     assert decision.reservation_acquired is True
     assert decision.reservation_pending is True
 
     with SqliteDatabase(path) as reopened:
-        decision = SqliteIdempotencyStore(reopened).reserve_or_get(client_order_id, FINGERPRINT)
+        decision = SqliteIdempotencyStore(reopened).reserve_or_get(
+            client_order_id,
+            FINGERPRINT,
+        )
 
     assert decision.reservation_acquired is False
     assert decision.reservation_pending is True
@@ -376,7 +386,11 @@ def test_pending_context_survives_close_and_reopen(tmp_path) -> None:
     fingerprint = context.request_fingerprint
 
     with SqliteDatabase(path) as database:
-        SqliteIdempotencyStore(database).reserve_or_get(client_order_id, fingerprint, context)
+        SqliteIdempotencyStore(database).reserve_or_get(
+            client_order_id,
+            fingerprint,
+            context,
+        )
 
     with SqliteDatabase(path) as reopened:
         store = SqliteIdempotencyStore(reopened)
@@ -505,7 +519,10 @@ def test_concurrent_reservation_acquires_exactly_once(tmp_path) -> None:
     def _attempt(_: int) -> bool:
         store = _store(path)
         try:
-            return store.reserve_or_get(client_order_id, FINGERPRINT).reservation_acquired
+            return store.reserve_or_get(
+                client_order_id,
+                FINGERPRINT,
+            ).reservation_acquired
         finally:
             store._database.close()
 
