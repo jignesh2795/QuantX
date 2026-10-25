@@ -84,10 +84,7 @@ class RealizedDailyPnlEvidence:
             or type(self.completeness) is not EvidenceStatus
         ):
             raise ValueError("P&L source and completeness must use canonical enums")
-        if (
-            type(self.covered_surfaces) is not tuple
-            or type(self.uncaptured_activity) is not tuple
-        ):
+        if type(self.covered_surfaces) is not tuple or type(self.uncaptured_activity) is not tuple:
             raise ValueError(
                 "P&L covered_surfaces and uncaptured_activity must be immutable tuples"
             )
@@ -169,11 +166,7 @@ class WholeAccountPositionEvidence:
         if any(type(item) is not LivePositionEvidence for item in self.positions):
             raise ValueError("positions must use LivePositionEvidence")
         _require_aware(self.observed_at, "position book observed_at")
-        if (
-            not self.merge_policy.strip()
-            or not self.version.strip()
-            or not self.provenance.strip()
-        ):
+        if not self.merge_policy.strip() or not self.version.strip() or not self.provenance.strip():
             raise ValueError("position merge_policy, version, and provenance are required")
         seen: set[tuple[object, ProductCode]] = set()
         for position in self.positions:

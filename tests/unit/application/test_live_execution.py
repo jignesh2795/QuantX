@@ -255,6 +255,7 @@ def test_build_refusal_does_not_mutate_existing_gate(tmp_path) -> None:
     finally:
         database.close()
 
+
 def test_sanctioned_live_composition_refuses_until_authorities_are_wired(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:

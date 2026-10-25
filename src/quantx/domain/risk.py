@@ -592,9 +592,7 @@ class PreTradeRiskEngine:
         if limits.max_unrealized_loss is not None:
             unrealized_loss = _risk_number(snapshot.unrealized_loss)
             if unrealized_loss is None or unrealized_loss < 0:
-                self._reject_value(
-                    decisions, violations, "unrealized_loss", "unrealized_loss"
-                )
+                self._reject_value(decisions, violations, "unrealized_loss", "unrealized_loss")
             else:
                 self._check_limit(
                     decisions,

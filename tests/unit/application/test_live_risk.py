@@ -599,12 +599,18 @@ def test_unrealized_loss_reversal_is_not_latched() -> None:
     context = _context()
     limits = _limits()
     breached = engine.evaluate_with_limits(
-        intent, context, limits=limits,
-        snapshot=_snapshot(unrealized_loss=Decimal("5001")), evaluated_at=EVALUATED_AT,
+        intent,
+        context,
+        limits=limits,
+        snapshot=_snapshot(unrealized_loss=Decimal("5001")),
+        evaluated_at=EVALUATED_AT,
     )
     recovered = engine.evaluate_with_limits(
-        intent, context, limits=limits,
-        snapshot=_snapshot(unrealized_loss=Decimal("100")), evaluated_at=EVALUATED_AT,
+        intent,
+        context,
+        limits=limits,
+        snapshot=_snapshot(unrealized_loss=Decimal("100")),
+        evaluated_at=EVALUATED_AT,
     )
     assert breached.decision is RiskDecision.REJECT
     assert recovered.decision is RiskDecision.APPROVE

@@ -93,16 +93,28 @@ def _positions(
         connection_id=CONNECTION,
         surfaces=(
             PositionSurfaceEvidence(
-                PositionSurface.POSITIONS, surface_status, observed_at,
-                "synthetic-v1", "synthetic-test-fixture", len(rows),
+                PositionSurface.POSITIONS,
+                surface_status,
+                observed_at,
+                "synthetic-v1",
+                "synthetic-test-fixture",
+                len(rows),
             ),
             PositionSurfaceEvidence(
-                PositionSurface.HOLDINGS, surface_status, observed_at,
-                "synthetic-v1", "synthetic-test-fixture", 0,
+                PositionSurface.HOLDINGS,
+                surface_status,
+                observed_at,
+                "synthetic-v1",
+                "synthetic-test-fixture",
+                0,
             ),
             PositionSurfaceEvidence(
-                PositionSurface.MARKS, surface_status, observed_at,
-                "synthetic-v1", "synthetic-test-fixture", len(rows),
+                PositionSurface.MARKS,
+                surface_status,
+                observed_at,
+                "synthetic-v1",
+                "synthetic-test-fixture",
+                len(rows),
             ),
         ),
         positions=rows,
@@ -283,10 +295,8 @@ def test_mark_count_must_match_canonical_position_book():
 
 
 def test_incomplete_holdings_surface_rejects_even_when_open_positions_are_empty():
-    evidence = _evidence(
-        positions=_positions((), surface_status=EvidenceStatus.INCOMPLETE)
-    )
-    with pytest.raises(LiveRiskEvidenceError, match="LIVE_RISK_EVIDENCE_INCOMPLETE"):
+    evidence = _evidence(positions=_positions((), surface_status=EvidenceStatus.INCOMPLETE))
+    with pytest.raises(LiveRiskEvidenceError, match="LIVE_RISK_POSITION_SURFACE_INCOMPLETE"):
         _build(evidence)
 
 
@@ -304,9 +314,7 @@ def test_explicit_unavailable_pnl_authority_is_not_treated_as_incomplete_zero():
 
 def test_assembly_claim_outside_trusted_clock_tolerance_rejects():
     evidence = _evidence(assembled_at=EVALUATED_AT - timedelta(seconds=6))
-    with pytest.raises(
-        LiveRiskEvidenceError, match="LIVE_RISK_ASSEMBLY_TIME_OUT_OF_TOLERANCE"
-    ):
+    with pytest.raises(LiveRiskEvidenceError, match="LIVE_RISK_ASSEMBLY_TIME_OUT_OF_TOLERANCE"):
         _build(evidence)
 
 
@@ -449,9 +457,7 @@ def test_policy_rejects_unsupported_drawdown_and_concentration():
     with pytest.raises(LiveRiskEvidenceError, match="LIVE_RISK_POLICY_UNSUPPORTED"):
         build_live_risk_inputs(
             request,
-            policy=replace(
-                _policy(), limits=_limits(max_instrument_concentration=Decimal("0.5"))
-            ),
+            policy=replace(_policy(), limits=_limits(max_instrument_concentration=Decimal("0.5"))),
             evidence=_evidence(),
             trading_day=TRADING_DAY,
             trading_day_start_at=DAY_START_AT,
@@ -460,9 +466,7 @@ def test_policy_rejects_unsupported_drawdown_and_concentration():
 
 
 def test_wrong_position_connection_fails_scope_validation():
-    evidence = _evidence(
-        positions=replace(_positions(), connection_id=BrokerConnectionId("other"))
-    )
+    evidence = _evidence(positions=replace(_positions(), connection_id=BrokerConnectionId("other")))
     with pytest.raises(LiveRiskEvidenceError, match="LIVE_RISK_SCOPE_MISMATCH"):
         _build(evidence)
 

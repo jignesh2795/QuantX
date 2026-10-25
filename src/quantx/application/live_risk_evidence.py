@@ -25,8 +25,8 @@ from quantx.domain.risk import (
     RiskContext,
     RiskDecision,
     RiskLimits,
-    RiskSnapshot,
     RiskResult,
+    RiskSnapshot,
     require_live_risk_limits,
 )
 from quantx.domain.risk_evidence import (
@@ -50,6 +50,7 @@ class LiveRiskEvidenceError(ValueError):
     def __init__(self, code: str, detail: str) -> None:
         self.code = code
         super().__init__(f"{code}: {detail}")
+
 
 _MAX_ASSEMBLY_CLOCK_SKEW = timedelta(seconds=5)
 
@@ -324,9 +325,7 @@ def build_live_risk_inputs(
     }:
         raise LiveRiskEvidenceError("DAILY_PNL_AUTHORITY_UNAVAILABLE", "unapproved P&L source")
     if pnl.completeness is not EvidenceStatus.COMPLETE:
-        code = _status_error_code(
-            pnl.completeness, prefix="DAILY_PNL_AUTHORITY"
-        )
+        code = _status_error_code(pnl.completeness, prefix="DAILY_PNL_AUTHORITY")
         raise LiveRiskEvidenceError(code, "realized P&L evidence is not COMPLETE")
     if pnl.scope != "WHOLE_ACCOUNT":
         raise LiveRiskEvidenceError(
@@ -344,12 +343,11 @@ def build_live_risk_inputs(
         raise LiveRiskEvidenceError(
             "DAILY_PNL_AUTHORITY_INCOMPLETE", "daily P&L reports uncaptured account activity"
         )
-    expected_day_start = _aware_utc(
-        trading_day_start_at, "trusted trading-day start instant"
-    )
-    if pnl.trading_day != trading_day or _aware_utc(
-        pnl.day_start_at, "P&L day_start_at"
-    ) != expected_day_start:
+    expected_day_start = _aware_utc(trading_day_start_at, "trusted trading-day start instant")
+    if (
+        pnl.trading_day != trading_day
+        or _aware_utc(pnl.day_start_at, "P&L day_start_at") != expected_day_start
+    ):
         raise LiveRiskEvidenceError(
             "DAILY_PNL_TRADING_DAY_MISMATCH",
             "P&L trading day or session start differs from the trusted calendar",
@@ -361,9 +359,7 @@ def build_live_risk_inputs(
 
     position_book = evidence.positions
     if position_book.completeness is not EvidenceStatus.COMPLETE:
-        code = _status_error_code(
-            position_book.completeness, prefix="LIVE_RISK_POSITION_BOOK"
-        )
+        code = _status_error_code(position_book.completeness, prefix="LIVE_RISK_POSITION_BOOK")
         raise LiveRiskEvidenceError(code, "whole-account position book is not COMPLETE")
     required_surfaces = {"POSITIONS", "HOLDINGS", "MARKS"}
     surfaces_by_name = {surface.surface.value: surface for surface in position_book.surfaces}
@@ -485,9 +481,7 @@ def build_live_risk_inputs(
             raise LiveRiskEvidenceError(
                 "LIVE_RISK_CURRENCY_MISMATCH", "canonical instrument currency differs"
             )
-        signed_notional = (
-            position.quantity * position.mark_price * instrument.multiplier
-        )
+        signed_notional = position.quantity * position.mark_price * instrument.multiplier
         unrealized = (
             (position.mark_price - position.average_price)
             * position.quantity
