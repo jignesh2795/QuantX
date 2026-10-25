@@ -47,7 +47,7 @@ Normal engineering task order: `core → audit → plan → implement → advers
 
 ## Validation response
 
-Never say tests pass without exact command/results. When validation is requested, report exact counts, tooling results, semantic findings, scope, and repository integrity. Gate: `pytest green + changed-file Ruff clean + git diff --check clean`.
+Never say tests pass without exact command/results. When validation is requested, report exact counts, tooling results, semantic findings, scope, and repository integrity. Gate: `pytest green + changed-file Ruff lint and format clean + git diff --check clean`.
 
 ## Git worktree lifecycle (mandatory)
 

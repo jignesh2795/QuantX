@@ -28,10 +28,10 @@ Rules of thumb:
 ## Repository gate
 
 ```
-pytest green + changed-file Ruff clean + git diff --check clean
+pytest green + changed-file Ruff lint and format clean + git diff --check clean
 ```
 
-The gate is *changed-file* Ruff (repo-wide Ruff may have pre-existing findings — inspect before claiming counts), enforced by `scripts/hooks/pre-push`; enable with `git config core.hooksPath scripts/hooks`.
+The gate is *changed-file* Ruff **lint and format** — `ruff check` plus `ruff format --check` — enforced by `scripts/hooks/pre-push`; enable with `git config core.hooksPath scripts/hooks`.
 
 Exact environment setup, the full validation command catalog, hook/CI details, and executable-gate tooling: `references/commands.md`.
 

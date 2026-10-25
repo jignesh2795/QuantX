@@ -17,7 +17,7 @@ Given a branch/HEAD and task scope, the validation prompt must:
 - state exact HEAD and base;
 - run focused tests for the touched area;
 - run the full suite;
-- run changed-file Ruff;
+- run changed-file Ruff lint and format;
 - run strict mypy on changed production files;
 - run `git diff --check`;
 - audit semantic invariants and safety boundaries;
@@ -41,11 +41,11 @@ A focused/targeted pytest run is a diagnostic. It may be executed and
 reported independently, but its evidence can never satisfy the release
 gate's mandatory full-suite contract (see `quantx-release-gate`).
 
-Repository gate: **pytest green + changed-file Ruff clean + `git diff --check` clean.**
+Repository gate: **pytest green + changed-file Ruff lint and format clean + `git diff --check` clean.**
 
 Notes:
 
-- Repo-wide Ruff has pre-existing findings; the gate is changed-file Ruff only.
+- The gate is changed-file Ruff **lint and format**: both `ruff check` and `ruff format --check` must pass on the changed files. Repo-wide Ruff is currently clean and CI enforces it repo-wide, but changed-file scope remains the merge gate.
 - Optional Dhan tests need `uv sync --dev --extra dhan`; otherwise they self-skip.
 - Test-count baseline to compare against lives in `docs/STATUS.md`.
 

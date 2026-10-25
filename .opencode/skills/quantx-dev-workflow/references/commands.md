@@ -27,15 +27,15 @@ git diff --check                                    # whitespace errors
 Repository gate (must pass before push):
 
 ```
-pytest green + changed-file Ruff clean + git diff --check clean
+pytest green + changed-file Ruff lint and format clean + git diff --check clean
 ```
 
 ## Hook, CI, and policy notes
 
-- The repository gate is *changed-file* Ruff (repo-wide Ruff may have pre-existing findings — inspect before claiming counts), enforced by `scripts/hooks/pre-push`. Enable with: `git config core.hooksPath scripts/hooks`.
-- The pre-push hook runs `uv run ruff check` over `.py` files in `git diff --name-only '@{push}...HEAD'` (fallback `origin/main...HEAD`).
+- The repository gate is *changed-file* Ruff **lint and format** (`ruff check` plus `ruff format --check`), enforced by `scripts/hooks/pre-push`. Enable with: `git config core.hooksPath scripts/hooks`.
+- The pre-push hook runs `uv run ruff check` and `uv run ruff format --check` over `.py` files in `git diff --name-only '@{push}...HEAD'` (fallback `origin/main...HEAD`).
 - Validation-gate policy (whether GitHub Actions counts as evidence, and the current execution gate) is authoritative in `docs/STATUS.md` — verify there instead of assuming.
-- The full CI sequence (`.github/workflows/test.yml`): `uv sync --locked --dev --extra dhan` → ruff check/format on Dhan paths → pytest dhan → pytest paper → full pytest.
+- The full CI sequence (`.github/workflows/test.yml`): `uv sync --locked --dev --extra dhan` → repo-wide `ruff check` and `ruff format --check` → pytest dhan → pytest paper → full pytest.
 
 ## Executable gates
 

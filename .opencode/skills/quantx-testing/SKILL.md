@@ -63,6 +63,6 @@ Writing/fixing tests is permitted only during an explicitly assigned implementat
 
 Per the 7-step implementation discipline: make the smallest production change, then **add a focused regression test** for the specific gap. Run the focused slice first, then the full suite.
 
-Repository gate: `pytest green + changed-file Ruff clean + git diff --check clean`.
+Repository gate: `pytest green + changed-file Ruff lint and format clean + git diff --check clean`.
 
 The current validation/test-count baseline is authoritative in `docs/STATUS.md` — read it for the baseline; do not store transient repository counts in this skill. Testing itself is architectural — broker/data adapters must pass a common contract suite (`docs/architecture/11-testing-and-contracts.md`).

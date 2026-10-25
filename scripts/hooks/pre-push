@@ -1,9 +1,9 @@
 #!/bin/sh
-# QuantX pre-push hook: changed-file Ruff gate.
+# QuantX pre-push hook: changed-file Ruff lint and format gate.
 #
-# The repository gate is pytest green + changed-file Ruff clean +
+# The repository gate is pytest green + changed-file Ruff lint and format clean +
 # `git diff --check` clean. Tests run in CI/validation; this hook stops
-# changed-file lint errors from ever reaching a push.
+# changed-file lint and format errors from ever reaching a push.
 #
 # Enable once per clone:
 #   git config core.hooksPath scripts/hooks
@@ -17,5 +17,6 @@ fi
 py_files=$(printf '%s\n' "$changed" | grep '\.py$' || true)
 [ -z "$py_files" ] && exit 0
 
-echo "pre-push: ruff check on changed files"
+echo "pre-push: ruff check + ruff format --check on changed files"
 printf '%s\n' $py_files | xargs uv run ruff check
+printf '%s\n' $py_files | xargs uv run ruff format --check

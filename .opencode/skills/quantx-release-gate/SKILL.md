@@ -14,7 +14,7 @@ Require all of the following, for the **exact HEAD being merged**:
 - exact validated HEAD;
 - focused tests appropriate to the task;
 - full suite green;
-- changed-file Ruff clean (or explicitly proven zero new in-scope findings);
+- changed-file Ruff lint and format clean (or explicitly proven zero new in-scope findings);
 - strict mypy on changed production files where required;
 - `git diff --check` clean;
 - semantic audit;
