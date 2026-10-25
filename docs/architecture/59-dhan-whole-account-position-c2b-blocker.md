@@ -56,6 +56,12 @@ What this does not establish:
   unambiguous configuration; the provider gives no neutral identity and no
   guarantee that one wire value maps to one neutral product.
 
+Rows with `netQty == 0` are not exposure rows. The source checks their
+`positionType`/sign consistency but does not require product, cost basis,
+multiplier, or derivative audits for them, and they do not contribute to the
+cross-surface overlap set. The row-level audit claim is therefore limited to
+non-zero exposure rows.
+
 ### Holdings — `GET /holdings`
 
 The official documentation states: "Users can retrieve all holdings bought/sold
@@ -79,7 +85,10 @@ What this does not establish:
   `dpQty` and `t1Qty`.
 - `exchange: "ALL"` has no documented row-level exchange-segment identity, and
   the same `securityId` can exist on more than one venue. Segment attribution
-  is therefore not proven.
+  is therefore not proven. Every `ALL` row is reported with
+  `DHAN_HOLDINGS_VENUE_IDENTITY_UNPROVEN`; a single configured instrument
+  candidate is not treated as proof of venue identity, and an `ALL` row never
+  contributes a cross-surface overlap claim.
 - The endpoint is defined as previous-session, T1, and delivered demat
   quantity. It is not documented as today's full exposure book.
 - `avgCostPrice` is "Average Buy Price of total quantity"; its relationship to a
@@ -150,7 +159,7 @@ The implementation adds `DhanWholeAccountPositionSource`, reachable as
 - declares `merge_policy="dhan-no-cross-surface-merge-fail-closed-v1"` and
   `MARKS` status `UNAVAILABLE`;
 - names each reason in `WholeAccountPositionEvidence.blockers`, including the
-  static provider gaps and any observed row-level inconsistency.
+  static provider gaps and any observed exposure-row inconsistency.
 
 The blocker codes are stable, auditable strings:
 
@@ -166,11 +175,12 @@ The blocker codes are stable, auditable strings:
 | `DHAN_MARK_AUTHORITY_UNAVAILABLE` | no entitled, authorized mark surface in C2b |
 | `DHAN_MARK_TRADE_TIMESTAMP_UNVERIFIED` | quote trade time has no verified format/sentinel contract |
 | `DHAN_TRANSPORT_NOT_CONFIGURED` | no read transport was supplied |
-| `DHAN_POSITION_PRODUCT_MAP_UNAVAILABLE` | no explicit wire-to-neutral product map |
+| `DHAN_POSITION_PRODUCT_MAP_UNAVAILABLE` | no explicit neutral-to-wire product map |
 | `DHAN_POSITION_PRODUCT_MAP_AMBIGUOUS` | two neutral products share one wire value |
 | `DHAN_POSITIONS_UNAVAILABLE` / `DHAN_HOLDINGS_UNAVAILABLE` | read failed or response was malformed |
 | `DHAN_POSITION_INSTRUMENT_UNMAPPED` / `DHAN_HOLDING_INSTRUMENT_UNMAPPED` | row has no canonical instrument mapping |
 | `DHAN_HOLDING_INSTRUMENT_AMBIGUOUS` | `exchange: ALL` row matches multiple venue-segment mappings |
+| `DHAN_HOLDINGS_VENUE_IDENTITY_UNPROVEN` | `exchange: ALL` row has no provider venue identity; no single-candidate inference |
 | `DHAN_HOLDING_EXCHANGE_UNSUPPORTED` | holdings exchange value outside the supported set |
 | `DHAN_POSITION_DUPLICATE_ROW` / `DHAN_HOLDING_DUPLICATE_ROW` | duplicate rows; never silently summed |
 | `DHAN_POSITION_PRODUCT_MISSING` / `DHAN_POSITION_PRODUCT_UNMAPPED` | row product absent or not in the configured map |
@@ -201,9 +211,13 @@ mutates a book outside the domain constructor.
 
 The quote model fix is part of the same provider-semantic audit:
 `DhanQuoteSnapshot.observed_at` is explicitly the local read instant, and
-`trade_observed_at` is populated only for an unambiguous ISO or epoch trade
-time. The documented 1980 sentinel, missing values, and unknown formats remain
-`None`; the local clock is never substituted for provider trade time.
+`trade_observed_at` is populated only for an epoch value or an ISO value that
+carries an explicit UTC offset and falls in a plausible year range. The
+documented 1980 sentinel, missing values, naive or compact ISO values, and
+implausible future values remain `None`; the local clock is never substituted
+for provider trade time. The canonical `Quote.timestamp` remains the local read
+instant and has no provider trade-time field; C2b does not consume canonical
+quotes as marks, so it makes no mark-freshness claim from them.
 
 ## Required future authority
 

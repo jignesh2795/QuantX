@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -71,7 +72,12 @@ class DhanBrokerAdapter:
             ("_reconcile_timeout", self._reconcile_timeout),
             ("_read_timeout", self._read_timeout),
         ):
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+            ):
                 raise ValueError(f"{name} must be a positive number")
         if self._product_map is not None:
             object.__setattr__(self, "_product_map", normalize_dhan_product_map(self._product_map))

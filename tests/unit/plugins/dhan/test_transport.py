@@ -845,10 +845,23 @@ def test_quote_snapshot_parses_unambiguous_trade_time() -> None:
     from quantx.plugins.dhan.transport import _quote_snapshot
 
     snapshot = _quote_snapshot(
-        _quote_response(last_trade_time="2026-01-01T10:00:00"),
+        _quote_response(last_trade_time="2026-01-01T10:00:00+05:30"),
         "1333",
         "NSE_EQ",
     )
 
     assert snapshot is not None
     assert snapshot.trade_observed_at == datetime(2026, 1, 1, 4, 30, tzinfo=UTC)
+
+
+def test_quote_snapshot_does_not_assume_ist_for_a_naive_trade_time() -> None:
+    from quantx.plugins.dhan.transport import _quote_snapshot
+
+    snapshot = _quote_snapshot(
+        _quote_response(last_trade_time="2026-01-01T10:00:00"),
+        "1333",
+        "NSE_EQ",
+    )
+
+    assert snapshot is not None
+    assert snapshot.trade_observed_at is None

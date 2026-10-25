@@ -409,13 +409,13 @@ class InMemoryDhanTransport:
     positions_available: bool = True
     position_snapshots: tuple[DhanPositionSnapshot, ...] = ()
     positions_message: str = ""
-    holdings_available: bool = True
-    holding_snapshots: tuple[DhanHoldingSnapshot, ...] = ()
-    holdings_message: str = ""
     quote_snapshots: dict[tuple[str, str], DhanQuoteSnapshot] = field(default_factory=dict)
     candle_snapshots: dict[tuple[str, str], tuple[DhanCandleSnapshot, ...]] = field(
         default_factory=dict
     )
+    holdings_available: bool = True
+    holding_snapshots: tuple[DhanHoldingSnapshot, ...] = ()
+    holdings_message: str = ""
     _submitted: list[DhanOrderRequest] = field(init=False, default_factory=list)
     _cancelled: list[str] = field(init=False, default_factory=list)
 

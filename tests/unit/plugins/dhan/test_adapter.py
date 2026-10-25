@@ -700,7 +700,12 @@ def test_whole_account_position_evidence_is_fail_closed_and_observes_both_surfac
         PositionSurface.MARKS,
     }
     assert "DHAN_CROSS_SURFACE_OVERLAP_POLICY_UNPROVEN" in evidence.blockers
-    assert any(blocker.startswith("DHAN_CROSS_SURFACE_OVERLAP:") for blocker in evidence.blockers)
+    assert any(
+        blocker.startswith("DHAN_HOLDINGS_VENUE_IDENTITY_UNPROVEN") for blocker in evidence.blockers
+    )
+    assert not any(
+        blocker.startswith("DHAN_CROSS_SURFACE_OVERLAP:") for blocker in evidence.blockers
+    )
 
 
 def test_whole_account_position_evidence_rejects_a_naive_observation_instant() -> None:
@@ -751,7 +756,15 @@ def test_adapter_read_timeout_defaults_to_bounded_constant() -> None:
 
 
 def test_adapter_rejects_non_positive_read_timeout() -> None:
-    bad_values: tuple[object, ...] = (0, -1.0, True, "5")
+    bad_values: tuple[object, ...] = (
+        0,
+        -1.0,
+        True,
+        "5",
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+    )
     for bad in bad_values:
         with pytest.raises(ValueError, match="_read_timeout"):
             replace(_adapter(), _read_timeout=bad)

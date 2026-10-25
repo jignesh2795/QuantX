@@ -260,10 +260,11 @@ class DhanQuoteSnapshot:
     """Normalized broker quote observation; no domain or vendor types.
 
     ``observed_at`` is the local read instant. ``trade_observed_at`` is the
-    provider's last-trade instant only when the provider value can be
-    interpreted unambiguously; it stays ``None`` for a missing, sentinel, or
-    unverified-format value. The read instant must never be substituted for a
-    provider trade time and then presented as mark freshness.
+    provider's last-trade instant only when the provider value is an epoch or
+    an ISO value with an explicit UTC offset and a plausible year; it stays
+    ``None`` for a missing, sentinel, naive, compact, or implausible value. The
+    read instant must never be substituted for a provider trade time and then
+    presented as mark freshness.
     """
 
     security_id: str

@@ -212,6 +212,7 @@ _DHAN_SENTINEL_TRADE_TIMES = frozenset(
 )
 
 _MIN_TRADE_YEAR = 2000
+_MAX_TRADE_YEAR = 2100
 _MIN_EPOCH_SECONDS_DIGITS = 9
 _MAX_EPOCH_SECONDS_DIGITS = 10
 
@@ -221,7 +222,8 @@ def parse_dhan_trade_time(value: object) -> datetime | None:
 
     ``None`` is returned for a missing value, the documented 1980 sentinel, a
     date-only or compact value that could be a date rather than an epoch, an
-    out-of-range epoch, a pre-2000 value, or a format the provider
+    out-of-range epoch, a pre-2000 or implausible-future value, a naive ISO
+    value without an explicit UTC offset, or a format the provider
     documentation does not define. Callers must treat ``None`` as unavailable,
     never as "now" and never as fresh evidence.
     """
@@ -248,16 +250,16 @@ def parse_dhan_trade_time(value: object) -> datetime | None:
             parsed = datetime.fromtimestamp(int(digits), tz=ZoneInfo("Asia/Kolkata"))
         except (OverflowError, OSError, ValueError):
             return None
-        return parsed if parsed.year >= _MIN_TRADE_YEAR else None
+        return parsed if _MIN_TRADE_YEAR <= parsed.year <= _MAX_TRADE_YEAR else None
     if "T" not in normalized and " " not in normalized:
         return None
     try:
         parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
     except ValueError:
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
-    return parsed if parsed.year >= _MIN_TRADE_YEAR else None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed if _MIN_TRADE_YEAR <= parsed.year <= _MAX_TRADE_YEAR else None
 
 
 def extract_filled_quantity(payload: DhanPayload) -> Decimal:

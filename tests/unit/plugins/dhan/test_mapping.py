@@ -14,6 +14,7 @@ from quantx.plugins.dhan.mapping import (
     dhan_product_type,
     dhan_time_in_force,
     invert_dhan_product_map,
+    normalize_dhan_product_map,
     normalize_status,
     parse_dhan_timestamp,
     parse_dhan_trade_time,
@@ -205,6 +206,13 @@ def test_position_product_map_inverse_is_explicit_and_deterministic() -> None:
     assert dict(inverse) == {"CNC": "CNC", "INTRADAY": "MIS", "MARGIN": "NRML"}
 
 
+def test_position_product_map_is_configured_neutral_to_wire() -> None:
+    normalized = normalize_dhan_product_map({"MIS": "INTRADAY"})
+
+    assert dict(normalized) == {"MIS": "INTRADAY"}
+    assert dict(invert_dhan_product_map(normalized)) == {"INTRADAY": "MIS"}
+
+
 def test_position_product_map_rejects_two_neutral_products_on_one_wire_value() -> None:
     with pytest.raises(ValueError, match="ambiguous for wire value"):
         invert_dhan_product_map({"CNC": "CNC", "DELIVERY": "CNC"})
@@ -235,6 +243,11 @@ def test_position_product_map_rejects_empty_configuration() -> None:
         253402300800,
         "20260101",
         "2026-01-01",
+        "2026-01-01T10:00:00",
+        "2026-01-01 10:00:00",
+        "20260101T100000",
+        "9999-12-31T23:59:59Z",
+        "2101-01-01T00:00:00Z",
         "0001-01-01T00:00:00",
         1.5,
         -1,
@@ -260,12 +273,17 @@ def test_integral_float_epoch_trade_time_is_supported() -> None:
     assert parsed.year == 2026
 
 
-def test_iso_dhan_trade_time_defaults_to_ist() -> None:
-    parsed = parse_dhan_trade_time("2026-01-01T10:00:00")
+def test_naive_iso_dhan_trade_time_stays_unavailable() -> None:
+    assert parse_dhan_trade_time("2026-01-01T10:00:00") is None
+    assert parse_dhan_trade_time("2026-01-01 10:00:00") is None
+    assert parse_dhan_trade_time("20260101T100000") is None
+
+
+def test_offset_iso_dhan_trade_time_is_supported() -> None:
+    parsed = parse_dhan_trade_time("2026-01-01T10:00:00+05:30")
 
     assert parsed is not None
-    assert parsed.isoformat().endswith("+05:30")
-    assert parsed.hour == 10
+    assert parsed.isoformat() == "2026-01-01T10:00:00+05:30"
 
 
 def test_epoch_dhan_trade_time_is_interpreted_in_ist() -> None:

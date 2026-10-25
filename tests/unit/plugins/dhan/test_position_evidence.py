@@ -263,7 +263,7 @@ def test_source_without_transport_is_explicitly_unavailable() -> None:
 
 def test_source_observes_rows_but_never_claims_a_complete_or_marked_book() -> None:
     transport = _RecordingTransport(
-        inner=_transport(positions=(_position(),), holdings=(_holding(),))
+        inner=_transport(positions=(_position(),), holdings=(_holding(exchange="NSE"),))
     )
 
     evidence = _source(transport).observe_whole_account_positions(observed_at=OBSERVED_AT)
@@ -345,7 +345,7 @@ def test_ambiguous_product_map_is_rejected_explicitly() -> None:
     assert evidence.completeness is EvidenceStatus.INCOMPLETE
 
 
-def test_explicit_wire_to_neutral_product_mapping_is_used_when_configured() -> None:
+def test_explicit_neutral_to_wire_product_mapping_is_used_when_configured() -> None:
     transport = _transport(positions=(_position(product_type="INTRADAY"),))
 
     evidence = _source(transport, product_map={"MIS": "INTRADAY"}).observe_whole_account_positions(
@@ -418,6 +418,23 @@ def test_holding_exchange_filter_uses_the_canonical_segment_when_supplied() -> N
 
     assert not _has(evidence.blockers, B.HOLDING_UNMAPPED)
     assert not _has(evidence.blockers, B.HOLDING_EXCHANGE)
+    assert not _has(evidence.blockers, B.HOLDING_VENUE_IDENTITY)
+
+
+def test_exchange_all_holding_never_proves_venue_identity() -> None:
+    transport = _transport(
+        positions=(_position(),),
+        holdings=(_holding(exchange="ALL"),),
+    )
+
+    evidence = _source(transport).observe_whole_account_positions(observed_at=OBSERVED_AT)
+
+    assert _has(evidence.blockers, B.HOLDING_VENUE_IDENTITY)
+    assert not _has(evidence.blockers, B.HOLDING_AMBIGUOUS)
+    assert not any(
+        blocker.startswith(f"{B.CROSS_SURFACE_OVERLAP.value}:") for blocker in evidence.blockers
+    )
+    assert evidence.positions == ()
 
 
 def test_holding_row_ambiguous_across_segments_is_rejected() -> None:
@@ -435,6 +452,7 @@ def test_holding_row_ambiguous_across_segments_is_rejected() -> None:
     )
 
     assert _has(evidence.blockers, B.HOLDING_AMBIGUOUS)
+    assert _has(evidence.blockers, B.HOLDING_VENUE_IDENTITY)
     assert evidence.positions == ()
 
 
@@ -515,7 +533,10 @@ def test_source_rejects_naive_observation_instant() -> None:
         )
 
 
-@pytest.mark.parametrize("timeout", [0, -1.0, True, "5"])
+@pytest.mark.parametrize(
+    "timeout",
+    [0, -1.0, True, "5", float("nan"), float("inf"), float("-inf")],
+)
 def test_source_rejects_invalid_read_timeout(timeout: object) -> None:
     with pytest.raises(ValueError, match="read_timeout"):
         _source(_transport(), read_timeout=timeout)  # type: ignore[arg-type]

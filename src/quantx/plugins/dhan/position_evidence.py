@@ -32,6 +32,7 @@ assumed, and a synthetic mark cannot establish provider authority.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -97,6 +98,7 @@ class DhanWholeAccountPositionBlocker(StrEnum):
     POSITION_UNMAPPED = "DHAN_POSITION_INSTRUMENT_UNMAPPED"
     HOLDING_UNMAPPED = "DHAN_HOLDING_INSTRUMENT_UNMAPPED"
     HOLDING_AMBIGUOUS = "DHAN_HOLDING_INSTRUMENT_AMBIGUOUS"
+    HOLDING_VENUE_IDENTITY = "DHAN_HOLDINGS_VENUE_IDENTITY_UNPROVEN"
     HOLDING_EXCHANGE = "DHAN_HOLDING_EXCHANGE_UNSUPPORTED"
     POSITION_DUPLICATE = "DHAN_POSITION_DUPLICATE_ROW"
     HOLDING_DUPLICATE = "DHAN_HOLDING_DUPLICATE_ROW"
@@ -138,10 +140,11 @@ class DhanWholeAccountPositionSource:
     """Dhan-scoped source that can never claim a complete whole-account book.
 
     The source is account/connection bound and reuses the adapter's canonical
-    instrument mapping. A configured ``product_map`` supplies only the
-    wire-to-neutral product identity for the position surface. It does not make
-    the provider's holdings product, overlap, quantity, timestamp, or mark
-    semantics complete, so the book still cannot be ``COMPLETE``.
+    instrument mapping. A configured ``product_map`` is an explicit
+    neutral-to-Dhan map; the source inverts it to wire-to-neutral product
+    identity for the position surface. It does not make the provider's
+    holdings product, overlap, quantity, timestamp, or mark semantics complete,
+    so the book still cannot be ``COMPLETE``.
     """
 
     account_id: AccountId
@@ -185,6 +188,7 @@ class DhanWholeAccountPositionSource:
         if (
             isinstance(self.read_timeout, bool)
             or not isinstance(self.read_timeout, (int, float))
+            or not math.isfinite(self.read_timeout)
             or self.read_timeout <= 0
         ):
             raise ValueError("Dhan position source read_timeout must be a positive number")
@@ -497,7 +501,12 @@ class DhanWholeAccountPositionSource:
                 )
                 continue
             matching = candidates.get(row.security_id, ())
-            if exchange != "ALL":
+            if exchange == "ALL":
+                blockers.append(
+                    f"{DhanWholeAccountPositionBlocker.HOLDING_VENUE_IDENTITY.value}: "
+                    f"{row.security_id}/{row.exchange}"
+                )
+            else:
                 matching = tuple(
                     item for item in matching if item[2].exchange_segment.startswith(f"{exchange}_")
                 )
@@ -514,7 +523,8 @@ class DhanWholeAccountPositionSource:
                 )
                 continue
             instrument_id, instrument, _ = matching[0]
-            holding_instruments.add(instrument_id)
+            if exchange != "ALL":
+                holding_instruments.add(instrument_id)
             if instrument_id in seen:
                 blockers.append(
                     f"{DhanWholeAccountPositionBlocker.HOLDING_DUPLICATE.value}: "
