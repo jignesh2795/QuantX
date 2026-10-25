@@ -75,8 +75,9 @@ equity/high-water-mark authority exists, and reject
 
 ### 5. Pending submissions and concurrent admission
 
-The application module defines fail-closed pending-scope and concurrency
-admission contracts. A pending `UNKNOWN` is not clear. These interfaces alone
+The domain module owns the neutral `PendingScopeStatus`, `PendingScopeResult`,
+and `PendingScopeGuard` contract so persistence need not depend on application.
+The application module defines `ConcurrencyAdmission` and `ConcurrencyGuard`. A pending `UNKNOWN` is not clear. These interfaces alone
 do not implement a durable SQLite scope query or a lease lifecycle.
 
 C2d must implement indexed, durable account/connection pending-scope lookup,
