@@ -1,5 +1,13 @@
 # QuantX Status
 
+## C2a Dhan realized daily P&L authority — BLOCKED (2026-10-25)
+
+C2a is **BLOCKED** for Dhan: the verified DhanHQ v2 provider contracts cannot establish complete, whole-account realized daily P&L with defined daily charges. `/positions` is documented as the open-position surface for the day (plus F&O carry-forward) and exposes per-position `realizedProfit`, but does not guarantee every closed intraday/delivery position, has no daily-charge or account-total field, and an empty list is not proof of zero activity. `/trades/{from}/{to}/{page}` is paginated without a documented page size, total, or end-of-data marker, carries no realized-P&L or opening-basis field, and exposes only per-trade charge columns. `/ledger` exposes debit/credit narration and a running balance, not structured realized P&L. See `docs/architecture/58-dhan-realized-daily-pnl-c2a-blocker.md`.
+
+`RealizedDailyPnlEvidence.amount` is now optional only for non-`COMPLETE` evidence; `COMPLETE` still requires `Money`, and non-`COMPLETE` evidence cannot carry an amount or daily charges. `DhanRealizedDailyPnlSource` (also reachable as `DhanBrokerAdapter.realized_daily_pnl_evidence(...)`) returns explicit `UNAVAILABLE` evidence with no amount/charges and no broker I/O. `build_live_risk_inputs` rejects it with `DAILY_PNL_AUTHORITY_UNAVAILABLE` before risk evaluation. `build_live_execution` still refuses production LIVE composition.
+
+**Validation evidence (code-bearing SHA `f66f6dd28734a9cfe7fc8a354e77246fd7733322`):** focused risk-evidence/Dhan tests report **174 passed**; the full suite reports **2,980 passed, 1 skipped**; `ruff format --check src tests` reports **410 files already formatted**; `ruff check .` passes with no findings; strict `mypy --no-incremental src/quantx` reports **no issues in 203 source files**; `git diff --check origin/main HEAD` is clean; and the worktree is clean. No Dhan broker I/O, credentials, orders, LIVE trading, GitHub Actions, or paid CI was used. This status entry is committed after the code-bearing SHA; the docs-only follow-up does not claim new test results.
+
 ## LIVE trusted clock for risk freshness — slice B (2026-10-24)
 
 `LiveExecutionConfig` requires an injected `Clock`; the factory rejects any non-`Clock` before writing durable state. `LivePreTradeRiskEvaluator` reads it once per evaluation and passes only that reading to the clock-free engine as `evaluated_at`, so the engine computes snapshot age from trusted time against the provider-supplied `snapshot.observed_at`.
