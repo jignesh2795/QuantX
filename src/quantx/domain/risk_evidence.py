@@ -56,13 +56,22 @@ class PositionSurfaceEvidence:
 
 @dataclass(frozen=True, slots=True)
 class RealizedDailyPnlEvidence:
+    """One realized daily P&L observation.
+
+    ``amount`` is present only for ``COMPLETE`` evidence. An unavailable or
+    incomplete observation must not carry an amount or daily charges: missing
+    data is not zero, and a partial sum must never be mistaken for an
+    authoritative daily result. The builder still validates currency, scope,
+    charges, and freshness for a complete observation.
+    """
+
     account_id: AccountId
     connection_id: BrokerConnectionId
     broker_id: str
     trading_day: date
     day_start_at: datetime
     as_of: datetime
-    amount: Money
+    amount: Money | None
     charges_daily: Money | None
     source: RealizedPnlSource
     scope: str
@@ -75,8 +84,8 @@ class RealizedDailyPnlEvidence:
     def __post_init__(self) -> None:
         if type(self.trading_day) is not date:
             raise ValueError("P&L trading_day must be a date")
-        if type(self.amount) is not Money:
-            raise ValueError("P&L amount must use Money")
+        if self.amount is not None and type(self.amount) is not Money:
+            raise ValueError("P&L amount must use Money when supplied")
         if self.charges_daily is not None and type(self.charges_daily) is not Money:
             raise ValueError("P&L daily charges must use Money when supplied")
         if (
@@ -96,12 +105,24 @@ class RealizedDailyPnlEvidence:
         _require_aware(self.as_of, "P&L as_of")
         if self.as_of < self.day_start_at:
             raise ValueError("P&L as_of must not precede day_start_at")
-        _require_finite_decimal(self.amount.amount, "P&L amount")
+        if self.completeness is EvidenceStatus.COMPLETE:
+            if self.amount is None:
+                raise ValueError("COMPLETE P&L evidence requires a Money amount")
+        else:
+            if self.amount is not None:
+                raise ValueError("non-COMPLETE P&L evidence must not carry an amount")
+            if self.charges_daily is not None:
+                raise ValueError("non-COMPLETE P&L evidence must not carry daily charges")
+        if self.amount is not None:
+            _require_finite_decimal(self.amount.amount, "P&L amount")
         if self.charges_daily is not None:
             _require_finite_decimal(self.charges_daily.amount, "daily charges")
             if self.charges_daily.amount < 0:
                 raise ValueError("daily charges must not be negative")
-            if self.charges_daily.currency != self.amount.currency:
+            amount = self.amount
+            if amount is None:
+                raise ValueError("daily charges require a P&L amount")
+            if self.charges_daily.currency != amount.currency:
                 raise ValueError("daily charges and P&L must use the same currency")
         if not self.broker_id.strip() or not self.scope.strip():
             raise ValueError("P&L broker_id and scope are required")

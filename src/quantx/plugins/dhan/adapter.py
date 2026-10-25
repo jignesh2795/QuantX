@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES, Instrument
+from quantx.domain.risk_evidence import RealizedDailyPnlEvidence
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.receipts.models import (
     ExecutionEvidenceKind,
@@ -29,6 +30,7 @@ from quantx.integrations.reconciliation.account import (
 from quantx.integrations.reconciliation.positions import PositionState
 
 from .capabilities import DHAN_CAPABILITIES
+from .daily_pnl import DhanRealizedDailyPnlSource
 from .mapping import (
     build_order_request,
     dhan_correlation_id,
@@ -345,6 +347,30 @@ class DhanBrokerAdapter:
             currency=currency,
             available_cash=snapshot.available_balance,
             margin_used=snapshot.utilized_amount,
+        )
+
+    def realized_daily_pnl_evidence(
+        self,
+        *,
+        trading_day: date,
+        day_start_at: datetime,
+        as_of: datetime,
+    ) -> RealizedDailyPnlEvidence:
+        """Return explicit unavailable C2a evidence bound to this connection.
+
+        Dhan's verified provider contracts cannot prove complete whole-account
+        realized daily P&L, so this method never returns ``COMPLETE`` and
+        performs no broker I/O. The C1 evidence builder rejects the result
+        before risk evaluation or submission.
+        """
+        return DhanRealizedDailyPnlSource(
+            account_id=self._connection.account_id,
+            connection_id=self._connection.connection_id,
+            broker_id=self._connection.broker_id,
+        ).observe_realized_daily_pnl(
+            trading_day=trading_day,
+            day_start_at=day_start_at,
+            as_of=as_of,
         )
 
     def position_states(self) -> tuple[PositionState, ...]:

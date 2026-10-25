@@ -142,7 +142,10 @@ execution of the test suite at the final candidate SHA.
 
 ## Required follow-up before any LIVE stack can be constructed
 
-1. C2a: implement and verify authoritative realized daily P&L.
+1. C2a: **BLOCKED** for Dhan. The verified Dhan v2 positions, trade-history,
+   and ledger contracts cannot establish complete whole-account realized daily
+   P&L with defined daily charges; see
+   `58-dhan-realized-daily-pnl-c2a-blocker.md`.
 2. C2b: implement complete product-aware whole-account positions, holdings,
    marks, mapping, duplicate policy, and completeness proof.
 3. C2c: bind persisted account currency, convert authoritative account

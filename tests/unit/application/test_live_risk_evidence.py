@@ -307,9 +307,32 @@ def test_missing_daily_charge_coverage_rejects_pnl_authority():
 
 
 def test_explicit_unavailable_pnl_authority_is_not_treated_as_incomplete_zero():
-    evidence = _evidence(pnl=_pnl(completeness=EvidenceStatus.UNAVAILABLE))
+    evidence = _evidence(
+        pnl=_pnl(
+            amount=None,
+            charges_daily=None,
+            completeness=EvidenceStatus.UNAVAILABLE,
+        )
+    )
     with pytest.raises(LiveRiskEvidenceError, match="DAILY_PNL_AUTHORITY_UNAVAILABLE"):
         _build(evidence)
+
+
+def test_explicit_incomplete_pnl_authority_without_amount_is_rejected():
+    evidence = _evidence(
+        pnl=_pnl(
+            amount=None,
+            charges_daily=None,
+            completeness=EvidenceStatus.INCOMPLETE,
+        )
+    )
+    with pytest.raises(LiveRiskEvidenceError, match="DAILY_PNL_AUTHORITY_INCOMPLETE"):
+        _build(evidence)
+
+
+def test_non_complete_pnl_authority_cannot_carry_an_amount():
+    with pytest.raises(ValueError, match="non-COMPLETE P&L evidence must not carry an amount"):
+        _pnl(completeness=EvidenceStatus.UNAVAILABLE)
 
 
 def test_assembly_claim_outside_trusted_clock_tolerance_rejects():

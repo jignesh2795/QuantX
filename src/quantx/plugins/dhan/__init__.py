@@ -11,6 +11,7 @@ from quantx.plugins import (
 
 from .adapter import DhanBrokerAdapter
 from .capabilities import DHAN_CAPABILITIES
+from .daily_pnl import DhanRealizedDailyPnlBlocker, DhanRealizedDailyPnlSource
 from .host import DhanHostConfig, DhanHostRuntime, build_dhan_host_runtime
 from .market_data import DhanMarketDataAdapter
 from .models import (
@@ -54,6 +55,8 @@ __all__ = [
     "DhanOrderResponse",
     "DhanPositionSnapshot",
     "DhanPositionsSnapshot",
+    "DhanRealizedDailyPnlBlocker",
+    "DhanRealizedDailyPnlSource",
     "DhanRecoveryEvidenceProvider",
     "DhanSDKTransport",
     "DhanTransport",

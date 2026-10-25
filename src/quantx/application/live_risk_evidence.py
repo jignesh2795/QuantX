@@ -327,6 +327,12 @@ def build_live_risk_inputs(
     if pnl.completeness is not EvidenceStatus.COMPLETE:
         code = _status_error_code(pnl.completeness, prefix="DAILY_PNL_AUTHORITY")
         raise LiveRiskEvidenceError(code, "realized P&L evidence is not COMPLETE")
+    pnl_amount = pnl.amount
+    if pnl_amount is None:
+        raise LiveRiskEvidenceError(
+            "DAILY_PNL_AUTHORITY_UNAVAILABLE",
+            "realized P&L evidence has no authoritative amount",
+        )
     if pnl.scope != "WHOLE_ACCOUNT":
         raise LiveRiskEvidenceError(
             "DAILY_PNL_AUTHORITY_INCOMPLETE", "realized P&L is not whole-account evidence"
@@ -394,7 +400,7 @@ def build_live_risk_inputs(
     if evidence.base_currency != currency:
         raise LiveRiskEvidenceError("LIVE_RISK_SCOPE_MISMATCH", "base currency differs")
     for value, name in (
-        (pnl.amount, "realized P&L"),
+        (pnl_amount, "realized P&L"),
         (margin.required_margin, "required margin"),
         (margin.available_margin, "available margin"),
         (evidence.reference_price, "reference price"),
@@ -563,7 +569,7 @@ def build_live_risk_inputs(
         current_portfolio_exposure=current_portfolio_exposure,
         available_margin=margin.available_margin.amount,
         required_margin=margin.required_margin.amount,
-        daily_pnl=pnl.amount.amount,
+        daily_pnl=pnl_amount.amount,
         equity=None,
         high_water_mark=None,
         unrealized_loss=max(Decimal("0"), -total_unrealized_pnl),
