@@ -135,6 +135,20 @@ def test_operator_resolution_with_mismatched_fingerprint_blocks_globally() -> No
     assert result.status is PendingScopeStatus.UNKNOWN
 
 
+def test_blank_operator_identity_does_not_close_pending_reservation() -> None:
+    with SqliteDatabase(":memory:") as database:
+        client_id = _insert_pending(database, fingerprint="fingerprint-blank-operator")
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO operator_resolutions "
+                "(client_order_id, fingerprint, operator_id, reason, resolved_at, action, evidence_reference, created_at) "
+                "VALUES (?, 'fingerprint-blank-operator', '', 'operator closure', ?, 'CLOSE_UNRESOLVED', NULL, ?)",
+                (client_id, CHECKED_AT.isoformat(), CHECKED_AT.isoformat()),
+            )
+        result = _check(database, account_id="other-account", connection_id="other-connection")
+    assert result.status is PendingScopeStatus.UNKNOWN
+
+
 def test_conflicting_resolution_kinds_block_globally() -> None:
     with SqliteDatabase(":memory:") as database:
         client_id = _insert_pending(database, fingerprint="fingerprint-conflict")
