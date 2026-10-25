@@ -149,6 +149,31 @@ def test_reservation_persists_indexed_pending_scope_atomically() -> None:
     assert result.status is PendingScopeStatus.PENDING
 
 
+def test_reservation_without_live_scope_context_blocks_globally() -> None:
+    client_order_id = uuid4()
+    checked_at = datetime(2026, 1, 1, tzinfo=UTC)
+
+    with SqliteDatabase(":memory:") as database:
+        decision = SqliteIdempotencyStore(database).reserve_or_get(
+            client_order_id,
+            FINGERPRINT,
+        )
+        scope_row = database.connection().execute(
+            "SELECT scope_status, account_id, connection_id "
+            "FROM pending_execution_scopes WHERE client_order_id = ?",
+            (str(client_order_id),),
+        ).fetchone()
+        result = SqlitePendingScopeGuard(database).check(
+            AccountId("unrelated-account"),
+            BrokerConnectionId("unrelated-connection"),
+            checked_at=checked_at,
+        )
+
+    assert decision.reservation_acquired is True
+    assert scope_row == ("UNKNOWN", None, None)
+    assert result.status is PendingScopeStatus.UNKNOWN
+
+
 # Durable reservation survives close/reopen and is never re-acquired.
 
 

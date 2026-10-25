@@ -13,12 +13,12 @@ from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
-from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.application.live_risk_evidence import (
     PendingScopeGuard,
     PendingScopeResult,
     PendingScopeStatus,
 )
+from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.execution.idempotency import (
     IdempotencyDecisionValidationError,
     NotSubmittedSource,
@@ -1191,11 +1191,12 @@ class ExecutionOrchestrator:
                     ExecutionDispatchStatus.BLOCKED,
                     reason="LIVE request has no broker-connection scope; refusing submission",
                 )
+            scope_checked_at = datetime.now(UTC)
             try:
                 scope_result = self._pending_scope_guard.check(
                     scope_account_id,
                     scope_connection_id,
-                    checked_at=datetime.now(UTC),
+                    checked_at=scope_checked_at,
                 )
             except Exception:
                 return ExecutionResult(
@@ -1204,8 +1205,10 @@ class ExecutionOrchestrator:
                 )
             if (
                 type(scope_result) is not PendingScopeResult
+                or type(scope_result.status) is not PendingScopeStatus
                 or scope_result.account_id != scope_account_id
                 or scope_result.connection_id != scope_connection_id
+                or scope_result.checked_at != scope_checked_at
             ):
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
