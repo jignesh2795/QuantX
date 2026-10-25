@@ -14,6 +14,11 @@ from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.application.live_risk_evidence import (
+    PendingScopeGuard,
+    PendingScopeResult,
+    PendingScopeStatus,
+)
 from quantx.execution.idempotency import (
     IdempotencyDecisionValidationError,
     NotSubmittedSource,
@@ -284,6 +289,7 @@ class ExecutionOrchestrator:
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
         market_policy: MarketPolicyConfig | None = None,
         submission_quarantine: SubmissionQuarantineRepository | None = None,
+        pending_scope_guard: PendingScopeGuard | None = None,
         policy_verifier: MarketPackPolicyVerifier,
     ) -> None:
         self._paper_executor = paper_executor
@@ -295,6 +301,7 @@ class ExecutionOrchestrator:
         self._live_risk_evaluator = live_risk_evaluator
         self._market_policy = market_policy or default_market_policy()
         self._submission_quarantine = submission_quarantine
+        self._pending_scope_guard = pending_scope_guard
         self._policy_verifier = policy_verifier
 
     def _verify_request_proofs(self, request: ApprovedExecutionRequest) -> str | None:
@@ -1167,6 +1174,52 @@ class ExecutionOrchestrator:
                 return ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason="live trading gate returned an invalid result",
+                )
+
+            # This check and reservation creation share the same gate admission
+            # critical section. C2e still owns durable exclusive admission across
+            # processes; this guard refuses already-pending or unknown scope only.
+            if self._pending_scope_guard is None:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE pending-scope guard is unavailable; refusing submission",
+                )
+            scope_account_id = request.execution_context.account_id
+            scope_connection_id = request.execution_context.broker_connection_id
+            if scope_connection_id is None:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE request has no broker-connection scope; refusing submission",
+                )
+            try:
+                scope_result = self._pending_scope_guard.check(
+                    scope_account_id,
+                    scope_connection_id,
+                    checked_at=datetime.now(UTC),
+                )
+            except Exception:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE pending-scope lookup failed; refusing submission",
+                )
+            if (
+                type(scope_result) is not PendingScopeResult
+                or scope_result.account_id != scope_account_id
+                or scope_result.connection_id != scope_connection_id
+            ):
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE pending-scope result is malformed or mismatched; refusing submission",
+                )
+            if scope_result.status is PendingScopeStatus.PENDING:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE account/connection has an unresolved submission; refusing submission",
+                )
+            if scope_result.status is not PendingScopeStatus.CLEAR:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE pending-scope status is UNKNOWN; refusing submission",
                 )
 
             with unit_of_work:
