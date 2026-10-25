@@ -3,7 +3,7 @@
 **Status:** Implementation candidate committed; exact-SHA validation pending. No LIVE-readiness claim.
 **Base:** `46c5241b85486f344a1f285bb19a20d9e0bb7cf6`
 **Implementation branch:** `feat/slice-c2d-durable-pending-scope-v1`
-**Code candidate:** `7f5deca27c0c5dc00af9c7a339ffc4993a33e594`
+**Code candidate:** `182f9edac4fbf2ccaa01ad20c592c7e3ac1ceb34`
 **Validation:** Pending exact-SHA local tests, Ruff formatting/lint, strict mypy, and diff checks. This ADR claims no test result.
 
 ## Context
@@ -26,7 +26,7 @@ Migrations from schema versions 1–8 create the new table and indexes during up
 
 - `PENDING` when an unresolved reservation is validly bound to that exact account/connection pair;
 - `CLEAR` when no unresolved row for that pair exists and all remaining unresolved records have valid normalized scope;
-- `UNKNOWN` globally if any unresolved reservation lacks scope, has `UNKNOWN` status, has malformed scope, or has a stored fingerprint that differs from its reservation; or if orphaned scope/quarantine evidence exists or SQLite read fails.
+- `UNKNOWN` globally if any unresolved reservation lacks scope, has `UNKNOWN` status, has malformed scope, or has a stored fingerprint that differs from its reservation; or if orphaned scope/quarantine evidence exists; if persisted resolution records are orphaned, malformed, conflicting, or fingerprint-mismatched; or if SQLite read fails.
 
 A reservation is unresolved when it has no canonical receipt and no durable operator or definite-not-submitted resolution. Completed or explicitly resolved reservations do not block. A quarantine record with no corresponding reservation makes the global query `UNKNOWN`. The guard does not use broker I/O.
 
