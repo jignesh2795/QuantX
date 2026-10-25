@@ -90,4 +90,4 @@ def test_corrupt_persisted_currency_fails_closed(tmp_path) -> None:
 def test_schema_v9_is_current() -> None:
     with SqliteDatabase(":memory:") as database:
         version = database.connection().execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == SCHEMA_VERSION == 9
+        assert version == SCHEMA_VERSION == 10

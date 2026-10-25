@@ -19,6 +19,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from quantx.application.live_risk_evidence import PendingScopeStatus
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.enums import AssetClass, OrderSide, OrderType, TimeInForce
 from quantx.domain.execution_request import (
@@ -41,7 +42,11 @@ from quantx.execution.idempotency import (
     PendingExecutionContext,
 )
 from quantx.execution.idempotency.fingerprint import request_fingerprint
-from quantx.persistence.sqlite import SqliteDatabase, SqliteIdempotencyStore
+from quantx.persistence.sqlite import (
+    SqliteDatabase,
+    SqliteIdempotencyStore,
+    SqlitePendingScopeGuard,
+)
 from tests.unit._execution_request_proofs import approved_request
 
 FINGERPRINT = "a" * 64
@@ -115,6 +120,33 @@ def _pending_context(
 
 def _store(path: Path) -> SqliteIdempotencyStore:
     return SqliteIdempotencyStore(SqliteDatabase(path))
+
+
+def test_reservation_persists_indexed_pending_scope_atomically() -> None:
+    client_order_id = uuid4()
+    context = _pending_context(client_order_id)
+
+    with SqliteDatabase(":memory:") as database:
+        store = SqliteIdempotencyStore(database)
+        decision = store.reserve_or_get(client_order_id, context.request_fingerprint, context)
+        scope_row = database.connection().execute(
+            "SELECT request_fingerprint, scope_status, account_id, connection_id "
+            "FROM pending_execution_scopes WHERE client_order_id = ?",
+            (str(client_order_id),),
+        ).fetchone()
+        result = SqlitePendingScopeGuard(database).check(
+            context.execution_context.account_id,
+            context.execution_context.broker_connection_id,
+            checked_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+    assert decision.reservation_acquired is True
+    assert scope_row is not None
+    assert scope_row[0] == context.request_fingerprint
+    assert scope_row[1] == "KNOWN"
+    assert scope_row[2] == context.execution_context.account_id.value
+    assert scope_row[3] == context.execution_context.broker_connection_id.value
+    assert result.status is PendingScopeStatus.PENDING
 
 
 # Durable reservation survives close/reopen and is never re-acquired.

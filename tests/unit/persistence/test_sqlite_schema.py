@@ -23,6 +23,7 @@ def test_schema_created_on_first_use(tmp_path) -> None:
     assert {
         "schema_version",
         "accounts",
+        "pending_execution_scopes",
         "idempotency_reservations",
         "receipts",
         "trading_gate_state",
@@ -431,7 +432,7 @@ def test_v7_schema_is_migrated_to_current_version(tmp_path: Path) -> None:
     assert "submission_quarantine_observations" in tables
 
 
-def test_v8_schema_migrates_to_v9_with_persisted_accounts_table(tmp_path) -> None:
+def test_v8_schema_migrates_to_v10_with_account_and_pending_scope_tables(tmp_path) -> None:
     path = tmp_path / "quantx-v8.db"
     database = SqliteDatabase(path)
     database.close()
@@ -439,6 +440,7 @@ def test_v8_schema_migrates_to_v9_with_persisted_accounts_table(tmp_path) -> Non
     raw = sqlite3.connect(str(path))
     try:
         raw.execute("DROP TABLE accounts")
+        raw.execute("DROP TABLE pending_execution_scopes")
         raw.execute("UPDATE schema_version SET version = 8")
         raw.commit()
     finally:
@@ -456,5 +458,51 @@ def test_v8_schema_migrates_to_v9_with_persisted_accounts_table(tmp_path) -> Non
     finally:
         database.close()
 
-    assert version == 9
+    assert version == SCHEMA_VERSION == 10
     assert "accounts" in tables
+    assert "pending_execution_scopes" in tables
+
+
+
+def test_v9_schema_migrates_to_v10_pending_scope_table(tmp_path: Path) -> None:
+    path = tmp_path / "quantx-v9.db"
+    database = SqliteDatabase(path)
+    with database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO idempotency_reservations "
+            "(client_order_id, fingerprint, receipt_id, created_at, completed_at, pending_context_json) "
+            "VALUES ('legacy-client-order', 'legacy-fingerprint', NULL, '2026-01-01T00:00:00+00:00', NULL, NULL)"
+        )
+        connection.execute("DROP TABLE pending_execution_scopes")
+        connection.execute("UPDATE schema_version SET version = 9")
+    database.close()
+
+    migrated = SqliteDatabase(path)
+    try:
+        version = migrated.connection().execute(
+            "SELECT version FROM schema_version"
+        ).fetchone()[0]
+        tables = {
+            row[0]
+            for row in migrated.connection().execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        indexes = {
+            row[1]
+            for row in migrated.connection().execute(
+                "PRAGMA index_list('pending_execution_scopes')"
+            )
+        }
+        scope_rows = migrated.connection().execute(
+            "SELECT count(*) FROM pending_execution_scopes"
+        ).fetchone()[0]
+    finally:
+        migrated.close()
+
+    assert version == SCHEMA_VERSION == 10
+    assert "pending_execution_scopes" in tables
+    assert "idx_pending_execution_scopes_by_scope" in indexes
+    # Never infer an old unresolved reservation's account/connection from a
+    # legacy serialized context as part of migration.
+    assert scope_rows == 0

@@ -10,6 +10,7 @@ import pytest
 
 from quantx.application.evidence_refresh import EvidenceRefreshOutcome
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
+from quantx.application.live_risk_evidence import PendingScopeResult, PendingScopeStatus
 from quantx.application.pending_recovery import PendingRecoveryResult, PendingRecoveryRun
 from quantx.application.reconciliation import (
     OrderStateReconciliationResult,
@@ -297,6 +298,26 @@ class _FakeUnitOfWork(UnitOfWork):
             self.rollback()
 
 
+class _FakePendingScopeGuard:
+    def __init__(self, status: PendingScopeStatus = PendingScopeStatus.CLEAR) -> None:
+        self._status = status
+
+    def check(
+        self,
+        account_id: AccountId,
+        connection_id: BrokerConnectionId,
+        *,
+        checked_at: datetime,
+    ) -> PendingScopeResult:
+        return PendingScopeResult(
+            account_id=account_id,
+            connection_id=connection_id,
+            status=self._status,
+            reason="test pending-scope result",
+            checked_at=checked_at,
+        )
+
+
 def _durable_gate() -> DurableTradingGate:
     return DurableTradingGate(InMemoryTradingGateStateStore(), default_enabled=True)
 
@@ -365,6 +386,7 @@ def _live_request():
 
 def test_paper_requires_an_observed_snapshot() -> None:
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         paper_executor=FakePaperExecutor(),
         policy_verifier=policy_verifier(),
     )
@@ -381,6 +403,7 @@ def test_orchestrator_carries_no_idempotency_store() -> None:
     constructs and dispatches identically without the removed store.
     """
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         paper_executor=FakePaperExecutor(),
         policy_verifier=policy_verifier(),
     )
@@ -402,6 +425,7 @@ def test_orchestrator_rejects_idempotency_argument() -> None:
     """The removed ``idempotency`` constructor argument stays removed."""
     with pytest.raises(TypeError):
         ExecutionOrchestrator(
+            pending_scope_guard=_FakePendingScopeGuard(),
             paper_executor=FakePaperExecutor(),
             idempotency=InMemoryIdempotencyStore(),  # type: ignore[call-arg]
             policy_verifier=policy_verifier(),
@@ -410,6 +434,7 @@ def test_orchestrator_rejects_idempotency_argument() -> None:
 
 def test_paper_rejects_snapshot_for_wrong_instrument() -> None:
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         paper_executor=FakePaperExecutor(),
         policy_verifier=policy_verifier(),
     )
@@ -425,6 +450,7 @@ def test_paper_rejects_snapshot_for_wrong_instrument() -> None:
 
 def test_paper_executes_with_matching_snapshot() -> None:
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         paper_executor=FakePaperExecutor(),
         policy_verifier=policy_verifier(),
     )
@@ -451,6 +477,7 @@ def test_live_requires_a_broker() -> None:
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
     )
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -473,6 +500,7 @@ def test_live_blocks_account_mismatch() -> None:
     )
     broker = FakeBroker(account_id=AccountId("acct-2"))
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -494,6 +522,7 @@ def test_live_blocks_connection_mismatch() -> None:
     )
     broker = FakeBroker(connection_id=BrokerConnectionId("conn-2"))
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -514,6 +543,7 @@ def test_live_blocks_unhealthy_broker() -> None:
         connection_id=BrokerConnectionId("conn-1"),
     )
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -543,6 +573,7 @@ def test_live_blocks_missing_required_capability() -> None:
         ),
     )
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -567,6 +598,7 @@ def test_live_blocks_broker_instrument_market_mismatch() -> None:
         market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"),
     )
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -591,6 +623,7 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
     )
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
@@ -617,6 +650,7 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
     )
     broker = FakeBroker()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
@@ -652,6 +686,7 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
     )
     broker = FailingBroker()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
@@ -692,6 +727,7 @@ def test_live_unknown_receipt_preserves_pending_reservation() -> None:
     broker = UnknownBroker()
     unit_of_work = _FakeUnitOfWork()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
@@ -728,6 +764,7 @@ def test_live_unit_of_work_groups_receipt_and_completion() -> None:
     broker = FakeBroker()
     unit_of_work = _FakeUnitOfWork()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
@@ -771,6 +808,7 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
     broker = FailingBroker()
     unit_of_work = _FakeUnitOfWork()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
@@ -805,6 +843,7 @@ def test_live_without_explicit_trading_gate_is_blocked() -> None:
     unit_of_work = _FakeUnitOfWork()
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         unit_of_work=unit_of_work,
         policy_verifier=policy_verifier(),
     ).execute(
@@ -823,6 +862,7 @@ def test_live_without_application_runtime_is_blocked() -> None:
     unit_of_work = _FakeUnitOfWork()
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -851,6 +891,7 @@ def test_live_with_unstarted_application_runtime_is_blocked() -> None:
     runtime = ApplicationRuntime(pending_recovery=NoopRecovery())
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -887,6 +928,7 @@ def test_live_with_unresolved_recovery_is_blocked_without_submit() -> None:
     assert not runtime.started
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -1380,6 +1422,7 @@ def test_live_with_malformed_recovery_report_is_blocked_without_submit(
     assert not runtime.started
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -1419,6 +1462,7 @@ def test_live_gate_block_not_blocked_by_slow_broker() -> None:
 
     broker = BlockingBroker()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -1467,6 +1511,7 @@ def test_live_without_unit_of_work_is_blocked() -> None:
     broker = FakeBroker()
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -1519,6 +1564,7 @@ def test_live_without_submission_quarantine_is_blocked_without_submit() -> None:
     unit_of_work = _FakeUnitOfWork()
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
@@ -1547,6 +1593,7 @@ def test_live_without_submission_quarantine_is_blocked_without_submit() -> None:
 def test_paper_execution_does_not_require_submission_quarantine() -> None:
     """The quarantine binding is exactly the LIVE admission boundary."""
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
@@ -1576,6 +1623,7 @@ def test_live_rejects_process_local_trading_gate() -> None:
     gate = TradingGate()
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=gate,
@@ -1592,6 +1640,7 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
     broker = FakeBroker()
     unit_of_work = _FakeUnitOfWork()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
@@ -1619,6 +1668,7 @@ def _sqlite_setup(tmp_path):
     database = SqliteDatabase(tmp_path / "quantx.db")
     unit_of_work = SqliteUnitOfWork(database)
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(
@@ -1718,6 +1768,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     database_a = SqliteDatabase(path)
     try:
         orchestrator_a = ExecutionOrchestrator(
+            pending_scope_guard=_FakePendingScopeGuard(),
             application_runtime=_started_runtime(),
             unit_of_work=SqliteUnitOfWork(database_a),
             trading_gate=DurableTradingGate(
@@ -1739,6 +1790,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     try:
         broker_b = FakeBroker()
         orchestrator_b = ExecutionOrchestrator(
+            pending_scope_guard=_FakePendingScopeGuard(),
             application_runtime=_started_runtime(),
             unit_of_work=SqliteUnitOfWork(database_b),
             trading_gate=DurableTradingGate(
@@ -1795,6 +1847,7 @@ def test_live_without_unit_of_work_does_not_submit() -> None:
     broker = FakeBroker()
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
@@ -1846,6 +1899,7 @@ def test_partial_continuation_is_blocked_by_trading_gate_before_adapter() -> Non
             raise AssertionError("continuation adapter must not be called")
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         paper_executor=Adapter(),
         trading_gate=gate,
@@ -1912,6 +1966,7 @@ def test_partial_continuation_passes_control_plane_to_adapter() -> None:
 
     adapter = Adapter()
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         paper_executor=adapter,
         policy_verifier=policy_verifier(),
     ).continue_partial(
@@ -1968,6 +2023,7 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
     unit_of_work = _FakeUnitOfWork()
     broker = _CountingProbeBroker()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
@@ -2051,6 +2107,7 @@ def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
     unit_of_work = _FakeUnitOfWork()
     broker = _HangingBroker(submit_entered=submit_entered, submit_release=submit_release)
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
@@ -2098,6 +2155,7 @@ def _sqlite_setup_with_quarantine(tmp_path):
     unit_of_work = SqliteUnitOfWork(database)
     quarantine = SqliteSubmissionQuarantineRepository(database)
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=DurableTradingGate(
@@ -2207,6 +2265,7 @@ def _quarantine_orchestrator(database, *, gate=None):
     unit_of_work = SqliteUnitOfWork(database)
     quarantine = SqliteSubmissionQuarantineRepository(database)
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate
@@ -2264,6 +2323,7 @@ def test_sqlite_commit_boundary_failure_is_unknown_not_false_success(tmp_path) -
         unit_of_work = _CommitFailingUnitOfWork(real_unit_of_work)
         quarantine = SqliteSubmissionQuarantineRepository(database)
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=_FakePendingScopeGuard(),
             application_runtime=_started_runtime(),
             unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(
@@ -2510,6 +2570,7 @@ def test_quarantine_record_failure_latches_fault_without_permissive_path() -> No
     unit_of_work = _FakeUnitOfWork()
     gate = _durable_gate()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
@@ -2554,6 +2615,7 @@ def test_preflight_rejection_is_typed_not_submitted_without_operator_record() ->
     broker = PreflightRejectingBroker()
     unit_of_work = _FakeUnitOfWork()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
@@ -2619,6 +2681,7 @@ def test_preflight_rejection_closure_failure_is_unresolved_without_resubmit(monk
         unit_of_work.idempotency, "record_not_submitted", failing_record_not_submitted
     )
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
@@ -3021,6 +3084,7 @@ def _live_risk_orchestrator(evaluator):
     gate = _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
     broker = FakeBroker()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
@@ -3046,6 +3110,7 @@ def _live_callback_orchestrator(
     gate = trading_gate or _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
     broker = FakeBroker()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
@@ -3089,6 +3154,7 @@ def _live_prerequisite_orchestrator(
     store = _CountingIdempotencyStore()
     broker = FakeBroker()
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=runtime,
         unit_of_work=_FakeUnitOfWork(store),
         trading_gate=gate,
@@ -3182,6 +3248,7 @@ def test_live_without_risk_evaluator_blocks_before_gate_reservation_and_broker()
     broker = FakeBroker(connection_id=BrokerConnectionId("conn-1"))
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
@@ -3374,6 +3441,7 @@ def test_live_risk_rejection_blocks_without_broker_submit() -> None:
         return RiskResult(RiskDecision.REJECT, "test risk rejected")
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
@@ -3396,6 +3464,7 @@ def test_live_with_approving_risk_evaluator_proceeds() -> None:
     broker = FakeBroker()
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
         trading_gate=_durable_gate(),
@@ -3415,6 +3484,7 @@ def test_live_with_approving_risk_evaluator_proceeds() -> None:
 
 def test_paper_execution_does_not_require_live_risk_evaluator() -> None:
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         paper_executor=FakePaperExecutor(),
         policy_verifier=policy_verifier(),
     )
@@ -3472,6 +3542,7 @@ def test_live_unresolved_product_blocks_before_gate_reservation_and_broker() -> 
     )
 
     result = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
         application_runtime=_started_runtime(),
@@ -3495,6 +3566,7 @@ def test_orchestrator_does_not_resolve_products_at_submission_time() -> None:
     """The dispatcher consumes approved semantics; it never resolves them."""
     with pytest.raises(TypeError):
         ExecutionOrchestrator(
+            pending_scope_guard=_FakePendingScopeGuard(),
             paper_executor=FakePaperExecutor(),
             product_selection=INDIA_EQUITY_PRODUCT_SELECTION,  # type: ignore[call-arg]
             policy_verifier=policy_verifier(),
@@ -3651,6 +3723,7 @@ def _live_decision_orchestrator(store):
     gate = _CountingGate(InMemoryTradingGateStateStore(), default_enabled=True)
     broker = FakeBroker(connection_id=BrokerConnectionId("conn-1"))
     orchestrator = ExecutionOrchestrator(
+        pending_scope_guard=_FakePendingScopeGuard(),
         application_runtime=_started_runtime(),
         unit_of_work=unit_of_work,
         trading_gate=gate,
@@ -3833,6 +3906,7 @@ def test_malformed_reserve_decision_rolls_back_and_leaves_no_pending_row(tmp_pat
         gate = _CountingGate(SqliteTradingGateStateStore(database), default_enabled=True)
         broker = FakeBroker(connection_id=BrokerConnectionId("conn-1"))
         orchestrator = ExecutionOrchestrator(
+            pending_scope_guard=_FakePendingScopeGuard(),
             application_runtime=_started_runtime(),
             unit_of_work=unit_of_work,
             trading_gate=gate,
@@ -3871,3 +3945,65 @@ def test_malformed_reserve_decision_rolls_back_and_leaves_no_pending_row(tmp_pat
         assert remaining[0] == 0
     finally:
         database.close()
+
+
+def test_live_refuses_submission_when_pending_scope_guard_is_missing() -> None:
+    request = _live_request()
+    unit_of_work = _FakeUnitOfWork()
+    broker = FakeBroker()
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    )
+
+    result = orchestrator.execute(request, broker=broker)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "pending-scope guard is unavailable" in result.reason
+    assert broker.submit_calls == 0
+    decision = unit_of_work.idempotency.check(
+        request.order.client_order_id,
+        request_fingerprint(request),
+    )
+    assert not decision.reservation_pending
+    assert not decision.reservation_acquired
+
+
+def test_live_refuses_submission_when_scope_is_pending_or_unknown() -> None:
+    for status in (PendingScopeStatus.PENDING, PendingScopeStatus.UNKNOWN):
+        request = _live_request()
+        unit_of_work = _FakeUnitOfWork()
+        broker = FakeBroker()
+        orchestrator = ExecutionOrchestrator(
+            application_runtime=_started_runtime(),
+            unit_of_work=unit_of_work,
+            trading_gate=_durable_gate(),
+            submission_quarantine=_FakeSubmissionQuarantine(),
+            live_risk_evaluator=_approving_live_risk_evaluator(),
+            market_policy=india_market_policy(
+                session_evaluator=_approving_india_session_evaluator(),
+                rule_evaluator=_approving_india_evaluator(),
+            ),
+            pending_scope_guard=_FakePendingScopeGuard(status),
+            policy_verifier=policy_verifier(),
+        )
+
+        result = orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "refusing submission" in result.reason
+        assert broker.submit_calls == 0
+        decision = unit_of_work.idempotency.check(
+            request.order.client_order_id,
+            request_fingerprint(request),
+        )
+        assert not decision.reservation_pending
+        assert not decision.reservation_acquired
