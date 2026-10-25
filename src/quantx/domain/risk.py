@@ -7,7 +7,7 @@ constraints. Execution-time and post-trade risk can be layered on later.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
@@ -24,7 +24,7 @@ from .finance import AccountFinancialState, BrokerConstraint
 from .instrument_registry import InstrumentResolution
 from .instruments import DERIVATIVE_ASSET_CLASSES, Contract, Instrument
 from .order_intents import TradeIntent
-from .value_objects import Money, ProductCode, Quantity
+from .value_objects import AccountId, BrokerConnectionId, Money, ProductCode, Quantity
 
 
 class RiskDecision(StrEnum):
@@ -84,24 +84,61 @@ class RiskContext:
 
 
 @dataclass(frozen=True, slots=True)
-class RiskResult:
-    """One risk outcome, bound to the resolution it evaluated.
+class RiskApprovalBinding:
+    """Identify the exact request, evidence cut, and policy evaluation an approval used."""
 
-    ``instrument_resolution`` is the exact resolution the engine consumed, so
-    an approved request can prove it retains the semantics that were risk
-    approved instead of merely an equal-looking contract value.
-    """
+    account_id: AccountId
+    connection_id: BrokerConnectionId
+    currency: str
+    trading_day: date
+    evidence_id: str
+    evidence_cut: datetime
+    evaluated_at: datetime
+    request_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if type(self.account_id) is not AccountId:
+            raise ValueError("approval account_id must be AccountId")
+        if type(self.connection_id) is not BrokerConnectionId:
+            raise ValueError("approval connection_id must be BrokerConnectionId")
+        for name, value in (
+            ("evidence_cut", self.evidence_cut),
+            ("evaluated_at", self.evaluated_at),
+        ):
+            if type(value) is not datetime or value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError(f"{name} must be timezone-aware")
+        if self.evidence_cut > self.evaluated_at:
+            raise ValueError("approval evidence_cut must not follow evaluated_at")
+        if type(self.trading_day) is not date:
+            raise ValueError("approval trading_day must be a date")
+        if not self.currency.strip() or not self.evidence_id.strip():
+            raise ValueError("approval currency and evidence_id are required")
+        if not self.request_fingerprint.strip():
+            raise ValueError("approval request_fingerprint is required")
+
+
+@dataclass(frozen=True, slots=True)
+class RiskResult:
+    """One risk outcome, bound to the resolution and evidence approval it consumed."""
 
     decision: RiskDecision
     reason: str
     constraints: tuple[ConstraintDecision, ...] = ()
     instrument_resolution: InstrumentResolution | None = None
+    approval_binding: RiskApprovalBinding | None = None
 
     def __post_init__(self) -> None:
         if self.instrument_resolution is not None and not isinstance(
             self.instrument_resolution, InstrumentResolution
         ):
             raise ValueError("risk result resolution must be a canonical instrument resolution")
+        if (
+            self.approval_binding is not None
+            and type(self.approval_binding) is not RiskApprovalBinding
+        ):
+            raise ValueError("risk result approval binding must be RiskApprovalBinding")
+        if self.approval_binding is not None and self.decision is not RiskDecision.APPROVE:
+            raise ValueError("only an approved risk result may carry an approval binding")
 
 
 def _risk_result(
@@ -144,6 +181,7 @@ class RiskLimits:
     max_daily_loss: Decimal | None = None
     max_drawdown: Decimal | None = None
     max_snapshot_age: timedelta | None = None
+    max_unrealized_loss: Decimal | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -151,6 +189,7 @@ class RiskLimits:
             "max_position_notional",
             "max_portfolio_exposure",
             "max_daily_loss",
+            "max_unrealized_loss",
         ):
             value = getattr(self, name)
             if value is None:
@@ -173,6 +212,7 @@ _LIVE_REQUIRED_MONEY_FIELDS = (
     "max_order_notional",
     "max_position_notional",
     "max_daily_loss",
+    "max_unrealized_loss",
 )
 
 
@@ -180,7 +220,8 @@ def require_live_risk_limits(limits: RiskLimits) -> RiskLimits:
     """Return a validated copy of limits for LIVE use.
 
     LIVE requires explicit, strictly positive values for order notional,
-    position notional, daily loss and snapshot age. Validation is exact:
+    position notional, realized daily loss, unrealized loss, and snapshot age.
+    Validation is exact:
     booleans, ints, floats, strings, subclasses and non-finite Decimals are
     rejected without coercion. The returned copy isolates the caller from
     later mutation of the source object.
@@ -222,10 +263,20 @@ class RiskSnapshot:
     daily_pnl: Decimal | None = None
     equity: Decimal | None = None
     high_water_mark: Decimal | None = None
+    unrealized_loss: Decimal | None = None
+    currency: str | None = None
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
+        if self.currency is not None and not self.currency.strip():
+            raise ValueError("currency must not be empty when specified")
+        if self.unrealized_loss is not None and (
+            type(self.unrealized_loss) is not Decimal
+            or not self.unrealized_loss.is_finite()
+            or self.unrealized_loss < 0
+        ):
+            raise ValueError("unrealized_loss must be a finite non-negative Decimal")
 
 
 def _order_value(intent: TradeIntent, context: RiskContext) -> Decimal | None:
@@ -537,6 +588,22 @@ class PreTradeRiskEngine:
                         f"{concentration} exceeds maximum "
                         f"{limits.max_instrument_concentration}",
                     )
+
+        if limits.max_unrealized_loss is not None:
+            unrealized_loss = _risk_number(snapshot.unrealized_loss)
+            if unrealized_loss is None or unrealized_loss < 0:
+                self._reject_value(
+                    decisions, violations, "unrealized_loss", "unrealized_loss"
+                )
+            else:
+                self._check_limit(
+                    decisions,
+                    violations,
+                    "unrealized_loss",
+                    unrealized_loss > limits.max_unrealized_loss,
+                    f"UNREALIZED_LOSS_LIMIT_EXCEEDED: unrealized loss {unrealized_loss} "
+                    f"exceeds maximum {limits.max_unrealized_loss}",
+                )
 
         if limits.max_daily_loss is not None:
             pnl = _risk_number(snapshot.daily_pnl)

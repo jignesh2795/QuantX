@@ -139,6 +139,7 @@ def _limits(**overrides) -> RiskLimits:
         "max_portfolio_exposure": Decimal("1000000"),
         "max_instrument_concentration": Decimal("0.9"),
         "max_daily_loss": Decimal("10000"),
+        "max_unrealized_loss": Decimal("5000"),
         "max_drawdown": Decimal("0.5"),
         "max_snapshot_age": timedelta(minutes=5),
     }
@@ -155,6 +156,8 @@ def _snapshot(**overrides) -> RiskSnapshot:
         "available_margin": Decimal("100000"),
         "required_margin": Decimal("1000"),
         "daily_pnl": Decimal("0"),
+        "unrealized_loss": Decimal("0"),
+        "currency": "INR",
         "equity": Decimal("100000"),
         "high_water_mark": Decimal("100000"),
     }
@@ -558,6 +561,53 @@ def test_proposed_order_is_not_realized_pnl() -> None:
 
 
 # Drawdown.
+
+
+def test_unrealized_loss_within_limit_approves() -> None:
+    result = _evaluate(snapshot=_snapshot(unrealized_loss=Decimal("4999.99")))
+    assert result.decision is RiskDecision.APPROVE
+
+
+def test_unrealized_loss_exactly_at_limit_approves() -> None:
+    result = _evaluate(snapshot=_snapshot(unrealized_loss=Decimal("5000")))
+    assert result.decision is RiskDecision.APPROVE
+
+
+def test_unrealized_loss_above_limit_rejects() -> None:
+    result = _evaluate(snapshot=_snapshot(unrealized_loss=Decimal("5000.01")))
+    assert result.decision is RiskDecision.REJECT
+    assert "UNREALIZED_LOSS_LIMIT_EXCEEDED" in result.reason
+
+
+def test_missing_unrealized_loss_fails_closed() -> None:
+    result = _evaluate(snapshot=_snapshot(unrealized_loss=None))
+    assert result.decision is RiskDecision.REJECT
+    assert "unrealized_loss is missing or invalid" in result.reason
+
+
+def test_profitable_realized_day_does_not_mask_unrealized_loss() -> None:
+    result = _evaluate(
+        snapshot=_snapshot(daily_pnl=Decimal("2500"), unrealized_loss=Decimal("5001"))
+    )
+    assert result.decision is RiskDecision.REJECT
+    assert "UNREALIZED_LOSS_LIMIT_EXCEEDED" in result.reason
+
+
+def test_unrealized_loss_reversal_is_not_latched() -> None:
+    engine = PreTradeRiskEngine()
+    intent = _intent()
+    context = _context()
+    limits = _limits()
+    breached = engine.evaluate_with_limits(
+        intent, context, limits=limits,
+        snapshot=_snapshot(unrealized_loss=Decimal("5001")), evaluated_at=EVALUATED_AT,
+    )
+    recovered = engine.evaluate_with_limits(
+        intent, context, limits=limits,
+        snapshot=_snapshot(unrealized_loss=Decimal("100")), evaluated_at=EVALUATED_AT,
+    )
+    assert breached.decision is RiskDecision.REJECT
+    assert recovered.decision is RiskDecision.APPROVE
 
 
 def test_drawdown_within_limit_approves() -> None:

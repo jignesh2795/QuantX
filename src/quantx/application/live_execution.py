@@ -1,28 +1,17 @@
-"""Compose the sanctioned LIVE execution stack from explicit deployment inputs.
+"""Composition boundary for the sanctioned LIVE execution stack.
 
-The application layer owns the LIVE execution invariants; a deployment owns
-the evidence it feeds them. This factory is the one supported way to assemble
-a LIVE-capable ``ExecutionOrchestrator`` over a validated ``ProductionRuntime``.
-It builds every guard this slice can require and refuses to build when a
-required input is absent or mistyped, so LIVE protection is never degraded to
-an optional layer by a convenience default.
-
-It does not make the orchestrator safe by itself: the orchestrator still
-accepts arbitrary callables when it is constructed directly, and the values of
-the risk evidence remain caller-supplied. What this factory guarantees is that
-the stack it returns is disarmed, durably gated, quarantine-backed,
-risk-evaluated against a composition-injected clock, and
-market-policy-complete for India.
+Slice C is currently fail-closed: the previous caller-provided risk-input
+callable is not an authoritative broker-evidence boundary. Until complete
+account-wide risk authorities and durable admission controls are wired into
+the single execution path, this factory refuses to return a LIVE stack.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from quantx.domain.clock import Clock
 from quantx.domain.errors import ValidationError
-from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketRegion
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.risk import (
@@ -32,10 +21,6 @@ from quantx.domain.risk import (
     require_live_risk_limits,
 )
 from quantx.execution.trading_gate import DurableTradingGate
-from quantx.persistence.sqlite import (
-    SqliteSubmissionQuarantineRepository,
-    SqliteTradingGateStateStore,
-)
 from quantx.ports.market_checks import (
     MarketCheckStage,
     MarketPolicyConfig,
@@ -43,12 +28,15 @@ from quantx.ports.market_checks import (
 )
 
 from .execution import ExecutionOrchestrator
-from .live_risk import LivePreTradeRiskEvaluator, LiveRiskEvaluationInputs
 from .production import ProductionRuntime
 
 _LIMITS_REQUIRED_REASON = (
     "LIVE risk limits require explicit positive limits for order notional, "
-    "position notional, daily loss and snapshot age"
+    "position notional, realized daily loss, unrealized loss and snapshot age"
+)
+
+_LIVE_EVIDENCE_UNAVAILABLE_REASON = (
+    "LIVE risk evidence authority set unavailable; production LIVE composition is blocked"
 )
 
 _NON_INDIA_PLACEMENT_REASON = (
@@ -66,17 +54,15 @@ class LiveExecutionCompositionError(ValidationError):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LiveExecutionConfig:
-    """Explicit mandatory inputs for :func:`build_live_execution`.
+    """Explicit deployment policy inputs accepted by the LIVE composition root.
 
-    There are no defaults. A deployment must supply its risk limits, a risk
-    engine, the per-request risk evidence provider, the trusted clock that
-    decides freshness, the market policy that carries both India check stages,
-    and the trusted policy verifier.
+    No provider-supplied risk-input callable is accepted. Until the evidence
+    authorities and durable admission controls are wired end-to-end, even a
+    well-typed config is refused by the factory.
     """
 
     risk_limits: RiskLimits
     risk_engine: PreTradeRiskEngine
-    risk_inputs_for_request: Callable[[ApprovedExecutionRequest], LiveRiskEvaluationInputs]
     clock: Clock
     market_policy: MarketPolicyConfig
     policy_verifier: MarketPackPolicyVerifier
@@ -126,21 +112,13 @@ def build_live_execution(
     runtime: ProductionRuntime,
     config: LiveExecutionConfig,
 ) -> LiveExecutionStack:
-    """Build one disarmed, fully guarded LIVE execution stack.
+    """Refuse LIVE composition until the authoritative Slice C controls exist.
 
-    Validation runs before construction, so invalid configuration writes no
-    durable state. When building the gate, the factory overwrites any enabled
-    state left by a prior process with a durably disarmed state before returning.
-    Each new process therefore requires an explicit operator enable after startup.
-    If disarming cannot be persisted, construction raises and returns no stack.
-
-    The market policy must require the India pack and place at least one check
-    in both India stages. Construction already rejects a core-only India or a
-    missing required stage, but an empty required stage is otherwise only
-    detected when a request arrives, which is too late to be a build failure.
-    The supplied policy is narrowed to India before it reaches the
-    orchestrator: every other region requires both stages with no registered
-    checks, so a non-India LIVE request is blocked by the market stage.
+    The legacy input-provider field has been removed from configuration. The
+    evidence source, P&L/position completeness, broker margin authority,
+    durable pending-scope guard, and durable concurrency admission must all be
+    implemented and integrated before a production execution stack can be
+    constructed.
     """
     if type(runtime) is not ProductionRuntime:
         raise LiveExecutionCompositionError("runtime must be a ProductionRuntime")
@@ -152,8 +130,6 @@ def build_live_execution(
         raise LiveExecutionCompositionError("risk_engine must be a PreTradeRiskEngine")
     if not isinstance(config.clock, Clock):
         raise LiveExecutionCompositionError("clock must be a Clock")
-    if not callable(config.risk_inputs_for_request):
-        raise LiveExecutionCompositionError("risk_inputs_for_request must be callable")
     if type(config.market_policy) is not MarketPolicyConfig:
         raise LiveExecutionCompositionError("market_policy must be a MarketPolicyConfig")
     if any(placed.region is not MarketRegion.INDIA for placed in config.market_policy.checks):
@@ -173,28 +149,9 @@ def build_live_execution(
             "market_policy must place at least one pre-submit check for India"
         )
     try:
-        limits = require_live_risk_limits(config.risk_limits)
+        require_live_risk_limits(config.risk_limits)
     except LiveRiskLimitsError:
         raise LiveExecutionCompositionError(_LIMITS_REQUIRED_REASON) from None
 
-    gate = DurableTradingGate(SqliteTradingGateStateStore(runtime.database))
-    # Persist a fresh disarmed state on every process start; do not inherit
-    # authorization that an operator granted to a previous process.
-    gate.block("LIVE gate disarmed for new process start")
-    quarantine = SqliteSubmissionQuarantineRepository(runtime.database)
-    evaluator = LivePreTradeRiskEvaluator(
-        engine=config.risk_engine,
-        limits=limits,
-        inputs_for_request=config.risk_inputs_for_request,
-        clock=config.clock,
-    )
-    orchestrator = ExecutionOrchestrator(
-        trading_gate=gate,
-        application_runtime=runtime.application,
-        unit_of_work=runtime.unit_of_work,
-        live_risk_evaluator=evaluator,
-        market_policy=_india_only_market_policy(config.market_policy),
-        submission_quarantine=quarantine,
-        policy_verifier=config.policy_verifier,
-    )
-    return LiveExecutionStack(orchestrator=orchestrator, gate=gate)
+    # This intentionally fails before touching durable gate state.
+    raise LiveExecutionCompositionError(_LIVE_EVIDENCE_UNAVAILABLE_REASON)

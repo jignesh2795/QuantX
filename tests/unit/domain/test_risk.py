@@ -419,9 +419,10 @@ _LIVE_LIMIT_FIELDS = (
     "max_order_notional",
     "max_position_notional",
     "max_daily_loss",
+    "max_unrealized_loss",
     "max_snapshot_age",
 )
-_LIVE_MONEY_FIELDS = _LIVE_LIMIT_FIELDS[:3]
+_LIVE_MONEY_FIELDS = _LIVE_LIMIT_FIELDS[:4]
 
 
 def _live_limit_values() -> dict:
@@ -429,6 +430,7 @@ def _live_limit_values() -> dict:
         "max_order_notional": Decimal("100000"),
         "max_position_notional": Decimal("100000"),
         "max_daily_loss": Decimal("10000"),
+        "max_unrealized_loss": Decimal("5000"),
         "max_snapshot_age": timedelta(minutes=5),
     }
 
