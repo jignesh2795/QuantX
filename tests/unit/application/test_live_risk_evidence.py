@@ -300,6 +300,21 @@ def test_incomplete_holdings_surface_rejects_even_when_open_positions_are_empty(
         _build(evidence)
 
 
+def test_builder_rejects_complete_book_that_declares_provider_blockers():
+    """Defense in depth: a foreign/malformed book cannot smuggle blockers past C1.
+
+    The domain contract already rejects COMPLETE evidence that carries blockers.
+    This test bypasses the frozen constructor to prove the builder independently
+    refuses such a book instead of trusting only the earlier invariant.
+    """
+    book = _positions(())
+    object.__setattr__(book, "blockers", ("DHAN_CROSS_SURFACE_OVERLAP_POLICY_UNPROVEN",))
+    evidence = _evidence(positions=book)
+
+    with pytest.raises(LiveRiskEvidenceError, match="LIVE_RISK_POSITION_BOOK_INCOMPLETE"):
+        _build(evidence)
+
+
 def test_missing_daily_charge_coverage_rejects_pnl_authority():
     evidence = _evidence(pnl=_pnl(charges_daily=None))
     with pytest.raises(LiveRiskEvidenceError, match="DAILY_PNL_AUTHORITY_INCOMPLETE"):

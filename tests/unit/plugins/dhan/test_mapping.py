@@ -13,8 +13,10 @@ from quantx.plugins.dhan.mapping import (
     dhan_order_type,
     dhan_product_type,
     dhan_time_in_force,
+    invert_dhan_product_map,
     normalize_status,
     parse_dhan_timestamp,
+    parse_dhan_trade_time,
 )
 from quantx.plugins.dhan.models import DhanInstrumentRef
 
@@ -195,3 +197,80 @@ def test_product_mapping_is_adapter_wide_and_makes_no_instrument_specific_claim(
     assert "instrument/segment" not in message
     assert "configured map" in message
     assert dhan_product_type(ProductCode("CNC"), product_map={"CNC": "CNC"}) == "CNC"
+
+
+def test_position_product_map_inverse_is_explicit_and_deterministic() -> None:
+    inverse = invert_dhan_product_map({"CNC": "CNC", "MIS": "INTRADAY", "NRML": "MARGIN"})
+
+    assert dict(inverse) == {"CNC": "CNC", "INTRADAY": "MIS", "MARGIN": "NRML"}
+
+
+def test_position_product_map_rejects_two_neutral_products_on_one_wire_value() -> None:
+    with pytest.raises(ValueError, match="ambiguous for wire value"):
+        invert_dhan_product_map({"CNC": "CNC", "DELIVERY": "CNC"})
+
+
+def test_position_product_map_rejects_empty_configuration() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        invert_dhan_product_map({})
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        "",
+        "   ",
+        "01/01/1980 00:00:00",
+        "1980-01-01T00:00:00",
+        "0",
+        "0.0",
+        0,
+        0.0,
+        False,
+        "not-a-timestamp",
+        object(),
+        "99999999999999999999",
+        "253402300800",
+        253402300800,
+        "20260101",
+        "2026-01-01",
+        "0001-01-01T00:00:00",
+        1.5,
+        -1,
+        -1767225600,
+    ],
+)
+def test_unusable_dhan_trade_times_never_become_market_evidence(value: object) -> None:
+    assert parse_dhan_trade_time(value) is None
+
+
+def test_nine_digit_epoch_trade_time_is_supported() -> None:
+    parsed = parse_dhan_trade_time(946684800)
+
+    assert parsed is not None
+    assert parsed.year == 2000
+    assert parsed.isoformat().endswith("+05:30")
+
+
+def test_integral_float_epoch_trade_time_is_supported() -> None:
+    parsed = parse_dhan_trade_time(1767225600.0)
+
+    assert parsed is not None
+    assert parsed.year == 2026
+
+
+def test_iso_dhan_trade_time_defaults_to_ist() -> None:
+    parsed = parse_dhan_trade_time("2026-01-01T10:00:00")
+
+    assert parsed is not None
+    assert parsed.isoformat().endswith("+05:30")
+    assert parsed.hour == 10
+
+
+def test_epoch_dhan_trade_time_is_interpreted_in_ist() -> None:
+    parsed = parse_dhan_trade_time(1767225600)
+
+    assert parsed is not None
+    assert parsed.year == 2026
+    assert parsed.isoformat().endswith("+05:30")

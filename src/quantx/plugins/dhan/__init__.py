@@ -17,20 +17,20 @@ from .market_data import DhanMarketDataAdapter
 from .models import (
     DhanCredentials,
     DhanFundsSnapshot,
+    DhanHoldingSnapshot,
+    DhanHoldingsSnapshot,
     DhanInstrumentRef,
     DhanOrderRequest,
     DhanOrderResponse,
     DhanPositionSnapshot,
     DhanPositionsSnapshot,
 )
+from .position_evidence import (
+    DhanWholeAccountPositionBlocker,
+    DhanWholeAccountPositionSource,
+)
 from .recovery import DhanRecoveryEvidenceProvider, build_dhan_recovery_provider
 from .transport import DhanSDKTransport, DhanTransport, InMemoryDhanTransport
-from .whole_account_positions import (
-    DhanWholeAccountPositionEvidenceAssessment,
-    DhanWholeAccountPositionEvidenceBlocker,
-    DhanWholeAccountPositionEvidenceSource,
-)
-
 
 DHAN_PLUGIN_DESCRIPTOR = PluginDescriptor(
     plugin_id=PluginId("dhan"),
@@ -53,6 +53,8 @@ __all__ = [
     "DhanBrokerAdapter",
     "DhanCredentials",
     "DhanFundsSnapshot",
+    "DhanHoldingSnapshot",
+    "DhanHoldingsSnapshot",
     "DhanHostConfig",
     "DhanHostRuntime",
     "DhanInstrumentRef",
@@ -63,12 +65,11 @@ __all__ = [
     "DhanPositionsSnapshot",
     "DhanRealizedDailyPnlBlocker",
     "DhanRealizedDailyPnlSource",
-    "DhanWholeAccountPositionEvidenceAssessment",
-    "DhanWholeAccountPositionEvidenceBlocker",
-    "DhanWholeAccountPositionEvidenceSource",
     "DhanRecoveryEvidenceProvider",
     "DhanSDKTransport",
     "DhanTransport",
+    "DhanWholeAccountPositionBlocker",
+    "DhanWholeAccountPositionSource",
     "DHAN_CAPABILITIES",
     "DHAN_PLUGIN_DESCRIPTOR",
     "InMemoryDhanTransport",

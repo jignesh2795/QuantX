@@ -1,6 +1,7 @@
 import threading
 import time
 import types
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -563,3 +564,291 @@ def test_sdk_cancel_refuses_absent_correlation_echo(
         assert client.cancel_calls == []
     finally:
         transport.close()
+
+
+def test_position_snapshot_preserves_provider_risk_fields() -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    snapshot = _positions_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "securityId": "1333",
+                    "exchangeSegment": "NSE_EQ",
+                    "tradingSymbol": "TCS",
+                    "productType": "CNC",
+                    "positionType": "LONG",
+                    "netQty": "10",
+                    "buyQty": 12,
+                    "sellQty": 2,
+                    "buyAvg": "99.50",
+                    "sellAvg": "101.25",
+                    "costPrice": "100.00",
+                    "realizedProfit": "15.50",
+                    "unrealizedProfit": "-5.25",
+                    "multiplier": 1,
+                    "carryForwardBuyQty": 4,
+                    "carryForwardSellQty": 1,
+                    "carryForwardBuyValue": "400",
+                    "carryForwardSellValue": "101.25",
+                    "dayBuyQty": 8,
+                    "daySellQty": 1,
+                    "dayBuyValue": "796",
+                    "daySellValue": "101.25",
+                    "rbiReferenceRate": "83.25",
+                    "crossCurrency": False,
+                    "drvExpiryDate": "2026-01-29",
+                    "drvOptionType": "CALL",
+                    "drvStrikePrice": "2500",
+                }
+            ],
+        }
+    )
+
+    assert snapshot.available is True
+    row = snapshot.positions[0]
+    assert row.security_id == "1333"
+    assert row.exchange_segment == "NSE_EQ"
+    assert row.trading_symbol == "TCS"
+    assert row.product_type == "CNC"
+    assert row.position_type == "LONG"
+    assert row.net_quantity == Decimal("10")
+    assert row.buy_quantity == Decimal("12")
+    assert row.sell_quantity == Decimal("2")
+    assert row.buy_average_price == Decimal("99.50")
+    assert row.sell_average_price == Decimal("101.25")
+    assert row.average_price == Decimal("100.00")
+    assert row.realized_profit == Decimal("15.50")
+    assert row.unrealized_profit == Decimal("-5.25")
+    assert row.multiplier == Decimal("1")
+    assert row.carry_forward_buy_quantity == Decimal("4")
+    assert row.carry_forward_sell_quantity == Decimal("1")
+    assert row.carry_forward_buy_value == Decimal("400")
+    assert row.carry_forward_sell_value == Decimal("101.25")
+    assert row.day_buy_quantity == Decimal("8")
+    assert row.day_sell_quantity == Decimal("1")
+    assert row.day_buy_value == Decimal("796")
+    assert row.day_sell_value == Decimal("101.25")
+    assert row.rbi_reference_rate == Decimal("83.25")
+    assert row.cross_currency is False
+    assert row.drv_expiry_date == "2026-01-29"
+    assert row.drv_option_type == "CALL"
+    assert row.drv_strike_price == Decimal("2500")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("netQty", "NaN"),
+        ("netQty", "Infinity"),
+        ("costPrice", "NaN"),
+        ("costPrice", True),
+        ("multiplier", "Infinity"),
+        ("crossCurrency", "true"),
+        ("productType", 123),
+    ],
+)
+def test_position_snapshot_rejects_malformed_or_non_finite_values(
+    field: str, value: object
+) -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    entry: dict[str, object] = {
+        "securityId": "1333",
+        "exchangeSegment": "NSE_EQ",
+        "netQty": 10,
+        "costPrice": "100",
+    }
+    entry[field] = value
+
+    snapshot = _positions_snapshot({"status": "success", "remarks": "", "data": [entry]})
+
+    assert snapshot.available is False
+    assert snapshot.positions == ()
+
+
+def test_holdings_snapshot_parses_provider_quantities_without_inventing_a_product() -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    snapshot = _holdings_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "securityId": "1333",
+                    "exchange": "ALL",
+                    "tradingSymbol": "TCS",
+                    "isin": "INE467B01029",
+                    "totalQty": 15,
+                    "dpQty": 10,
+                    "t1Qty": 3,
+                    "availableQty": 13,
+                    "collateralQty": 2,
+                    "avgCostPrice": "250.75",
+                }
+            ],
+        }
+    )
+
+    assert snapshot.available is True
+    row = snapshot.holdings[0]
+    assert row.security_id == "1333"
+    assert row.exchange == "ALL"
+    assert row.trading_symbol == "TCS"
+    assert row.isin == "INE467B01029"
+    assert row.total_quantity == Decimal("15")
+    assert row.dp_quantity == Decimal("10")
+    assert row.t1_quantity == Decimal("3")
+    assert row.available_quantity == Decimal("13")
+    assert row.collateral_quantity == Decimal("2")
+    assert row.average_cost_price == Decimal("250.75")
+
+
+def test_holdings_snapshot_missing_quantities_stay_none_not_zero() -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    snapshot = _holdings_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [{"securityId": "1333", "exchange": "ALL"}],
+        }
+    )
+
+    assert snapshot.available is True
+    row = snapshot.holdings[0]
+    assert row.total_quantity is None
+    assert row.available_quantity is None
+    assert row.average_cost_price is None
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"status": "failure", "remarks": "denied", "data": []},
+        {"status": "success", "remarks": "", "data": {}},
+        {"status": "success", "remarks": "", "data": [{"securityId": "1333"}]},
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [{"securityId": "1333", "exchange": "ALL", "totalQty": "NaN"}],
+        },
+    ],
+)
+def test_malformed_holdings_response_becomes_unavailable(response: object) -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    snapshot = _holdings_snapshot(response)
+
+    assert snapshot.available is False
+    assert snapshot.holdings == ()
+
+
+def test_in_memory_transport_returns_configured_holding_observations() -> None:
+    from quantx.plugins.dhan.models import DhanHoldingSnapshot
+
+    transport = InMemoryDhanTransport(
+        holding_snapshots=(
+            DhanHoldingSnapshot(
+                security_id="1333",
+                exchange="ALL",
+                total_quantity=Decimal("10"),
+                average_cost_price=Decimal("100"),
+            ),
+        )
+    )
+
+    holdings = transport.holdings()
+
+    assert holdings.available is True
+    assert len(holdings.holdings) == 1
+    assert holdings.holdings[0].security_id == "1333"
+
+
+class _HoldingsFakeDhanClient:
+    def get_holdings(self) -> object:
+        return {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "securityId": "1333",
+                    "exchange": "ALL",
+                    "totalQty": 5,
+                    "avgCostPrice": "100",
+                }
+            ],
+        }
+
+
+def test_sdk_transport_reads_holdings_through_the_vendor_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _sdk_transport_without_sdk(monkeypatch, _HoldingsFakeDhanClient())
+    try:
+        snapshot = transport.holdings()
+    finally:
+        transport.close()
+
+    assert snapshot.available is True
+    assert snapshot.holdings[0].total_quantity == Decimal("5")
+
+
+def _quote_response(**packet_overrides: object) -> object:
+    packet: dict[str, object] = {
+        "last_price": "100.50",
+        "depth": {
+            "buy": [{"price": "100", "quantity": "10"}],
+            "sell": [{"price": "101", "quantity": "12"}],
+        },
+    }
+    packet.update(packet_overrides)
+    return {
+        "status": "success",
+        "remarks": "",
+        "data": {"NSE_EQ": {"1333": packet}},
+    }
+
+
+def test_quote_snapshot_separates_read_instant_from_sentinel_trade_time() -> None:
+    from quantx.plugins.dhan.transport import _quote_snapshot
+
+    snapshot = _quote_snapshot(
+        _quote_response(last_trade_time="01/01/1980 00:00:00"),
+        "1333",
+        "NSE_EQ",
+    )
+
+    assert snapshot is not None
+    assert snapshot.observed_at.tzinfo is not None
+    assert snapshot.trade_observed_at is None
+    assert snapshot.last_price == Decimal("100.50")
+    assert snapshot.bid_price == Decimal("100")
+    assert snapshot.ask_price == Decimal("101")
+    assert snapshot.bid_size == Decimal("10")
+    assert snapshot.ask_size == Decimal("12")
+
+
+def test_quote_snapshot_missing_trade_time_stays_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _quote_snapshot
+
+    snapshot = _quote_snapshot(_quote_response(), "1333", "NSE_EQ")
+
+    assert snapshot is not None
+    assert snapshot.trade_observed_at is None
+
+
+def test_quote_snapshot_parses_unambiguous_trade_time() -> None:
+    from quantx.plugins.dhan.transport import _quote_snapshot
+
+    snapshot = _quote_snapshot(
+        _quote_response(last_trade_time="2026-01-01T10:00:00"),
+        "1333",
+        "NSE_EQ",
+    )
+
+    assert snapshot is not None
+    assert snapshot.trade_observed_at == datetime(2026, 1, 1, 4, 30, tzinfo=UTC)

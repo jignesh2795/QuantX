@@ -165,6 +165,11 @@ class WholeAccountPositionEvidence:
     The adapter aggregates additive vendor rows under its declared merge policy
     before constructing the book. The core rejects duplicate instrument/product
     keys rather than silently summing.
+
+    ``blockers`` names every provider-semantic reason the observation cannot
+    establish a complete book. A ``COMPLETE`` book must not declare blockers;
+    non-``COMPLETE`` evidence keeps the reasons explicit instead of implying
+    that an empty or partial surface is a zero book.
     """
 
     account_id: AccountId
@@ -176,6 +181,7 @@ class WholeAccountPositionEvidence:
     observed_at: datetime
     version: str
     provenance: str
+    blockers: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.surfaces) is not tuple or type(self.positions) is not tuple:
@@ -189,6 +195,12 @@ class WholeAccountPositionEvidence:
         _require_aware(self.observed_at, "position book observed_at")
         if not self.merge_policy.strip() or not self.version.strip() or not self.provenance.strip():
             raise ValueError("position merge_policy, version, and provenance are required")
+        if type(self.blockers) is not tuple:
+            raise ValueError("position blockers must be an immutable tuple")
+        if any(type(blocker) is not str or not blocker.strip() for blocker in self.blockers):
+            raise ValueError("position blockers must be non-empty strings")
+        if self.completeness is EvidenceStatus.COMPLETE and self.blockers:
+            raise ValueError("COMPLETE position evidence must not declare blockers")
         seen: set[tuple[object, ProductCode]] = set()
         for position in self.positions:
             key = (position.instrument.instrument_id, position.product)

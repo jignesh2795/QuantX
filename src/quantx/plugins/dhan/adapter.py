@@ -10,7 +10,10 @@ from uuid import uuid4
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES, Instrument
-from quantx.domain.risk_evidence import RealizedDailyPnlEvidence
+from quantx.domain.risk_evidence import (
+    RealizedDailyPnlEvidence,
+    WholeAccountPositionEvidence,
+)
 from quantx.domain.value_objects import InstrumentId
 from quantx.execution.receipts.models import (
     ExecutionEvidenceKind,
@@ -40,11 +43,8 @@ from .mapping import (
     parse_dhan_timestamp,
 )
 from .models import DhanInstrumentRef, DhanOrderDetail, DhanPositionSnapshot
+from .position_evidence import DhanWholeAccountPositionSource
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanTimeoutError, DhanTransport
-from .whole_account_positions import (
-    DhanWholeAccountPositionEvidenceAssessment,
-    DhanWholeAccountPositionEvidenceSource,
-)
 
 
 @dataclass(slots=True)
@@ -377,21 +377,27 @@ class DhanBrokerAdapter:
             as_of=as_of,
         )
 
-    def assess_whole_account_position_evidence(
+    def whole_account_position_evidence(
         self,
         *,
-        assessed_at: datetime,
-    ) -> DhanWholeAccountPositionEvidenceAssessment:
-        """Report why this adapter cannot yet supply C1 whole-account evidence.
+        observed_at: datetime,
+    ) -> WholeAccountPositionEvidence:
+        """Observe Dhan portfolio surfaces and return explicit C2b refusal.
 
-        This is a contract-capability assessment, not a portfolio observation.
-        It performs no broker I/O and cannot be consumed as a position book.
+        Dhan does not establish holdings product/quantity/overlap semantics, a
+        provider book timestamp, or an authorized mark timestamp. The source
+        therefore never returns ``COMPLETE`` and emits no unmarked canonical
+        positions. It reads only the two portfolio surfaces through the
+        existing transport boundary; it does not query market quotes.
         """
-        return DhanWholeAccountPositionEvidenceSource(
+        return DhanWholeAccountPositionSource(
             account_id=self._connection.account_id,
             connection_id=self._connection.connection_id,
-            broker_id=self._connection.broker_id,
-        ).assess(assessed_at=assessed_at)
+            instruments=self._instruments,
+            transport=self._transport,
+            product_map=self._product_map,
+            read_timeout=self._read_timeout,
+        ).observe_whole_account_positions(observed_at=observed_at)
 
     def position_states(self) -> tuple[PositionState, ...]:
         """Expose observed broker positions against canonical instruments.

@@ -10,8 +10,11 @@ import pytest
 
 from quantx.domain.risk_evidence import (
     EvidenceStatus,
+    PositionSurface,
+    PositionSurfaceEvidence,
     RealizedDailyPnlEvidence,
     RealizedPnlSource,
+    WholeAccountPositionEvidence,
 )
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, Money
 
@@ -98,3 +101,78 @@ def test_naive_day_start_is_rejected() -> None:
 def test_as_of_must_not_precede_day_start() -> None:
     with pytest.raises(ValueError, match="P&L as_of must not precede day_start_at"):
         _pnl(as_of=DAY_START_AT.replace(hour=3, minute=0))
+
+
+def _position_book(**overrides: Any) -> WholeAccountPositionEvidence:
+    surfaces = (
+        PositionSurfaceEvidence(
+            PositionSurface.POSITIONS,
+            EvidenceStatus.COMPLETE,
+            AS_OF,
+            "synthetic-v1",
+            "synthetic-test-fixture",
+            0,
+        ),
+        PositionSurfaceEvidence(
+            PositionSurface.HOLDINGS,
+            EvidenceStatus.COMPLETE,
+            AS_OF,
+            "synthetic-v1",
+            "synthetic-test-fixture",
+            0,
+        ),
+        PositionSurfaceEvidence(
+            PositionSurface.MARKS,
+            EvidenceStatus.COMPLETE,
+            AS_OF,
+            "synthetic-v1",
+            "synthetic-test-fixture",
+            0,
+        ),
+    )
+    values: dict[str, Any] = {
+        "account_id": ACCOUNT,
+        "connection_id": CONNECTION,
+        "surfaces": surfaces,
+        "positions": (),
+        "completeness": EvidenceStatus.COMPLETE,
+        "merge_policy": "synthetic-no-overlap-v1",
+        "observed_at": AS_OF,
+        "version": "synthetic-v1",
+        "provenance": "synthetic-test-fixture",
+        "blockers": (),
+    }
+    values.update(overrides)
+    return WholeAccountPositionEvidence(**values)
+
+
+def test_position_book_blockers_default_to_empty_tuple() -> None:
+    assert _position_book().blockers == ()
+
+
+def test_non_complete_position_book_preserves_explicit_blockers() -> None:
+    book = _position_book(
+        completeness=EvidenceStatus.INCOMPLETE,
+        blockers=("DHAN_HOLDINGS_PRODUCT_IDENTITY_UNPROVEN",),
+    )
+
+    assert book.blockers == ("DHAN_HOLDINGS_PRODUCT_IDENTITY_UNPROVEN",)
+
+
+def test_position_book_rejects_complete_status_with_blockers() -> None:
+    with pytest.raises(ValueError, match="COMPLETE position evidence must not declare blockers"):
+        _position_book(blockers=("synthetic-provider-gap",))
+
+
+def test_position_book_rejects_mutable_blocker_collection() -> None:
+    with pytest.raises(ValueError, match="position blockers must be an immutable tuple"):
+        _position_book(
+            completeness=EvidenceStatus.INCOMPLETE,
+            blockers=["synthetic-provider-gap"],
+        )
+
+
+@pytest.mark.parametrize("blocker", ["", "   ", 1])
+def test_position_book_rejects_malformed_blocker_values(blocker: object) -> None:
+    with pytest.raises(ValueError, match="position blockers must be non-empty strings"):
+        _position_book(completeness=EvidenceStatus.INCOMPLETE, blockers=(blocker,))

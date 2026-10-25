@@ -367,6 +367,11 @@ def build_live_risk_inputs(
     if position_book.completeness is not EvidenceStatus.COMPLETE:
         code = _status_error_code(position_book.completeness, prefix="LIVE_RISK_POSITION_BOOK")
         raise LiveRiskEvidenceError(code, "whole-account position book is not COMPLETE")
+    if position_book.blockers:
+        raise LiveRiskEvidenceError(
+            "LIVE_RISK_POSITION_BOOK_INCOMPLETE",
+            "whole-account position book declares provider-semantic blockers",
+        )
     required_surfaces = {"POSITIONS", "HOLDINGS", "MARKS"}
     surfaces_by_name = {surface.surface.value: surface for surface in position_book.surfaces}
     if set(surfaces_by_name) != required_surfaces:

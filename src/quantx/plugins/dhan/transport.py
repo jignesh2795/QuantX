@@ -13,11 +13,18 @@ from decimal import Decimal, InvalidOperation
 from typing import Protocol, runtime_checkable
 from zoneinfo import ZoneInfo
 
-from .mapping import decimal_field, extract_filled_quantity, parse_dhan_timestamp
+from .mapping import (
+    decimal_field,
+    extract_filled_quantity,
+    parse_dhan_timestamp,
+    parse_dhan_trade_time,
+)
 from .models import (
     DhanCandleSnapshot,
     DhanCredentials,
     DhanFundsSnapshot,
+    DhanHoldingSnapshot,
+    DhanHoldingsSnapshot,
     DhanOrderDetail,
     DhanOrderRequest,
     DhanOrderResponse,
@@ -46,8 +53,8 @@ class DhanTransport(Protocol):
 
     R0-B bounds only the safety-critical control path: ``submit``, ``cancel``,
     and ``reconcile`` take an explicit ``timeout``. The read-only observations
-    (``health``, ``fund_limits``, ``positions``, ``quote_snapshot``,
-    ``candles``) take an optional ``timeout`` defaulting to
+    (``health``, ``fund_limits``, ``positions``, ``holdings``,
+    ``quote_snapshot``, ``candles``) take an optional ``timeout`` defaulting to
     ``DEFAULT_READ_TIMEOUT_SECONDS``; hosts that need a tighter bound thread
     an explicit value through the adapter instead. A hung state-changing submission never blocks a
     reconciliation or read-only observation behind it.
@@ -68,6 +75,10 @@ class DhanTransport(Protocol):
     def positions(
         self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
     ) -> DhanPositionsSnapshot: ...
+
+    def holdings(
+        self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
+    ) -> DhanHoldingsSnapshot: ...
 
     def quote_snapshot(
         self,
@@ -96,6 +107,8 @@ class _DhanClient(Protocol):
     def get_fund_limits(self) -> object: ...
 
     def get_positions(self) -> object: ...
+
+    def get_holdings(self) -> object: ...
 
     def place_order(self, **kwargs: object) -> object: ...
 
@@ -266,6 +279,22 @@ class DhanSDKTransport:
             )
         return _positions_snapshot(response)
 
+    def holdings(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanHoldingsSnapshot:
+        try:
+            response = self._call_with_timeout(
+                self._client.get_holdings,
+                timeout=timeout,
+                operation="holdings",
+                executor=self._query_executor,
+            )
+        except Exception as exc:
+            return DhanHoldingsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan holdings transport failure: {exc}",
+            )
+        return _holdings_snapshot(response)
+
     def quote_snapshot(
         self,
         security_id: str,
@@ -380,6 +409,9 @@ class InMemoryDhanTransport:
     positions_available: bool = True
     position_snapshots: tuple[DhanPositionSnapshot, ...] = ()
     positions_message: str = ""
+    holdings_available: bool = True
+    holding_snapshots: tuple[DhanHoldingSnapshot, ...] = ()
+    holdings_message: str = ""
     quote_snapshots: dict[tuple[str, str], DhanQuoteSnapshot] = field(default_factory=dict)
     candle_snapshots: dict[tuple[str, str], tuple[DhanCandleSnapshot, ...]] = field(
         default_factory=dict
@@ -443,6 +475,14 @@ class InMemoryDhanTransport:
             positions=self.position_snapshots,
             available=self.positions_available,
             message=self.positions_message,
+        )
+
+    def holdings(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanHoldingsSnapshot:
+        return DhanHoldingsSnapshot(
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            holdings=self.holding_snapshots,
+            available=self.holdings_available,
+            message=self.holdings_message,
         )
 
     def quote_snapshot(
@@ -541,9 +581,12 @@ def _money_field(payload: DhanPayload, key: str) -> Decimal | None:
     if isinstance(value, str) and not value.strip():
         return None
     try:
-        return Decimal(str(value))
+        parsed = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:
         raise ValueError(f"invalid Dhan decimal field: {key}") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"invalid Dhan decimal field: {key}")
+    return parsed
 
 
 def _funds_snapshot(response: object) -> DhanFundsSnapshot:
@@ -647,9 +690,10 @@ def _quote_snapshot(
 ) -> DhanQuoteSnapshot | None:
     """Normalize one Dhan quote packet; absent data stays unavailable.
 
-    Malformed numeric content raises rather than inventing prices. Timestamp
-    falls back to the snapshot time only when the packet carries no parsable
-    trade time.
+    Malformed numeric content raises rather than inventing prices. The local
+    read instant is recorded separately from the provider's trade instant. A
+    missing, sentinel, or unverified-format trade time leaves
+    ``trade_observed_at`` empty; it is never replaced with the read instant.
     """
     try:
         envelope_status, _, payload = _envelope(response)
@@ -666,16 +710,16 @@ def _quote_snapshot(
     last_price = _money_field(packet, "last_price")
     bid_price, bid_size = _depth_level(packet, "buy")
     ask_price, ask_size = _depth_level(packet, "sell")
-    observed_at = parse_dhan_timestamp(packet.get("last_trade_time"))
     return DhanQuoteSnapshot(
         security_id=security_id,
         exchange_segment=exchange_segment,
-        observed_at=observed_at or datetime.now(UTC),
+        observed_at=datetime.now(UTC),
         last_price=last_price,
         bid_price=bid_price,
         ask_price=ask_price,
         bid_size=bid_size,
         ask_size=ask_size,
+        trade_observed_at=parse_dhan_trade_time(packet.get("last_trade_time")),
     )
 
 
@@ -753,9 +797,12 @@ def _candle_timestamp(value: object) -> datetime:
 
 def _strict_decimal(value: object, field: str) -> Decimal:
     try:
-        return Decimal(str(value))
+        parsed = Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError) as exc:
         raise ValueError(f"invalid Dhan decimal field: {field}") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"invalid Dhan decimal field: {field}")
+    return parsed
 
 
 def _position_snapshot(entry: object) -> DhanPositionSnapshot | None:
@@ -771,13 +818,117 @@ def _position_snapshot(entry: object) -> DhanPositionSnapshot | None:
         net_quantity = Decimal(str(entry.get("netQty")))
     except (InvalidOperation, ValueError, TypeError):
         return None
-    try:
-        average_price = _money_field(entry, "costPrice")
-    except ValueError:
+    if not net_quantity.is_finite():
         return None
-    return DhanPositionSnapshot(
-        security_id=str(security_id),
-        exchange_segment=str(exchange_segment),
-        net_quantity=net_quantity,
-        average_price=average_price,
+    cross_currency = entry.get("crossCurrency")
+    if cross_currency is not None and type(cross_currency) is not bool:
+        return None
+    try:
+        return DhanPositionSnapshot(
+            security_id=str(security_id).strip(),
+            exchange_segment=str(exchange_segment).strip(),
+            net_quantity=net_quantity,
+            average_price=_money_field(entry, "costPrice"),
+            trading_symbol=_optional_text(entry, "tradingSymbol") or "",
+            product_type=_optional_text(entry, "productType"),
+            position_type=_optional_text(entry, "positionType"),
+            buy_quantity=_money_field(entry, "buyQty"),
+            sell_quantity=_money_field(entry, "sellQty"),
+            buy_average_price=_money_field(entry, "buyAvg"),
+            sell_average_price=_money_field(entry, "sellAvg"),
+            realized_profit=_money_field(entry, "realizedProfit"),
+            unrealized_profit=_money_field(entry, "unrealizedProfit"),
+            multiplier=_money_field(entry, "multiplier"),
+            carry_forward_buy_quantity=_money_field(entry, "carryForwardBuyQty"),
+            carry_forward_sell_quantity=_money_field(entry, "carryForwardSellQty"),
+            carry_forward_buy_value=_money_field(entry, "carryForwardBuyValue"),
+            carry_forward_sell_value=_money_field(entry, "carryForwardSellValue"),
+            day_buy_quantity=_money_field(entry, "dayBuyQty"),
+            day_sell_quantity=_money_field(entry, "daySellQty"),
+            day_buy_value=_money_field(entry, "dayBuyValue"),
+            day_sell_value=_money_field(entry, "daySellValue"),
+            rbi_reference_rate=_money_field(entry, "rbiReferenceRate"),
+            cross_currency=cross_currency,
+            drv_expiry_date=_optional_text(entry, "drvExpiryDate"),
+            drv_option_type=_optional_text(entry, "drvOptionType"),
+            drv_strike_price=_money_field(entry, "drvStrikePrice"),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _holding_snapshot(entry: object) -> DhanHoldingSnapshot | None:
+    if not isinstance(entry, dict):
+        return None
+    security_id = entry.get("securityId")
+    exchange = entry.get("exchange")
+    if security_id is None or not str(security_id).strip():
+        return None
+    if exchange is None or not str(exchange).strip():
+        return None
+    try:
+        return DhanHoldingSnapshot(
+            security_id=str(security_id).strip(),
+            exchange=str(exchange).strip(),
+            trading_symbol=_optional_text(entry, "tradingSymbol") or "",
+            isin=_optional_text(entry, "isin"),
+            total_quantity=_money_field(entry, "totalQty"),
+            dp_quantity=_money_field(entry, "dpQty"),
+            t1_quantity=_money_field(entry, "t1Qty"),
+            available_quantity=_money_field(entry, "availableQty"),
+            collateral_quantity=_money_field(entry, "collateralQty"),
+            average_cost_price=_money_field(entry, "avgCostPrice"),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_text(payload: DhanPayload, key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Dhan text field is malformed: {key}")
+    normalized = value.strip()
+    return normalized or None
+
+
+def _holdings_snapshot(response: object) -> DhanHoldingsSnapshot:
+    """Normalize a holdings envelope; malformed data stays unavailable."""
+    if not isinstance(response, dict):
+        return DhanHoldingsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan holdings response must be a mapping",
+        )
+    envelope_status = str(response.get("status", "failure"))
+    remarks = str(response.get("remarks", ""))
+    if envelope_status != "success":
+        return DhanHoldingsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=remarks or "Dhan holdings reported failure",
+        )
+    entries = response.get("data")
+    if not isinstance(entries, list):
+        return DhanHoldingsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan holdings data must be a list",
+        )
+    holdings: list[DhanHoldingSnapshot] = []
+    for entry in entries:
+        holding = _holding_snapshot(entry)
+        if holding is None:
+            return DhanHoldingsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message="Dhan holding entry is malformed",
+            )
+        holdings.append(holding)
+    return DhanHoldingsSnapshot(
+        observed_at=datetime.now(UTC),
+        holdings=tuple(holdings),
+        available=True,
+        message=remarks,
     )

@@ -80,6 +80,22 @@ def normalize_dhan_product_map(product_map: Mapping[str, str]) -> Mapping[str, s
     return MappingProxyType(normalized)
 
 
+def invert_dhan_product_map(product_map: Mapping[str, str]) -> Mapping[str, str]:
+    """Return the explicit wire-to-neutral inverse of a configured map.
+
+    A wire value produced by two neutral products is ambiguous: the provider
+    row cannot be assigned a single canonical product. Such a map is rejected;
+    nothing is guessed from the instrument, asset class, or a default.
+    """
+    normalized = normalize_dhan_product_map(product_map)
+    inverse: dict[str, str] = {}
+    for neutral, wire in normalized.items():
+        if wire in inverse:
+            raise ValueError(f"configured Dhan product map is ambiguous for wire value: {wire}")
+        inverse[wire] = neutral
+    return MappingProxyType(inverse)
+
+
 def dhan_product_type(
     product_code: ProductCode | None,
     *,
@@ -155,9 +171,12 @@ def decimal_field(payload: DhanPayload, key: str) -> Decimal | None:
     if value in (None, "", 0, 0.0):
         return None
     try:
-        return Decimal(str(value))
+        parsed = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:
         raise ValueError(f"invalid Dhan decimal field: {key}") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"invalid Dhan decimal field: {key}")
+    return parsed
 
 
 def parse_dhan_timestamp(value: str | None) -> datetime | None:
@@ -176,6 +195,69 @@ def parse_dhan_timestamp(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
     return parsed
+
+
+#: Documented Dhan market-quote example that denotes "no trade observed".
+#: The documentation does not define a timestamp format for ``last_trade_time``
+#: and shows this sentinel value, so only unambiguous ISO/numeric values are
+#: interpreted as real trade instants.
+_DHAN_SENTINEL_TRADE_TIMES = frozenset(
+    {
+        "01/01/1980 00:00:00",
+        "1980-01-01 00:00:00",
+        "1980-01-01t00:00:00",
+        "0",
+        "0.0",
+    }
+)
+
+_MIN_TRADE_YEAR = 2000
+_MIN_EPOCH_SECONDS_DIGITS = 9
+_MAX_EPOCH_SECONDS_DIGITS = 10
+
+
+def parse_dhan_trade_time(value: object) -> datetime | None:
+    """Interpret a Dhan market-quote trade time only when it is unambiguous.
+
+    ``None`` is returned for a missing value, the documented 1980 sentinel, a
+    date-only or compact value that could be a date rather than an epoch, an
+    out-of-range epoch, a pre-2000 value, or a format the provider
+    documentation does not define. Callers must treat ``None`` as unavailable,
+    never as "now" and never as fresh evidence.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        normalized = str(value)
+    elif isinstance(value, float):
+        if not value.is_integer():
+            return None
+        normalized = str(int(value))
+    elif isinstance(value, str):
+        normalized = value.strip()
+    else:
+        return None
+    if not normalized or normalized.lower() in _DHAN_SENTINEL_TRADE_TIMES:
+        return None
+    negative = normalized.startswith("-")
+    digits = normalized[1:] if negative else normalized
+    if digits.isdigit():
+        if negative or not (_MIN_EPOCH_SECONDS_DIGITS <= len(digits) <= _MAX_EPOCH_SECONDS_DIGITS):
+            return None
+        try:
+            parsed = datetime.fromtimestamp(int(digits), tz=ZoneInfo("Asia/Kolkata"))
+        except (OverflowError, OSError, ValueError):
+            return None
+        return parsed if parsed.year >= _MIN_TRADE_YEAR else None
+    if "T" not in normalized and " " not in normalized:
+        return None
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+    return parsed if parsed.year >= _MIN_TRADE_YEAR else None
 
 
 def extract_filled_quantity(payload: DhanPayload) -> Decimal:

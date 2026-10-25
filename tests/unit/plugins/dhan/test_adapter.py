@@ -662,6 +662,52 @@ def test_position_states_with_unavailable_observation_fails_closed() -> None:
         _adapter(transport).position_states()
 
 
+def test_whole_account_position_evidence_is_fail_closed_and_observes_both_surfaces() -> None:
+    from quantx.domain.risk_evidence import EvidenceStatus, PositionSurface
+    from quantx.plugins.dhan.models import DhanHoldingSnapshot, DhanPositionSnapshot
+
+    transport = InMemoryDhanTransport(
+        position_snapshots=(
+            DhanPositionSnapshot(
+                "1333",
+                "NSE_EQ",
+                Decimal("10"),
+                Decimal("100"),
+                product_type="CNC",
+                position_type="LONG",
+                multiplier=Decimal("1"),
+            ),
+        ),
+        holding_snapshots=(
+            DhanHoldingSnapshot(
+                "1333",
+                "ALL",
+                total_quantity=Decimal("10"),
+                average_cost_price=Decimal("100"),
+            ),
+        ),
+    )
+
+    evidence = _adapter(transport).whole_account_position_evidence(
+        observed_at=datetime(2026, 1, 1, tzinfo=UTC)
+    )
+
+    assert evidence.completeness is EvidenceStatus.INCOMPLETE
+    assert evidence.positions == ()
+    assert {surface.surface for surface in evidence.surfaces} == {
+        PositionSurface.POSITIONS,
+        PositionSurface.HOLDINGS,
+        PositionSurface.MARKS,
+    }
+    assert "DHAN_CROSS_SURFACE_OVERLAP_POLICY_UNPROVEN" in evidence.blockers
+    assert any(blocker.startswith("DHAN_CROSS_SURFACE_OVERLAP:") for blocker in evidence.blockers)
+
+
+def test_whole_account_position_evidence_rejects_a_naive_observation_instant() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _adapter().whole_account_position_evidence(observed_at=datetime(2026, 1, 1))
+
+
 @dataclass(slots=True)
 class _TimeoutRecordingTransport:
     """Record read timeouts while delegating to an in-memory transport."""

@@ -148,7 +148,7 @@ execution of the test suite at the final candidate SHA.
    `58-dhan-realized-daily-pnl-c2a-blocker.md`.
 2. C2b: **BLOCKED for Dhan** until product/overlap semantics and authorized,
    timestamped marks can establish a complete whole-account book; see
-   `59-dhan-whole-account-position-evidence-c2b-blocker.md`.
+   `59-dhan-whole-account-position-c2b-blocker.md`.
 3. C2c: bind persisted account currency, convert authoritative account
    financial state, and implement margin authority.
 4. C2d: implement durable scope-filtered pending lookup and fail-closed runtime
