@@ -3,7 +3,7 @@
 **Status:** Implementation candidate committed; exact-SHA validation pending. No LIVE-readiness claim.
 **Base:** `46c5241b85486f344a1f285bb19a20d9e0bb7cf6`
 **Implementation branch:** `feat/slice-c2d-durable-pending-scope-v1`
-**Code candidate:** `182f9edac4fbf2ccaa01ad20c592c7e3ac1ceb34`
+**Code candidate:** `3cd25d670ff2b1794e03f92f0efebbf1474dfa12`
 **Validation:** Pending exact-SHA local tests, Ruff formatting/lint, strict mypy, and diff checks. This ADR claims no test result.
 
 ## Context
