@@ -17,6 +17,19 @@ This plan does **not** claim that crypto trading is implemented today. The curre
 
 A digital-asset classification is not, by itself, a complete crypto market module, venue connector, backtest model or permission to submit live orders.
 
+## 1A. Code-backed compatibility findings
+
+**Inspection baseline:** repository main at `a34ec73b3f9457079882ca99b895a8efeae23d73` (2026-10-24). These are source-model observations, not implementation or exchange-integration evidence.
+
+- **Instrument metadata:** the current canonical Instrument has a symbol, AssetClass, MarketContext, one currency, tick size, lot size and multiplier. It has no explicit base-asset, quote-asset, settlement-asset, quantity-step or minimum-notional fields. An adapter/market-pack contract must preserve these venue facts; the project must decide deliberately which belong in shared domain contracts versus market metadata.
+- **Derivative maturity:** Contract currently accepts only FUTURE and OPTION, and requires a timezone-aware expiry. A perpetual instrument has no expiry; do not represent one with a fabricated date or infer perpetual support from AssetClass.FUTURE. Derivatives require a separate reviewed contract extension.
+- **Multi-asset account state:** AccountFinancialState stores balance, available cash, blocked cash, margin and buying power in one currency. A spot exchange wallet may hold multiple independent assets. Do not collapse raw asset balances into this model or apply implicit conversion; define explicit per-asset balance evidence and valuation/conversion policy where needed.
+- **Order semantics:** TimeInForce currently covers DAY, IOC, FOK and GTC. Order product and position-effect fields are generic contracts currently resolved through market-pack policy; India defaults and product semantics must not leak into crypto. Exchange-specific post-only, reduce-only, client-order identity, trigger and quantity semantics need explicit capability/contract treatment before support is declared.
+- **LIVE authorization:** build_live_execution intentionally composes the India policy and blocks non-India LIVE execution. Keep that behavior unchanged; crypto LIVE requires a separate sanctioned composition and its own market checks, risk inputs, operator authorization, recovery and reconciliation proof.
+- **Implementation reality:** the canonical package map has India and Dhan/reference-broker integrations but no implemented digital-assets market module or exchange connector. A target package path is not evidence of runtime support.
+
+These gaps make the architecture/compatibility audit the first crypto work item. They do not justify a broad universal-domain rewrite or a venue SDK dependency in the core.
+
 ## 2. Product boundary and sequencing
 
 **Near-term priority remains current QuantX correctness work.** This plan must not displace execution durability, reconciliation, recovery, LIVE control hardening, or the active Strategy Platform sequence. Crypto implementation should start only when a bounded milestone is selected against the current roadmap and relevant safety prerequisites are met.

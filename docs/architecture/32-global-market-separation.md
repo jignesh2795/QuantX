@@ -110,3 +110,13 @@ The portfolio layer may eventually contain positions across multiple markets, bu
 ## v0.1
 
 India is the first complete market module. Other market packages may initially contain only interfaces, capability metadata, or placeholders until implemented. This keeps global separation in the architecture without forcing premature multi-market implementation.
+
+## Digital-assets extension boundary (target; not implemented)
+
+The universal domain already classifies digital assets and market contexts, but classification is not a supported crypto trading product. The first bounded implementation should target spot trading and explicit market-data provenance; exchange-specific behavior belongs in a digital-assets market module and venue adapter, not in India rules or universal execution conditionals.
+
+The current model has specific compatibility gaps that must be resolved or explicitly bounded before claiming broad crypto compatibility: the canonical instrument has one currency field rather than explicit base, quote and settlement asset identities; account financial state is single-currency rather than a multi-asset wallet ledger; and the derivative contract model requires expiry, so it cannot faithfully represent an expiry-less perpetual contract. These are design gates, not reasons to weaken the existing contracts with fabricated values.
+
+The sanctioned LIVE composition is currently India-only. Crypto must receive a distinct, explicitly composed and independently reviewed LIVE path; the India policy must not be bypassed, widened or silently replaced. Registration of a venue plugin or advertisement of a capability is not authorization to trade.
+
+The target implementation sequence and acceptance gates are maintained in [Digital-Assets Market Expansion](../roadmap/digital-assets-market-expansion.md), with a code-backed planning proposal in [Crypto Market Extension Plan](../planning/crypto-market-extension-plan.md). Both documents describe future work, not current support.

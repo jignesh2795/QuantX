@@ -87,6 +87,12 @@ REST, WebSocket, strategy registry, Action Center, monitoring, audit and operati
 ## M6 — Intelligence and Ecosystem
 Options analytics, AI/agents, multi-account, security hardening, plugin registry, deployment and later international/crypto adapters.
 
+### Digital-assets market expansion — proposed future work, not active implementation
+
+QuantX retains a path to crypto through its market-neutral core, but no crypto venue adapter or digital-assets market pack is currently implemented. The India-first and execution-safety priorities remain authoritative; this work must not interrupt the active correctness and Strategy Platform sequence. The proposal begins with a code-backed compatibility audit, then one-venue spot data, deterministic research/backtest, paper trading, venue test-environment validation where available, and only then a separately gated LIVE spot path. Derivatives and cross-venue portfolios are later scopes.
+
+See [Digital-Assets Market Expansion](digital-assets-market-expansion.md) for phase gates and acceptance criteria and [the planning proposal](../planning/crypto-market-extension-plan.md) for detailed design context. No change to LIVE region authorization is implied.
+ 
 ## Release philosophy
 
 Start with a useful, local-first engine and grow platform breadth without moving responsibilities into the core unnecessarily.
