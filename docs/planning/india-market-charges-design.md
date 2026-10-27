@@ -9,20 +9,33 @@
 
 ## 1. Source inventory
 
-All rates below are taken from primary or exchange-published sources. Secondary
-broker blogs are used only for cross-checks and are never treated as
-authoritative. Every row records the source URL and the publication/effective
-date actually stated by that source.
+Sources are split into **primary authorities** (exchange circulars, applicable
+legislation, and regulatory circulars that originate the rate) and **secondary
+cross-checks** (broker/exchange-published info pages and third-party brokers).
+A secondary source may corroborate a rate but never establishes an effective
+date or supersedes a primary circular. Where a historical effective date is not
+stated by a primary circular or the governing law, it remains UNRESOLVED
+rather than being filled in from a secondary page.
 
-| # | Source (primary unless noted) | URL | Date stated | Covers |
+### 1.1 Primary authorities
+
+| # | Source | URL | Date stated | Covers |
 |---|---|---|---|---|
-| S1 | NSE — "SEBI Turnover Fees, STT and Other levies" | https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies | current page (no single effective date; STT column states "w.e.f. April 1, 2026" vs "upto March 31, 2026") | STT table, stamp duty table, SEBI turnover fee, GST rate on broker services |
-| S2 | NSE — "Securities Transaction Tax" (computation) | https://www.nseindia.com/static/products-services/equity-derivatives-securities-transaction-tax | current page | STT computation basis (premium for options, traded price for futures, intrinsic value on exercise) |
-| S3 | NSE circular FATAX73524 | https://nsearchives.nseindia.com/content/circulars/FATAX73524.pdf | dated March 31, 2026; effective April 1, 2026 | STT revision: futures 0.02→0.05%, options sell 0.10→0.15%, options exercised 0.125→0.15% |
-| S4 | NSE circular FA64232 | https://nsearchives.nseindia.com/content/circulars/FA64232.pdf | dated September 27, 2024; effective October 1, 2024 | Uniform (non-slab) exchange transaction charges: cash Rs 2.97/lakh, futures Rs 1.73/lakh, options Rs 35.03/lakh each side |
-| S5 | NSE circular FA73061 | https://nsearchives.nseindia.com/content/circulars/FA73061.pdf | dated February 27, 2026; effective March 1, 2026 | Revised exchange transaction charges + IPFT: cash Rs 306.99+0.01, futures Rs 182.99+0.01, options Rs 3552.99+0.01 per crore each side |
-| S6 | IBKR India fee schedule (cross-check only) | https://brokerage.ibkr.com/en/accounts/fees/indiaStockExchangeFees.php | current | Cross-checks NSE charges, STT, stamp duty, SEBI fee, IPFT, GST applicability |
-| S7 | SEBI bulletin (historical STT) | https://www.sebi.gov.in/sebi_data/attachdocs/1334565322526.pdf | historical | Older STT rates (cash delivery 0.125% at that time); confirms Finance Act 2004 basis |
+| P1 | NSE circular FATAX63809 (STT, Finance Act 2024) | https://nsearchives.nseindia.com/content/circulars/FATAX63809.pdf | dated September 9, 2024; effective October 1, 2024 | STT: options sell 0.0625→0.10%, futures 0.0125→0.02%; prior rates upto September 30, 2024 |
+| P2 | NSE circular FATAX73524 (STT, Finance Act 2026) | https://nsearchives.nseindia.com/content/circulars/FATAX73524.pdf | dated March 31, 2026; effective April 1, 2026 | STT: options sell 0.10→0.15%, options exercised 0.125→0.15%, futures 0.02→0.05% |
+| P3 | NSE circular FA64232 (transaction charges, SEBI circular SEBI/HO/MRD/TPD-1/P/CIR/2024/92) | https://nsearchives.nseindia.com/content/circulars/FA64232.pdf | dated September 27, 2024; effective October 1, 2024 | Uniform (non-slab) exchange transaction charges: cash Rs 2.97/lakh, futures Rs 1.73/lakh, options Rs 35.03/lakh each side |
+| P4 | NSE circular FA73061 (transaction charges + IPFT split) | https://nsearchives.nseindia.com/content/circulars/FA73061.pdf | dated February 27, 2026; effective March 1, 2026 | Revised split: cash Rs 306.99+0.01, futures Rs 182.99+0.01, options Rs 3552.99+0.01 per crore each side; total member outflow unchanged |
+| P5 | Indian Stamp Act 1899 as amended (uniform stamp duty) | primary statute; NSE page documents the table | amendment effective July 1, 2020 (per NSE page reference); page last updated October 3, 2023 | Stamp duty rates by product/side |
+| P6 | GST law (CGST/SGST/IGST Acts) | primary statute | 18% rate per GST Council notifications | GST rate on broker services |
+| P7 | SEBI bulletin (historical STT) | https://www.sebi.gov.in/sebi_data/attachdocs/1334565322526.pdf | historical | Confirms Finance Act 2004 basis for STT |
+
+### 1.2 Secondary cross-checks (corroboration only)
+
+| # | Source | URL | Use |
+|---|---|---|---|
+| S1 | NSE — "SEBI Turnover Fees, STT and Other levies" (info page) | https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies | Cross-checks STT table, stamp duty table, SEBI turnover fee, GST rate. Last page update October 3, 2023 — effective dates for stamp duty and SEBI fee must be verified against primary law/circulars. |
+| S2 | NSE — "Securities Transaction Tax" (computation page) | https://www.nseindia.com/static/products-services/equity-derivatives-securities-transaction-tax | Cross-checks STT computation basis (premium, traded price, intrinsic value on exercise). |
+| S3 | IBKR India fee schedule | https://brokerage.ibkr.com/en/accounts/fees/indiaStockExchangeFees.php | Cross-checks NSE charges, STT, stamp duty, SEBI fee, IPFT, GST applicability. Not an originating authority. |
 
 Secondary/derived (not authoritative, used only for cross-checks): broker blogs
 (stolo.in, choiceindia.com, smctradeonline.com, fyers.in). These are never the
@@ -36,25 +49,33 @@ All rates are percentages of the stated basis. "Buyer/Seller" is the liable part
 Effective dates are those stated by the cited source. Where a source does not
 state an effective date, it is marked UNRESOLVED rather than invented.
 
-### 2.1 Securities Transaction Tax (STT) — source S1, S2, S3
+### 2.1 Securities Transaction Tax (STT) — sources P1, P2, S2
 
 Basis: premium for options; traded price for futures; volume-weighted average
 price for equity delivery; intrinsic value on exercise.
 
-| Product | Side | Rate (current, w.e.f. Apr 1, 2026) | Rate (upto Mar 31, 2026) | Liable party | Basis |
-|---|---|---|---|---|---|
-| Equity delivery | Buy | 0.100% | 0.100% | Purchaser | transaction value (VWAP) |
-| Equity delivery | Sell | 0.100% | 0.100% | Seller | transaction value (VWAP) |
-| Equity intraday (non-delivery) | Sell | 0.025% | 0.025% | Seller | transaction value |
-| Equity-oriented fund unit delivery | Buy | NIL | NIL | — | — |
-| Equity-oriented fund unit delivery | Sell | 0.001% | 0.001% | Seller | transaction value |
-| Equity futures | Sell | 0.05% | 0.02% | Seller | traded price |
-| Equity options | Sell (premium) | 0.15% | 0.10% | Seller | premium |
-| Equity options | Exercise | 0.15% | 0.125% | Purchaser | intrinsic value (settlement price − strike) × qty |
-| Equity options | Buy | 0% (no STT) | 0% | — | — |
+Effective-date regimes (all verified against primary circulars):
+- Regime A: upto September 30, 2024 (rates per P1 "upto September 30, 2024" column)
+- Regime B: October 1, 2024 – March 31, 2026 (P1 effective, P2 prior column)
+- Regime C: on/after April 1, 2026 (P2 effective)
 
-Verified: S1 (table), S3 (circular). The prior-regime effective date (when
-0.02%/0.10%/0.125% began) is NOT stated in S1/S3 — see §4 (UNRESOLVED).
+| Product | Side | Regime A (≤ Sep 30 2024) | Regime B (Oct 1 2024 – Mar 31 2026) | Regime C (≥ Apr 1 2026) | Liable party | Basis |
+|---|---|---|---|---|---|---|
+| Equity delivery | Buy | 0.100% | 0.100% | 0.100% | Purchaser | transaction value (VWAP) |
+| Equity delivery | Sell | 0.100% | 0.100% | 0.100% | Seller | transaction value (VWAP) |
+| Equity intraday (non-delivery) | Sell | 0.025% | 0.025% | 0.025% | Seller | transaction value |
+| Equity-oriented fund unit delivery | Buy | NIL | NIL | NIL | — | — |
+| Equity-oriented fund unit delivery | Sell | 0.001% | 0.001% | 0.001% | Seller | transaction value |
+| Equity futures | Sell | 0.0125% | 0.02% | 0.05% | Seller | traded price |
+| Equity options | Sell (premium) | 0.0625% | 0.10% | 0.15% | Seller | premium |
+| Equity options | Exercise | 0.125% | 0.125% | 0.15% | Purchaser | intrinsic value (settlement price − strike) × qty |
+| Equity options | Buy | 0% | 0% | 0% | — | — |
+
+Verified: P1 (Oct 1, 2024 effective, prior column), P2 (Apr 1, 2026 effective).
+Regime A rates are stated in P1's "upto September 30, 2024" column; the start
+date of that regime is not verified (P1 references earlier circulars
+2/2016, 2/2018, 1/2019, 2/2019, 1/2020, 2/2023). Coverage before the
+unverified start date remains UNRESOLVED — fail closed.
 
 ### 2.2 Stamp duty — source S1 (Indian Stamp Act, collected by states)
 
@@ -70,10 +91,12 @@ Verified: S1 (table), S3 (circular). The prior-regime effective date (when
 | Government securities | 0% | — |
 | OFS / takeover / buyback / delisting (delivery) | 0.015% | Seller (offeror) |
 
-Verified: S1 table. Effective date of these uniform rates is stated in S1 only
-as the current published schedule; the underlying Indian Stamp Act amendment
-effective date (commonly cited as July 1, 2020) is not re-verified here —
-see §4.
+Verified: S1 table (secondary). Rate basis: Indian Stamp Act 1899 as amended
+(P5). The NSE info page (S1) documents the table and references implementation
+from July 1, 2020; the page was last updated October 3, 2023. Continuing
+applicability of these rates for an October 2026 release is NOT re-verified
+against the primary statute in this phase — see §4 (stamp duty effective
+date). Treat as verified rate, unverified continuing-applicability.
 
 ### 2.3 SEBI turnover fee — source S1
 
@@ -85,40 +108,62 @@ see §4.
 Verified: S1. Effective date of the current Rs 10/crore rate is not stated in
 S1 — see §4 (UNRESOLVED).
 
-### 2.4 Exchange transaction charges (NSE) — sources S4, S5
+### 2.4 Exchange transaction charges (NSE) — sources P3, P4
 
 Per crore of traded value, each side (buy and sell), unless noted.
 
+**March 1, 2026 interpretation (P4):** FA73061 does NOT increase total member
+outflow. It re-splits the existing total into transaction charges + IPFT
+contribution. Pre-March-1-2026: cash Rs 297 txn + Rs 10 IPFT = Rs 307 total.
+Post-March-1-2026: cash Rs 306.99 txn + Rs 0.01 IPFT = Rs 307 total.
+Same for futures (Rs 183) and options (Rs 3,553). The design reproduces
+components separately with correct effective dates; a boundary test (T21)
+proves the aggregate total is unchanged across March 1, 2026 for all three
+covered segments.
+
+**Applicability (P3, P4):** cash market and equity derivatives only. Currency
+and commodity segments are NOT covered by these circulars — mark unsupported
+(fail closed) until a primary source is added.
+
 | Segment | Basis | Rate (w.e.f. Mar 1, 2026) | Rate (Oct 1, 2024 – Feb 28, 2026) | Rate (before Oct 1, 2024) |
 |---|---|---|---|---|
-| Cash (equity) | traded value | Rs 307.00 (306.99 + 0.01 IPFT) | Rs 307.00 (297 + 10 IPFT) | slab-wise, volume-dependent |
+| Cash (equity) | traded value | Rs 307.00 (306.99 txn + 0.01 IPFT) | Rs 307.00 (297 txn + 10 IPFT) | slab-wise, volume-dependent |
 | Equity futures | traded value | Rs 183.00 (182.99 + 0.01) | Rs 183.00 (173 + 10) | slab-wise, volume-dependent |
 | Equity options | premium value | Rs 3,553.00 (3,552.99 + 0.01) | Rs 3,553.00 (3,503 + 50) | slab-wise, volume-dependent |
 
-Verified: S4 (Oct 1, 2024 uniform rates), S5 (Mar 1, 2026 revised split).
+Verified: P3 (Oct 1, 2024 uniform rates), P4 (Mar 1, 2026 revised split).
 The pre-Oct-1-2024 slab-wise structure is not representable as a single rate —
 see §4 (UNRESOLVED / out of scope for a single-rate schedule).
 
-Note: IPFT contribution is included in the totals above; it is NOT added again
-as a separate component.
+IPFT is modelled as a separate component (`ipft_rate`) for auditability, even
+though it is billed within the NSE transaction charge total. Both `exchange_txn`
+and `ipft` components are subject to GST (see §2.5).
 
-### 2.5 GST — source S1 (GST rate), S6 (applicability)
+### 2.5 GST — rate from P6/S1, applicability from S3
 
-| Component | GST rate | Applicability |
+**Rate:** 18% (verified, P6 GST law; S1 info page corroborates).
+**GST calculation base (verified against S3 + broker cross-checks):**
+GST is levied on the *service* components of a trade, NOT on statutory levies.
+
+| Component | Subject to GST? | Included in GST base? |
 |---|---|---|
-| Brokerage | 18% | broker-specific (not in universal schedule) |
-| Exchange transaction charges | 18% | yes |
-| SEBI turnover fee | 18% | yes (per S6, "from April 2025") |
-| IPFT contribution | 18% | treated as part of exchange charge (S6 confirms GST on exchange charges) |
-| STT | exempt | no |
-| Stamp duty | exempt | no |
-| DP charges | 18% | broker/DP-specific |
+| Brokerage | Yes | Yes (broker-specific, caller-supplied) |
+| Exchange transaction charges | Yes | Yes |
+| IPFT contribution | Yes | Yes (treated as part of exchange charge) |
+| SEBI turnover fee | Yes | Yes |
+| STT | No (statutory tax) | No |
+| Stamp duty | No (statutory duty) | No |
+| DP charges | Yes | broker/DP-specific (caller-supplied) |
 
-Verified: S1 states "Stock brokers Services 18.00% (GST)"; S6 confirms GST
-applies to exchange transaction charges and SEBI fees, not STT/stamp duty.
-GST is a statutory tax rate under GST law; the 18% rate and its effective
-date are governed by GST Council notifications (primary statute citation not
-re-verified here — see §4).
+GST base = brokerage (if supplied) + exchange_txn + ipft + sebi_turnover_fee.
+GST = gst_base × 0.18. If brokerage is None, it is excluded (GST computed on
+the universal statutory components only). The model does NOT apply GST to STT
+or stamp duty. This base is specified here so implementation does not apply 18%
+indiscriminately.
+
+**Effective date:** the 18% rate for these services is governed by GST Council
+notifications (P6). The exact effective date for the current 18% rate on
+brokerage/exchange/SEBI charges is not re-verified in this phase — see §4.
 
 ### 2.6 Brokerage and DP charges — NOT universal
 
@@ -149,14 +194,18 @@ configuration, not embedded in the India schedule.
 
 | Item | Status | Reason |
 |---|---|---|
-| STT prior-regime effective date (when 0.02%/0.10%/0.125% began) | UNRESOLVED | S1/S3 only state "upto March 31, 2026" for the prior column; no start date given. Do not invent one. |
+| STT prior-regime effective date (when 0.02%/0.10%/0.125% began) | RESOLVED (partial) | P1 states these as the "upto September 30, 2024" column; the start date of that regime is not verified (P1 references earlier circulars 2/2016, 2/2018, 1/2019, 2/2019, 1/2020, 2/2023). Coverage before the unverified start date remains UNRESOLVED — fail closed. |
+| STT regime boundary October 1, 2024 | RESOLVED | P1 (effective October 1, 2024): futures 0.0125→0.02%, options sell 0.0625→0.10%, options exercised unchanged 0.125%. |
+| STT regime boundary April 1, 2026 | RESOLVED | P2 (effective April 1, 2026): futures 0.02→0.05%, options sell 0.10→0.15%, options exercised 0.125→0.15%. |
 | SEBI turnover fee effective date (current Rs 10/crore) | UNRESOLVED | S1 states the rate but no effective date. |
-| Stamp duty effective date (uniform rates) | UNRESOLVED (partial) | S1 states rates; underlying Indian Stamp Act amendment date (commonly July 1, 2020) not re-verified against the primary statute in this phase. |
-| GST 18% effective date for these services | UNRESOLVED (partial) | GST rate from GST law; primary notification citation not re-verified here. |
+| Stamp duty effective date (uniform rates) | UNRESOLVED (partial) | S1 documents the table; P5 amendment commonly cited July 1, 2020; S1 last updated October 3, 2023. Continuing applicability for October 2026 release not re-verified against the primary statute. |
+| GST 18% effective date for these services | UNRESOLVED (partial) | Rate verified (P6). Exact effective date for the current 18% on brokerage/exchange/SEBI charges not re-verified in this phase. |
+| GST calculation base | RESOLVED (design) | Specified in §2.5: GST on brokerage+exchange+IPFT+SEBI only; not on STT or stamp duty. Implementation must follow this base. |
 | Exchange charges before Oct 1, 2024 | UNSUPPORTED (slab-wise) | Volume-dependent slabs; cannot be represented as a single rate. Fail closed for dates before Oct 1, 2024. |
+| March 2026 transaction-charge interpretation | RESOLVED (design) | P4 keeps total member outflow unchanged; re-splits into txn charges + IPFT. Components reproduced separately; boundary test (T21) proves aggregate unchanged. Applicability: cash + equity derivatives only. |
 | Brokerage rates | OUT OF SCOPE | Broker-specific, not regulated. |
 | DP charges | OUT OF SCOPE | DP/broker-specific. |
-| Currency/commodity derivatives charges | PARTIAL | Stamp duty rates listed (S1); exchange transaction charges for currency/commodity not in S4/S5 (only equity cash/futures/options covered). Mark unsupported until primary source added. |
+| Currency/commodity derivatives charges | PARTIAL | Stamp duty rates listed (S1); exchange transaction charges for currency/commodity not in P3/P4. Mark unsupported until primary source added. |
 | Options exercise intrinsic value computation | NEEDS INPUT | Requires settlement price and strike; charge model must receive these as inputs (fail closed if missing). |
 | BSE-specific charges | NOT RESEARCHED | This phase covers NSE only. BSE has its own transaction charge schedule (different rates). Add as a separate scope when needed. |
 | MCX/NCDEX commodity charges | NOT RESEARCHED | Out of scope for this phase. |
@@ -218,15 +267,27 @@ Components:
    error code string carried in the message, e.g.
    `INDIA_CHARGE_RULE_UNAVAILABLE: no schedule entry for 2023-01-01`.
 
-### 5.2 Date selection
+### 5.2 Date selection and unsupported scope
 
-- `effective_at` is tz-aware (Asia/Kolkata or UTC; the model normalizes to
-  comparison against entry effective dates, which are stored tz-aware).
-- Select the single entry where `effective_from <= effective_at` and
-  (`effective_to is None` or `effective_at < effective_to`).
-- If two entries overlap → construction-time validation rejects (entries must
-  be contiguous, non-overlapping).
-- If no entry covers the date → `IndiaChargeRuleUnavailable` (fail closed).
+- `effective_at` is tz-aware. The trading date is derived in **Asia/Kolkata**
+  (IST); callers pass an aware datetime. A naive datetime raises ValueError
+  (fail closed).
+- Inclusive/exclusive: `effective_from <= effective_at < effective_to`
+  (effective_from inclusive, effective_to exclusive). An entry with
+  `effective_to = None` is the current (open-ended) entry.
+- Overlap rejection: schedule entries must be contiguous and non-overlapping;
+  construction validates this and raises ValueError on overlap or gap.
+- No covering entry → `IndiaChargeRuleUnavailable` (fail closed). No fallback
+  to a generic percentage model.
+- Unsupported scope (fail closed, never silently fall back):
+  - BSE, MCX, NCDEX (no schedule entries for those exchanges).
+  - Currency and commodity derivatives (no primary source yet).
+  - Dates before the earliest supported entry (pre-Oct-1-2024 slab-wise).
+  - Any (product, side) combination not present in the selected entry's
+    rates map.
+  - Missing `exercise_value` when `is_exercise=True`.
+- `None` rate = unsupported → raise. `0` = valid zero charge (e.g. STT on
+  buy intraday is 0).
 
 ### 5.3 Provenance
 
@@ -251,6 +312,31 @@ Components:
 `ChargeBreakdown`, `ChargeComponent`, `ChargeCalculationContext` from it and
 adds India-specific logic on top. This preserves the "no Indian tariffs in the
 universal core" boundary (ADR-010, doc 52).
+
+### 5.6 Calculation and rounding policy
+
+- **Monetary base:** per trade (per fill), not per client aggregate. Each
+  `calculate()` call computes charges for one trade leg using its own
+  `transaction_value` (and `premium_value`/`exercise_value` where applicable).
+- **Precision:** all rates and intermediate amounts are `Decimal`. No float
+  anywhere in the calculation path.
+- **Rounding mode:** `ROUND_HALF_UP` to 2 decimal places (paise) for each
+  component amount, applied per component per trade. The total is the sum of
+  the rounded component amounts (not a re-rounding of an unrounded total).
+- **Aggregation level:** per trade. Client-level daily aggregation of charges
+  is out of scope for this slice (no daily accrual).
+- **STT on options exercise:** basis = (settlement_price − strike) × quantity,
+  rounded per component. If settlement price or strike is missing → fail
+  closed.
+- **GST:** computed on the rounded sum of the GST-eligible components
+  (exchange + ipft + sebi + brokerage), then rounded to paise.
+- **Where official rules do not establish a rounding policy** (e.g. exchange
+  transaction charges are published per-crore and may be rounded by the
+  exchange differently), the policy above is a QuantX convention and is
+  documented as such. It must be revisited if a primary source specifies a
+  different rule. Marked UNRESOLVED where the source is silent.
+- **Per-trade vs per-contract:** charge is per trade leg (one fill). A
+  multi-leg strategy pays charges per leg.
 
 ---
 
@@ -300,6 +386,8 @@ Do not bundle steps 2–6 into one change. Each is a separate, reviewable slice.
 | T18 | Trade one second before boundary (Mar 31 2026 23:59:59 IST) | uses prior rate |
 | T19 | `ChargeBreakdown.total` equals sum of components (exact Decimal) | assert |
 | T20 | Provenance tuple contains source_ref, effective date, version | assert |
+| T21 | Boundary: same trade on Feb 28 2026 23:59:59 IST vs Mar 1 2026 00:00:00 IST — aggregate (exchange+ipft) total unchanged (Rs 307/Rs 183/Rs 3,553 per crore); only component split changes | assert equality of totals, inequality of components |
+| T22 | Stamp duty continuing applicability caveat documented; rates used only with unverified-applicability flag | assert (doc/test note) |
 
 Note: T5/T7 date/rate interactions are intentionally complex to exercise the
 effective-date selection logic. Test fixtures must use verified rates only.
