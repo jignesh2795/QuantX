@@ -24,7 +24,7 @@ Require all of the following, for the **exact HEAD being merged**:
 
 ## Executable release check
 
-`scripts/release_check.py` verifies the merge candidate read-only and reports PASS/FAIL/UNKNOWN fail-closed:
+`.opencode/skills/quantx-release-gate/scripts/release_check.py` verifies the merge candidate read-only and reports PASS/FAIL/UNKNOWN fail-closed:
 
 ```powershell
 python .opencode/skills/quantx-release-gate/scripts/release_check.py --expected-head <sha>

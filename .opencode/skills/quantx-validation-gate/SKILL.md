@@ -47,7 +47,7 @@ Notes:
 
 ## Executable gate
 
-`scripts/run_validation.py` runs the gate read-only and emits machine-readable evidence:
+`.opencode/skills/quantx-validation-gate/scripts/run_validation.py` runs the gate read-only and emits machine-readable evidence:
 
 ```powershell
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head <sha>
