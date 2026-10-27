@@ -1,8 +1,11 @@
 # QuantX Master Work Programme — October 2026
 
-**Status:** Active cross-workstream sequencing and reconciliation record  
-**Snapshot date:** 2026-10-27  
-**Baseline reviewed:** `main` at `a34ec73b3f9457079882ca99b895a8efeae23d73` (PR #281, trusted-clock freshness slice)  
+**Status:** Active cross-workstream sequencing and reconciliation record
+
+**Snapshot date:** 2026-10-27
+
+**Baseline reviewed:** `main` at `a34ec73b3f9457079882ca99b895a8efeae23d73` (PR #281, trusted-clock freshness slice)
+
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, and release-readiness work in one progressable plan.
 
 This is the canonical **active sequencing** document. GitHub issues remain the canonical individual acceptance/checklist records; `docs/STATUS.md` remains the implementation/evidence ledger; `docs/roadmap/README.md` remains the capability and milestone history. When an older status snapshot or planning note conflicts with the current issue acceptance criteria or this priority order, reconcile it before implementing. Do not infer completion from a branch name, documentation, or an old test count.
