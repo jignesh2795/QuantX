@@ -119,8 +119,8 @@ contribution. Pre-March-1-2026: cash Rs 297 txn + Rs 10 IPFT = Rs 307 total.
 Post-March-1-2026: cash Rs 306.99 txn + Rs 0.01 IPFT = Rs 307 total.
 Same for futures (Rs 183.00 = 182.99 + 0.01) and options (₹3,552.99 + ₹0.01 =
 ₹3,553.00). The design reproduces components separately with correct effective
-dates; a boundary test (T21) proves the aggregate total is unchanged across
-March 1, 2026 for all three covered segments.
+dates; T21 is specified to assert that the aggregate total remains unchanged across
+March 1, 2026 for all three covered segments; no test has been run in this design phase.
 
 **Exact component values (P4):** equity options = ₹3,552.99 per crore of
 premium turnover per side (transaction charges) + ₹0.01 per crore (IPFT) =
@@ -204,7 +204,7 @@ configuration, not embedded in the India schedule.
 | GST effective-date rule for production schedule | UNRESOLVED for production schedule | The 18% rate is identified, but the applicable notification/effective date for the modeled service/components is not bound to a complete effective-dated rule. No production GST entry is complete until evidence is added. |
 | GST calculation base | RESOLVED as explicit caller policy, not a universal hard-coded rule | §2.5 requires bill-specific treatment for STT/stamp recoveries, caller-supplied brokerage/DP/other taxable inputs, and client pass-through decisions for member fees. Missing inputs make GST incomplete. |
 | Exchange charges before Oct 1, 2024 | UNSUPPORTED (slab-wise) | Volume-dependent slabs; cannot be represented as a single rate. Fail closed for dates before Oct 1, 2024. |
-| March 2026 transaction-charge interpretation | RESOLVED (design) | P4 keeps total member outflow unchanged; re-splits into txn charges + IPFT. Components reproduced separately; boundary test (T21) proves aggregate unchanged. Applicability: cash + equity derivatives only. |
+| March 2026 transaction-charge interpretation | RESOLVED (design) | P4 keeps total member outflow unchanged; re-splits into txn charges + IPFT. Components are specified separately; acceptance test T21 will assert aggregate preservation. Applicability: cash + equity derivatives only; no runtime test result is claimed. |
 | Brokerage rates | OUT OF SCOPE | Broker-specific, not regulated. |
 | DP charges | OUT OF SCOPE | DP/broker-specific. |
 | Currency/commodity derivatives charges | PARTIAL | Stamp duty rates listed (S1); exchange transaction charges for currency/commodity not in P3/P4. Mark unsupported until primary source added. |
@@ -221,23 +221,24 @@ configuration, not embedded in the India schedule.
 Reuse existing infrastructure; do not modify `execution/charges.py`.
 
 1. **`IndiaTradeSide`** enum: `BUY`, `SELL`, representing the client's side of one transaction.
-2. **`IndiaChargeProduct`** enum: `EQUITY_DELIVERY`, `EQUITY_INTRADAY`, `EQUITY_FUTURES`, `EQUITY_OPTIONS`. These names constrain the first schedule to NSE equity products; fund units, currency/commodity derivatives, BSE and MCX are not aliases.
-3. **`IndiaChargeEvent`** enum: `TRADE`, `OPTION_EXERCISE`. Exercise is a separate event, not a Boolean variation of an ordinary option trade.
-4. **`IndiaOptionType`** enum: `CALL`, `PUT`.
-5. **`IndiaRecoveryTaxTreatment`** enum: `EXCLUDE_AS_QUALIFIED_PURE_AGENT`, `INCLUDE_IN_TAXABLE_VALUE`. Missing treatment makes a complete GST result unavailable.
-6. **`IndiaChargeIncidence`** enum: `CLIENT_PASSTHROUGH`, `BROKER_ABSORBED`, `NOT_APPLICABLE`.
-7. **`IndiaChargePassThroughPolicy`** frozen dataclass: explicit incidence for each of `stt`, `stamp_duty`, `exchange_txn`, `ipft`, and `sebi_turnover_fee`, plus `version` and `source_ref`. Every component is classified; no implicit pass-through default. `NOT_APPLICABLE` is valid only with an explicit zero rule. The returned `ChargeBreakdown` represents modeled client cost: `BROKER_ABSORBED` components contribute zero to the client total but retain an incidence/source note in provenance. This policy describes modeled client cost, not the legal payer of a member-level fee.
-8. **`IndiaChargeCalculationContext`** frozen dataclass extending `ChargeCalculationContext`. Because the parent has a defaulted currency field, added fields may default to `None` but must be validated in `__post_init__`:
+2. **Assignment boundary:** `OPTION_ASSIGNMENT` is intentionally unsupported in the first slice. It must raise `IndiaChargeRuleUnavailable`; do not infer assignment from `OPTION_EXERCISE` or a normal SELL trade. Add a distinct event only after source-backed payer, turnover-basis and component rules are specified.
+3. **`IndiaChargeProduct`** enum: `EQUITY_DELIVERY`, `EQUITY_INTRADAY`, `EQUITY_FUTURES`, `EQUITY_OPTIONS`. These names constrain the first schedule to NSE equity products; fund units, currency/commodity derivatives, BSE and MCX are not aliases.
+4. **`IndiaChargeEvent`** enum: `TRADE`, `OPTION_EXERCISE`. Exercise is a separate event, not a Boolean variation of an ordinary option trade.
+5. **`IndiaOptionType`** enum: `CALL`, `PUT`.
+6. **`IndiaRecoveryTaxTreatment`** enum: `EXCLUDE_AS_QUALIFIED_PURE_AGENT`, `INCLUDE_IN_TAXABLE_VALUE`. Missing treatment makes a complete GST result unavailable.
+7. **`IndiaChargeIncidence`** enum: `CLIENT_PASSTHROUGH`, `BROKER_ABSORBED`, `NOT_APPLICABLE`.
+8. **`IndiaChargePassThroughPolicy`** frozen dataclass: explicit incidence for each of `stt`, `stamp_duty`, `exchange_txn`, `ipft`, and `sebi_turnover_fee`, plus `version` and `source_ref`. Every component is classified; no implicit pass-through default. `NOT_APPLICABLE` is valid only with an explicit zero rule. The returned `ChargeBreakdown` represents modeled client cost: `BROKER_ABSORBED` components contribute zero to the client total but retain an incidence/source note in provenance. This policy describes modeled client cost, not the legal payer of a member-level fee.
+9. **`IndiaChargeCalculationContext`** frozen dataclass extending `ChargeCalculationContext`. Because the parent has a defaulted currency field, added fields may default to `None` but must be validated in `__post_init__`:
    - `exchange: IndianExchange | None = None` — required by validation; only NSE is supported.
    - `trade_side: IndiaTradeSide | None = None`, `product: IndiaChargeProduct | None = None`, `event: IndiaChargeEvent = TRADE`, and `effective_at: datetime | None = None` — required fields are validated before calculation.
    - `premium_value: Decimal | None = None` — required for ordinary equity-option trades; never inferred silently from underlying notional.
    - `option_type: IndiaOptionType | None`, underlying-unit `quantity: Decimal | None`, `settlement_price: Decimal | None`, `strike: Decimal | None`, and `exercise_notional_value: Decimal | None` — required as applicable to `OPTION_EXERCISE`. `exercise_notional_value` is the separate SEBI turnover basis, not STT intrinsic value. For this event, the represented party is the exercising purchaser (`trade_side=BUY`); other values are rejected.
-   - `brokerage: Decimal | None = None`, `dp_charges: Decimal | None = None`, `other_taxable_service_charges: Decimal | None = None` — required for complete GST; explicit `Decimal('0')` means known zero/not applicable, `None` means unknown. These caller-supplied amounts are also represented as breakdown components so `ChargeBreakdown.total` includes them; the India schedule does not calculate their tariff.
+   - `brokerage: Decimal | None = None`, `dp_charges: Decimal | None = None`, `other_taxable_service_charges: Decimal | None = None` — required for complete GST; explicit `Decimal('0')` means known zero/not applicable, `None` means unknown. These caller-supplied amounts are also represented as breakdown components so `ChargeBreakdown.total` includes them; `other_taxable_service_charges` excludes amounts already represented by brokerage and DP to prevent double counting. The India schedule does not calculate their tariff.
    - `stt_gst_treatment: IndiaRecoveryTaxTreatment | None`, `stamp_duty_gst_treatment: IndiaRecoveryTaxTreatment | None`, `pass_through_policy: IndiaChargePassThroughPolicy | None`, `gst_policy_version: str | None`, and `gst_policy_source_ref: str | None` — required for a complete client-side result; none has an implicit default.
-9. **`IndiaChargeRateSet`** frozen dataclass: Decimal-or-None rates per component (`stt_rate`, `stamp_duty_rate`, `exchange_txn_rate`, `ipft_rate`, `sebi_turnover_rate`, `gst_rate`) plus immutable sorted `component_sources: tuple[tuple[str, str, str], ...]` containing `(component_name, source_ref, rule_version)`. Rates are fractional multipliers: 0.1% is `Decimal('0.001')`, not `Decimal('0.1')`. Every component, including zero, requires source/applicability provenance. `None` means missing/unsupported and rejects the complete calculation; `Decimal('0')` means a sourced zero or explicit client-side non-liability.
-10. **`IndiaChargeScheduleEntry`** frozen dataclass: `effective_from`, `effective_to` (exclusive; `None` means open-ended), non-empty `version`, and `rates: Mapping[tuple[IndiaChargeProduct, IndiaTradeSide, IndiaChargeEvent], IndiaChargeRateSet]`. Do not use one entry-level source reference for all components.
-11. **`IndiaChargeSchedule`** frozen dataclass: immutable entries. `select(effective_at)` returns the uniquely covering entry or raises `IndiaChargeRuleUnavailable`; gaps may represent explicit unsupported history.
-12. **`IndiaMarketChargeModel`** implementing the existing `ChargeModel`:
+10. **`IndiaChargeRateSet`** frozen dataclass: Decimal-or-None rates per component (`stt_rate`, `stamp_duty_rate`, `exchange_txn_rate`, `ipft_rate`, `sebi_turnover_rate`, `gst_rate`) plus immutable sorted `component_sources: tuple[tuple[str, str, str], ...]` containing `(component_name, source_ref, rule_version)`. Rates are fractional multipliers: 0.1% is `Decimal('0.001')`, not `Decimal('0.1')`. Every component, including zero, requires source/applicability provenance. `None` means missing/unsupported and rejects the complete calculation; `Decimal('0')` means a sourced zero or explicit client-side non-liability.
+11. **`IndiaChargeScheduleEntry`** frozen dataclass: `effective_from`, `effective_to` (exclusive; `None` means open-ended), non-empty `version`, and `rates: Mapping[tuple[IndiaChargeProduct, IndiaTradeSide, IndiaChargeEvent], IndiaChargeRateSet]`. Do not use one entry-level source reference for all components.
+12. **`IndiaChargeSchedule`** frozen dataclass: immutable entries. `select(effective_at)` returns the uniquely covering entry or raises `IndiaChargeRuleUnavailable`; gaps may represent explicit unsupported history.
+13. **`IndiaMarketChargeModel`** implementing the existing `ChargeModel`:
    - `model_id = india.market_charges`; `model_version = '1'` is the stable calculator/schema version, not the selected tariff version.
    - `calculate(context)` validates exchange is NSE, currency is INR, Decimal inputs are finite and in range, timestamps are aware, and event-specific inputs are present before computing anything.
    - Select rules by effective instant normalized against Asia/Kolkata market-time boundaries, then by `(product, side, event)`. Any missing component rule/source, unsupported scope or required input raises; no partial or zero-substituted breakdown is returned.
@@ -246,8 +247,8 @@ Reuse existing infrastructure; do not modify `execution/charges.py`.
    - GST uses the explicit taxable-base treatment and complete caller-supplied billing inputs in §2.5; missing inputs, treatment or a sourced effective-dated GST rule raises.
    - `ChargeBreakdown.components` includes STT, stamp duty, exchange transaction, IPFT, SEBI fee, GST, and caller-supplied brokerage/DP/other-taxable-service amounts. It includes only client-applicable amounts according to pass-through policy; caller-supplied fees are marked as such.
    - `ChargeBreakdown.provenance` identifies schedule version/interval, every component source/version, and pass-through/tax-policy references.
-13. **`IndiaChargeRuleUnavailable`** — stable `ValueError` subtype for missing schedule/component rule/source or unsupported exchange/product/date/event.
-14. **`IndiaChargeInputUnavailable`** — stable `ValueError` subtype for missing or incomplete event/billing/tax/pass-through inputs. Do not expose arbitrary supplied values or exception text.
+14. **`IndiaChargeRuleUnavailable`** — stable `ValueError` subtype for missing schedule/component rule/source or unsupported exchange/product/date/event.
+15. **`IndiaChargeInputUnavailable` — stable `ValueError` subtype for missing or incomplete event/billing/tax/pass-through inputs. Do not expose arbitrary supplied values or exception text.
 
 ### 5.2 Date selection and unsupported scope
 
@@ -255,7 +256,7 @@ Reuse existing infrastructure; do not modify `execution/charges.py`.
 - Inclusive/exclusive: `effective_from <= effective_at < effective_to` (`effective_from` inclusive, `effective_to` exclusive). An entry with `effective_to = None` is open-ended.
 - Reject overlapping ranges. Gaps are explicit unsupported intervals: selection within a gap raises `IndiaChargeRuleUnavailable`; do not force unresolved history into invented rates.
 - Schedule construction validates sorted boundaries, timezone awareness, non-empty versions, complete component mappings, source coverage, rate finiteness and non-negativity.
-- Unsupported scope (fail closed, never silently fall back): BSE, MCX, NCDEX; currency/commodity derivatives; fund units and special-offer products until explicit categories/sources are reviewed; dates before the earliest fully supported entry, including pre-October-2024 slab-wise exchange charges; any absent product/side/event combination; and an exercise missing option type, quantity, settlement price, strike or SEBI exercise-notional value.
+- Unsupported scope (fail closed, never silently fall back): BSE, MCX, NCDEX; currency/commodity derivatives; fund units and special-offer products until explicit categories/sources are reviewed; dates before the earliest fully supported entry, including pre-October-2024 slab-wise exchange charges; any absent product/side/event combination; `OPTION_ASSIGNMENT` (unsupported in this first slice); and an exercise missing option type, quantity, settlement price, strike or SEBI exercise-notional value.
 - Any missing component rate/source rejects the complete calculation. `None` means unavailable. `Decimal('0')` means a sourced zero or explicit client-side non-liability; it is not a substitute for missing data.
 - Stamp-duty continuing applicability and GST effective-date coverage remain production-data gates in §4. Do not use synthetic fixtures to imply they are resolved.
 
@@ -338,6 +339,8 @@ Do not bundle steps 2–6 into one change. Each is a separate, reviewable slice.
 | T28 | Exercise STT basis vs SEBI basis | STT uses intrinsic value; SEBI uses exercise notional; one cannot substitute for the other |
 | T29 | Missing client fee-incidence/pass-through classification | `IndiaChargeInputUnavailable`; no assumed retail pass-through |
 | T30 | Model identity vs tariff identity | `model_version` remains implementation version; selected schedule version and component sources are in provenance |
+| T31 | A component is `BROKER_ABSORBED` | Client-facing amount is zero, it is excluded from client GST base, and evidence of the underlying component/source plus incidence remains in provenance |
+| T32 | `OPTION_ASSIGNMENT` event in first-slice model | `IndiaChargeRuleUnavailable`; cannot be treated as an ordinary trade or `OPTION_EXERCISE` without separate sourced rules |
 
 The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T18/T21 are schedule-selection boundary tests, not simulated executions on a non-trading session.
 
