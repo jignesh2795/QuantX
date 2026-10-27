@@ -45,6 +45,18 @@ Keep these responsibilities separate — do not merge them into one catch-all en
 3. session/calendar policy (`session_calendar.py`);
 4. versioned rule-data loading (`rule_data.py`).
 
+## Charges (India market)
+
+Effective-dated Indian statutory charges (STT, stamp duty, exchange transaction
+charges, SEBI turnover fee, IPFT, GST) are a separate concern from execution
+rules and session calendar. The universal `execution/charges.py` must NOT embed
+Indian tariffs; an India-specific schedule sits behind `ChargeModel` (proposed
+module `src/quantx/india/charges.py`). Rates are data, not code: caller-supplied
+schedule with version/provenance/effective time; missing or unsupported scope
+fails closed (`IndiaChargeRuleUnavailable`), never zero. NSE-only initially;
+BSE/MCX are separate scopes. Unverified rates must never be hardcoded. Design:
+`docs/planning/india-market-charges-design.md`.
+
 ## Dhan broker plugin (`src/quantx/plugins/dhan/`)
 
 The only real broker adapter. Optional SDK extra installed via `uv sync --dev --extra dhan`; the Dhan SDK version is whatever the repository's current dependency configuration specifies — verify `pyproject.toml`/`uv.lock` before making dependency claims.

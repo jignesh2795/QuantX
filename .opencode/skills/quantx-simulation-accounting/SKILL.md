@@ -55,6 +55,14 @@ Never exceed requested quantity. Remainders must be explicit and integrated with
 
 Keep execution price realization separate from transaction-cost calculation. Preserve the existing aggregate receipt fee/accounting path while allowing structured charge evidence.
 
+Effective-dated Indian statutory charges (STT, stamp duty, exchange transaction
+charges, SEBI turnover fee, IPFT, GST) sit behind `ChargeModel` via an
+India-specific schedule (`src/quantx/india/charges.py`, proposed): rates are
+caller-supplied data with version/provenance/effective time. GST (18%) applies
+to brokerage + exchange transaction charges + SEBI turnover fee + IPFT; STT
+and stamp duty are excluded. Missing or unsupported scope fails closed. Design:
+`docs/planning/india-market-charges-design.md`.
+
 ## Backtests
 
 - Do not assume static account state if the task requires evolving cash/positions.

@@ -1,6 +1,6 @@
 {
   "schema": "quantx.skills-manifest.v1",
-  "generated_at": "2026-10-27T08:08:38+00:00",
+  "generated_at": "2026-10-27T08:13:07+00:00",
   "files": {
     "quantx-adversarial-review/SKILL.md": "b27945e2a0001d89669d3c43183a5f53e719962a43c6cb4b51afe9542081843b",
     "quantx-architecture/SKILL.md": "652ffcdf3392a460dd6356b574a290570cf0b4a7a4253c9fae0e92e2b0250931",
@@ -16,7 +16,7 @@
     "quantx-execution/references/paper-trading.md": "01faeb7170499b58edd31e66372effb5608df97e3fe916ddc716c55a9bc966d0",
     "quantx-execution/references/reconciliation.md": "5b1df7094808f2c81ea67c8c6ff6331746543f4c306aa9e68df019e4791ae2cf",
     "quantx-execution/references/startup-recovery.md": "15989d251ecc08a5bf8a66e4125050a6acb8c266aaf265e2ba76d19d605ef487",
-    "quantx-india-market/SKILL.md": "bcba32eb5ff383e94a982b571d7170a39840f9e3d68221adf8934249fc20f4fe",
+    "quantx-india-market/SKILL.md": "09db7499affc6e0ebd689ad7d4ae700534ddbf15a14fe5d08eded82c86e8d6c0",
     "quantx-india-market/references/dhan-plugin.md": "cf329a2dd6ef90fe80366b049706914cb998e5cd976b0857fccb862abad8bccd",
     "quantx-india-market/references/plugin-registration.md": "286448b0775a28f29092330aaa26cb66ccd388bdf5b2d5c3bed8ba1e6a5d2c41",
     "quantx-migration-consolidation/SKILL.md": "d0ee470cb3bdfdae4c7053d8122b24469dae94dd28f031e4efbd052f82933628",
@@ -27,7 +27,7 @@
     "quantx-research-data/SKILL.md": "d4aca41bce336fdf409d913acecd064c38635bad5fbe9c22968fbdd15851f0b7",
     "quantx-risk-policy/SKILL.md": "30088b04ebbb32dad041f5928f27e122e5c9055d567571b90e9db5978c5463e5",
     "quantx-roadmap-planner/SKILL.md": "616a7b9d6d785df1335890f7c6097cf29c2d4d7beb3249b870b0a1dc65a26b90",
-    "quantx-simulation-accounting/SKILL.md": "6768ef7b6a292c18ca48d3e4e67e703d56ab0d80cb185c213a1666597504b430",
+    "quantx-simulation-accounting/SKILL.md": "b8db16d79c470f71be972f6dc107b0c3b5799e33346257ccb8492dc64fa32e65",
     "quantx-skills-maintainer/SKILL.md": "c356d82c8994310878b84d4b632c3a0e1b971ac69f9e237f7e9a56774be83d95",
     "quantx-skills-maintainer/evals/triggers.json": "33366dee12d81d59b899efcd77883ca750e0fdca8ec5f6735d37b18e6ae00096",
     "quantx-skills-maintainer/scripts/check_trigger_assets.py": "01a07caaaaca0b466c2d3863f0d90a47d3c38333d451d8e36fc09802e394b60a",
