@@ -1,7 +1,7 @@
 # QX-12 / #200 — India Market Charges: Source Inventory and Design
 
-**Branch:** `local-docs-work`  **HEAD:** `fd11fe03c38a1f76424aac1f6f9b9cd71ba62557`
-**Phase:** research + design only. No production source code changed. No roadmap/STATUS touched.
+**Branch:** `local-docs-work`
+**Phase:** research + design only. No production source code changed. No roadmap/STATUS touched. Git records the commit SHA; this document does not self-assert its own HEAD.
 **Scope:** effective-dated Indian equity delivery, intraday, futures, and options transaction charges.
 **Related (tracked separately, not reopened):** #267 risk-evidence authority, #266 daily-loss semantics, #196/#197.
 
@@ -28,7 +28,7 @@ rather than being filled in from a secondary page.
 | P5 | Indian Stamp Act 1899 as amended (uniform stamp duty) | primary statute; NSE page documents the table | amendment effective July 1, 2020 (per NSE page reference); page last updated October 3, 2023 | Stamp duty rates by product/side |
 | P6 | GST law (CGST/SGST/IGST Acts) | primary statute | 18% rate per GST Council notifications | GST rate on broker services |
 | P7 | SEBI bulletin (historical STT) | https://www.sebi.gov.in/sebi_data/attachdocs/1334565322526.pdf | historical | Confirms Finance Act 2004 basis for STT |
-| P8 | SEBI (Payment of Fees) (Amendment) Regulations, 2019 — SEBI/L.A.D.-N.R.O./G.N./2019/03 | https://www.sebi.gov.in/sebi_data/meetingfiles/mar-2019/1553244864312_1.pdf (and SEBI news list, 22 March 2019) | dated 22 March 2019; fee effective April 1, 2019 | SEBI turnover fees: cash 0.0001% (Rs 10/crore), equity derivatives 0.0001% (Rs 10/crore), currency derivatives 0.0001% (Rs 10/crore), interest rate derivatives 0.00005% (Rs 5/crore), commodity derivatives 0.0001% (Rs 10/crore), debt 0.00002% (Rs 2/crore) |
+| P8 | SEBI (Payment of Fees) (Amendment) Regulations, 2019 — SEBI/L.A.D.-N.R.O./G.N./2019/03 | https://www.sebi.gov.in/legal/regulations/mar-2019/securities-and-exchange-board-of-india-payment-of-fees-amendment-regulations-2019-dated-march-22-2019_42511.html (official regulation page and notification link) | dated 22 March 2019; fee effective April 1, 2019 | SEBI turnover fees and separate equity-option exercise/assignment turnover basis |
 
 ### 1.2 Secondary cross-checks (corroboration only)
 
@@ -37,6 +37,7 @@ rather than being filled in from a secondary page.
 | S1 | NSE — "SEBI Turnover Fees, STT and Other levies" (info page) | https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies | Cross-checks STT table, stamp duty table, SEBI turnover fee, GST rate. Last page update October 3, 2023 — effective dates for stamp duty and SEBI fee must be verified against primary law/circulars. |
 | S2 | NSE — "Securities Transaction Tax" (computation page) | https://www.nseindia.com/static/products-services/equity-derivatives-securities-transaction-tax | Cross-checks STT computation basis (premium, traded price, intrinsic value on exercise). |
 | S3 | IBKR India fee schedule | https://brokerage.ibkr.com/en/accounts/fees/indiaStockExchangeFees.php | Cross-checks NSE charges, STT, stamp duty, SEBI fee, IPFT, GST applicability. Not an originating authority. |
+| S4 | CBIC — stock-broking services FAQ and GST valuation rules | https://cbic-gst.gov.in/sectoral-faq.html and https://cbic-gst.gov.in/valuation-rules.html | Official guidance on Rule 33 pure-agent treatment and fallback GST valuation under Section 15 and Rule 27; not a substitute for bill-specific treatment. |
 
 Secondary/derived (not authoritative, used only for cross-checks): broker blogs
 (stolo.in, choiceindia.com, smctradeonline.com, fyers.in). These are never the
@@ -52,8 +53,7 @@ state an effective date, it is marked UNRESOLVED rather than invented.
 
 ### 2.1 Securities Transaction Tax (STT) — sources P1, P2, S2
 
-Basis: premium for options; traded price for futures; volume-weighted average
-price for equity delivery; intrinsic value on exercise.
+Basis: transaction value (VWAP for delivery-based equity); traded value for intraday/futures; premium traded for ordinary option trades; intrinsic value for exercised options. For exercise, intrinsic value is option-kind-specific and non-negative: CALL uses max(settlement_price - strike, 0) x quantity; PUT uses max(strike - settlement_price, 0) x quantity. Option type and quantity must be explicit. This differs from the SEBI exercise turnover basis in §2.3.
 
 Effective-date regimes (all verified against primary circulars):
 - Regime A: upto September 30, 2024 (rates per P1 "upto September 30, 2024" column)
@@ -92,12 +92,7 @@ unverified start date remains UNRESOLVED — fail closed.
 | Government securities | 0% | — |
 | OFS / takeover / buyback / delisting (delivery) | 0.015% | Seller (offeror) |
 
-Verified: S1 table (secondary). Rate basis: Indian Stamp Act 1899 as amended
-(P5). The NSE info page (S1) documents the table and references implementation
-from July 1, 2020; the page was last updated October 3, 2023. Continuing
-applicability of these rates for an October 2026 release is NOT re-verified
-against the primary statute in this phase — see §4 (stamp duty effective
-date). Treat as verified rate, unverified continuing-applicability.
+Primary statute P5 provides the statutory framework; S1 is only a secondary cross-check. Section 9A for stock-exchange/depository transactions was inserted with effect from July 1, 2020. The current applicability of every listed rate for the intended production release has not yet been reconciled against the current consolidated statute and amendments. Therefore stamp duty must remain unavailable in any complete production schedule until that primary-source review is recorded; do not ship S1-only rates as current verified production data.
 
 ### 2.3 SEBI turnover fee — source P8
 
@@ -114,6 +109,8 @@ Verified: P8 (SEBI notification SEBI/L.A.D.-N.R.O./G.N./2019/03 dated 22 March
 2019, effective April 1, 2019). This resolves the previous unresolved flag:
 the fee's effective date and rate are verified against the primary regulation.
 Effective date of the current ₹10/crore rate — RESOLVED (P8).
+
+**Turnover basis:** equity-option turnover uses premium traded, and when an option is exercised or assigned, turnover is additionally computed on the notional value of the exercised/assigned contract. The exercise event must therefore provide a separate rule-defined `exercise_notional_value`; do not calculate the SEBI exercise fee using STT intrinsic value or blindly reuse option premium. SEBI's legal fee payer is the stock broker. Client pass-through is a separate caller-supplied billing assumption, not established by this rate table.
 
 ### 2.4 Exchange transaction charges (NSE) — sources P3, P4
 
@@ -156,41 +153,24 @@ IPFT is modelled as a separate component (`ipft_rate`) for auditability, even
 though it is billed within the NSE transaction charge total. Both `exchange_txn`
 and `ipft` components are subject to GST (see §2.5).
 
-### 2.5 GST — three-part separation
+### 2.5 GST — rate, taxable-base treatment, and inputs are separate
 
-**A. Verified GST rate.** 18% (P6 GST law; corroborated by S1 NSE info page).
-This is the statutory rate for stockbroking services.
+**A. Rate.** The GST rate for stockbroking services is 18% (P6; corroborated by S1/S4). The exact effective-date rule for the intended production schedule has not been fully sourced in this phase. Until then, no production GST row may be considered a complete, currently verified effective-dated rule solely from the general rate statement.
 
-**B. Taxable-base policy (assumed, to be validated against each bill).**
-CBIC's stockbroking FAQ (S3 + CBIC GST guidance) states that GST is not
-payable on recoveries of stamp duty, STT or other taxes when the conditions
-for treating them as pure-agent recoveries under Rule 33 of the CGST Rules are
-satisfied; otherwise valuation is governed by Section 15 + Rule 27. The policy
-assumed here is therefore conditional:
+**B. Taxable-base treatment.** CBIC's stockbroking FAQ (S4) says recoveries of STT, stamp duty and other taxes are excluded from the value of supply only when the Rule 33 pure-agent conditions are met. Otherwise, valuation follows Section 15 and Rule 27. QuantX must not infer that pure-agent conditions hold from a component name.
 
-- Brokerage (caller-supplied) — included in GST base.
-- Exchange transaction charges — included in GST base.
-- IPFT contribution — included in GST base.
-- SEBI turnover fee — included in GST base.
-- STT — excluded (pure-agent statutory recovery under Rule 33, as applicable).
-- Stamp duty — excluded (pure-agent statutory recovery under Rule 33, as
-  applicable).
-- DP charges — included, but broker/DP-specific (caller-supplied).
+The caller must provide an explicit, versioned treatment for each STT/stamp-duty recovery:
+- `EXCLUDE_AS_QUALIFIED_PURE_AGENT` only where the caller establishes the relevant Rule 33 conditions.
+- `INCLUDE_IN_TAXABLE_VALUE` where the caller's validated billing policy treats the recovery as included in taxable value.
+- Missing/unknown treatment means GST is incomplete and must fail closed.
 
-The GST base is therefore `brokerage (if supplied) + exchange_txn + ipft +
-sebi_turnover_fee`, and the model must explicitly obtain brokerage as an
-input. If brokerage is required and not supplied, the model returns an
-incomplete GST calculation and must not emit a supposedly complete amount.
+Only exchange/IPFT/SEBI components that an explicit pass-through policy says are charged to the client enter the client-side GST base. Legal payer and modeled client bearer are not interchangeable.
 
-**C. Component inputs required by the model.** In addition to the universal
-charge context, India charge calculation requires:
-- brokerage: Decimal | None — the broker's fee for the trade (caller-supplied;
-  None → GST computed on the universal statutory components only; a complete
-  GST amount requires this value).
-- settlement_price and strike: required when `is_exercise=True`.
+**C. Required inputs.** A complete GST calculation requires explicit `brokerage`, `dp_charges`, and `other_taxable_service_charges` values. Each is Decimal; `Decimal('0')` means known zero/not applicable, while `None` means unknown. Also require a pass-through policy and explicit STT/stamp-duty tax treatment.
 
-The model must fail closed if a value needed for a certified GST total is
-missing (e.g. brokerage absent on a required basis).
+The GST base is the sum of client-charged taxable service components (brokerage, DP charges, other supplied taxable services, and passed-through exchange transaction/IPFT/SEBI charges), plus STT or stamp duty only if the explicit policy says that recovery is included in taxable value. Qualified pure-agent exclusions are excluded. GST is then calculated on that explicit base using the applicable sourced rate.
+
+If any required amount, pass-through decision, tax treatment or effective-dated GST rule is missing, raise an explicit incomplete-input/rule-unavailable error and return no complete `ChargeBreakdown`. Never emit a complete GST figure by silently omitting brokerage, DP or another required taxable component.
 
 ### 2.6 Brokerage and DP charges — NOT universal
 
@@ -207,8 +187,7 @@ configuration, not embedded in the India schedule.
    configured percentage. No effective date, no side/product awareness, no
    multi-component breakdown for Indian statutory charges.
 2. No India-specific charge module exists under `india/`.
-3. `ChargeCalculationContext` carries only `transaction_value` and `currency`;
-   it lacks trade side, product, effective date, exercise flag, premium basis.
+3. `ChargeCalculationContext` carries only transaction value and optional currency; it lacks exchange scope, explicit equity product, client trade side, event kind, separate premium/exercise bases, client pass-through policy and bill-specific GST inputs/treatment.
 4. No effective-dated schedule selection mechanism for charges (the venue-rule
    snapshot pattern in `india/rule_data.py` is the reusable template).
 5. No charge-specific golden tests for statutory Indian charges.
@@ -225,16 +204,16 @@ configuration, not embedded in the India schedule.
 | STT regime boundary October 1, 2024 | RESOLVED | P1 (effective October 1, 2024): futures 0.0125→0.02%, options sell 0.0625→0.10%, options exercised unchanged 0.125%. |
 | STT regime boundary April 1, 2026 | RESOLVED | P2 (effective April 1, 2026): futures 0.02→0.05%, options sell 0.10→0.15%, options exercised 0.125→0.15%. |
 | SEBI turnover fee effective date (current Rs 10/crore) | RESOLVED | SEBI notification SEBI/L.A.D.-N.R.O./G.N./2019/03 (22 March 2019), effective April 1, 2019 (P8). |
-| Stamp duty effective date (uniform rates) | UNRESOLVED (partial) | S1 documents the table; P5 amendment commonly cited July 1, 2020; S1 last updated October 3, 2023. Continuing applicability for October 2026 release not re-verified against the primary statute. |
-| GST 18% effective date for these services | UNRESOLVED (partial) | Rate verified (P6). Exact effective date for the current 18% on brokerage/exchange/SEBI charges not re-verified in this phase. |
-| GST calculation base | RESOLVED (design) | Specified in §2.5: GST on brokerage+exchange+IPFT+SEBI only; not on STT or stamp duty. Implementation must follow this base. |
+| Stamp duty current applicability | UNRESOLVED for production schedule | P5 provides the statutory framework and July 1, 2020 commencement of section 9A, but current consolidated rate applicability for every in-scope instrument has not been fully reconciled. No complete production schedule may use these rates until the source review is recorded. |
+| GST effective-date rule for production schedule | UNRESOLVED for production schedule | The 18% rate is identified, but the applicable notification/effective date for the modeled service/components is not bound to a complete effective-dated rule. No production GST entry is complete until evidence is added. |
+| GST calculation base | RESOLVED as explicit caller policy, not a universal hard-coded rule | §2.5 requires bill-specific treatment for STT/stamp recoveries, caller-supplied brokerage/DP/other taxable inputs, and client pass-through decisions for member fees. Missing inputs make GST incomplete. |
 | Exchange charges before Oct 1, 2024 | UNSUPPORTED (slab-wise) | Volume-dependent slabs; cannot be represented as a single rate. Fail closed for dates before Oct 1, 2024. |
 | March 2026 transaction-charge interpretation | RESOLVED (design) | P4 keeps total member outflow unchanged; re-splits into txn charges + IPFT. Components reproduced separately; boundary test (T21) proves aggregate unchanged. Applicability: cash + equity derivatives only. |
 | Brokerage rates | OUT OF SCOPE | Broker-specific, not regulated. |
 | DP charges | OUT OF SCOPE | DP/broker-specific. |
 | Currency/commodity derivatives charges | PARTIAL | Stamp duty rates listed (S1); exchange transaction charges for currency/commodity not in P3/P4. Mark unsupported until primary source added. |
-| Options exercise intrinsic value computation | NEEDS INPUT | Requires settlement price and strike; charge model must receive these as inputs (fail closed if missing). |
-| BSE-specific charges | NOT RESEARCHED | This phase covers NSE only. BSE has its own transaction charge schedule (different rates). Add as a separate scope when needed. |
+| Options exercise bases | NEEDS INPUT / separate bases | Require CALL/PUT type, quantity, settlement price and strike for STT intrinsic value, plus a separate rule-defined exercise-notional basis for SEBI fees. Never reuse one basis for the other. |
+| BSE-specific charges | NOT RESEARCHED | This phase covers NSE only; exchange identity must be an explicit context field so BSE cannot accidentally use NSE rates. |
 | MCX/NCDEX commodity charges | NOT RESEARCHED | Out of scope for this phase. |
 
 ---
