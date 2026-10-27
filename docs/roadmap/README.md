@@ -1,5 +1,10 @@
 # QuantX Roadmap
 
+
+## Current work programme — 2026-10-27
+
+Use [the QuantX Master Work Programme](../planning/quantx-work-program-2026-10.md) as the current cross-workstream sequencing record. It reconciles the former P0 work, QX-04/05/07/08/09 implementation state, remaining LIVE safety issues, regression gates, India charges, and global/crypto proposals. The milestone history below is not a substitute for checking current issue state and exact-SHA validation evidence.
+
 The master roadmap is grouped into milestones rather than treating every feature as an independent project.
 
 ## M0 — Architecture
