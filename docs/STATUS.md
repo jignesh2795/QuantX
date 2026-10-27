@@ -3,12 +3,12 @@
 
 ## Current work-program reconciliation — 2026-10-27
 
-The active cross-workstream priority order is maintained in [`docs/planning/quantx-work-program-2026-10.md`](planning/quantx-work-program-2026-10.md). Use it with GitHub's individual issue acceptance criteria; this file remains the implementation and exact-SHA evidence ledger.
+The active cross-workstream priority order is maintained in the [master work programme](planning/quantx-work-program-2026-10.md). Use it with GitHub's individual issue acceptance criteria; this file remains the implementation and exact-SHA evidence ledger.
 
 - **P0.1 / #239, P0.2 / #240 and P0.3 / #241:** fixed and merged. Do not reimplement without a newly reproduced defect.
 - **QX-04 / #193, QX-05 / #194, QX-07 / #181, QX-08 / #196 and QX-09 / #197:** implementation recorded as merged/completed. QX-07 Slices 1, 2A and 2B landed in PRs #257, #259 and #261; #181 was closed as completed on 2026-10-27 after checking the merge state. The older pre-merge current-state snapshot later in this file is historical and is superseded by the new work programme.
 - **LIVE trusted-clock slice / PR #281:** merged; it does not establish risk-evidence provenance. **#267 is the next priority** for request-bound, authority-bearing risk evidence. #266, #280, #271, #269 and #189 remain follow-up work.
-- **QX-12 / #200:** the India charges design and evidence notes are now carried into the planning branch; this remains design/contract-only until implementation validation and unresolved GST/stamp-duty rate applicability gates are closed.
+- **QX-12 / #200:** the India charges design and evidence notes are now recorded under `docs/planning/`; this remains design/contract-only until implementation validation and unresolved GST/stamp-duty rate applicability gates are closed.
 - **Global-market comparison and crypto extension:** remain proposals on separate unmerged docs branches. Their existence is not a statement that the audit, connector support, or LIVE eligibility is complete.
 
 This documentation reconciliation did not run tests or CI, call a broker, run a sandbox, or perform a LIVE operation. Do not attribute validation results to this documentation commit.
