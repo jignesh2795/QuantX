@@ -224,7 +224,7 @@ configuration, not embedded in the India schedule.
 | STT prior-regime effective date (when 0.02%/0.10%/0.125% began) | RESOLVED (partial) | P1 states these as the "upto September 30, 2024" column; the start date of that regime is not verified (P1 references earlier circulars 2/2016, 2/2018, 1/2019, 2/2019, 1/2020, 2/2023). Coverage before the unverified start date remains UNRESOLVED — fail closed. |
 | STT regime boundary October 1, 2024 | RESOLVED | P1 (effective October 1, 2024): futures 0.0125→0.02%, options sell 0.0625→0.10%, options exercised unchanged 0.125%. |
 | STT regime boundary April 1, 2026 | RESOLVED | P2 (effective April 1, 2026): futures 0.02→0.05%, options sell 0.10→0.15%, options exercised 0.125→0.15%. |
-| SEBI turnover fee effective date (current Rs 10/crore) | UNRESOLVED | S1 states the rate but no effective date. |
+| SEBI turnover fee effective date (current Rs 10/crore) | RESOLVED | SEBI notification SEBI/L.A.D.-N.R.O./G.N./2019/03 (22 March 2019), effective April 1, 2019 (P8). |
 | Stamp duty effective date (uniform rates) | UNRESOLVED (partial) | S1 documents the table; P5 amendment commonly cited July 1, 2020; S1 last updated October 3, 2023. Continuing applicability for October 2026 release not re-verified against the primary statute. |
 | GST 18% effective date for these services | UNRESOLVED (partial) | Rate verified (P6). Exact effective date for the current 18% on brokerage/exchange/SEBI charges not re-verified in this phase. |
 | GST calculation base | RESOLVED (design) | Specified in §2.5: GST on brokerage+exchange+IPFT+SEBI only; not on STT or stamp duty. Implementation must follow this base. |
