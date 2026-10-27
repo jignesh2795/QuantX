@@ -1,6 +1,6 @@
 # QX-12 / #200 — India Market Charges: Source Inventory and Design
 
-**Branch:** `local-docs-work`  **HEAD:** `05be62743e7b80ef9681e78fbb0077a659b7c55b`
+**Branch:** `local-docs-work`  **HEAD:** `fd11fe03c38a1f76424aac1f6f9b9cd71ba62557`
 **Phase:** research + design only. No production source code changed. No roadmap/STATUS touched.
 **Scope:** effective-dated Indian equity delivery, intraday, futures, and options transaction charges.
 **Related (tracked separately, not reopened):** #267 risk-evidence authority, #266 daily-loss semantics, #196/#197.
