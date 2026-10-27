@@ -12,10 +12,7 @@
 Sources are split into **primary authorities** (exchange circulars, applicable
 legislation, and regulatory circulars that originate the rate) and **secondary
 cross-checks** (broker/exchange-published info pages and third-party brokers).
-A secondary source may corroborate a rate but never establishes an effective
-date or supersedes a primary circular. Where a historical effective date is not
-stated by a primary circular or the governing law, it remains UNRESOLVED
-rather than being filled in from a secondary page.
+S1–S3 are cross-checks, not originating authorities. S4 is official CBIC administrative guidance on GST valuation, not the primary rate notification itself. Supporting sources may explain treatment but never silently override a statute, rate notification, or exchange circular. Where current applicability/effective date is not established by the governing primary authority, it remains UNRESOLVED rather than being inferred from a secondary page.
 
 ### 1.1 Primary authorities
 
@@ -26,11 +23,11 @@ rather than being filled in from a secondary page.
 | P3 | NSE circular FA64232 (transaction charges, SEBI circular SEBI/HO/MRD/TPD-1/P/CIR/2024/92) | https://nsearchives.nseindia.com/content/circulars/FA64232.pdf | dated September 27, 2024; effective October 1, 2024 | Uniform (non-slab) exchange transaction charges: cash Rs 2.97/lakh, futures Rs 1.73/lakh, options Rs 35.03/lakh each side |
 | P4 | NSE circular FA73061 (transaction charges + IPFT split) | https://nsearchives.nseindia.com/content/circulars/FA73061.pdf | dated February 27, 2026; effective March 1, 2026 | Revised split: cash Rs 306.99+0.01, futures Rs 182.99+0.01, options Rs 3552.99+0.01 per crore each side; total member outflow unchanged |
 | P5 | Indian Stamp Act 1899 as amended, including section 9A and Schedule I | https://www.indiacode.nic.in/bitstream/123456789/15510/1/a1899-2%20.pdf | section 9A inserted w.e.f. July 1, 2020; see current-applicability gate in §4 | Statutory stamp-duty framework and rates; current applicability still needs reconciliation for the intended release |
-| P6 | GST law (CGST/SGST/IGST Acts) | primary statute | 18% rate per GST Council notifications | GST rate on broker services |
+| P6 | Notification No. 11/2017-Central Tax (Rate), as amended, with corresponding SGST/IGST notifications | https://cbic-gst.gov.in/hindi/pdf/central-tax-rate/Notification11-CGST.pdf and official notification lists | Principal notification dated June 28, 2017; current effective-dated applicability for the modeled service/components remains a production-data gate | Rate basis for taxable stockbroking services; close out relevant amendments and corresponding SGST/IGST applicability before publishing a production schedule |
 | P7 | SEBI bulletin (historical STT) | https://www.sebi.gov.in/sebi_data/attachdocs/1334565322526.pdf | historical | Confirms Finance Act 2004 basis for STT |
 | P8 | SEBI (Payment of Fees) (Amendment) Regulations, 2019 — SEBI/L.A.D.-N.R.O./G.N./2019/03 | https://www.sebi.gov.in/legal/regulations/mar-2019/securities-and-exchange-board-of-india-payment-of-fees-amendment-regulations-2019-dated-march-22-2019_42511.html (official regulation page and notification link) | dated 22 March 2019; fee effective April 1, 2019 | SEBI turnover fees and separate equity-option exercise/assignment turnover basis |
 
-### 1.2 Secondary cross-checks (corroboration only)
+### 1.2 Supporting sources and administrative guidance
 
 | # | Source | URL | Use |
 |---|---|---|---|
@@ -167,7 +164,7 @@ Only exchange/IPFT/SEBI components that an explicit pass-through policy says are
 
 **C. Required inputs.** A complete GST calculation requires explicit `brokerage`, `dp_charges`, and `other_taxable_service_charges` values. Each is Decimal; `Decimal('0')` means known zero/not applicable, while `None` means unknown. Also require a pass-through policy and explicit STT/stamp-duty tax treatment.
 
-The GST base is the sum of client-charged taxable service components (brokerage, DP charges, other supplied taxable services, and passed-through exchange transaction/IPFT/SEBI charges), plus STT or stamp duty only if the explicit policy says that recovery is included in taxable value. Qualified pure-agent exclusions are excluded. GST is then calculated on that explicit base using the applicable sourced rate.
+The GST base is the sum of client-charged taxable service components (brokerage, DP charges, other supplied taxable services, and passed-through exchange transaction/IPFT/SEBI charges). STT or stamp duty may be added only when (a) the component is actually charged to the client under the pass-through policy and (b) its explicit tax-treatment input is `INCLUDE_IN_TAXABLE_VALUE`. A `EXCLUDE_AS_QUALIFIED_PURE_AGENT` decision excludes that recovery only when the caller has established Rule 33 conditions. If incidence or tax treatment is absent or contradictory, GST is incomplete. GST is then calculated on that explicit base using the applicable sourced rate.
 
 If any required amount, pass-through decision, tax treatment or effective-dated GST rule is missing, raise an explicit incomplete-input/rule-unavailable error and return no complete `ChargeBreakdown`. Never emit a complete GST figure by silently omitting brokerage, DP or another required taxable component.
 
@@ -234,11 +231,11 @@ Reuse existing infrastructure; do not modify `execution/charges.py`.
    - `exchange: IndianExchange | None = None` — required by validation; only NSE is supported.
    - `trade_side: IndiaTradeSide | None = None`, `product: IndiaChargeProduct | None = None`, `event: IndiaChargeEvent = TRADE`, and `effective_at: datetime | None = None` — required fields are validated before calculation.
    - `premium_value: Decimal | None = None` — required for ordinary equity-option trades; never inferred silently from underlying notional.
-   - `option_type`, underlying-unit `quantity`, `settlement_price`, `strike`, and `exercise_notional_value` — required as applicable to `OPTION_EXERCISE`. `exercise_notional_value` is the separate SEBI turnover basis, not STT intrinsic value. For this event, the represented party is the exercising purchaser (`trade_side=BUY`); other values are rejected.
+   - `option_type: IndiaOptionType | None`, underlying-unit `quantity: Decimal | None`, `settlement_price: Decimal | None`, `strike: Decimal | None`, and `exercise_notional_value: Decimal | None` — required as applicable to `OPTION_EXERCISE`. `exercise_notional_value` is the separate SEBI turnover basis, not STT intrinsic value. For this event, the represented party is the exercising purchaser (`trade_side=BUY`); other values are rejected.
    - `brokerage: Decimal | None = None`, `dp_charges: Decimal | None = None`, `other_taxable_service_charges: Decimal | None = None` — required for complete GST; explicit `Decimal('0')` means known zero/not applicable, `None` means unknown. These caller-supplied amounts are also represented as breakdown components so `ChargeBreakdown.total` includes them; the India schedule does not calculate their tariff.
-   - `stt_gst_treatment`, `stamp_duty_gst_treatment`, and `pass_through_policy` — required for a complete client-side result; none has an implicit default.
-9. **`IndiaChargeRateSet`** frozen dataclass: Decimal-or-None rates per component (`stt_rate`, `stamp_duty_rate`, `exchange_txn_rate`, `ipft_rate`, `sebi_turnover_rate`, `gst_rate`) plus immutable sorted `component_sources: tuple[tuple[str, str], ...]`. Rates are fractional multipliers: 0.1% is `Decimal('0.001')`, not `Decimal('0.1')`. Every component, including zero, requires source/applicability provenance. `None` means missing/unsupported and rejects the complete calculation; `Decimal('0')` means a sourced zero or explicit client-side non-liability.
-10. **`IndiaChargeScheduleEntry`** frozen dataclass: `effective_from`, `effective_to` (exclusive; `None` means open-ended), non-empty `version`, and `rates` keyed by `(IndiaChargeProduct, IndiaTradeSide, IndiaChargeEvent)`. Do not use one entry-level source reference for all components.
+   - `stt_gst_treatment: IndiaRecoveryTaxTreatment | None`, `stamp_duty_gst_treatment: IndiaRecoveryTaxTreatment | None`, `pass_through_policy: IndiaChargePassThroughPolicy | None`, `gst_policy_version: str | None`, and `gst_policy_source_ref: str | None` — required for a complete client-side result; none has an implicit default.
+9. **`IndiaChargeRateSet`** frozen dataclass: Decimal-or-None rates per component (`stt_rate`, `stamp_duty_rate`, `exchange_txn_rate`, `ipft_rate`, `sebi_turnover_rate`, `gst_rate`) plus immutable sorted `component_sources: tuple[tuple[str, str, str], ...]` containing `(component_name, source_ref, rule_version)`. Rates are fractional multipliers: 0.1% is `Decimal('0.001')`, not `Decimal('0.1')`. Every component, including zero, requires source/applicability provenance. `None` means missing/unsupported and rejects the complete calculation; `Decimal('0')` means a sourced zero or explicit client-side non-liability.
+10. **`IndiaChargeScheduleEntry`** frozen dataclass: `effective_from`, `effective_to` (exclusive; `None` means open-ended), non-empty `version`, and `rates: Mapping[tuple[IndiaChargeProduct, IndiaTradeSide, IndiaChargeEvent], IndiaChargeRateSet]`. Do not use one entry-level source reference for all components.
 11. **`IndiaChargeSchedule`** frozen dataclass: immutable entries. `select(effective_at)` returns the uniquely covering entry or raises `IndiaChargeRuleUnavailable`; gaps may represent explicit unsupported history.
 12. **`IndiaMarketChargeModel`** implementing the existing `ChargeModel`:
    - `model_id = india.market_charges`; `model_version = '1'` is the stable calculator/schema version, not the selected tariff version.
