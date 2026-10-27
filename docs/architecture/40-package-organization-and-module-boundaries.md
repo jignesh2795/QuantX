@@ -126,3 +126,9 @@ src/quantx/research/quality/report.py
 ```
 
 The intent is clarity, not directory depth for its own sake. A package is created when it gives a meaningful architectural boundary.
+
+## Naming clarification (domain value types)
+
+- `domain/finance.py` owns money, charges, and Decimal-valued financial types.
+- `domain/value_objects.py` owns identifiers, timestamps, and other non-monetary value objects.
+- New value types go in the file matching their category; do not mix money into `value_objects.py`.

@@ -17,6 +17,7 @@ normative rules themselves remain in `docs/architecture/`.
 - ADR-007 — [Modular-hybrid architecture](../architecture/adr/ADR-007-modular-hybrid-architecture.md)
 - ADR-008 — [v0.1 programmatic local-first library scope; CLI deferred](../architecture/adr/ADR-008-v0.1-programmatic-library-scope.md)
 - ADR-009 — [Canonical order lifecycle and evidence reduction](../architecture/adr/ADR-009-canonical-order-lifecycle.md)
+- ADR-010 — [SEBI compliance boundary and self-check](../architecture/adr/ADR-010-sebi-compliance-boundary.md)
 
 ## Decisions not yet written as ADRs
 
