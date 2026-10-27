@@ -248,7 +248,7 @@ Reuse existing infrastructure; do not modify `execution/charges.py`.
    - `ChargeBreakdown.components` includes STT, stamp duty, exchange transaction, IPFT, SEBI fee, GST, and caller-supplied brokerage/DP/other-taxable-service amounts. It includes only client-applicable amounts according to pass-through policy; caller-supplied fees are marked as such.
    - `ChargeBreakdown.provenance` identifies schedule version/interval, every component source/version, and pass-through/tax-policy references.
 14. **`IndiaChargeRuleUnavailable`** — stable `ValueError` subtype for missing schedule/component rule/source or unsupported exchange/product/date/event.
-15. **`IndiaChargeInputUnavailable` — stable `ValueError` subtype for missing or incomplete event/billing/tax/pass-through inputs. Do not expose arbitrary supplied values or exception text.
+15. **`IndiaChargeInputUnavailable`** — stable `ValueError` subtype for missing or incomplete event/billing/tax/pass-through inputs. Do not expose arbitrary supplied values or exception text.
 
 ### 5.2 Date selection and unsupported scope
 
