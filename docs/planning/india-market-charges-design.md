@@ -28,6 +28,7 @@ rather than being filled in from a secondary page.
 | P5 | Indian Stamp Act 1899 as amended (uniform stamp duty) | primary statute; NSE page documents the table | amendment effective July 1, 2020 (per NSE page reference); page last updated October 3, 2023 | Stamp duty rates by product/side |
 | P6 | GST law (CGST/SGST/IGST Acts) | primary statute | 18% rate per GST Council notifications | GST rate on broker services |
 | P7 | SEBI bulletin (historical STT) | https://www.sebi.gov.in/sebi_data/attachdocs/1334565322526.pdf | historical | Confirms Finance Act 2004 basis for STT |
+| P8 | SEBI (Payment of Fees) (Amendment) Regulations, 2019 — SEBI/L.A.D.-N.R.O./G.N./2019/03 | https://www.sebi.gov.in/sebi_data/meetingfiles/mar-2019/1553244864312_1.pdf (and SEBI news list, 22 March 2019) | dated 22 March 2019; fee effective April 1, 2019 | SEBI turnover fees: cash 0.0001% (Rs 10/crore), equity derivatives 0.0001% (Rs 10/crore), currency derivatives 0.0001% (Rs 10/crore), interest rate derivatives 0.00005% (Rs 5/crore), commodity derivatives 0.0001% (Rs 10/crore), debt 0.00002% (Rs 2/crore) |
 
 ### 1.2 Secondary cross-checks (corroboration only)
 
@@ -98,15 +99,21 @@ applicability of these rates for an October 2026 release is NOT re-verified
 against the primary statute in this phase — see §4 (stamp duty effective
 date). Treat as verified rate, unverified continuing-applicability.
 
-### 2.3 SEBI turnover fee — source S1
+### 2.3 SEBI turnover fee — source P8
 
 | Segment | Rate | Liable party |
 |---|---|---|
-| Non-debt securities (equity, derivatives) | 0.0001% (Rs 10 per crore) | both buy and sell |
-| Debt securities | 0.000025% (Rs 2.5 per crore) | both buy and sell |
+| Cash (equity) | 0.0001% (Rs 10 per crore) | Stock broker |
+| Equity derivatives | 0.0001% (Rs 10 per crore) | Stock broker |
+| Currency derivatives | 0.0001% (Rs 10 per crore) | Stock broker |
+| Interest rate derivatives | 0.00005% (Rs 5 per crore) | Stock broker |
+| Commodity derivatives | 0.0001% (Rs 10 per crore) | Stock broker |
+| Debt | 0.00002% (Rs 2 per crore) | Stock broker |
 
-Verified: S1. Effective date of the current Rs 10/crore rate is not stated in
-S1 — see §4 (UNRESOLVED).
+Verified: P8 (SEBI notification SEBI/L.A.D.-N.R.O./G.N./2019/03 dated 22 March
+2019, effective April 1, 2019). This resolves the previous unresolved flag:
+the fee's effective date and rate are verified against the primary regulation.
+Effective date of the current ₹10/crore rate — RESOLVED (P8).
 
 ### 2.4 Exchange transaction charges (NSE) — sources P3, P4
 
@@ -116,20 +123,30 @@ Per crore of traded value, each side (buy and sell), unless noted.
 outflow. It re-splits the existing total into transaction charges + IPFT
 contribution. Pre-March-1-2026: cash Rs 297 txn + Rs 10 IPFT = Rs 307 total.
 Post-March-1-2026: cash Rs 306.99 txn + Rs 0.01 IPFT = Rs 307 total.
-Same for futures (Rs 183) and options (Rs 3,553). The design reproduces
-components separately with correct effective dates; a boundary test (T21)
-proves the aggregate total is unchanged across March 1, 2026 for all three
-covered segments.
+Same for futures (Rs 183.00 = 182.99 + 0.01) and options (₹3,552.99 + ₹0.01 =
+₹3,553.00). The design reproduces components separately with correct effective
+dates; a boundary test (T21) proves the aggregate total is unchanged across
+March 1, 2026 for all three covered segments.
 
-**Applicability (P3, P4):** cash market and equity derivatives only. Currency
-and commodity segments are NOT covered by these circulars — mark unsupported
-(fail closed) until a primary source is added.
+**Exact component values (P4):** equity options = ₹3,552.99 per crore of
+premium turnover per side (transaction charges) + ₹0.01 per crore (IPFT) =
+₹3,553.00 total. Cash = Rs 306.99 + Rs 0.01 = Rs 307.00. Futures = Rs
+182.99 + Rs 0.01 = Rs 183.00.
+
+**Authority boundary and pass-through assumption:** P4 specifies trading-member
+outflows. The model reproduces the NSE exchange charges as configured values;
+whether those are passed through to the retail client, recovered by the
+broker, or absorbed by the broker is a *retail-broker tariff* question and
+must be an explicit, caller-supplied assumption. This design assumes the model
+reproduces NSE exchange charges as configured; it makes no claim that these
+are the client-settled amounts. Any billing or recovery policy must be
+supplied by the caller.
 
 | Segment | Basis | Rate (w.e.f. Mar 1, 2026) | Rate (Oct 1, 2024 – Feb 28, 2026) | Rate (before Oct 1, 2024) |
 |---|---|---|---|---|
 | Cash (equity) | traded value | Rs 307.00 (306.99 txn + 0.01 IPFT) | Rs 307.00 (297 txn + 10 IPFT) | slab-wise, volume-dependent |
 | Equity futures | traded value | Rs 183.00 (182.99 + 0.01) | Rs 183.00 (173 + 10) | slab-wise, volume-dependent |
-| Equity options | premium value | Rs 3,553.00 (3,552.99 + 0.01) | Rs 3,553.00 (3,503 + 50) | slab-wise, volume-dependent |
+| Equity options | premium value | ₹3,553.00 (₹3,552.99 + ₹0.01) | ₹3,553.00 (₹3,503 + ₹50) | slab-wise, volume-dependent |
 
 Verified: P3 (Oct 1, 2024 uniform rates), P4 (Mar 1, 2026 revised split).
 The pre-Oct-1-2024 slab-wise structure is not representable as a single rate —
@@ -139,31 +156,41 @@ IPFT is modelled as a separate component (`ipft_rate`) for auditability, even
 though it is billed within the NSE transaction charge total. Both `exchange_txn`
 and `ipft` components are subject to GST (see §2.5).
 
-### 2.5 GST — rate from P6/S1, applicability from S3
+### 2.5 GST — three-part separation
 
-**Rate:** 18% (verified, P6 GST law; S1 info page corroborates).
-**GST calculation base (verified against S3 + broker cross-checks):**
-GST is levied on the *service* components of a trade, NOT on statutory levies.
+**A. Verified GST rate.** 18% (P6 GST law; corroborated by S1 NSE info page).
+This is the statutory rate for stockbroking services.
 
-| Component | Subject to GST? | Included in GST base? |
-|---|---|---|
-| Brokerage | Yes | Yes (broker-specific, caller-supplied) |
-| Exchange transaction charges | Yes | Yes |
-| IPFT contribution | Yes | Yes (treated as part of exchange charge) |
-| SEBI turnover fee | Yes | Yes |
-| STT | No (statutory tax) | No |
-| Stamp duty | No (statutory duty) | No |
-| DP charges | Yes | broker/DP-specific (caller-supplied) |
+**B. Taxable-base policy (assumed, to be validated against each bill).**
+CBIC's stockbroking FAQ (S3 + CBIC GST guidance) states that GST is not
+payable on recoveries of stamp duty, STT or other taxes when the conditions
+for treating them as pure-agent recoveries under Rule 33 of the CGST Rules are
+satisfied; otherwise valuation is governed by Section 15 + Rule 27. The policy
+assumed here is therefore conditional:
 
-GST base = brokerage (if supplied) + exchange_txn + ipft + sebi_turnover_fee.
-GST = gst_base × 0.18. If brokerage is None, it is excluded (GST computed on
-the universal statutory components only). The model does NOT apply GST to STT
-or stamp duty. This base is specified here so implementation does not apply 18%
-indiscriminately.
+- Brokerage (caller-supplied) — included in GST base.
+- Exchange transaction charges — included in GST base.
+- IPFT contribution — included in GST base.
+- SEBI turnover fee — included in GST base.
+- STT — excluded (pure-agent statutory recovery under Rule 33, as applicable).
+- Stamp duty — excluded (pure-agent statutory recovery under Rule 33, as
+  applicable).
+- DP charges — included, but broker/DP-specific (caller-supplied).
 
-**Effective date:** the 18% rate for these services is governed by GST Council
-notifications (P6). The exact effective date for the current 18% rate on
-brokerage/exchange/SEBI charges is not re-verified in this phase — see §4.
+The GST base is therefore `brokerage (if supplied) + exchange_txn + ipft +
+sebi_turnover_fee`, and the model must explicitly obtain brokerage as an
+input. If brokerage is required and not supplied, the model returns an
+incomplete GST calculation and must not emit a supposedly complete amount.
+
+**C. Component inputs required by the model.** In addition to the universal
+charge context, India charge calculation requires:
+- brokerage: Decimal | None — the broker's fee for the trade (caller-supplied;
+  None → GST computed on the universal statutory components only; a complete
+  GST amount requires this value).
+- settlement_price and strike: required when `is_exercise=True`.
+
+The model must fail closed if a value needed for a certified GST total is
+missing (e.g. brokerage absent on a required basis).
 
 ### 2.6 Brokerage and DP charges — NOT universal
 
@@ -318,24 +345,25 @@ universal core" boundary (ADR-010, doc 52).
 - **Monetary base:** per trade (per fill), not per client aggregate. Each
   `calculate()` call computes charges for one trade leg using its own
   `transaction_value` (and `premium_value`/`exercise_value` where applicable).
-- **Precision:** all rates and intermediate amounts are `Decimal`. No float
-  anywhere in the calculation path.
-- **Rounding mode:** `ROUND_HALF_UP` to 2 decimal places (paise) for each
+- Precision: all rates and intermediate amounts are `Decimal`. No float
+  anywhere in the calculation path. Externally sourced rates are used as
+  published; no proprietary rounding is invented upstream.
+- Rounding mode: `ROUND_HALF_UP` to 2 decimal places (paise) for each
   component amount, applied per component per trade. The total is the sum of
   the rounded component amounts (not a re-rounding of an unrounded total).
-- **Aggregation level:** per trade. Client-level daily aggregation of charges
+  This convention is a QuantX simulation convention only; it is NOT presented
+  as an independently verified exchange or statutory rounding rule. Where an
+  official rule specifies a different rounding policy, that rule governs and
+  this convention must be revisited (marked UNRESOLVED where the source is
+  silent).
+- Aggregation level: per trade. Client-level daily aggregation of charges
   is out of scope for this slice (no daily accrual).
-- **STT on options exercise:** basis = (settlement_price − strike) × quantity,
+- STT on options exercise: basis = (settlement_price − strike) × quantity,
   rounded per component. If settlement price or strike is missing → fail
   closed.
-- **GST:** computed on the rounded sum of the GST-eligible components
+- GST: computed on the rounded sum of the GST-eligible components
   (exchange + ipft + sebi + brokerage), then rounded to paise.
-- **Where official rules do not establish a rounding policy** (e.g. exchange
-  transaction charges are published per-crore and may be rounded by the
-  exchange differently), the policy above is a QuantX convention and is
-  documented as such. It must be revisited if a primary source specifies a
-  different rule. Marked UNRESOLVED where the source is silent.
-- **Per-trade vs per-contract:** charge is per trade leg (one fill). A
+- Per-trade vs per-contract: charge is per trade leg (one fill). A
   multi-leg strategy pays charges per leg.
 
 ---
@@ -370,9 +398,9 @@ Do not bundle steps 2–6 into one change. Each is a separate, reviewable slice.
 | T2 | Same trade on Mar 15, 2026 (before Apr 1 2026 STT unchanged for delivery; exchange rate still Rs 307) | STT 0.1%, exchange Rs 307/crore |
 | T3 | Equity intraday sell, Rs 10,000, any date in supported range | STT 0.025% (seller), stamp 0.003% (buyer), exchange+SEBI+GST |
 | T4 | Equity futures sell, Rs 1,00,000, on/after Apr 1 2026 | STT 0.05% (seller) on traded price; stamp 0.002%; exchange Rs 183/crore |
-| T5 | Same futures trade on Feb 15, 2026 | STT 0.02% (seller); exchange Rs 183/crore (Mar 1 2026 rate NOT yet in effect → use Oct 1 2024 rate Rs 183? Wait: Feb 15 2026 is between Oct 1 2024 and Mar 1 2026, so exchange rate = Rs 183/crore (173+10). STT = 0.02% (prior regime).) |
-| T6 | Equity options sell (premium Rs 5,000), on/after Apr 1 2026 | STT 0.15% on premium (seller); stamp 0.003%; exchange Rs 3,553/crore on premium |
-| T7 | Equity options sell, before Apr 1 2026 | STT 0.10% (seller); exchange Rs 3,553/crore (if on/after Mar 1 2026) or Rs 3,553/crore (Oct 2024 rate) |
+| T5 | Same futures trade on Feb 15, 2026 | STT 0.02% (seller); exchange Rs 183/crore (Oct 1 2024 – Feb 28 2026 rate; Mar 1 2026 rate not yet in effect) |
+| T6 | Equity options sell (premium Rs 5,000), on/after Apr 1 2026 | STT 0.15% on premium (seller); stamp 0.003%; exchange ₹3,553/crore on premium (₹3,552.99 + ₹0.01) |
+| T7 | Equity options sell, before Apr 1 2026 | STT 0.10% (seller); exchange ₹3,553/crore (if on/after Mar 1 2026) or ₹3,553/crore (Oct 2024 rate) |
 | T8 | Equity options exercise, on/after Apr 1 2026 | STT 0.15% on intrinsic value (purchaser); missing exercise_value → fail closed |
 | T9 | Trade on Feb 1, 2024 (before Oct 1, 2024) | `IndiaChargeRuleUnavailable` (slab-wise, unsupported) |
 | T10 | Unsupported product (e.g. currency futures) | `IndiaChargeRuleUnavailable` |
@@ -388,6 +416,8 @@ Do not bundle steps 2–6 into one change. Each is a separate, reviewable slice.
 | T20 | Provenance tuple contains source_ref, effective date, version | assert |
 | T21 | Boundary: same trade on Feb 28 2026 23:59:59 IST vs Mar 1 2026 00:00:00 IST — aggregate (exchange+ipft) total unchanged (Rs 307/Rs 183/Rs 3,553 per crore); only component split changes | assert equality of totals, inequality of components |
 | T22 | Stamp duty continuing applicability caveat documented; rates used only with unverified-applicability flag | assert (doc/test note) |
+| T23 | Brokerage absent while a complete GST total is requested | fail closed / returns incomplete GST; no supposedly complete amount |
+| T24 | Brokerage supplied; STT and stamp duty excluded from GST base | exact Decimal GST on (exchange + ipft + sebi + brokerage) only |
 
 Note: T5/T7 date/rate interactions are intentionally complex to exercise the
 effective-date selection logic. Test fixtures must use verified rates only.
