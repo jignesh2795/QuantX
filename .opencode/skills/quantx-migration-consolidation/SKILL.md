@@ -1,6 +1,6 @@
 ---
 name: quantx-migration-consolidation
-description: Use for QuantX branch cleanup, recovery, or duplicate-code consolidation — preserving useful work from resets, analyzing branch overlap, and choosing KEEP/CHERRY-PICK/REBUILD/EXTRACT/REJECT/ARCHIVE so stale lines never re-enter main.
+description: Use when doing QuantX branch cleanup, recovery, or duplicate-code consolidation — preserving useful work from resets, analyzing branch overlap, choosing KEEP/CHERRY-PICK/REBUILD/EXTRACT/REJECT/ARCHIVE so stale lines never re-enter main.
 metadata:
   quantx/role: migration
 ---

@@ -1,6 +1,6 @@
 ---
 name: quantx-core-governance
-description: Mandatory baseline for every QuantX task — non-negotiable safety, evidence, Decimal/fail-closed rules, ownership boundaries, control-path safety review, and core-vs-plugin rules. Load first, before any other quantx skill.
+description: Use when starting any QuantX task — mandatory baseline: non-negotiable safety, evidence, Decimal/fail-closed rules, ownership boundaries, control-path safety review, core-vs-plugin rules. Load first, before any other quantx skill.
 metadata:
   quantx/role: governance
 ---

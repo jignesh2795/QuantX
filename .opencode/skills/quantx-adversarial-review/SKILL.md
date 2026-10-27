@@ -1,6 +1,6 @@
 ---
 name: quantx-adversarial-review
-description: Use after implementing a change and before validation or merge — independent break-the-change review of QuantX diffs: safety, evidence integrity, UNKNOWN handling, idempotency, reconciliation, scope leakage, and misleading tests or docs. Do not praise the diff; try to break it.
+description: Use when reviewing an implemented QuantX change before validation or merge — independent break-the-change review: safety, evidence integrity, UNKNOWN handling, idempotency, reconciliation, scope leakage, and misleading tests or docs. Do not praise the diff; try to break it.
 metadata:
   quantx/role: review
 ---
