@@ -78,6 +78,8 @@ class LiveSubmissionAuthorization:
     authorization_id: UUID
     client_order_id: UUID
     request_fingerprint: str
+    broker_identity: int
+    unit_of_work_identity: int
     proof: str
 
 
@@ -105,14 +107,24 @@ class LiveSubmissionAuthorizer:
         *,
         client_order_id: UUID,
         request_fingerprint: str,
+        broker_identity: int = 0,
+        unit_of_work_identity: int = 0,
     ) -> LiveSubmissionAuthorization:
-        """Mint one authorization bound to the admitted request identity."""
+        """Mint one authorization bound to the admitted request and dependencies."""
         authorization_id = uuid4()
         return LiveSubmissionAuthorization(
             authorization_id=authorization_id,
             client_order_id=client_order_id,
             request_fingerprint=request_fingerprint,
-            proof=self._digest(authorization_id, client_order_id, request_fingerprint),
+            broker_identity=broker_identity,
+            unit_of_work_identity=unit_of_work_identity,
+            proof=self._digest(
+                authorization_id,
+                client_order_id,
+                request_fingerprint,
+                broker_identity,
+                unit_of_work_identity,
+            ),
         )
 
     def authorize(
@@ -121,6 +133,8 @@ class LiveSubmissionAuthorizer:
         *,
         client_order_id: UUID,
         request_fingerprint: str,
+        broker_identity: int = 0,
+        unit_of_work_identity: int = 0,
     ) -> None:
         """Verify ``authorization`` for this exact request or fail closed.
 
@@ -142,6 +156,8 @@ class LiveSubmissionAuthorizer:
             type(bound_authorization.authorization_id) is not UUID
             or type(bound_authorization.client_order_id) is not UUID
             or type(bound_authorization.request_fingerprint) is not str
+            or type(bound_authorization.broker_identity) is not int
+            or type(bound_authorization.unit_of_work_identity) is not int
             or type(bound_authorization.proof) is not str
         ):
             raise LiveSubmissionAuthorizationError(_MISMATCHED_AUTHORIZATION_REASON)
@@ -152,11 +168,15 @@ class LiveSubmissionAuthorizer:
             bound_authorization.authorization_id,
             bound_authorization.client_order_id,
             bound_authorization.request_fingerprint,
+            bound_authorization.broker_identity,
+            bound_authorization.unit_of_work_identity,
         )
         if (
             not hmac.compare_digest(bound_authorization.proof, expected)
             or bound_authorization.client_order_id != client_order_id
             or bound_authorization.request_fingerprint != request_fingerprint
+            or bound_authorization.broker_identity != broker_identity
+            or bound_authorization.unit_of_work_identity != unit_of_work_identity
         ):
             raise LiveSubmissionAuthorizationError(_MISMATCHED_AUTHORIZATION_REASON)
         with self._lock:
@@ -171,6 +191,8 @@ class LiveSubmissionAuthorizer:
         authorization_id: UUID,
         client_order_id: UUID,
         request_fingerprint: str,
+        broker_identity: int,
+        unit_of_work_identity: int,
     ) -> str:
         message = "\x1f".join(
             (
@@ -178,6 +200,8 @@ class LiveSubmissionAuthorizer:
                 str(authorization_id),
                 str(client_order_id),
                 request_fingerprint,
+                str(broker_identity),
+                str(unit_of_work_identity),
             )
         ).encode("utf-8")
         return hmac.new(self._key, message, hashlib.sha256).hexdigest()

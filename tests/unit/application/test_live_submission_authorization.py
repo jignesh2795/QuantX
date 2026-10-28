@@ -524,6 +524,8 @@ def test_authorization_bound_to_another_execution_context_is_rejected() -> None:
         lambda a: replace(a, authorization_id=uuid4()),
         lambda a: replace(a, authorization_id=str(a.authorization_id)),
         lambda a: replace(a, client_order_id=uuid4()),
+        lambda a: replace(a, broker_identity=101),
+        lambda a: replace(a, unit_of_work_identity=202),
         lambda a: replace(a, request_fingerprint="0" * 64),
         lambda a: replace(a, proof="1" * 64),
         lambda a: replace(a, client_order_id="not-a-uuid"),
@@ -534,6 +536,8 @@ def test_authorization_bound_to_another_execution_context_is_rejected() -> None:
         "nonce",
         "stringified-nonce",
         "order-identity",
+        "broker-identity",
+        "unit-of-work-identity",
         "fingerprint",
         "proof",
         "string-order-id",
@@ -835,6 +839,39 @@ def test_authorizer_accepts_its_own_fresh_authorization_exactly_once() -> None:
             authorization,
             client_order_id=authorization.client_order_id,
             request_fingerprint=authorization.request_fingerprint,
+        )
+
+
+def test_authorization_is_bound_to_broker_and_unit_of_work_identity() -> None:
+    authority = LiveSubmissionAuthorizer()
+    authorization = authority.issue(
+        client_order_id=uuid4(),
+        request_fingerprint="bound-request",
+        broker_identity=101,
+        unit_of_work_identity=202,
+    )
+
+    authority.authorize(
+        authorization,
+        client_order_id=authorization.client_order_id,
+        request_fingerprint="bound-request",
+        broker_identity=101,
+        unit_of_work_identity=202,
+    )
+
+    fresh = authority.issue(
+        client_order_id=authorization.client_order_id,
+        request_fingerprint="bound-request",
+        broker_identity=101,
+        unit_of_work_identity=202,
+    )
+    with pytest.raises(LiveSubmissionAuthorizationError):
+        authority.authorize(
+            fresh,
+            client_order_id=fresh.client_order_id,
+            request_fingerprint="bound-request",
+            broker_identity=101,
+            unit_of_work_identity=303,
         )
 
 

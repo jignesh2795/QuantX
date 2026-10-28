@@ -1005,6 +1005,8 @@ class ExecutionOrchestrator:
         authorization = authority.issue(
             client_order_id=request.order.client_order_id,
             request_fingerprint=request_fingerprint(request),
+            broker_identity=id(broker),
+            unit_of_work_identity=id(unit_of_work),
         )
         try:
             live_result = self._execute_live_transactional(
@@ -1201,6 +1203,8 @@ class ExecutionOrchestrator:
             authorization,
             client_order_id=client_order_id,
             request_fingerprint=fingerprint,
+            broker_identity=id(broker),
+            unit_of_work_identity=id(unit_of_work),
         )
 
         # Completed duplicates and existing pending reservations never submit.
