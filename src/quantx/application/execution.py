@@ -91,42 +91,6 @@ _LIVE_SUBMISSION_AUTHORITIES: WeakKeyDictionary[object, LiveSubmissionAuthorizer
 _LIVE_SUBMISSION_AUTHORITIES_LOCK = RLock()
 
 
-def _issue_live_submission_authorization(
-    owner: object,
-    *,
-    client_order_id: UUID,
-    request_fingerprint: str,
-) -> LiveSubmissionAuthorization:
-    with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
-        authority = _LIVE_SUBMISSION_AUTHORITIES.get(owner)
-    if authority is None:
-        raise LiveSubmissionAuthorizationError(
-            "live submission authority is unavailable for this execution"
-        )
-    return authority.issue(
-        client_order_id=client_order_id,
-        request_fingerprint=request_fingerprint,
-    )
-
-
-def _authorize_live_submission(
-    owner: object,
-    authorization: object,
-    *,
-    client_order_id: UUID,
-    request_fingerprint: str,
-) -> None:
-    with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
-        authority = _LIVE_SUBMISSION_AUTHORITIES.get(owner)
-    if authority is None:
-        raise LiveSubmissionAuthorizationError(
-            "live submission authority is unavailable for this execution"
-        )
-    authority.authorize(
-        authorization,
-        client_order_id=client_order_id,
-        request_fingerprint=request_fingerprint,
-    )
 
 
 class ExecutionDispatchStatus(StrEnum):
@@ -1007,8 +971,17 @@ class ExecutionOrchestrator:
         # path, so that path can prove admission happened for this request
         # and this execution context. The capability relays this admission;
         # it grants no authority of its own.
-        authorization = _issue_live_submission_authorization(
-            self,
+        with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
+            authority = _LIVE_SUBMISSION_AUTHORITIES.get(self)
+        if authority is None:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live submission authority is unavailable for this execution",
+                ),
+                check_entries,
+            )
+        authorization = authority.issue(
             client_order_id=request.order.client_order_id,
             request_fingerprint=request_fingerprint(request),
         )
@@ -1197,8 +1170,13 @@ class ExecutionOrchestrator:
         # reservation or broker contact can happen. Both reads below are
         # pure derivations of the submitted request, so an authorization
         # mismatch is detected before the first store or broker call.
-        _authorize_live_submission(
-            self,
+        with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
+            authority = _LIVE_SUBMISSION_AUTHORITIES.get(self)
+        if authority is None:
+            raise LiveSubmissionAuthorizationError(
+                "live submission authority is unavailable for this execution"
+            )
+        authority.authorize(
             authorization,
             client_order_id=client_order_id,
             request_fingerprint=fingerprint,
