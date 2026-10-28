@@ -360,14 +360,15 @@ def _assert_no_durable_work(
 
 
 def _issue_for(
-    orchestrator: ExecutionOrchestrator, request: ApprovedExecutionRequest
+    _orchestrator: ExecutionOrchestrator, request: ApprovedExecutionRequest
 ) -> LiveSubmissionAuthorization:
-    """Mint a genuine authorization from the orchestrator's private authority.
+    """Create a foreign credential for negative boundary tests.
 
-    Boundary regressions need a real credential to prove replay and binding
-    rejection; the orchestrator's authority is the only genuine issuer.
+    The orchestrator no longer exposes its issuing authority through instance
+    state, so a test caller can create only a foreign token that must be
+    rejected by the dispatch boundary.
     """
-    return orchestrator._live_submission_authority.issue(
+    return LiveSubmissionAuthorizer().issue(
         client_order_id=request.order.client_order_id,
         request_fingerprint=request_fingerprint(request),
     )
@@ -516,6 +517,7 @@ def test_authorization_bound_to_another_execution_context_is_rejected() -> None:
     "tamper",
     [
         lambda a: replace(a, authorization_id=uuid4()),
+        lambda a: replace(a, authorization_id=str(a.authorization_id)),
         lambda a: replace(a, client_order_id=uuid4()),
         lambda a: replace(a, request_fingerprint="0" * 64),
         lambda a: replace(a, proof="1" * 64),
@@ -525,6 +527,7 @@ def test_authorization_bound_to_another_execution_context_is_rejected() -> None:
     ],
     ids=[
         "nonce",
+        "stringified-nonce",
         "order-identity",
         "fingerprint",
         "proof",
@@ -547,26 +550,36 @@ def test_tampered_authorization_is_rejected(tamper) -> None:
     _assert_no_durable_work(unit_of_work, request)
 
 
-def test_a_used_authorization_cannot_be_replayed_for_a_second_submission() -> None:
+def test_foreign_authorization_cannot_replay_or_submit_through_orchestrator() -> None:
     request = _request()
     unit_of_work = _FakeUnitOfWork()
     broker = _FakeBroker()
     orchestrator = _live_orchestrator(unit_of_work)
-    authorization = _issue_for(orchestrator, request)
+    authority = LiveSubmissionAuthorizer()
+    authorization = authority.issue(
+        client_order_id=request.order.client_order_id,
+        request_fingerprint=request_fingerprint(request),
+    )
 
-    first = orchestrator._execute_live_transactional(request, broker, unit_of_work, authorization)
-    assert first.status is ExecutionDispatchStatus.EXECUTED
-    assert broker.submit_calls == 1
-
+    # The credential is genuine for this standalone authority, but it is not
+    # bound to the orchestrator's internal issuer and must never submit.
     with pytest.raises(LiveSubmissionAuthorizationError):
         orchestrator._execute_live_transactional(request, broker, unit_of_work, authorization)
 
-    assert broker.submit_calls == 1, "a replayed authorization must not submit again"
-    decision = unit_of_work.idempotency.check(
-        request.order.client_order_id, request_fingerprint(request)
+    authority.authorize(
+        authorization,
+        client_order_id=request.order.client_order_id,
+        request_fingerprint=request_fingerprint(request),
     )
-    assert decision.existing_receipt_id == first.receipt.receipt_id
-    assert not decision.reservation_pending
+    with pytest.raises(LiveSubmissionAuthorizationError):
+        authority.authorize(
+            authorization,
+            client_order_id=request.order.client_order_id,
+            request_fingerprint=request_fingerprint(request),
+        )
+
+    assert broker.submit_calls == 0
+    _assert_no_durable_work(unit_of_work, request)
 
 
 def test_transactional_path_requires_an_authorization_parameter() -> None:
@@ -811,6 +824,34 @@ def test_authorizer_accepts_its_own_fresh_authorization_exactly_once() -> None:
             authorization,
             client_order_id=authorization.client_order_id,
             request_fingerprint=authorization.request_fingerprint,
+        )
+
+
+def test_orchestrator_does_not_expose_its_authorization_issuer() -> None:
+    orchestrator = _live_orchestrator(_FakeUnitOfWork())
+
+    assert not hasattr(orchestrator, "_live_submission_authority")
+
+
+def test_stringified_consumed_authorization_id_cannot_bypass_replay_tracking() -> None:
+    request = _request()
+    authority = LiveSubmissionAuthorizer()
+    authorization = authority.issue(
+        client_order_id=request.order.client_order_id,
+        request_fingerprint=request_fingerprint(request),
+    )
+    authority.authorize(
+        authorization,
+        client_order_id=request.order.client_order_id,
+        request_fingerprint=request_fingerprint(request),
+    )
+
+    stringified = replace(authorization, authorization_id=str(authorization.authorization_id))
+    with pytest.raises(LiveSubmissionAuthorizationError):
+        authority.authorize(
+            stringified,
+            client_order_id=request.order.client_order_id,
+            request_fingerprint=request_fingerprint(request),
         )
 
 

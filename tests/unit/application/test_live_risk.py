@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import cast
@@ -19,7 +20,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide
+from quantx.domain.enums import AssetClass, OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint, CapitalSourceType
 from quantx.domain.instrument_registry import InstrumentResolution
@@ -1148,3 +1149,38 @@ def test_live_pre_trade_evaluator_rejections_keep_the_resolved_instrument() -> N
 
     assert result.decision is RiskDecision.REJECT
     assert result.instrument_resolution is resolution
+
+
+@pytest.mark.parametrize(
+    "intent_overrides",
+    [
+        {"instrument": InstrumentId("NSE", "INFY")},
+        {"side": OrderSide.SELL},
+        {"quantity": Decimal("9")},
+        {"order_type": OrderType.LIMIT, "limit_price": Decimal("101")},
+        {"required_capabilities": frozenset()},
+        {"product": ProductCode("MIS")},
+        {
+            "execution_context": replace(
+                _execution_context(), account_id=AccountId("foreign-account")
+            )
+        },
+    ],
+    ids=[
+        "instrument",
+        "side",
+        "quantity",
+        "order-type-and-price",
+        "capabilities",
+        "product",
+        "account-context",
+    ],
+)
+def test_live_pretrade_evaluator_rejects_intent_that_differs_from_request(intent_overrides) -> None:
+    inputs = _live_evaluation_inputs(intent=_intent(**intent_overrides))
+    evaluator = _live_pre_trade_evaluator(_limits(), inputs, clock=FixedClock(EVALUATED_AT))
+
+    result = evaluator(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "LIVE_RISK_REQUEST_MISMATCH" in result.reason

@@ -139,7 +139,8 @@ class LiveSubmissionAuthorizer:
         # order identity or a non-string proof. Such a value is a binding
         # mismatch (fail closed), never a TypeError escaping the caller.
         if (
-            type(bound_authorization.client_order_id) is not UUID
+            type(bound_authorization.authorization_id) is not UUID
+            or type(bound_authorization.client_order_id) is not UUID
             or type(bound_authorization.request_fingerprint) is not str
             or type(bound_authorization.proof) is not str
         ):

@@ -83,6 +83,68 @@ def _reject(inputs: LiveRiskEvaluationInputs, reason: str) -> RiskResult:
     )
 
 
+_REQUEST_MISMATCH_REASON = (
+    "LIVE_RISK_REQUEST_MISMATCH: risk inputs do not match the approved execution request"
+)
+
+
+def _same_instrument_resolution(left: object, right: object) -> bool:
+    if left is None or right is None:
+        return left is right
+    try:
+        return left.identity_payload() == right.identity_payload()  # type: ignore[attr-defined]
+    except Exception:
+        return False
+
+
+def _risk_inputs_match_request(
+    request: ApprovedExecutionRequest,
+    inputs: LiveRiskEvaluationInputs,
+) -> bool:
+    """Prove the supplied risk intent/context describes the exact approved request.
+
+    This is identity consistency only. It does not establish that balances,
+    positions, P&L, quote timestamps, or snapshots came from an authoritative
+    source; that separate provenance gap keeps public LIVE readiness unclaimed.
+    """
+    if type(inputs.intent) is not TradeIntent or type(inputs.context) is not RiskContext:
+        return False
+
+    intent = inputs.intent
+    context = inputs.context
+    order = request.order
+    if (
+        intent.instrument != order.instrument
+        or intent.intent_id != order.intent_id
+        or intent.side is not order.side
+        or intent.quantity != order.quantity
+        or intent.order_type is not order.order_type
+        or intent.limit_price != order.limit_price
+        or intent.stop_price != order.stop_price
+        or intent.time_in_force is not order.time_in_force
+        or intent.required_capabilities != order.required_capabilities
+        or intent.strategy_id != order.strategy_id
+        or intent.strategy_version != order.strategy_version
+        or intent.product != request.product
+        or intent.product != order.product
+        or intent.position_effect != request.position_effect
+        or intent.position_effect != order.position_effect
+        or intent.execution_context != request.execution_context
+        or context.instrument.instrument_id != order.instrument
+        or context.instrument.market != request.execution_context.market
+        or context.product != request.product
+        or context.effective_position_effect != request.effective_position_effect
+        or context.market_pack_id != request.execution_context.market_pack_id
+        or context.rule_version != request.execution_context.rule_version
+        or not _same_instrument_resolution(
+            context.instrument_resolution, request.instrument_resolution
+        )
+    ):
+        return False
+
+    return True
+
+
 class LivePreTradeRiskEvaluator:
     """Callable LIVE risk evaluator bound to one trusted clock.
 
@@ -110,6 +172,8 @@ class LivePreTradeRiskEvaluator:
         inputs = self._inputs_for_request(request)
         if type(inputs) is not LiveRiskEvaluationInputs:
             raise TypeError("LIVE risk evaluation inputs have an unsupported type")
+        if not _risk_inputs_match_request(request, inputs):
+            return _reject(inputs, _REQUEST_MISMATCH_REASON)
         try:
             reading = self._clock.now()
         except Exception:

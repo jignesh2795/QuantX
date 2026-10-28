@@ -7,7 +7,9 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
+from threading import RLock
 from uuid import NAMESPACE_URL, UUID, uuid5
+from weakref import WeakKeyDictionary
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
@@ -77,6 +79,54 @@ from .live_submission_capability import (
     LiveSubmissionAuthorizer,
 )
 from .runtime import ApplicationRuntime
+
+# The issuer is deliberately not stored on an ExecutionOrchestrator instance.
+# Supported call paths can issue/verify a token only through this module's
+# admission helpers; callers inspecting an orchestrator do not receive its
+# secret key or issuer object. This is not process isolation against arbitrary
+# code executing in the same interpreter.
+_LIVE_SUBMISSION_AUTHORITIES: WeakKeyDictionary[object, LiveSubmissionAuthorizer] = (
+    WeakKeyDictionary()
+)
+_LIVE_SUBMISSION_AUTHORITIES_LOCK = RLock()
+
+
+def _issue_live_submission_authorization(
+    owner: object,
+    *,
+    client_order_id: UUID,
+    request_fingerprint: str,
+) -> LiveSubmissionAuthorization:
+    with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
+        authority = _LIVE_SUBMISSION_AUTHORITIES.get(owner)
+    if authority is None:
+        raise LiveSubmissionAuthorizationError(
+            "live submission authority is unavailable for this execution"
+        )
+    return authority.issue(
+        client_order_id=client_order_id,
+        request_fingerprint=request_fingerprint,
+    )
+
+
+def _authorize_live_submission(
+    owner: object,
+    authorization: object,
+    *,
+    client_order_id: UUID,
+    request_fingerprint: str,
+) -> None:
+    with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
+        authority = _LIVE_SUBMISSION_AUTHORITIES.get(owner)
+    if authority is None:
+        raise LiveSubmissionAuthorizationError(
+            "live submission authority is unavailable for this execution"
+        )
+    authority.authorize(
+        authorization,
+        client_order_id=client_order_id,
+        request_fingerprint=request_fingerprint,
+    )
 
 
 class ExecutionDispatchStatus(StrEnum):
@@ -304,10 +354,10 @@ class ExecutionOrchestrator:
         self._market_policy = market_policy or default_market_policy()
         self._submission_quarantine = submission_quarantine
         self._policy_verifier = policy_verifier
-        # The single-use LIVE submit credential issuer. It is private state
-        # with no supported injection path, so only this orchestrator can
-        # mint authorizations that its own transactional path will accept.
-        self._live_submission_authority = LiveSubmissionAuthorizer()
+        # Keep the issuer in the module-private registry rather than on
+        # the instance, where a caller could obtain a genuine token directly.
+        with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
+            _LIVE_SUBMISSION_AUTHORITIES[self] = LiveSubmissionAuthorizer()
 
     def _verify_request_proofs(self, request: ApprovedExecutionRequest) -> str | None:
         """Return a blocking reason when the request's proofs are not authentic.
@@ -957,7 +1007,8 @@ class ExecutionOrchestrator:
         # path, so that path can prove admission happened for this request
         # and this execution context. The capability relays this admission;
         # it grants no authority of its own.
-        authorization = self._live_submission_authority.issue(
+        authorization = _issue_live_submission_authorization(
+            self,
             client_order_id=request.order.client_order_id,
             request_fingerprint=request_fingerprint(request),
         )
@@ -1146,7 +1197,8 @@ class ExecutionOrchestrator:
         # reservation or broker contact can happen. Both reads below are
         # pure derivations of the submitted request, so an authorization
         # mismatch is detected before the first store or broker call.
-        self._live_submission_authority.authorize(
+        _authorize_live_submission(
+            self,
             authorization,
             client_order_id=client_order_id,
             request_fingerprint=fingerprint,

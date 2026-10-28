@@ -58,17 +58,21 @@ Complete idempotency
 
 ## LIVE submit admission authorization
 
-`ExecutionOrchestrator._execute_live_transactional` is the only application-owned LIVE
-submission path, and it is entered only from `ExecutionOrchestrator.execute` with a
-`LiveSubmissionAuthorization`: a single-use credential minted after every LIVE admission check
-succeeded for the exact request (request proofs, resolved product, LIVE prerequisites, trading
-gate, market-policy stages, session guard, broker observations, durable unit of work, and
-pre-trade risk approval). The credential binds the dispatched `client_order_id` and the
-canonical request fingerprint and carries a keyed digest under a per-orchestrator random key
-held inside a private `LiveSubmissionAuthorizer`; verification runs before the first durable
-read, so a missing, forged, foreign, tampered, mismatched, or replayed credential fails closed
-with no reservation and no broker contact. The credential relays admission; it grants no
-authority of its own and does not replace the trading gate, which remains the authorization
-authority at reservation and submit admission.
+The transactional path requires a single-use `LiveSubmissionAuthorization` and validates
+it before any durable reservation or broker contact. The issuer is kept in a module-private
+weak registry keyed by the orchestrator rather than an instance attribute, so ordinary callers
+cannot obtain a genuine token by inspecting an `ExecutionOrchestrator` instance. The token
+binds the client-order UUID and canonical request fingerprint; UUID fields are validated by
+exact runtime type before digest or consumed-set processing, and consumption is atomic.
 
-The transaction layer does not decide broker-specific rules and does not invent missing account, market, or execution data.
+This is an application API boundary, not process isolation against arbitrary code executing
+inside the same Python interpreter. HMAC integrity proves the token was issued by that
+issuer; it does not prove risk data is authoritative or that a caller-provided risk callback
+is trustworthy.
+
+**Issue #267 remains open:** `LiveRiskEvaluationInputs` must match the exact order and
+execution context, and the repository still lacks a demonstrated production risk-evidence
+source for positions, balances, P&L, account/connection identity, and observation-time
+provenance. Request matching is necessary but not sufficient evidence authority. No LIVE
+readiness claim is made while that source and the supported composition contract remain
+unresolved.
