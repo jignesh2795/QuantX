@@ -59,20 +59,19 @@ Complete idempotency
 ## LIVE submit admission authorization
 
 The transactional path requires a single-use `LiveSubmissionAuthorization` and validates
-it before any durable reservation or broker contact. The issuer is kept in a module-private
-weak registry keyed by the orchestrator rather than an instance attribute, so ordinary callers
-cannot obtain a genuine token by inspecting an `ExecutionOrchestrator` instance. The token
-binds the client-order UUID and canonical request fingerprint; UUID fields are validated by
-exact runtime type before digest or consumed-set processing, and consumption is atomic.
+it before any durable reservation or broker contact. The issuer is stored in a module-private
+weak registry instead of an `ExecutionOrchestrator` instance attribute. There is no callable
+module-level issuance helper; normal issuance occurs inline in `execute` only after the
+admission path succeeds. The authorization nonce must be an exact `UUID` before replay/digest
+processing, and consumption is atomic.
+
+The token proves issuer binding and single-use request identity; it does not authenticate
+risk evidence. Arbitrary evaluator callbacks are rejected. The application-owned
+`LivePreTradeRiskEvaluator` reports authoritative evidence unavailable because no trusted
+source authenticates positions, balances, P&L, observation time, account identity, or
+broker-connection identity. Consequently public LIVE dispatch remains blocked, even after
+an operator enables the trading gate, until a trustworthy source is implemented.
 
 This is an application API boundary, not process isolation against arbitrary code executing
-inside the same Python interpreter. HMAC integrity proves the token was issued by that
-issuer; it does not prove risk data is authoritative or that a caller-provided risk callback
-is trustworthy.
-
-**Issue #267 remains open:** `LiveRiskEvaluationInputs` must match the exact order and
-execution context, and the repository still lacks a demonstrated production risk-evidence
-source for positions, balances, P&L, account/connection identity, and observation-time
-provenance. Request matching is necessary but not sufficient evidence authority. No LIVE
-readiness claim is made while that source and the supported composition contract remain
-unresolved.
+inside the same Python interpreter. Issue #267 stays open; no production LIVE readiness
+is claimed.

@@ -13,30 +13,31 @@ The active cross-workstream priority order is maintained in the [master work pro
 
 This documentation reconciliation did not run tests or CI, call a broker, run a sandbox, or perform a LIVE operation. Do not attribute validation results to this documentation commit.
 
-## Issue #267 — LIVE authorization boundary and request binding (2026-10-28)
+## Issue #267 — LIVE authorization boundary and risk-evidence authority (2026-10-28)
 
-The current feature branch now moves the authorization issuer out of the
-`ExecutionOrchestrator` instance and into an internal weak registry, validates the
-authorization nonce as an exact `UUID` before replay/digest processing, and rejects
-risk inputs whose intent/order/context identities disagree with the approved request.
+The feature branch now moves authorization issuance out of the `ExecutionOrchestrator`
+instance, rejects malformed nonce types before replay/digest processing, validates the
+risk intent/order/execution-context identity, and rejects arbitrary evaluator callbacks.
+The application-owned `LivePreTradeRiskEvaluator` reports authoritative evidence unavailable
+because its provider inputs have no authenticated provenance source. Public LIVE dispatch is
+therefore blocked before reservation and broker submission, even when the trading gate is
+explicitly enabled.
 
-**This is not issue completion.** The general orchestrator still needs a supported LIVE
-composition contract that prevents arbitrary evaluator callbacks from authorizing submission.
-More importantly, risk snapshots, positions, balances, P&L, account/connection identity and
-observation-time provenance remain caller-supplied without a demonstrated authoritative
-production evidence source. A matching request and valid HMAC token do not authenticate that
-evidence. Keep LIVE readiness unclaimed until the authority source and fail-closed production
-composition are implemented and independently verified.
+**Issue #267 remains open.** No implemented trusted source currently binds positions,
+balances, P&L, snapshot observation time, account, and connection identity to authenticated
+broker/host evidence. Fresh timestamps and a matching request do not establish provenance.
+Do not remove the fail-closed authority guard until an authoritative adapter/composition and
+its identity, freshness, completeness, unavailable-state, and contradiction tests exist.
 
 **Previous candidate validation record — SHA `8034905f064af7d12537936810e9d23a447b92e9`:**
 the branch author reported 32 focused authorization tests passed, 1,789 affected tests
 passed, 2,959 full-suite tests passed, Ruff/format, strict mypy, `uv lock --check`, and
-`git diff --check` passed. Those results are historical, are not independently reproduced
-here, and do not validate the code change recorded above.
+`git diff --check` passed. Those results are historical, have not been independently
+reproduced here, and do not validate the follow-up commits.
 
-**Current revision:** validation has not yet been run for the follow-up edits. No GitHub
-Actions or paid CI was used; no broker I/O, LIVE order, or production-broker end-to-end run
-was performed.
+**Current revision:** local validation has not yet been run for the follow-up changes.
+No GitHub Actions or paid CI was used; no broker I/O, LIVE order, or production-broker
+end-to-end run was performed.
 
 ## LIVE trusted clock for risk freshness — slice B (2026-10-24)
 

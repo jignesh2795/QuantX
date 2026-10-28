@@ -412,7 +412,7 @@ def test_built_stack_is_disarmed_and_blocks_a_valid_live_request(tmp_path) -> No
         database.close()
 
 
-def test_enabled_stack_executes_a_valid_live_request_exactly_once(tmp_path) -> None:
+def test_enabled_stack_stays_blocked_without_authoritative_risk_evidence(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         runtime = _runtime(database)
@@ -424,13 +424,16 @@ def test_enabled_stack_executes_a_valid_live_request_exactly_once(tmp_path) -> N
         first = stack.orchestrator.execute(request, broker=broker)
         second = stack.orchestrator.execute(request, broker=broker)
 
-        assert first.status is ExecutionDispatchStatus.EXECUTED
-        assert first.receipt is not None
-        assert first.receipt.source == "fake-broker"
-        assert second.status is ExecutionDispatchStatus.EXECUTED
-        assert second.receipt == first.receipt
-        assert "idempotent duplicate" in second.reason
-        assert broker.submit_calls == 1
+        assert first.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in first.reason
+        assert second.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in second.reason
+        assert broker.submit_calls == 0
+        decision = SqliteUnitOfWork(database).idempotency.check(
+            request.order.client_order_id, request_fingerprint(request)
+        )
+        assert decision.reservation_pending is False
+        assert decision.existing_receipt_id is None
     finally:
         database.close()
 
@@ -447,10 +450,11 @@ def test_block_after_enable_blocks_the_next_request(tmp_path) -> None:
         stack.gate.block("operator stop")
         blocked = stack.orchestrator.execute(_live_request(), broker=broker)
 
-        assert executed.status is ExecutionDispatchStatus.EXECUTED
+        assert executed.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in executed.reason
         assert blocked.status is ExecutionDispatchStatus.BLOCKED
         assert "operator stop" in blocked.reason
-        assert broker.submit_calls == 1
+        assert broker.submit_calls == 0
     finally:
         database.close()
 
@@ -749,7 +753,7 @@ def test_build_rejects_a_duck_typed_runtime(tmp_path) -> None:
 # Trusted clock (slice B): the composition root owns the freshness instant.
 
 
-def test_built_stack_freshness_follows_the_composed_clock(tmp_path) -> None:
+def test_built_stack_never_submits_fresh_or_stale_provider_data_without_authority(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         runtime = _runtime(database)
@@ -769,8 +773,9 @@ def test_built_stack_freshness_follows_the_composed_clock(tmp_path) -> None:
 
         fresh = fresh_stack.orchestrator.execute(_live_request(), broker=fresh_broker)
 
-        assert fresh.status is ExecutionDispatchStatus.EXECUTED
-        assert fresh_broker.submit_calls == 1
+        assert fresh.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in fresh.reason
+        assert fresh_broker.submit_calls == 0
 
         # The same snapshot instant is six hours old under a later clock.
         later = observed_at + timedelta(hours=6)
@@ -790,13 +795,13 @@ def test_built_stack_freshness_follows_the_composed_clock(tmp_path) -> None:
         stale = stale_stack.orchestrator.execute(_live_request(), broker=stale_broker)
 
         assert stale.status is ExecutionDispatchStatus.BLOCKED
-        assert "RISK_SNAPSHOT_STALE" in stale.reason
+        assert "authoritative LIVE risk evidence source is unavailable" in stale.reason
         assert stale_broker.submit_calls == 0
     finally:
         database.close()
 
 
-def test_built_stack_blocks_when_the_clock_fails_without_tripping_the_gate(tmp_path) -> None:
+def test_built_stack_blocks_before_clock_evaluation_without_authority(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         stack = build_live_execution(_runtime(database), _config(clock=_RaisingClock()))
@@ -807,7 +812,7 @@ def test_built_stack_blocks_when_the_clock_fails_without_tripping_the_gate(tmp_p
         result = stack.orchestrator.execute(request, broker=broker)
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "LIVE_CLOCK_UNAVAILABLE" in result.reason
+        assert "authoritative LIVE risk evidence source is unavailable" in result.reason
         assert "internal clock failure detail" not in result.reason
         assert broker.submit_calls == 0
         assert stack.gate.state().enabled is True
@@ -825,7 +830,7 @@ def test_built_stack_blocks_when_the_clock_fails_without_tripping_the_gate(tmp_p
         database.close()
 
 
-def test_built_stack_blocks_a_claim_beyond_the_tolerance(tmp_path) -> None:
+def test_built_stack_blocks_a_timestamp_claim_without_authoritative_evidence(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         stack = build_live_execution(
@@ -844,7 +849,7 @@ def test_built_stack_blocks_a_claim_beyond_the_tolerance(tmp_path) -> None:
         result = stack.orchestrator.execute(request, broker=broker)
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "LIVE_CLOCK_CLAIM_OUT_OF_TOLERANCE" in result.reason
+        assert "authoritative LIVE risk evidence source is unavailable" in result.reason
         assert broker.submit_calls == 0
         assert (
             SqliteSubmissionQuarantineRepository(database).list_by_client_order(
@@ -865,7 +870,7 @@ def test_build_rejects_an_invalid_clock(tmp_path) -> None:
         database.close()
 
 
-def test_provider_cannot_replace_the_composed_clock(tmp_path) -> None:
+def test_provider_claim_cannot_enable_live_without_authoritative_evidence(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         stack = build_live_execution(
@@ -883,7 +888,7 @@ def test_provider_cannot_replace_the_composed_clock(tmp_path) -> None:
         result = stack.orchestrator.execute(_live_request(), broker=broker)
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "LIVE_CLOCK_CLAIM_OUT_OF_TOLERANCE" in result.reason
+        assert "authoritative LIVE risk evidence source is unavailable" in result.reason
         assert broker.submit_calls == 0
 
         frozen = _config()

@@ -714,7 +714,7 @@ def test_identical_inputs_give_identical_decisions() -> None:
 # Enforcement integration.
 
 
-def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
+def test_arbitrary_risk_callback_blocks_before_reservation_and_submit(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -737,7 +737,7 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
         result = orchestrator.execute(request, broker=_adapter(transport))
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "ORDER_NOTIONAL_LIMIT_EXCEEDED" in result.reason
+        assert "application-owned risk evaluator" in result.reason
         assert transport.submitted == ()
         fingerprint = request_fingerprint(request)
         with SqliteUnitOfWork(database) as check_uow:
@@ -761,7 +761,7 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
         database.close()
 
 
-def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
+def test_arbitrary_risk_approval_cannot_reach_live_gate(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -781,8 +781,9 @@ def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
         )
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 
-        assert result.status is ExecutionDispatchStatus.EXECUTED
-        assert len(transport.submitted) == 1
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "application-owned risk evaluator" in result.reason
+        assert transport.submitted == ()
     finally:
         database.close()
 
@@ -815,7 +816,7 @@ def test_upstream_approve_cannot_bypass_authoritative_risk(tmp_path) -> None:
         result = orchestrator.execute(snapshot_request, broker=_adapter(transport))
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "DAILY_LOSS_LIMIT_EXCEEDED" in result.reason
+        assert "application-owned risk evaluator" in result.reason
         assert transport.submitted == ()
     finally:
         database.close()
@@ -846,8 +847,8 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "failed closed" in result.reason
-        # The public reason must not carry the evaluator's internal exception text.
+        assert "application-owned risk evaluator" in result.reason
+        # The callback is rejected before invocation, so no arbitrary error is surfaced.
         assert "risk snapshot unavailable" not in result.reason
         assert transport.submitted == ()
     finally:
