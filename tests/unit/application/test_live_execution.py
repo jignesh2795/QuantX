@@ -173,15 +173,35 @@ def _snapshot(**overrides) -> RiskSnapshot:
     return RiskSnapshot(**values)
 
 
-def _risk_intent() -> TradeIntent:
+def _risk_intent(request: ApprovedExecutionRequest | None = None) -> TradeIntent:
+    if request is None:
+        return TradeIntent(
+            instrument=InstrumentId("NSE", "TCS"),
+            side=OrderSide.BUY,
+            quantity=Decimal("10"),
+            required_margin=Decimal("1000"),
+            required_capabilities=frozenset({"ORDER_SUBMISSION"}),
+            execution_context=_execution_context(),
+            product=ProductCode("CNC"),
+        )
+
+    order = request.order
     return TradeIntent(
-        instrument=InstrumentId("NSE", "TCS"),
-        side=OrderSide.BUY,
-        quantity=Decimal("10"),
-        required_margin=Decimal("1000"),
-        required_capabilities=frozenset({"ORDER_SUBMISSION"}),
-        execution_context=_execution_context(),
-        product=ProductCode("CNC"),
+        instrument=order.instrument,
+        side=order.side,
+        quantity=order.quantity,
+        order_type=order.order_type,
+        limit_price=order.limit_price,
+        stop_price=order.stop_price,
+        time_in_force=order.time_in_force,
+        required_margin=request.required_margin,
+        required_capabilities=order.required_capabilities,
+        execution_context=request.execution_context,
+        intent_id=order.intent_id,
+        product=request.product,
+        position_effect=request.position_effect,
+        strategy_id=order.strategy_id,
+        strategy_version=order.strategy_version,
     )
 
 
@@ -240,7 +260,7 @@ def _approving_risk_inputs(request: ApprovedExecutionRequest) -> LiveRiskEvaluat
     make them authoritative.
     """
     return LiveRiskEvaluationInputs(
-        intent=_risk_intent(),
+        intent=_risk_intent(request),
         context=_context(),
         snapshot=_snapshot(),
         claimed_evaluated_at=EVALUATED_AT,
@@ -252,7 +272,7 @@ def _risk_inputs_at(*, observed_at: datetime, claimed_at: datetime):
 
     def provide(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
         return LiveRiskEvaluationInputs(
-            intent=_risk_intent(),
+            intent=_risk_intent(request),
             context=_context(),
             snapshot=_snapshot(observed_at=observed_at),
             claimed_evaluated_at=claimed_at,

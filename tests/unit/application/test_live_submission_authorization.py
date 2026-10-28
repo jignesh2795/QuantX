@@ -359,21 +359,6 @@ def _assert_no_durable_work(
     assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
 
 
-def _issue_for(
-    _orchestrator: ExecutionOrchestrator, request: ApprovedExecutionRequest
-) -> LiveSubmissionAuthorization:
-    """Create a foreign credential for negative boundary tests.
-
-    The orchestrator no longer exposes its issuing authority through instance
-    state, so a test caller can create only a foreign token that must be
-    rejected by the dispatch boundary.
-    """
-    return LiveSubmissionAuthorizer().issue(
-        client_order_id=request.order.client_order_id,
-        request_fingerprint=request_fingerprint(request),
-    )
-
-
 # ---------------------------------------------------------------------------
 # The transactional path cannot be entered without valid admission
 # ---------------------------------------------------------------------------
@@ -459,8 +444,18 @@ def test_authorization_bound_to_another_request_is_rejected() -> None:
     unit_of_work = _FakeUnitOfWork()
     broker = _FakeBroker()
     orchestrator = _live_orchestrator(unit_of_work)
-    wrong_request_authorization = _issue_for(orchestrator, admitted_request)
+    authority = LiveSubmissionAuthorizer()
+    wrong_request_authorization = authority.issue(
+        client_order_id=admitted_request.order.client_order_id,
+        request_fingerprint=request_fingerprint(admitted_request),
+    )
 
+    with pytest.raises(LiveSubmissionAuthorizationError):
+        authority.authorize(
+            wrong_request_authorization,
+            client_order_id=submitted_request.order.client_order_id,
+            request_fingerprint=request_fingerprint(submitted_request),
+        )
     with pytest.raises(LiveSubmissionAuthorizationError):
         orchestrator._execute_live_transactional(
             submitted_request, broker, unit_of_work, wrong_request_authorization
@@ -502,8 +497,18 @@ def test_authorization_bound_to_another_execution_context_is_rejected() -> None:
     unit_of_work = _FakeUnitOfWork()
     broker = _FakeBroker()
     orchestrator = _live_orchestrator(unit_of_work)
-    other_context_authorization = _issue_for(orchestrator, other_context_request)
+    authority = LiveSubmissionAuthorizer()
+    other_context_authorization = authority.issue(
+        client_order_id=other_context_request.order.client_order_id,
+        request_fingerprint=request_fingerprint(other_context_request),
+    )
 
+    with pytest.raises(LiveSubmissionAuthorizationError):
+        authority.authorize(
+            other_context_authorization,
+            client_order_id=submitted_request.order.client_order_id,
+            request_fingerprint=request_fingerprint(submitted_request),
+        )
     with pytest.raises(LiveSubmissionAuthorizationError):
         orchestrator._execute_live_transactional(
             submitted_request, broker, unit_of_work, other_context_authorization
@@ -541,8 +546,19 @@ def test_tampered_authorization_is_rejected(tamper) -> None:
     unit_of_work = _FakeUnitOfWork()
     broker = _FakeBroker()
     orchestrator = _live_orchestrator(unit_of_work)
-    tampered = tamper(_issue_for(orchestrator, request))
+    authority = LiveSubmissionAuthorizer()
+    issued = authority.issue(
+        client_order_id=request.order.client_order_id,
+        request_fingerprint=request_fingerprint(request),
+    )
+    tampered = tamper(issued)
 
+    with pytest.raises(LiveSubmissionAuthorizationError):
+        authority.authorize(
+            tampered,
+            client_order_id=request.order.client_order_id,
+            request_fingerprint=request_fingerprint(request),
+        )
     with pytest.raises(LiveSubmissionAuthorizationError):
         orchestrator._execute_live_transactional(request, broker, unit_of_work, tampered)
 
