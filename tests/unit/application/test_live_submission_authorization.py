@@ -733,22 +733,17 @@ def test_live_dispatch_blocks_when_the_broker_connection_does_not_match() -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_admitted_live_submission_still_executes_exactly_once() -> None:
+def test_arbitrary_risk_callback_cannot_authorize_live_submission() -> None:
     request = _request()
     unit_of_work = _FakeUnitOfWork()
     broker = _FakeBroker()
 
     result = _live_orchestrator(unit_of_work).execute(request, broker=broker)
 
-    assert result.status is ExecutionDispatchStatus.EXECUTED
-    assert result.receipt is not None
-    assert broker.submit_calls == 1
-    decision = unit_of_work.idempotency.check(
-        request.order.client_order_id, request_fingerprint(request)
-    )
-    assert decision.existing_receipt_id == result.receipt.receipt_id
-    assert not decision.reservation_pending
-    assert unit_of_work.receipts.get(result.receipt.receipt_id) == result.receipt
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "application-owned risk evaluator" in result.reason
+    assert broker.submit_calls == 0
+    _assert_no_durable_work(unit_of_work, request)
 
 
 def test_paper_execution_needs_no_live_authorization() -> None:

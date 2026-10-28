@@ -168,6 +168,18 @@ class LivePreTradeRiskEvaluator:
         self._inputs_for_request = inputs_for_request
         self._clock = clock
 
+    @property
+    def authoritative_evidence_available(self) -> bool:
+        """Whether inputs are authenticated by an implemented trusted source.
+
+        The current composition accepts a caller-controlled callback returning
+        dataclasses. Type-correct inputs and trusted-clock freshness do not
+        authenticate snapshot, position, balance, P&L, account, connection, or
+        observation-time provenance. Until a concrete authority-bearing source
+        is implemented, LIVE must remain unavailable.
+        """
+        return False
+
     def __call__(self, request: ApprovedExecutionRequest) -> RiskResult:
         inputs = self._inputs_for_request(request)
         if type(inputs) is not LiveRiskEvaluationInputs:

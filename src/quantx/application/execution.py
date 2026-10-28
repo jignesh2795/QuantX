@@ -79,6 +79,7 @@ from .live_submission_capability import (
     LiveSubmissionAuthorizer,
 )
 from .runtime import ApplicationRuntime
+from .live_risk import LivePreTradeRiskEvaluator
 
 # The issuer is deliberately not stored on an ExecutionOrchestrator instance.
 # Supported call paths can issue/verify a token only through this module's
@@ -928,6 +929,26 @@ class ExecutionOrchestrator:
                 ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason="live execution requires a durable UnitOfWork",
+                ),
+                check_entries,
+            )
+        # An arbitrary callable returning a RiskResult is not LIVE risk
+        # authority. The only accepted evaluator is the application-owned
+        # evaluator, and it still cannot authorize LIVE until a trusted,
+        # account/connection-bound evidence source is implemented.
+        if type(self._live_risk_evaluator) is not LivePreTradeRiskEvaluator:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE execution requires the application-owned risk evaluator",
+                ),
+                check_entries,
+            )
+        if self._live_risk_evaluator.authoritative_evidence_available is not True:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="authoritative LIVE risk evidence source is unavailable",
                 ),
                 check_entries,
             )
