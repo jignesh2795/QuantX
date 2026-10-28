@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
+from .accounts import AccountId, BrokerConnectionId
+from .deployment import PortfolioId
 from .constraints import (
     ConstraintDecision,
     ConstraintResult,
@@ -64,6 +66,9 @@ class RiskContext:
     market_pack_id: str | None = None
     rule_version: str | None = None
     instrument_resolution: InstrumentResolution | None = None
+    account_id: AccountId | None = None
+    portfolio_id: PortfolioId | None = None
+    broker_connection_id: BrokerConnectionId | None = None
 
     def __post_init__(self) -> None:
         if self.instrument_resolution is not None and not isinstance(
@@ -222,6 +227,9 @@ class RiskSnapshot:
     daily_pnl: Decimal | None = None
     equity: Decimal | None = None
     high_water_mark: Decimal | None = None
+    account_id: AccountId | None = None
+    portfolio_id: PortfolioId | None = None
+    broker_connection_id: BrokerConnectionId | None = None
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:

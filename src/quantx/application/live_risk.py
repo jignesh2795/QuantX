@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 from quantx.domain.clock import Clock
 from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.finance import CapitalSourceType
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import (
     PreTradeRiskEngine,
@@ -107,14 +108,27 @@ def _risk_inputs_match_request(
     positions, P&L, quote timestamps, or snapshots came from an authoritative
     source; that separate provenance gap keeps public LIVE readiness unclaimed.
     """
-    if type(inputs.intent) is not TradeIntent or type(inputs.context) is not RiskContext:
+    if (
+        type(inputs.intent) is not TradeIntent
+        or type(inputs.context) is not RiskContext
+        or type(inputs.snapshot) is not RiskSnapshot
+    ):
         return False
 
     intent = inputs.intent
     context = inputs.context
+    snapshot = inputs.snapshot
     order = request.order
+    execution_context = request.execution_context
     if (
-        intent.instrument != order.instrument
+        context.account_id != execution_context.account_id
+        or context.portfolio_id != execution_context.portfolio_id
+        or context.broker_connection_id != execution_context.broker_connection_id
+        or snapshot.account_id != execution_context.account_id
+        or snapshot.portfolio_id != execution_context.portfolio_id
+        or snapshot.broker_connection_id != execution_context.broker_connection_id
+        or context.financial_state.capital_source is not CapitalSourceType.LIVE_BROKER
+        or intent.instrument != order.instrument
         or intent.intent_id != order.intent_id
         or intent.side is not order.side
         or intent.quantity != order.quantity

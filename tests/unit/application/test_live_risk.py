@@ -85,7 +85,7 @@ def _instrument() -> Instrument:
 
 def _financial() -> AccountFinancialState:
     return AccountFinancialState(
-        CapitalSourceType.PAPER_CONFIGURED,
+        CapitalSourceType.LIVE_BROKER,
         Money(Decimal("100000"), "INR"),
         Money(Decimal("100000"), "INR"),
         Money(Decimal("0"), "INR"),
@@ -96,13 +96,21 @@ def _financial() -> AccountFinancialState:
 
 
 def _context(**overrides) -> RiskContext:
-    values: dict = {"reference_price": Decimal("100")}
+    values: dict = {
+        "reference_price": Decimal("100"),
+        "product": ProductCode("CNC"),
+        "market_pack_id": "india-equity",
+        "rule_version": "india-products-v1",
+        "account_id": AccountId("acct-1"),
+        "portfolio_id": PortfolioId("portfolio-1"),
+        "broker_connection_id": BrokerConnectionId("conn-1"),
+    }
     values.update(overrides)
     return RiskContext(
         _instrument(),
         _financial(),
         broker_constraints=values.pop("broker_constraints", ()),
-        reference_price=values.pop("reference_price"),
+        **values,
     )
 
 
@@ -158,6 +166,9 @@ def _snapshot(**overrides) -> RiskSnapshot:
         "daily_pnl": Decimal("0"),
         "equity": Decimal("100000"),
         "high_water_mark": Decimal("100000"),
+        "account_id": AccountId("acct-1"),
+        "portfolio_id": PortfolioId("portfolio-1"),
+        "broker_connection_id": BrokerConnectionId("conn-1"),
     }
     values.update(overrides)
     return RiskSnapshot(**values)
@@ -284,7 +295,26 @@ def _live_pre_trade_evaluator(
     clock: Clock | None = None,
 ) -> LivePreTradeRiskEvaluator:
     def inputs_for_request(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
-        return inputs if inputs is not None else _live_evaluation_inputs()
+        selected = inputs if inputs is not None else _live_evaluation_inputs()
+        order = request.order
+        bound_intent = TradeIntent(
+            instrument=order.instrument,
+            side=order.side,
+            quantity=order.quantity,
+            order_type=order.order_type,
+            limit_price=order.limit_price,
+            stop_price=order.stop_price,
+            time_in_force=order.time_in_force,
+            required_margin=request.required_margin,
+            required_capabilities=order.required_capabilities,
+            execution_context=request.execution_context,
+            intent_id=order.intent_id,
+            product=request.product,
+            position_effect=request.position_effect,
+            strategy_id=order.strategy_id,
+            strategy_version=order.strategy_version,
+        )
+        return replace(selected, intent=bound_intent)
 
     return LivePreTradeRiskEvaluator(
         engine=PreTradeRiskEngine(),
@@ -1179,7 +1209,12 @@ def test_live_pre_trade_evaluator_rejections_keep_the_resolved_instrument() -> N
 )
 def test_live_pretrade_evaluator_rejects_intent_that_differs_from_request(intent_overrides) -> None:
     inputs = _live_evaluation_inputs(intent=_intent(**intent_overrides))
-    evaluator = _live_pre_trade_evaluator(_limits(), inputs, clock=FixedClock(EVALUATED_AT))
+    evaluator = LivePreTradeRiskEvaluator(
+        engine=PreTradeRiskEngine(),
+        limits=_limits(),
+        inputs_for_request=lambda _request: inputs,
+        clock=FixedClock(EVALUATED_AT),
+    )
 
     result = evaluator(_request())
 
