@@ -13,6 +13,43 @@ The active cross-workstream priority order is maintained in the [master work pro
 
 This documentation reconciliation did not run tests or CI, call a broker, run a sandbox, or perform a LIVE operation. Do not attribute validation results to this documentation commit.
 
+## LIVE submission requires a single-use admission authorization — issue #267 boundary (2026-10-28)
+
+`ExecutionOrchestrator._execute_live_transactional` was reachable directly with a request, a
+broker, and a unit of work, skipping every LIVE admission check in `execute`. It now requires
+the single-use `LiveSubmissionAuthorization` (`src/quantx/application/live_submission_capability.py`)
+that `execute` mints only after every admission check succeeded for the exact request: request
+proofs, resolved product, LIVE prerequisites (explicit durable gate, started runtime, durable
+quarantine, configured risk evaluator), trading gate, market-policy stages, session guard,
+broker connection/health/instrument/capability observations, durable unit of work, and pre-trade
+risk APPROVE. The credential binds `client_order_id` plus the canonical request fingerprint
+(the fingerprint already covers account, connection, market, execution mode, and execution
+semantics), carries a keyed HMAC-SHA256 proof under a per-orchestrator random key held inside a
+private `LiveSubmissionAuthorizer` (created in `ExecutionOrchestrator.__init__`, with no
+supported injection or replacement path), and is single-use: verification runs before the first
+durable read, so a missing, forged, foreign, tampered, mismatched, or replayed credential raises
+`LiveSubmissionAuthorizationError` before any reservation or broker contact, and `execute`
+reports `BLOCKED` with a fixed reason. The capability relays admission only — it grants no
+authority of its own, and the trading gate remains the authorization authority at reservation
+and submit admission. No test calls `_execute_live_transactional` without a valid credential, and
+no test-only bypass was introduced.
+
+**Validation evidence (working-tree candidate, uncommitted, base `a66e3f91`):** the focused
+boundary suite `tests/unit/application/test_live_submission_authorization.py` reports **32
+passed**; the affected aggregate (that file plus `test_receipt_identity_validation.py`,
+`test_live_execution.py`, `test_live_risk.py`, `test_execution.py`, `tests/unit/execution`,
+`tests/unit/application`, `tests/unit/plugins`) reports **1,789 passed, 0 failed, 0 skipped**;
+the full suite reports **2,959 passed, 0 failed, 0 skipped** (base `a66e3f91` collects 2,927
+tests; the +32 delta is exactly the new boundary suite). `uv run ruff check src tests`
+reports `All checks passed!`; `uv run ruff format --check src tests` reports
+`406 files already formatted`; `uv run mypy` reports `Success: no issues found in 202 source
+files`; `uv lock --check` exits 0; `git diff --check` is clean. No GitHub Actions or paid CI was
+used.
+
+**Non-claims:** no broker I/O, no LIVE operation, no commit, push, or merge; a trustworthy
+production risk-evidence source remains undemonstrated, so PUBLIC LIVE dispatch stays blocked
+when authoritative evidence is unavailable and LIVE readiness is not claimed.
+
 ## LIVE trusted clock for risk freshness — slice B (2026-10-24)
 
 `LiveExecutionConfig` requires an injected `Clock`; the factory rejects any non-`Clock` before writing durable state. `LivePreTradeRiskEvaluator` reads it once per evaluation and passes only that reading to the clock-free engine as `evaluated_at`, so the engine computes snapshot age from trusted time against the provider-supplied `snapshot.observed_at`.

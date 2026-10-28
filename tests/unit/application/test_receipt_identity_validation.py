@@ -751,7 +751,10 @@ def test_validator_rejects_aggregate_fill_exceeding_quantity() -> None:
 
 
 # ---------------------------------------------------------------------------
-# End-to-end orchestrator tests via _execute_live_transactional
+# End-to-end orchestrator tests through the admission-protected LIVE
+# boundary: execute() mints a single-use authorization only after every
+# LIVE admission check passes, and _execute_live_transactional refuses to
+# reserve or submit without a valid one.
 # ---------------------------------------------------------------------------
 
 

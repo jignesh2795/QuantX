@@ -71,6 +71,11 @@ from quantx.ports.market_checks import (
     trusted_failure_codes,
 )
 
+from .live_submission_capability import (
+    LiveSubmissionAuthorization,
+    LiveSubmissionAuthorizationError,
+    LiveSubmissionAuthorizer,
+)
 from .runtime import ApplicationRuntime
 
 
@@ -124,6 +129,9 @@ def _quarantine_reason(kind: QuarantineObservationKind) -> str:
 # reconciliation evidence instead.
 _LIVE_DECISION_REJECTED_REASON = (
     "live idempotency decision failed contract validation; no broker submission was attempted"
+)
+_LIVE_AUTHORIZATION_REJECTED_REASON = (
+    "live submission lacks a valid admission authorization; no broker submission was attempted"
 )
 _CACHED_RECEIPT_IDENTITY_REASON = (
     "cached receipt for a completed reservation does not belong to the approved request; "
@@ -296,6 +304,10 @@ class ExecutionOrchestrator:
         self._market_policy = market_policy or default_market_policy()
         self._submission_quarantine = submission_quarantine
         self._policy_verifier = policy_verifier
+        # The single-use LIVE submit credential issuer. It is private state
+        # with no supported injection path, so only this orchestrator can
+        # mint authorizations that its own transactional path will accept.
+        self._live_submission_authority = LiveSubmissionAuthorizer()
 
     def _verify_request_proofs(self, request: ApprovedExecutionRequest) -> str | None:
         """Return a blocking reason when the request's proofs are not authentic.
@@ -937,12 +949,35 @@ class ExecutionOrchestrator:
                     ),
                     check_entries,
                 )
+        # Every LIVE admission check has now succeeded for this exact
+        # request: proofs, product, LIVE prerequisites, trading gate,
+        # market-policy stages, session guard, broker observations, the
+        # durable unit of work, and pre-trade risk. Mint the single-use
+        # submit authorization here, immediately before the transactional
+        # path, so that path can prove admission happened for this request
+        # and this execution context. The capability relays this admission;
+        # it grants no authority of its own.
+        authorization = self._live_submission_authority.issue(
+            client_order_id=request.order.client_order_id,
+            request_fingerprint=request_fingerprint(request),
+        )
         try:
-            live_result = self._execute_live_transactional(request, broker, unit_of_work)
+            live_result = self._execute_live_transactional(
+                request, broker, unit_of_work, authorization
+            )
         except IdempotencyDecisionValidationError:
             return ExecutionResult(
                 ExecutionDispatchStatus.BLOCKED,
                 reason=_LIVE_DECISION_REJECTED_REASON,
+            )
+        except LiveSubmissionAuthorizationError:
+            # Unreachable through execute(): an authorization minted here
+            # for this request is presented exactly once. Fail closed anyway
+            # so no routing change can turn a credential fault into a
+            # reservation or a broker submission.
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=_LIVE_AUTHORIZATION_REJECTED_REASON,
             )
         if pack_applies:
             return self._with_evidence_prefix(live_result, check_entries)
@@ -1074,6 +1109,7 @@ class ExecutionOrchestrator:
         request: ApprovedExecutionRequest,
         broker: BrokerPort,
         unit_of_work: UnitOfWork,
+        authorization: LiveSubmissionAuthorization,
     ) -> ExecutionResult:
         """Live execution in two scopes so no transaction spans broker submit.
 
@@ -1086,6 +1122,15 @@ class ExecutionOrchestrator:
         connection/health/instrument/capability observations in ``execute``
         may already have run and are not undone by the denial.
 
+        ``authorization`` is the single-use admission credential minted by
+        ``execute`` only after every LIVE admission check succeeded for this
+        exact request. It is verified first, before any durable work: a
+        missing, foreign, tampered, mismatched, or replayed credential
+        raises :class:`LiveSubmissionAuthorizationError` here, so no
+        reservation is created and no broker call is attempted. The
+        credential proves admission already happened; it submits nothing
+        and weakens no downstream check.
+
         R0-B scope: only the safety-critical submit/cancel/reconcile broker
         operations carry bounded timeouts. ``broker.health()`` (checked in
         ``execute`` before this method) never holds the submission permit,
@@ -1095,6 +1140,17 @@ class ExecutionOrchestrator:
         """
         fingerprint = request_fingerprint(request)
         client_order_id = request.order.client_order_id
+
+        # Admission boundary: prove the admission checks in ``execute``
+        # already passed for this exact request before any durable
+        # reservation or broker contact can happen. Both reads below are
+        # pure derivations of the submitted request, so an authorization
+        # mismatch is detected before the first store or broker call.
+        self._live_submission_authority.authorize(
+            authorization,
+            client_order_id=client_order_id,
+            request_fingerprint=fingerprint,
+        )
 
         # Completed duplicates and existing pending reservations never submit.
         with unit_of_work:
