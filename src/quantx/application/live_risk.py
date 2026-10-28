@@ -137,6 +137,7 @@ def _risk_inputs_match_request(
         or intent.stop_price != order.stop_price
         or intent.time_in_force is not order.time_in_force
         or intent.required_capabilities != order.required_capabilities
+        or intent.required_margin != request.required_margin
         or intent.strategy_id != order.strategy_id
         or intent.strategy_version != order.strategy_version
         or intent.product != request.product

@@ -584,7 +584,7 @@ def test_built_stack_blocks_a_malformed_risk_evaluator_result(tmp_path, monkeypa
         result = stack.orchestrator.execute(_live_request(), broker=broker)
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert result.reason == "live pre-trade risk evaluation returned an invalid result"
+        assert result.reason == "authoritative LIVE risk evidence source is unavailable"
         assert broker.submit_calls == 0
     finally:
         database.close()

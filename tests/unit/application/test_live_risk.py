@@ -192,6 +192,7 @@ def _request() -> ApprovedExecutionRequest:
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "upstream approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        required_margin=intent.required_margin,
         product=ProductCode("CNC"),
     )
 
@@ -322,6 +323,39 @@ def _live_pre_trade_evaluator(
         inputs_for_request=inputs_for_request,
         clock=clock if clock is not None else FixedClock(EVALUATED_AT),
     )
+
+
+@pytest.mark.parametrize(
+    "inputs_overrides",
+    [
+        {"context": _context(account_id=AccountId("acct-foreign"))},
+        {"context": _context(broker_connection_id=BrokerConnectionId("conn-foreign"))},
+        {"snapshot": _snapshot(account_id=AccountId("acct-foreign"))},
+        {"snapshot": _snapshot(portfolio_id=PortfolioId("portfolio-foreign"))},
+        {"snapshot": _snapshot(broker_connection_id=BrokerConnectionId("conn-foreign"))},
+    ],
+    ids=[
+        "risk-context-account",
+        "risk-context-connection",
+        "snapshot-account",
+        "snapshot-portfolio",
+        "snapshot-connection",
+    ],
+)
+def test_live_pretrade_evaluator_rejects_foreign_risk_state_identity(inputs_overrides) -> None:
+    inputs = _live_evaluation_inputs()
+    inputs = replace(inputs, **inputs_overrides)
+    evaluator = LivePreTradeRiskEvaluator(
+        engine=PreTradeRiskEngine(),
+        limits=_limits(),
+        inputs_for_request=lambda _request: inputs,
+        clock=FixedClock(EVALUATED_AT),
+    )
+
+    result = evaluator(_request())
+
+    assert result.decision is RiskDecision.REJECT
+    assert "LIVE_RISK_REQUEST_MISMATCH" in result.reason
 
 
 # Existing behavior regression.
