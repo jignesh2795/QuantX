@@ -343,16 +343,12 @@ def _live_pre_trade_evaluator(
     ],
 )
 def test_live_pretrade_evaluator_rejects_foreign_risk_state_identity(inputs_overrides) -> None:
+    request = _request()
     inputs = _live_evaluation_inputs()
     inputs = replace(inputs, **inputs_overrides)
-    evaluator = LivePreTradeRiskEvaluator(
-        engine=PreTradeRiskEngine(),
-        limits=_limits(),
-        inputs_for_request=lambda _request: inputs,
-        clock=FixedClock(EVALUATED_AT),
-    )
+    evaluator = _live_pre_trade_evaluator(_limits(), inputs, clock=FixedClock(EVALUATED_AT))
 
-    result = evaluator(_request())
+    result = evaluator(request)
 
     assert result.decision is RiskDecision.REJECT
     assert "LIVE_RISK_REQUEST_MISMATCH" in result.reason
@@ -1242,7 +1238,27 @@ def test_live_pre_trade_evaluator_rejections_keep_the_resolved_instrument() -> N
     ],
 )
 def test_live_pretrade_evaluator_rejects_intent_that_differs_from_request(intent_overrides) -> None:
-    inputs = _live_evaluation_inputs(intent=_intent(**intent_overrides))
+    request = _request()
+    order = request.order
+    intent = TradeIntent(
+        instrument=order.instrument,
+        side=order.side,
+        quantity=order.quantity,
+        order_type=order.order_type,
+        limit_price=order.limit_price,
+        stop_price=order.stop_price,
+        time_in_force=order.time_in_force,
+        required_margin=request.required_margin,
+        required_capabilities=order.required_capabilities,
+        execution_context=request.execution_context,
+        intent_id=order.intent_id,
+        product=request.product,
+        position_effect=request.position_effect,
+        strategy_id=order.strategy_id,
+        strategy_version=order.strategy_version,
+    )
+    intent = replace(intent, **intent_overrides)
+    inputs = replace(_live_evaluation_inputs(), intent=intent)
     evaluator = LivePreTradeRiskEvaluator(
         engine=PreTradeRiskEngine(),
         limits=_limits(),
@@ -1250,7 +1266,7 @@ def test_live_pretrade_evaluator_rejects_intent_that_differs_from_request(intent
         clock=FixedClock(EVALUATED_AT),
     )
 
-    result = evaluator(_request())
+    result = evaluator(request)
 
     assert result.decision is RiskDecision.REJECT
     assert "LIVE_RISK_REQUEST_MISMATCH" in result.reason
