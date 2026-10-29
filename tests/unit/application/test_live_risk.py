@@ -373,6 +373,35 @@ def test_live_pretrade_evaluator_rejects_foreign_risk_state_identity(inputs_over
     assert "LIVE_RISK_REQUEST_MISMATCH" in result.reason
 
 
+
+def test_live_pretrade_rejects_instrument_facts_that_diverge_from_resolution() -> None:
+    canonical_instrument = _instrument()
+    resolution = InstrumentResolution(
+        instrument=canonical_instrument,
+        instrument_rule_version="instrument-rules-v1",
+        instrument_rule_effective_from=EVALUATED_AT - timedelta(days=1),
+        resolved_at=EVALUATED_AT,
+    )
+    request = replace(_request(), instrument_resolution=resolution)
+    altered_instrument = replace(canonical_instrument, multiplier=Decimal("0.01"))
+    context = replace(
+        _context(),
+        instrument=altered_instrument,
+        instrument_resolution=resolution,
+    )
+    inputs = _live_evaluation_inputs(context=context)
+    evaluator = _live_pre_trade_evaluator(
+        _limits(max_order_notional=Decimal("100")),
+        inputs,
+        clock=FixedClock(EVALUATED_AT),
+    )
+
+    result = evaluator(request)
+
+    assert result.decision is RiskDecision.REJECT
+    assert "LIVE_RISK_REQUEST_MISMATCH" in result.reason
+
+
 # Existing behavior regression.
 
 
