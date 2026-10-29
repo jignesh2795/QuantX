@@ -23,6 +23,7 @@ from quantx.integrations.brokers import (
     BrokerDescriptor,
     CapabilitySet,
 )
+from tests.unit.application.test_execution import FakeBroker
 
 BROKER_ID = "fake"
 DEFAULT_CLIENT = "client-1"
@@ -54,7 +55,12 @@ class RegistryAdapter:
 
 
 class EvidenceAdapter(RegistryAdapter):
-    """Registered adapter that owns its LIVE risk-evidence construction path."""
+    """Registered adapter that owns its LIVE risk-evidence construction path.
+
+    It also carries the broker-port surface a LIVE dispatch needs, delegating
+    submission to a deterministic in-memory broker, so the registered adapter
+    can be the exact object a sanctioned stack submits through.
+    """
 
     def __init__(
         self,
@@ -72,7 +78,27 @@ class EvidenceAdapter(RegistryAdapter):
         self._transport = transport
         self._binding = binding
         self._error = error
+        self._broker = FakeBroker(
+            account_id=connection.account_id,
+            connection_id=connection.connection_id,
+        )
         self.binding_calls = 0
+
+    @property
+    def submit_calls(self) -> int:
+        return self._broker.submit_calls
+
+    def instrument(self, instrument_id):
+        return self._broker.instrument(instrument_id)
+
+    def submit(self, request):
+        return self._broker.submit(request)
+
+    def cancel(self, request):
+        return self._broker.cancel(request)
+
+    def reconcile(self, request):
+        return self._broker.reconcile(request)
 
     def build_live_risk_evidence_binding(
         self, registered: RegisteredConnection

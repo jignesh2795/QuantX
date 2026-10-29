@@ -303,6 +303,7 @@ class ExecutionOrchestrator:
         application_runtime: ApplicationRuntime | None = None,
         session_guard: SessionExecutionGuard | None = None,
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
+        live_broker: object | None = None,
         market_policy: MarketPolicyConfig | None = None,
         submission_quarantine: SubmissionQuarantineRepository | None = None,
         policy_verifier: MarketPackPolicyVerifier,
@@ -314,6 +315,10 @@ class ExecutionOrchestrator:
         self._application_runtime = application_runtime
         self._session_guard = session_guard
         self._live_risk_evaluator = live_risk_evaluator
+        # The exact adapter registered for this connection. When the sanctioned
+        # factory sets it, LIVE submission is bound to the same object that owns
+        # the trusted risk-evidence construction path.
+        self._live_broker = live_broker
         self._market_policy = market_policy or default_market_policy()
         self._submission_quarantine = submission_quarantine
         self._policy_verifier = policy_verifier
@@ -811,6 +816,23 @@ class ExecutionOrchestrator:
                 ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason="live execution requires a broker adapter",
+                ),
+                check_entries,
+            )
+
+        # A matching account/connection pair is not enough: the object that
+        # receives the order must be the exact registered adapter whose
+        # construction path produces the risk evidence that authorized it.
+        # Otherwise evidence collected from one connection could dispatch an
+        # order to a different one that merely reports the same identifiers.
+        expected_broker = self._live_broker
+        if expected_broker is not None and broker is not expected_broker:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=(
+                        "LIVE submission requires the registered broker adapter for this connection"
+                    ),
                 ),
                 check_entries,
             )

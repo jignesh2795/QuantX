@@ -324,6 +324,38 @@ def _live_runtime(
     )
 
 
+def _registered_adapter(
+    runtime: ProductionRuntime,
+    connection_id: BrokerConnectionId = CONNECTION,
+):
+    """The exact adapter a sanctioned LIVE stack is allowed to submit through."""
+    registered = runtime.registry.get(connection_id)
+    assert registered is not None
+    return registered.adapter
+
+
+def _live_stack(
+    database: SqliteDatabase,
+    *,
+    source: LiveRiskEvidenceSource | None = None,
+    clock=None,
+    limits: RiskLimits | None = None,
+    broker_id: str = BROKER_ID,
+    broker_client_id: str = CLIENT,
+    transport: object = TRANSPORT,
+):
+    """Build the sanctioned stack plus the exact adapter it may submit through."""
+    runtime = _live_runtime(
+        database,
+        source=source,
+        broker_id=broker_id,
+        broker_client_id=broker_client_id,
+        transport=transport,
+    )
+    stack = build_live_execution(runtime, _config(clock=clock, limits=limits))
+    return stack, _registered_adapter(runtime)
+
+
 def _callback_config(callback) -> LiveExecutionConfig:
     return LiveExecutionConfig(
         risk_limits=_limits(),
@@ -502,13 +534,12 @@ def test_build_returns_a_disarmed_gate_for_authority_mode(tmp_path) -> None:
 # Complete authority evidence.
 
 
-def test_complete_authority_evidence_executes_through_the_fake_broker(tmp_path) -> None:
+def test_complete_authority_evidence_executes_through_the_registered_adapter(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         source = _source()
-        stack = build_live_execution(_live_runtime(database, source=source), _config())
+        stack, broker = _live_stack(database, source=source)
         stack.gate.enable()
-        broker = FakeBroker()
         request = _request()
 
         result = stack.orchestrator.execute(request, broker=broker)
@@ -539,12 +570,10 @@ def test_authority_rejects_a_market_order_without_a_reference_price(tmp_path) ->
             context=_live_context(reference_price=None),
             reference_price=None,
         )
-        stack = build_live_execution(
-            _live_runtime(database, source=_source(evidence_factory=lambda request: evidence)),
-            _config(),
+        stack, broker = _live_stack(
+            database, source=_source(evidence_factory=lambda request: evidence)
         )
         stack.gate.enable()
-        broker = FakeBroker()
         request = _request(order_type=OrderType.MARKET, limit_price=None)
 
         result = stack.orchestrator.execute(request, broker=broker)
@@ -606,12 +635,12 @@ def test_built_stack_blocks_every_unknown_authority_path(tmp_path, overrides, cl
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         evidence = _evidence(**overrides)
-        stack = build_live_execution(
-            _live_runtime(database, source=_source(evidence_factory=lambda request: evidence)),
-            _config(clock=FixedClock(clock) if clock is not None else None),
+        stack, broker = _live_stack(
+            database,
+            source=_source(evidence_factory=lambda request: evidence),
+            clock=FixedClock(clock) if clock is not None else None,
         )
         stack.gate.enable()
-        broker = FakeBroker()
         request = _request()
 
         result = stack.orchestrator.execute(request, broker=broker)
@@ -630,12 +659,10 @@ def test_built_stack_blocks_a_missing_required_observation(tmp_path) -> None:
         observations = dict(_observations())
         del observations[LiveRiskEvidenceField.DAILY_PNL]
         evidence = _evidence(observations=observations)
-        stack = build_live_execution(
-            _live_runtime(database, source=_source(evidence_factory=lambda request: evidence)),
-            _config(),
+        stack, broker = _live_stack(
+            database, source=_source(evidence_factory=lambda request: evidence)
         )
         stack.gate.enable()
-        broker = FakeBroker()
         request = _request()
 
         result = stack.orchestrator.execute(request, broker=broker)
@@ -650,12 +677,10 @@ def test_built_stack_blocks_a_missing_required_observation(tmp_path) -> None:
 def test_built_stack_blocks_a_source_exception(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        stack = build_live_execution(
-            _live_runtime(database, source=_source(error=RuntimeError("transport failure"))),
-            _config(),
+        stack, broker = _live_stack(
+            database, source=_source(error=RuntimeError("transport failure"))
         )
         stack.gate.enable()
-        broker = FakeBroker()
         request = _request()
 
         result = stack.orchestrator.execute(request, broker=broker)
@@ -671,12 +696,8 @@ def test_built_stack_blocks_a_source_exception(tmp_path) -> None:
 def test_built_stack_blocks_a_non_evidence_source_result(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        stack = build_live_execution(
-            _live_runtime(database, source=_source(evidence_factory=lambda request: None)),
-            _config(),
-        )
+        stack, broker = _live_stack(database, source=_source(evidence_factory=lambda request: None))
         stack.gate.enable()
-        broker = FakeBroker()
         request = _request()
 
         result = stack.orchestrator.execute(request, broker=broker)
@@ -782,17 +803,10 @@ def test_built_stack_blocks_the_dhan_source_before_collection(tmp_path, override
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         transport = _dhan_transport(**overrides)
-        stack = build_live_execution(
-            _live_runtime(
-                database,
-                broker_id=DHAN_BROKER_ID,
-                broker_client_id=CLIENT,
-                source=_dhan_source(transport),
-            ),
-            _config(),
+        stack, broker = _live_stack(
+            database, source=_dhan_source(transport), broker_id=DHAN_BROKER_ID
         )
         stack.gate.enable()
-        broker = FakeBroker()
         request = _request()
 
         result = stack.orchestrator.execute(request, broker=broker)

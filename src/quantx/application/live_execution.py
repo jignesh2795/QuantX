@@ -21,10 +21,13 @@ connection's own adapter: the only accepted construction path is the adapter's
 registered adapter, mints the grant the authority consumes, and never returns
 the catalog, so a caller cannot declare a construction path next to a genuine
 broker connection. A connection whose adapter exposes no construction path gets
-a composition error, never a quietly degraded LIVE stack. What this factory
-guarantees is that the stack it returns is disarmed, durably gated,
-quarantine-backed, risk-evaluated against a composition-injected clock, and
-market-policy-complete for India.
+a composition error, never a quietly degraded LIVE stack. The same registered
+adapter must also be the object ``execute`` submits through: matching account
+and connection identifiers are not enough, so risk evidence collected from one
+connection cannot dispatch an order to another that reports the same ids. What
+this factory guarantees is that the stack it returns is disarmed, durably
+gated, quarantine-backed, risk-evaluated against a composition-injected clock,
+and market-policy-complete for India.
 """
 
 from __future__ import annotations
@@ -173,11 +176,13 @@ def _india_only_market_policy(policy: MarketPolicyConfig) -> MarketPolicyConfig:
 def _authority_catalog_and_grant(
     runtime: ProductionRuntime,
     config: LiveExecutionConfig,
-) -> tuple[LiveRiskEvidenceSourceCatalog, LiveRiskEvidenceSourceGrant]:
+) -> tuple[LiveRiskEvidenceSourceCatalog, LiveRiskEvidenceSourceGrant, object]:
     """Resolve the registered connection and the construction path it owns.
 
     The catalog is derived from the registered adapter, is never accepted from
-    the caller, and is never returned to a caller of this factory.
+    the caller, and is never returned to a caller of this factory. The adapter
+    itself is returned so the orchestrator can require that the object which
+    submits is the object whose evidence authorized the submission.
     """
     if config.expected_account_id is None and config.expected_broker_connection_id is None:
         raise LiveExecutionCompositionError(_AUTHORITY_IDENTITY_REQUIRED_REASON)
@@ -198,7 +203,7 @@ def _authority_catalog_and_grant(
     grant = catalog.grant(registered)
     if grant is None:
         raise LiveExecutionCompositionError(_UNREGISTERED_SOURCE_REASON)
-    return catalog, grant
+    return catalog, grant, registered.adapter
 
 
 def build_live_execution(
@@ -241,6 +246,7 @@ def build_live_execution(
     )
     catalog: LiveRiskEvidenceSourceCatalog | None = None
     grant: LiveRiskEvidenceSourceGrant | None = None
+    live_broker: object | None = None
     if has_callback:
         if not callable(config.risk_inputs_for_request):
             raise LiveExecutionCompositionError("risk_inputs_for_request must be callable")
@@ -249,7 +255,7 @@ def build_live_execution(
                 "authority identity inputs are rejected in callback mode"
             )
     else:
-        catalog, grant = _authority_catalog_and_grant(runtime, config)
+        catalog, grant, live_broker = _authority_catalog_and_grant(runtime, config)
     if type(config.market_policy) is not MarketPolicyConfig:
         raise LiveExecutionCompositionError("market_policy must be a MarketPolicyConfig")
     if any(placed.region is not MarketRegion.INDIA for placed in config.market_policy.checks):
@@ -306,6 +312,7 @@ def build_live_execution(
         application_runtime=runtime.application,
         unit_of_work=runtime.unit_of_work,
         live_risk_evaluator=evaluator,
+        live_broker=live_broker,
         market_policy=_india_only_market_policy(config.market_policy),
         submission_quarantine=quarantine,
         policy_verifier=config.policy_verifier,

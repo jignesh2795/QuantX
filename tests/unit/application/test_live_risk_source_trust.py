@@ -82,6 +82,7 @@ from tests.unit.application.test_live_execution_authority import (
     _config,
     _evidence,
     _live_runtime,
+    _live_stack,
     _request,
     _source,
 )
@@ -517,9 +518,8 @@ def test_a_registered_adapter_path_can_exercise_the_sanctioned_stack(tmp_path) -
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         source = _source()
-        stack = build_live_execution(_live_runtime(database, source=source), _config())
+        stack, broker = _live_stack(database, source=source)
         stack.gate.enable()
-        broker = FakeBroker()
         request = _request()
 
         result = stack.orchestrator.execute(request, broker=broker)
@@ -533,6 +533,38 @@ def test_a_registered_adapter_path_can_exercise_the_sanctioned_stack(tmp_path) -
         )
         assert decision.reservation_pending is False
         assert decision.existing_receipt_id == result.receipt.receipt_id
+    finally:
+        database.close()
+
+
+def test_a_distinct_broker_with_matching_identifiers_is_rejected(tmp_path) -> None:
+    """Matching ids are not trust: the submitting object must be the registered one.
+
+    The registered adapter owns the evidence construction path. A second object
+    that reports the same account and connection would otherwise receive an
+    order authorized by evidence collected from a different adapter.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        source = _source()
+        stack, registered = _live_stack(database, source=source)
+        stack.gate.enable()
+        impostor = FakeBroker(account_id=ACCOUNT, connection_id=CONNECTION)
+
+        assert impostor is not registered
+        assert impostor.connection.account_id == registered.connection.account_id
+        assert impostor.connection.connection_id == registered.connection.connection_id
+
+        request = _request()
+        result = stack.orchestrator.execute(request, broker=impostor)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "registered broker adapter" in result.reason
+        assert result.receipt is None
+        assert impostor.submit_calls == 0
+        assert source.calls == 0
+        assert stack.gate.state().enabled is True
+        _assert_no_side_effects(database, impostor)
     finally:
         database.close()
 
