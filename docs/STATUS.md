@@ -262,6 +262,61 @@ in-process sandbox, and it does not establish independent corroboration of
 broker-reported financial values. Issue #267 remains open and the sanctioned
 LIVE path remains blocked.
 
+### Dispatch-adapter binding follow-up (2026-10-29)
+
+Branch `fix/issue267-dispatch-adapter-binding-v1`, created from the published
+candidate `f2b464fb153a2a9cdbc44c208843ab9b52cb2e61`.
+
+**Confirmed gap.** The sanctioned factory bound risk evidence to the registered
+connection's adapter, but `ExecutionOrchestrator.execute` accepted any
+`BrokerPort` whose `account_id` and `connection_id` matched the request. A
+deterministic probe registered adapter A as the evidence path and passed a
+distinct broker B reporting the same identifiers:
+
+```text
+before: A is B: False | refs equal: True | dispatch: EXECUTED | evidence from A: 1 | B submits: 1
+after:  A is B: False | refs equal: True | dispatch: BLOCKED  | evidence from A: 0 | B submits: 0
+```
+
+Evidence collected from one connection could therefore authorize an order sent
+to another that merely echoed the same ids.
+
+**Correction.** `build_live_execution` passes the registered adapter to the
+orchestrator, and LIVE dispatch requires identity with that object before
+evidence collection, reservation, gate admission or submission. Matching
+identifiers remain necessary but are no longer sufficient; the relationship is
+the proof. Callback mode has no registered adapter, is unchanged, and remains
+non-authoritative and blocked before evaluation.
+
+**Regressions.** `test_a_distinct_broker_with_matching_identifiers_is_rejected`
+asserts the block reason, no receipt, zero submits, zero evidence collections,
+an unchanged enabled gate and zero reservation/quarantine rows. The sanctioned
+path now executes through the registered adapter itself, and the caller-catalog,
+unconstructible-catalog, callback, freshness, contradiction, trusted-clock,
+recovery, idempotency, UNKNOWN/quarantine, reconciliation and no-auto-retry
+invariants are unchanged.
+
+**Validation at SHA `14c264843deda3ce43a98407ab76bb8872fca918` (base
+`f2b464fb153a2a9cdbc44c208843ab9b52cb2e61`):** default configuration 3,218
+passed, 2 skipped; Dhan-enabled configuration 3,220 passed. Focused LIVE and
+Dhan suites 237 passed, 2 skipped (283 passed with the Dhan extra). Changed-file
+Ruff check/format passed for 5 Python files; strict mypy passed for 205 source
+files; `uv lock --check` and `git diff --check` passed; both release checks
+passed with exact HEAD/base binding and 5-file scope. Evidence under
+`%LOCALAPPDATA%\Temp\quantx-validation\`:
+`dispatch-14c2648-default.json`, `dispatch-14c2648-dhan.json`,
+`dispatch-14c2648-default-release.json`,
+`dispatch-14c2648-dhan-release.json`, and
+`issue267-dispatch-probe-after.txt`.
+
+Non-claims: local, unauthenticated JSON evidence produced without CI; no real
+broker I/O, authenticated session, production credential or LIVE order. This
+binding constrains dispatch within one composed process; it is not an in-process
+sandbox. Dhan remains non-authoritative while daily P&L, equity and high-water
+mark are unavailable, and the sanctioned LIVE path remains blocked. The
+documentation commit that records these results changes HEAD and is validated at
+its own final SHA; the counts above are not evidence for that later commit.
+
 ## Issue #267 — Dhan risk-evidence authority slice (2026-10-29)
 
 Branch `feat/issue267-dhan-risk-evidence-authority-v1`, based on the frozen
