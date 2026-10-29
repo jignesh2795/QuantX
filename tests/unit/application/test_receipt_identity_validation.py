@@ -33,7 +33,11 @@ from uuid import UUID, uuid4
 import pytest
 
 import quantx.application.execution as execution_module
-from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator, ExecutionResult
+from quantx.application.execution import (
+    ExecutionDispatchStatus,
+    ExecutionOrchestrator,
+    ExecutionResult,
+)
 from quantx.application.pending_recovery import PendingRecoveryRun
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
@@ -803,7 +807,9 @@ def test_foreign_client_order_id_produces_unknown_not_executed() -> None:
             connection_id=req.execution_context.broker_connection_id,
         )
     )
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
     _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
 
 
@@ -827,7 +833,9 @@ def test_account_mismatch_produces_unknown() -> None:
             connection_id=req.execution_context.broker_connection_id,
         )
     )
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
     _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
 
 
@@ -851,7 +859,9 @@ def test_connection_mismatch_produces_unknown() -> None:
             connection_id=_FOREIGN_CONNECTION_ID,  # wrong connection
         )
     )
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
     _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
 
 
@@ -875,7 +885,9 @@ def test_absent_correlation_produces_unknown_and_keeps_pending() -> None:
             connection_id=req.execution_context.broker_connection_id,
         )
     )
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
     _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
 
 
@@ -899,7 +911,9 @@ def test_foreign_correlation_produces_unknown_and_keeps_pending() -> None:
             connection_id=req.execution_context.broker_connection_id,
         )
     )
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
     _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
 
 
@@ -919,7 +933,9 @@ def test_absent_order_quantity_produces_unknown() -> None:
             connection_id=req.execution_context.broker_connection_id,
         )
     )
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
     _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
 
 
@@ -950,7 +966,9 @@ def test_fill_wrong_instrument_produces_unknown() -> None:
         )
 
     broker = _MismatchedBroker(_bad_fill_receipt)
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
     _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
 
 
@@ -981,7 +999,9 @@ def test_fill_wrong_side_produces_unknown() -> None:
         )
 
     broker = _MismatchedBroker(_bad_fill_receipt)
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
     _assert_mismatch_is_unknown_and_pending(result, unit_of_work, request, broker)
 
 
@@ -991,7 +1011,9 @@ def test_valid_normal_receipt_produces_executed() -> None:
     unit_of_work = _FakeUnitOfWork()
     broker = _MismatchedBroker(lambda req: _valid_receipt(req))
 
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
 
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is not None
@@ -1028,7 +1050,9 @@ def test_mismatched_receipt_does_not_complete_idempotency() -> None:
         )
     )
 
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
 
     assert result.status is ExecutionDispatchStatus.UNKNOWN
 
@@ -1485,7 +1509,9 @@ def test_matching_cached_receipt_at_check_path_stays_executed() -> None:
     unit_of_work = _completed_reservation(request, cached)
     broker = _MismatchedBroker(_valid_receipt)
 
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
 
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is cached
@@ -1499,7 +1525,9 @@ def test_matching_cached_receipt_at_reservation_path_stays_executed() -> None:
     unit_of_work = _racing_unit_of_work(request, cached)
     broker = _MismatchedBroker(_valid_receipt)
 
-    result = _execute_admitted_transaction(_orchestrator(unit_of_work), request, broker, unit_of_work)
+    result = _execute_admitted_transaction(
+        _orchestrator(unit_of_work), request, broker, unit_of_work
+    )
 
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is cached
