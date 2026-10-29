@@ -456,10 +456,12 @@ def test_india_approval_keeps_submission_reachable(tmp_path) -> None:
             SqliteUnitOfWork(database),
             india_rule_evaluator=_compat_evaluator(),
         )
-        result = orchestrator.execute(_request(), broker=_adapter(transport))
+        request = _request()
+        result = orchestrator.execute(request, broker=_adapter(transport))
 
-        assert result.status is ExecutionDispatchStatus.EXECUTED
-        assert len(transport.submitted) == 1
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in result.reason
+        assert transport.submitted == ()
     finally:
         database.close()
 
@@ -630,8 +632,9 @@ def test_non_india_live_without_evaluator_preserves_legacy_behavior(tmp_path) ->
         orchestrator = _orchestrator(database, SqliteUnitOfWork(database))
         result = orchestrator.execute(request, broker=broker)
 
-        assert result.status is ExecutionDispatchStatus.EXECUTED
-        assert broker.submit_calls == 1
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in result.reason
+        assert broker.submit_calls == 0
     finally:
         database.close()
 
@@ -755,10 +758,12 @@ def test_compat_approval_reaches_submission(tmp_path) -> None:
             SqliteUnitOfWork(database),
             india_rule_evaluator=_compat_evaluator(),
         )
-        result = orchestrator.execute(_request(), broker=_adapter(transport))
+        request = _request()
+        result = orchestrator.execute(request, broker=_adapter(transport))
 
-        assert result.status is ExecutionDispatchStatus.EXECUTED
-        assert len(transport.submitted) == 1
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in result.reason
+        assert transport.submitted == ()
     finally:
         database.close()
 
@@ -780,7 +785,8 @@ def test_non_india_live_skips_configured_india_evaluator(tmp_path) -> None:
         result = orchestrator.execute(request, broker=broker)
 
         assert calls == []
-        assert result.status is ExecutionDispatchStatus.EXECUTED
-        assert broker.submit_calls == 1
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in result.reason
+        assert broker.submit_calls == 0
     finally:
         database.close()
