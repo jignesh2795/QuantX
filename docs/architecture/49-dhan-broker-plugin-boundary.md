@@ -73,15 +73,18 @@ unavailable/contradictory cases.
 
 ## Supported surface in P1.5
 
-The adapter currently advertises only the capabilities implemented by the
+The adapter continues to advertise only the capabilities implemented by the
 existing QuantX `BrokerPort` contract:
 
 - order submission
 - order cancellation
 
-Positions, balances, replacement, and other Dhan functionality remain
-outside the first adapter slice until QuantX exposes normalized contracts
-for them.
+Separate read-only adapter methods expose normalized fund-limit, open-position,
+and holdings observations for future reconciliation and risk-evidence
+composition. These are not submission capabilities and do not establish LIVE
+risk authority. A source that consumes them must still bind the observations to
+the expected broker client, QuantX account/connection mapping, completeness,
+valuation basis, and freshness policy.
 
 ## Market-data composition
 
