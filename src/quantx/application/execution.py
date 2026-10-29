@@ -78,8 +78,8 @@ from .live_submission_capability import (
     LiveSubmissionAuthorizationError,
     LiveSubmissionAuthorizer,
 )
-from .runtime import ApplicationRuntime
 from .live_risk import LivePreTradeRiskEvaluator
+from .runtime import ApplicationRuntime
 
 # The issuer is deliberately not stored on an ExecutionOrchestrator instance.
 # Supported call paths can issue/verify a token only through this module's
