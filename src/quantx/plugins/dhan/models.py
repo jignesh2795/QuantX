@@ -142,7 +142,12 @@ class DhanPositionSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class DhanPositionsSnapshot:
-    """Normalized broker position-book observation; no domain or vendor types."""
+    """Normalized broker position-book observation; no domain or vendor types.
+
+    An empty successful book has no position row from which to read a client ID,
+    so dhan_client_id remains None and the snapshot is not independent proof of
+    account identity.
+    """
 
     observed_at: datetime
     positions: tuple[DhanPositionSnapshot, ...] = ()

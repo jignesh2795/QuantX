@@ -54,7 +54,9 @@ separate observations. Fund limits preserve Dhan's dhanClientId and are
 unavailable if that identity is missing or differs from the client ID bound to
 the authenticated SDK context. Position rows preserve their dhanClientId and
 the broker-reported realized/unrealized P&L fields; missing, mixed, or foreign
-row identities make the position-book observation unavailable.
+row identities make the position-book observation unavailable. An empty
+successful position book carries no row-level identity and must not be treated
+as independent client-identity proof.
 
 Holdings are a distinct API surface from open positions. Their normalized
 quantities retain delivered, pending-delivery (T1), available, and collateral
