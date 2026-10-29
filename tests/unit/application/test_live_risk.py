@@ -329,14 +329,32 @@ def _live_pre_trade_evaluator(
     "inputs_overrides",
     [
         {"context": _context(account_id=AccountId("acct-foreign"))},
+        {"context": _context(portfolio_id=PortfolioId("portfolio-foreign"))},
         {"context": _context(broker_connection_id=BrokerConnectionId("conn-foreign"))},
+        {"context": _context(market_pack_id="foreign-pack")},
+        {"context": _context(rule_version="foreign-rules")},
+        {
+            "context": replace(
+                _context(),
+                instrument=replace(
+                    _instrument(),
+                    market=MarketContext(
+                        MarketRegion.NORTH_AMERICA, MarketFamily.EQUITY, "NYSE", "US"
+                    ),
+                ),
+            )
+        },
         {"snapshot": _snapshot(account_id=AccountId("acct-foreign"))},
         {"snapshot": _snapshot(portfolio_id=PortfolioId("portfolio-foreign"))},
         {"snapshot": _snapshot(broker_connection_id=BrokerConnectionId("conn-foreign"))},
     ],
     ids=[
         "risk-context-account",
+        "risk-context-portfolio",
         "risk-context-connection",
+        "risk-context-market-pack",
+        "risk-context-rule-version",
+        "risk-context-market",
         "snapshot-account",
         "snapshot-portfolio",
         "snapshot-connection",
@@ -1226,6 +1244,15 @@ def test_live_pre_trade_evaluator_rejections_keep_the_resolved_instrument() -> N
                 _execution_context(), account_id=AccountId("foreign-account")
             )
         },
+        {
+            "execution_context": replace(
+                _execution_context(),
+                market=MarketContext(
+                    MarketRegion.NORTH_AMERICA, MarketFamily.EQUITY, "NYSE", "US"
+                ),
+            )
+        },
+        {"intent_id": UUID("00000000-0000-0000-0000-000000000009")},
     ],
     ids=[
         "instrument",
@@ -1235,6 +1262,8 @@ def test_live_pre_trade_evaluator_rejections_keep_the_resolved_instrument() -> N
         "capabilities",
         "product",
         "account-context",
+        "market-context",
+        "intent-identity",
     ],
 )
 def test_live_pretrade_evaluator_rejects_intent_that_differs_from_request(intent_overrides) -> None:
