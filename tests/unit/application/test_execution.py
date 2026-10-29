@@ -2029,8 +2029,8 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
     def run_execute() -> None:
         try:
             outcome["result"] = _execute_admitted_transaction(
-            orchestrator, request, broker, unit_of_work
-        )
+                orchestrator, request, broker, unit_of_work
+            )
         except BaseException as exc:
             outcome["error"] = exc
 
@@ -2114,8 +2114,8 @@ def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
     def run_execute() -> None:
         try:
             outcome["result"] = _execute_admitted_transaction(
-            orchestrator, request, broker, unit_of_work
-        )
+                orchestrator, request, broker, unit_of_work
+            )
         except BaseException as exc:
             outcome["error"] = exc
 
