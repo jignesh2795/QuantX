@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from quantx.domain.clock import Clock
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.finance import CapitalSourceType
+from quantx.domain.instrument_registry import InstrumentResolution
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.risk import (
     PreTradeRiskEngine,
@@ -89,11 +90,16 @@ _REQUEST_MISMATCH_REASON = (
 )
 
 
-def _same_instrument_resolution(left: object, right: object) -> bool:
+def _same_instrument_resolution(
+    left: InstrumentResolution | None,
+    right: InstrumentResolution | None,
+) -> bool:
     if left is None or right is None:
         return left is right
+    if type(left) is not InstrumentResolution or type(right) is not InstrumentResolution:
+        return False
     try:
-        return left.identity_payload() == right.identity_payload()  # type: ignore[attr-defined]
+        return left.identity_payload() == right.identity_payload()
     except Exception:
         return False
 
