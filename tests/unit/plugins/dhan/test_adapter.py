@@ -628,6 +628,16 @@ def test_account_state_missing_funds_remain_none_not_zero() -> None:
     assert state.margin_used is None
 
 
+def test_account_state_rejects_unavailable_fund_observation() -> None:
+    transport = InMemoryDhanTransport(
+        funds_available=False,
+        funds_message="broker identity could not be verified",
+    )
+
+    with pytest.raises(ValueError, match="fund observation unavailable"):
+        _adapter(transport).account_state()
+
+
 def test_position_states_map_known_broker_instruments() -> None:
     from quantx.integrations.reconciliation import StateSource
     from quantx.plugins.dhan.models import DhanPositionSnapshot

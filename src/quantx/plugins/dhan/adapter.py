@@ -356,6 +356,8 @@ class DhanBrokerAdapter:
     def account_state(self, *, currency: str = "INR") -> AccountFinancialState:
         """Expose the observed broker balance without inventing missing values."""
         snapshot = self.funds_snapshot()
+        if not snapshot.available:
+            raise ValueError(f"Dhan fund observation unavailable: {snapshot.message}")
         return AccountFinancialState(
             account_id=self._connection.account_id,
             connection_id=self._connection.connection_id,
