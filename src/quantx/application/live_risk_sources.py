@@ -8,12 +8,13 @@ the source's construction path itself: the adapter held by
 :class:`LiveRiskEvidenceSourceProvider`.
 
 That anchor is deliberate. The object that builds risk evidence is the same
-object that receives orders, reports health and reconciles fills for that
-connection, so replacing it means replacing the broker connection rather than
-swapping only the numbers the risk engine reads. There is no separate catalog
-input: :class:`quantx.application.live_execution.LiveExecutionConfig` cannot
-carry one, this module's catalog cannot be constructed from outside, and the
-sanctioned factory creates it from the registered adapter and never returns it.
+object the process registered for that connection's health, capability routing,
+reconciliation and recovery observations, so replacing it means replacing the
+broker connection rather than swapping only the numbers the risk engine reads.
+There is no separate catalog input:
+:class:`quantx.application.live_execution.LiveExecutionConfig` cannot carry one,
+this module's catalog cannot be constructed from outside, and the sanctioned
+factory creates it from the registered adapter and never returns it.
 
 Python cannot distinguish "the deployment wired this" from "other code in this
 same process wired this", so this boundary does not claim to sandbox arbitrary

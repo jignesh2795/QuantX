@@ -117,25 +117,32 @@ completeness compared observations against the `RiskContext`/`RiskSnapshot` the
 source itself produced. The authority HMAC sealed only its own wrapping, so an
 internally consistent fabricated source reached the risk engine and the broker.
 
-**Trust model.** Trust is an application-owned, composition-time allowlist of
-source construction paths, anchored on the existing `AccountConnectionRegistry`:
+**Trust model.** Trust follows the registered execution path. The evidence
+construction path is the bound method of the adapter behind the account /
+connection this process registered; there is no separate declaration to supply:
 
 ```text
-LiveRiskEvidenceSourceCatalog   (application-owned; builders keyed by broker id)
-        |  grant(): build over the connection this process registered
+AccountConnectionRegistry
+        |  registered connection -> adapter
+        v
+DhanBrokerAdapter.build_live_risk_evidence_binding   (plugin construction path)
+        |  derived by the application, never supplied by the caller
+        v
+LiveRiskEvidenceSourceCatalog   (application-minted; not constructible outside)
+        |  grant(): build over the exact registered connection
         v
 LiveRiskEvidenceSourceGrant     (sealed construction proof)
         v
 LiveRiskEvidenceAuthority       (re-verifies the grant and its registry entry)
-        v
-LiveRiskEvidenceSource          (built only by the registered path)
 ```
 
-`LiveExecutionConfig` has no source field; authority mode takes
-`risk_evidence_catalog` plus the account and connection. The factory resolves
-`ProductionRuntime.registry`, asks the catalog for a grant, and fails closed
-with a fixed composition error for an unregistered or disabled connection, a
-wrong account, or a broker with no registered construction path. The authority
+`LiveExecutionConfig` has no source field and no catalog field. Authority mode
+takes the registered account and broker connection; the factory resolves
+`ProductionRuntime.registry`, derives the catalog from that connection's own
+adapter, and fails closed with a fixed composition error for an unregistered or
+disabled connection, a wrong account, a connection whose adapter exposes no
+construction path, or a construction path that does not describe the
+registration. The authority
 derives the expected account, connection, broker client and transport from the
 grant's binding instead of from caller arguments, then re-verifies the grant
 seal and the registry entry. Existing controls are unchanged: evidence
@@ -145,21 +152,24 @@ authorization. The neutral evidence contracts moved to
 `quantx/application/live_risk_evidence.py` and are re-exported from
 `quantx/application/live_risk.py`.
 
-The Dhan plugin registers its own construction path
-(`build_dhan_risk_evidence_builder`, composed by
-`build_dhan_risk_evidence_catalog`), so the application layer names no vendor.
-Dhan remains non-authoritative: it still reports daily P&L, equity and
-high-water mark unavailable, so sanctioned LIVE admission stays blocked before
-reservation and broker submission.
+The Dhan plugin implements the construction path on its own adapter
+(`DhanBrokerAdapter.build_live_risk_evidence_binding`), so the application layer
+names no vendor and no plugin-only builder record exists. Dhan remains
+non-authoritative: it still reports daily P&L, equity and high-water mark
+unavailable, so sanctioned LIVE admission stays blocked before reservation and
+broker submission.
 
 **Regressions.** `tests/unit/application/test_live_risk_source_trust.py` pins
 the bypass: a custom source claiming every field with internally consistent
 fabricated values cannot be admitted because no API accepts a source instance;
-a hand-forged or source-swapped grant fails the seal even when account,
-connection, client id and transport all match; an unregistered connection or
-unsanctioned broker is rejected at composition with zero durable gate state,
-zero reservation, zero broker submit and no quarantine row; a registered test
-builder still exercises the sanctioned path end to end.
+a caller-supplied catalog cannot even be constructed, and the configuration
+surface has no field for one; a hand-forged or source-swapped grant fails the
+seal even when account, connection, client id and transport all match; an
+unregistered connection, an adapter without a construction path, or a
+construction path describing a foreign identity is rejected at composition with
+zero durable gate state, zero evidence collection, zero reservation, zero broker
+submit and no quarantine row; a registered adapter path still exercises the
+sanctioned stack end to end.
 
 **Validation at SHA `478e66d83ad8c911ae0c9f10e4c3ad09980e9354` (base
 `17cd4c8de01e283b2e3101c2d06cee7397a70b24`):** default configuration
@@ -177,14 +187,80 @@ branch scope. Evidence and reports under
 
 Non-claims: the evidence is local, unauthenticated JSON produced without GitHub
 Actions or paid CI; no real broker I/O, authenticated Dhan session, production
-credential, or LIVE order was used. Source trust is only as strong as the
-deployment's catalog: a caller that owns the whole composition root also owns
-the allowlist, which no in-process Python design can prevent. Issue #267 remains
-open, this slice does not establish LIVE readiness, and sanctioned LIVE dispatch
-remains blocked because no registered source supplies every required field. The
+credential, or LIVE order was used. Source trust is composition configuration,
+not an in-process security boundary: Python cannot distinguish the deployment
+wiring a connection from other code in the same process wiring one, so this
+design does not claim to sandbox arbitrary in-process code. What it does
+guarantee is that no separate evidence declaration exists to inject —
+substituting the evidence path means substituting the registered broker
+connection itself, which is also the object the process uses for health,
+capability routing and recovery observations. Issue #267 remains open, this
+slice does not establish LIVE readiness, and sanctioned LIVE dispatch remains
+blocked because no registered source supplies every required field. The
 documentation commit that records these results changes HEAD and is validated
 separately at its own final SHA; the counts above are not evidence for that
 later commit.
+
+### Provenance follow-up — caller-supplied catalogs removed (2026-10-29)
+
+Branch `fix/issue267-catalog-provenance-v1`, created from the reviewed candidate
+`0b066366789350ff917365c8b555cd07e7004a0e`. An independent adversarial review
+demonstrated that the allowlist above was still caller-controlled:
+`LiveExecutionConfig.risk_evidence_catalog` accepted a catalog the caller
+constructed, a builder labelled `dhan` was granted over a genuine registered
+connection, `authoritative_evidence_available` became true, and fabricated but
+internally consistent evidence reached the broker (one submit).
+
+**Correction.** The catalog leaves the composition surface entirely. Authority
+mode is selected by the registered account/connection alone; the factory derives
+the catalog from that connection's adapter through
+`live_risk_evidence_catalog_for`, and `LiveRiskEvidenceSourceCatalog` can only be
+constructed with a module-private token, so no caller can declare a construction
+path anywhere in the process. `LiveRiskEvidenceSourceBuilder` is no longer
+public, and the Dhan plugin's `build_dhan_risk_evidence_builder` /
+`build_dhan_risk_evidence_catalog` helpers were removed in favour of the
+adapter's own method. `DhanHostConfig` gained an optional `broker_client_id` so a
+host over a custom transport can declare the client identity the adapter binds
+evidence to; without it the adapter exposes no usable construction path and
+composition fails closed.
+
+**Regressions.** `test_the_published_catalog_bypass_cannot_be_reconstructed`
+replays the reported exploit shape and proves each step is refused: the catalog
+cannot be built, the config has no field for it, and the sanctioned root raises a
+fixed composition error with zero gate state, zero evidence collection, zero
+reservation and zero broker submit.
+`test_a_catalog_cannot_be_constructed_outside_the_application`,
+`test_a_plain_registration_exposes_no_construction_path`,
+`test_a_provider_result_that_is_not_the_registered_construction_is_not_granted`,
+`test_a_raising_provider_is_not_granted` and the Dhan adapter/host tests cover
+the remaining edges.
+
+**Validation at SHA `acea2894b12f0884834786858dd0446a7f2d0f99` (base
+`17cd4c8de01e283b2e3101c2d06cee7397a70b24`):** default configuration 3,217
+passed, 2 skipped; Dhan-enabled configuration 3,219 passed. Focused LIVE
+trust/authority/composition and Dhan suites 236 passed, 2 skipped in the default
+configuration and 282 passed with the Dhan extra (that run also includes the
+Dhan transport suite). Changed-file Ruff check and format passed for 17 Python
+files; strict mypy passed for 205 source files; `uv lock --check` and
+`git diff --check` passed; the tracked worktree was clean. Both release checks
+passed with exact HEAD/base binding, canonical full-suite argv, 17-file
+changed-Python scope and 19-file branch scope. An executed probe at this SHA
+replayed the original exploit attempt and recorded: catalog construction
+refused, no config field, composition error before any durable write, zero
+submits, zero evidence collections. Dhan remains non-authoritative
+(`authoritative_evidence_available` false,
+`LIVE_RISK_EVIDENCE_SOURCE_UNAVAILABLE`, zero profile reads, zero submits).
+Evidence and reports under `%LOCALAPPDATA%\Temp\quantx-validation\`:
+`provenance-acea289-default.json`, `provenance-acea289-dhan.json`,
+`provenance-acea289-default-release.json`,
+`provenance-acea289-dhan-release.json`, and `provenance-acea289-probe.txt`.
+
+Non-claims: local, unauthenticated JSON evidence produced without GitHub Actions
+or paid CI; no real broker I/O, authenticated Dhan session, production
+credential or LIVE order. This boundary is application composition, not an
+in-process sandbox, and it does not establish independent corroboration of
+broker-reported financial values. Issue #267 remains open and the sanctioned
+LIVE path remains blocked.
 
 ## Issue #267 — Dhan risk-evidence authority slice (2026-10-29)
 

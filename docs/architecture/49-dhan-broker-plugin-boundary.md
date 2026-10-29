@@ -67,27 +67,38 @@ value: an unavailable or malformed payload is an unavailable observation.
 ## LIVE risk-evidence source
 
 ```text
-LiveRiskEvidenceSourceCatalog (application-owned allowlist, keyed by broker id)
-        |  grant(): build over the connection this process registered
+AccountConnectionRegistry (application-owned, per process)
+        |  registered connection -> adapter
+        v
+DhanBrokerAdapter.build_live_risk_evidence_binding (plugin construction path)
+        |  the application derives its catalog from this adapter
+        v
+LiveRiskEvidenceSourceCatalog -> LiveRiskEvidenceSourceGrant (sealed)
+        |
         v
 LiveRiskEvidenceAuthority (application-owned)
         |
         v
-DhanRiskEvidenceSource (plugin evidence source, built by the registered path)
-        |
-        v
-DhanTransport -> profile / fundlimit / positions / holdings
+DhanRiskEvidenceSource -> DhanTransport
+                   (profile / fundlimit / positions / holdings)
 ```
 
 The source is not trusted by its type, its `source_id`, its `supported_fields`
-declaration, or the identity values it echoes. The deployment registers
-`build_dhan_risk_evidence_builder` in an application-owned
-`LiveRiskEvidenceSourceCatalog`; the catalog builds the source over the
-account/connection this process registered in `AccountConnectionRegistry` and
-mints the sealed grant the authority accepts. `build_dhan_risk_evidence_catalog`
-composes that catalog from a `DhanHostRuntime`, and no application-layer module
-names the plugin. A deployment that registers no Dhan construction path cannot
-obtain LIVE authority from a Dhan source at all.
+declaration, or the identity values it echoes. Trust is the registered execution
+path: the application derives its catalog from the adapter behind the connection
+this process registered in `AccountConnectionRegistry`, and the only accepted
+construction path is that adapter's own bound method. `LiveExecutionConfig`
+accepts neither a source nor a catalog, and `LiveRiskEvidenceSourceCatalog`
+cannot be constructed outside the application, so a caller cannot keep a genuine
+Dhan submission path while substituting the evidence it reads. A deployment that
+registers no Dhan adapter cannot obtain LIVE authority from a Dhan source at all,
+and no application-layer module names the plugin.
+
+`DhanHostConfig.broker_client_id` lets a host built over a custom transport
+declare the client identity the adapter binds evidence to; a host built from
+credentials derives it from those credentials. When neither is available the
+adapter exposes no usable construction path and LIVE composition fails closed
+instead of inventing an identity.
 
 `DhanRiskEvidenceSource` is a neutral evidence producer. It is constructed with
 the exact account, broker connection, expected `dhanClientId`, transport,
