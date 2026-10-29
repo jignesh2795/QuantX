@@ -37,7 +37,14 @@ from .mapping import (
     normalize_status,
     parse_dhan_timestamp,
 )
-from .models import DhanInstrumentRef, DhanOrderDetail, DhanPositionSnapshot
+from .models import (
+    DhanFundsSnapshot,
+    DhanHoldingsSnapshot,
+    DhanInstrumentRef,
+    DhanOrderDetail,
+    DhanPositionSnapshot,
+    DhanPositionsSnapshot,
+)
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanTimeoutError, DhanTransport
 
 
@@ -334,9 +341,21 @@ class DhanBrokerAdapter:
         except KeyError as exc:
             raise ValueError(f"Dhan instrument mapping missing: {instrument_id}") from exc
 
+    def funds_snapshot(self) -> DhanFundsSnapshot:
+        """Return normalized fund evidence with its broker-reported client ID."""
+        return self._transport.fund_limits(timeout=self._read_timeout)
+
+    def positions_snapshot(self) -> DhanPositionsSnapshot:
+        """Return raw positions evidence, including identity and P&L fields."""
+        return self._transport.positions(timeout=self._read_timeout)
+
+    def holdings_snapshot(self) -> DhanHoldingsSnapshot:
+        """Return demat holdings separately from the open-position book."""
+        return self._transport.holdings(timeout=self._read_timeout)
+
     def account_state(self, *, currency: str = "INR") -> AccountFinancialState:
         """Expose the observed broker balance without inventing missing values."""
-        snapshot = self._transport.fund_limits(timeout=self._read_timeout)
+        snapshot = self.funds_snapshot()
         return AccountFinancialState(
             account_id=self._connection.account_id,
             connection_id=self._connection.connection_id,
@@ -353,7 +372,7 @@ class DhanBrokerAdapter:
         Unknown instruments and unavailable observations fail closed; nothing
         is inferred or silently dropped.
         """
-        snapshot = self._transport.positions(timeout=self._read_timeout)
+        snapshot = self.positions_snapshot()
         if not snapshot.available:
             raise ValueError(f"Dhan position observation unavailable: {snapshot.message}")
         reverse: dict[tuple[str, str], InstrumentId] = {
@@ -372,22 +391,8 @@ class DhanBrokerAdapter:
         return tuple(states)
 
     def position_state_for(self, instrument_id: str) -> PositionState | None:
-        """Return the broker position for one canonical instrument id string.
-
-        Only the requested instrument is evaluated: stray or manual positions
-        in other symbols (including symbols with no canonical mapping) are not
-        target evidence and never block this lookup. An unavailable position
-        book still fails closed, and absence of the target instrument stays
-        missing (``None``) rather than inferred as anything else.
-
-        The Dhan positions endpoint reports open positions only; delivered
-        (CNC) holdings are not observed here. Absence of a position must
-        never be inferred as delivery or settlement. A future read-only
-        holdings observation (e.g. ``holding_state_for`` backed by a broker
-        holdings endpoint, consumed as corroborating evidence only) is the
-        correct boundary for settled-holdings questions.
-        """
-        snapshot = self._transport.positions(timeout=self._read_timeout)
+        """Return one open position; absence never establishes delivered holdings."""
+        snapshot = self.positions_snapshot()
         if not snapshot.available:
             raise ValueError(f"Dhan position observation unavailable: {snapshot.message}")
         reverse: dict[tuple[str, str], InstrumentId] = {

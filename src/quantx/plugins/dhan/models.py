@@ -91,17 +91,26 @@ class DhanOrderDetail:
 
 @dataclass(frozen=True, slots=True)
 class DhanFundsSnapshot:
-    """Normalized broker fund observation; no domain or vendor types."""
+    """Normalized broker fund observation; no domain or vendor types.
+
+    dhan_client_id is copied from the authenticated fund-limit response,
+    never inferred from the host's configured account identity.
+    """
 
     observed_at: datetime
     available_balance: Decimal | None = None
     utilized_amount: Decimal | None = None
     available: bool = True
     message: str = ""
+    dhan_client_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
+        if self.dhan_client_id is not None and (
+            type(self.dhan_client_id) is not str or not self.dhan_client_id.strip()
+        ):
+            raise ValueError("dhan_client_id must be a non-empty string or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,12 +121,23 @@ class DhanPositionSnapshot:
     exchange_segment: str
     net_quantity: Decimal
     average_price: Decimal | None = None
+    realized_profit: Decimal | None = None
+    unrealized_profit: Decimal | None = None
+    dhan_client_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.security_id.strip():
             raise ValueError("security_id must not be empty")
         if not self.exchange_segment.strip():
             raise ValueError("exchange_segment must not be empty")
+        if self.dhan_client_id is not None and (
+            type(self.dhan_client_id) is not str or not self.dhan_client_id.strip()
+        ):
+            raise ValueError("dhan_client_id must be a non-empty string or None")
+        for name in ("net_quantity", "average_price", "realized_profit", "unrealized_profit"):
+            value = getattr(self, name)
+            if value is not None and (type(value) is not Decimal or not value.is_finite()):
+                raise ValueError(f"{name} must be a finite Decimal or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +146,68 @@ class DhanPositionsSnapshot:
 
     observed_at: datetime
     positions: tuple[DhanPositionSnapshot, ...] = ()
+    available: bool = True
+    message: str = ""
+    dhan_client_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
+        if self.dhan_client_id is not None and (
+            type(self.dhan_client_id) is not str or not self.dhan_client_id.strip()
+        ):
+            raise ValueError("dhan_client_id must be a non-empty string or None")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanHoldingSnapshot:
+    """One normalized demat holding; distinct from an open trading position."""
+
+    security_id: str
+    exchange: str
+    trading_symbol: str
+    isin: str
+    total_quantity: Decimal
+    delivered_quantity: Decimal
+    pending_delivery_quantity: Decimal
+    available_quantity: Decimal
+    collateral_quantity: Decimal
+    average_cost_price: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("security_id", "exchange", "trading_symbol", "isin"):
+            value = getattr(self, name)
+            if type(value) is not str or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        for name in (
+            "total_quantity",
+            "delivered_quantity",
+            "pending_delivery_quantity",
+            "available_quantity",
+            "collateral_quantity",
+        ):
+            value = getattr(self, name)
+            if type(value) is not Decimal or not value.is_finite() or value < 0:
+                raise ValueError(f"{name} must be a finite non-negative Decimal")
+        if self.average_cost_price is not None and (
+            type(self.average_cost_price) is not Decimal
+            or not self.average_cost_price.is_finite()
+            or self.average_cost_price < 0
+        ):
+            raise ValueError("average_cost_price must be a finite non-negative Decimal or None")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanHoldingsSnapshot:
+    """One normalized holdings response or an explicit unavailable state.
+
+    The API response has no per-row client identity. Consumers must bind this
+    observation to the same authenticated transport and a separately verified
+    fund-limit client ID before using it as account-specific evidence.
+    """
+
+    observed_at: datetime
+    holdings: tuple[DhanHoldingSnapshot, ...] = ()
     available: bool = True
     message: str = ""
 

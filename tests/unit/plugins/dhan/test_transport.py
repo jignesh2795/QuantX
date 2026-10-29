@@ -130,13 +130,14 @@ def test_fund_limits_success_parses_documented_spelling() -> None:
         {
             "status": "success",
             "remarks": "",
-            "data": {"availabelBalance": 5000.0, "utilizedAmount": "1200.50"},
+            "data": {"dhanClientId": "test-id", "availabelBalance": 5000.0, "utilizedAmount": "1200.50"},
         }
     )
 
     assert snapshot.available is True
     assert snapshot.available_balance == Decimal("5000")
     assert snapshot.utilized_amount == Decimal("1200.50")
+    assert snapshot.dhan_client_id == "test-id"
 
 
 def test_fund_limits_tolerates_alternate_balance_spelling() -> None:
@@ -146,7 +147,7 @@ def test_fund_limits_tolerates_alternate_balance_spelling() -> None:
         {
             "status": "success",
             "remarks": "",
-            "data": {"availableBalance": "250", "utilizedAmount": 0},
+            "data": {"dhanClientId": "test-id", "availableBalance": "250", "utilizedAmount": 0},
         }
     )
 
@@ -182,16 +183,22 @@ def test_positions_success_parses_multiple_positions() -> None:
             "remarks": "",
             "data": [
                 {
+                    "dhanClientId": "test-id",
                     "securityId": "1333",
                     "exchangeSegment": "NSE_EQ",
                     "netQty": 10,
                     "costPrice": "100.50",
+                    "realizedProfit": "12.25",
+                    "unrealizedProfit": "-4.50",
                 },
                 {
+                    "dhanClientId": "test-id",
                     "securityId": "11915",
                     "exchangeSegment": "NSE_FNO",
                     "netQty": -5,
                     "costPrice": 200,
+                    "realizedProfit": "0",
+                    "unrealizedProfit": "2.5",
                 },
             ],
         }
@@ -202,7 +209,119 @@ def test_positions_success_parses_multiple_positions() -> None:
     assert snapshot.positions[0].security_id == "1333"
     assert snapshot.positions[0].net_quantity == Decimal("10")
     assert snapshot.positions[0].average_price == Decimal("100.50")
+    assert snapshot.positions[0].realized_profit == Decimal("12.25")
+    assert snapshot.positions[0].unrealized_profit == Decimal("-4.50")
+    assert snapshot.positions[0].dhan_client_id == "test-id"
+    assert snapshot.dhan_client_id == "test-id"
     assert snapshot.positions[1].net_quantity == Decimal("-5")
+    assert snapshot.positions[1].realized_profit == Decimal("0")
+    assert snapshot.positions[1].unrealized_profit == Decimal("2.5")
+
+
+def test_fund_limits_rejects_missing_or_mismatched_client_identity() -> None:
+    from quantx.plugins.dhan.transport import _funds_snapshot
+
+    missing = _funds_snapshot(
+        {"status": "success", "remarks": "", "data": {"availabelBalance": "100"}}
+    )
+    mismatched = _funds_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "foreign-id",
+                "availabelBalance": "100",
+            },
+        },
+        expected_client_id="test-id",
+    )
+
+    assert missing.available is False
+    assert "dhanClientId" in missing.message
+    assert mismatched.available is False
+    assert mismatched.dhan_client_id == "foreign-id"
+    assert "different client identity" in mismatched.message
+
+
+def test_positions_rejects_missing_mismatched_or_conflicting_client_identity() -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    base_entry = {
+        "dhanClientId": "test-id",
+        "securityId": "1333",
+        "exchangeSegment": "NSE_EQ",
+        "netQty": "1",
+    }
+    missing = _positions_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [{k: v for k, v in base_entry.items() if k != "dhanClientId"}],
+        }
+    )
+    mismatch = _positions_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [dict(base_entry, dhanClientId="foreign-id")],
+        },
+        expected_client_id="test-id",
+    )
+    conflicting = _positions_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [base_entry, dict(base_entry, securityId="11915", dhanClientId="foreign-id")],
+        }
+    )
+
+    assert missing.available is False
+    assert mismatch.available is False
+    assert conflicting.available is False
+    assert "conflicting" in conflicting.message
+
+
+def test_holdings_success_parses_complete_dematerialized_holding_book() -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    snapshot = _holdings_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "exchange": "ALL",
+                    "tradingSymbol": "TCS",
+                    "securityId": "1333",
+                    "isin": "INE467B01029",
+                    "totalQty": 10,
+                    "dpQty": 8,
+                    "t1Qty": 2,
+                    "availableQty": 7,
+                    "collateralQty": 1,
+                    "avgCostPrice": "101.25",
+                }
+            ],
+        }
+    )
+
+    assert snapshot.available is True
+    assert len(snapshot.holdings) == 1
+    assert snapshot.holdings[0].security_id == "1333"
+    assert snapshot.holdings[0].total_quantity == Decimal("10")
+    assert snapshot.holdings[0].delivered_quantity == Decimal("8")
+    assert snapshot.holdings[0].pending_delivery_quantity == Decimal("2")
+    assert snapshot.holdings[0].average_cost_price == Decimal("101.25")
+
+
+def test_holdings_malformed_or_incomplete_book_stays_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    malformed = _holdings_snapshot(
+        {"status": "success", "remarks": "", "data": [{"securityId": "1333"}]}
+    )
+    assert malformed.available is False
+    assert malformed.holdings == ()
 
 
 def test_malformed_position_data_becomes_unavailable() -> None:
@@ -238,6 +357,9 @@ def test_in_memory_transport_returns_configured_fund_and_position_observations()
     assert positions.available is True
     assert len(positions.positions) == 1
     assert positions.positions[0].security_id == "1333"
+    holdings = transport.holdings()
+    assert holdings.available is True
+    assert holdings.holdings == ()
 
 
 class _HungFakeDhanClient:
@@ -274,12 +396,15 @@ class _HungFakeDhanClient:
         }
 
     def get_fund_limits(self) -> object:
-        return {"status": "success", "remarks": "", "data": {}}
+        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id"}}
 
     def get_positions(self) -> object:
         return {"status": "success", "remarks": "", "data": []}
 
-    def cancel_order(self, order_id: str) -> object:
+    def get_holdings(self) -> object:
+        return {"status": "success", "remarks": "", "data": []}
+
+    def cancel_order(self, order_id: str):
         return {
             "status": "success",
             "remarks": "",
@@ -292,7 +417,7 @@ class _HungFundsFakeDhanClient(_HungFakeDhanClient):
 
     def get_fund_limits(self) -> object:
         assert self._release.wait(timeout=30)
-        return {"status": "success", "remarks": "", "data": {}}
+        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id"}}
 
 
 def _sdk_transport_without_sdk(monkeypatch: pytest.MonkeyPatch, client: object) -> DhanSDKTransport:
@@ -410,7 +535,7 @@ class _CountingHungFundsClient:
             if self._seen >= self._count:
                 self._entered.set()
         assert self._release.wait(timeout=30)
-        return {"status": "success", "remarks": "", "data": {}}
+        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id"}}
 
     def get_order_by_correlationID(self, correlation_id: str) -> object:  # noqa: N802
         return {
@@ -512,13 +637,79 @@ class _CancelEchoFakeDhanClient:
         }
 
     def get_fund_limits(self) -> object:
-        return {"status": "success", "remarks": "", "data": {}}
+        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id"}}
 
     def get_positions(self) -> object:
         return {"status": "success", "remarks": "", "data": []}
 
     def place_order(self, **kwargs: object) -> object:
         raise AssertionError("no submission is expected in this test")
+
+
+def test_sdk_transport_reads_holdings_through_the_bounded_query_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _HungFakeDhanClient(threading.Event(), threading.Event())
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.holdings(timeout=1.0)
+        assert snapshot.available is True
+        assert snapshot.holdings == ()
+    finally:
+        transport.close()
+
+
+def test_sdk_fund_limits_rejects_client_id_mismatch_with_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ForeignFundsClient(_HungFakeDhanClient):
+        def get_fund_limits(self) -> object:
+            return {
+                "status": "success",
+                "remarks": "",
+                "data": {"dhanClientId": "foreign-id", "availabelBalance": "100"},
+            }
+
+    transport = _sdk_transport_without_sdk(
+        monkeypatch, ForeignFundsClient(threading.Event(), threading.Event())
+    )
+    try:
+        snapshot = transport.fund_limits(timeout=1.0)
+        assert snapshot.available is False
+        assert snapshot.dhan_client_id == "foreign-id"
+        assert "different client identity" in snapshot.message
+    finally:
+        transport.close()
+
+
+def test_sdk_positions_rejects_foreign_row_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ForeignPositionsClient(_HungFakeDhanClient):
+        def get_positions(self) -> object:
+            return {
+                "status": "success",
+                "remarks": "",
+                "data": [
+                    {
+                        "dhanClientId": "foreign-id",
+                        "securityId": "1333",
+                        "exchangeSegment": "NSE_EQ",
+                        "netQty": "1",
+                    }
+                ],
+            }
+
+    transport = _sdk_transport_without_sdk(
+        monkeypatch, ForeignPositionsClient(threading.Event(), threading.Event())
+    )
+    try:
+        snapshot = transport.positions(timeout=1.0)
+        assert snapshot.available is False
+        assert snapshot.positions == ()
+        assert "different client identity" in snapshot.message
+    finally:
+        transport.close()
 
 
 def test_sdk_cancel_proceeds_when_correlation_echo_confirms(

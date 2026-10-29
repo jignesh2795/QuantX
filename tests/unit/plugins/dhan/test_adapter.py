@@ -68,6 +68,7 @@ from quantx.plugins.dhan import (
 from quantx.plugins.dhan.mapping import dhan_correlation_id
 from quantx.plugins.dhan.models import (
     DhanFundsSnapshot,
+    DhanHoldingsSnapshot,
     DhanOrderRequest,
     DhanOrderResponse,
     DhanPositionsSnapshot,
@@ -685,6 +686,10 @@ class _TimeoutRecordingTransport:
         self.seen_timeouts.append(timeout)
         return self._inner.positions(timeout=timeout)
 
+    def holdings(self, *, timeout: float = 10.0) -> DhanHoldingsSnapshot:
+        self.seen_timeouts.append(timeout)
+        return self._inner.holdings(timeout=timeout)
+
 
 def test_adapter_threads_configured_read_timeout_to_observations() -> None:
     transport = _TimeoutRecordingTransport()
@@ -692,9 +697,40 @@ def test_adapter_threads_configured_read_timeout_to_observations() -> None:
 
     assert adapter.health() is True
     adapter.account_state()
-    adapter.position_states()
+    adapter.positions_snapshot()
+    adapter.holdings_snapshot()
 
-    assert transport.seen_timeouts == [2.5, 2.5, 2.5]
+    assert transport.seen_timeouts == [2.5, 2.5, 2.5, 2.5]
+
+
+def test_adapter_exposes_raw_identity_and_portfolio_observations() -> None:
+    from quantx.plugins.dhan.models import DhanHoldingSnapshot
+
+    holding = DhanHoldingSnapshot(
+        security_id="1333",
+        exchange="ALL",
+        trading_symbol="TCS",
+        isin="INE467B01029",
+        total_quantity=Decimal("10"),
+        delivered_quantity=Decimal("8"),
+        pending_delivery_quantity=Decimal("2"),
+        available_quantity=Decimal("7"),
+        collateral_quantity=Decimal("1"),
+        average_cost_price=Decimal("101.25"),
+    )
+    transport = InMemoryDhanTransport(holding_snapshots=(holding,))
+    adapter = _adapter(transport)
+
+    funds = adapter.funds_snapshot()
+    positions = adapter.positions_snapshot()
+    holdings = adapter.holdings_snapshot()
+
+    assert funds.available is True
+    assert funds.dhan_client_id is None
+    assert positions.available is True
+    assert positions.dhan_client_id is None
+    assert holdings.available is True
+    assert holdings.holdings == (holding,)
 
 
 def test_adapter_read_timeout_defaults_to_bounded_constant() -> None:

@@ -16,6 +16,8 @@ from .market_data import DhanMarketDataAdapter
 from .models import (
     DhanCredentials,
     DhanFundsSnapshot,
+    DhanHoldingSnapshot,
+    DhanHoldingsSnapshot,
     DhanInstrumentRef,
     DhanOrderRequest,
     DhanOrderResponse,
@@ -46,6 +48,8 @@ __all__ = [
     "DhanBrokerAdapter",
     "DhanCredentials",
     "DhanFundsSnapshot",
+    "DhanHoldingSnapshot",
+    "DhanHoldingsSnapshot",
     "DhanHostConfig",
     "DhanHostRuntime",
     "DhanInstrumentRef",

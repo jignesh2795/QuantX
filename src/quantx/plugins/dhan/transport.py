@@ -18,6 +18,8 @@ from .models import (
     DhanCandleSnapshot,
     DhanCredentials,
     DhanFundsSnapshot,
+    DhanHoldingSnapshot,
+    DhanHoldingsSnapshot,
     DhanOrderDetail,
     DhanOrderRequest,
     DhanOrderResponse,
@@ -46,7 +48,7 @@ class DhanTransport(Protocol):
 
     R0-B bounds only the safety-critical control path: ``submit``, ``cancel``,
     and ``reconcile`` take an explicit ``timeout``. The read-only observations
-    (``health``, ``fund_limits``, ``positions``, ``quote_snapshot``,
+    (``health``, ``fund_limits``, ``positions``, ``holdings``, ``quote_snapshot``,
     ``candles``) take an optional ``timeout`` defaulting to
     ``DEFAULT_READ_TIMEOUT_SECONDS``; hosts that need a tighter bound thread
     an explicit value through the adapter instead. A hung state-changing submission never blocks a
@@ -68,6 +70,10 @@ class DhanTransport(Protocol):
     def positions(
         self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
     ) -> DhanPositionsSnapshot: ...
+
+    def holdings(
+        self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
+    ) -> DhanHoldingsSnapshot: ...
 
     def quote_snapshot(
         self,
@@ -97,6 +103,8 @@ class _DhanClient(Protocol):
 
     def get_positions(self) -> object: ...
 
+    def get_holdings(self) -> object: ...
+
     def place_order(self, **kwargs: object) -> object: ...
 
     def cancel_order(self, order_id: str) -> object: ...
@@ -115,7 +123,7 @@ class DhanSDKTransport:
     in-flight one. Reconciliation runs on its own dedicated lane, so a
     saturated read lane can never starve the recovery read that must follow
     an uncertain submission. The remaining read-only observations (``health``,
-    ``fund_limits``, ``positions``, ``quote_snapshot``, ``candles``) share a
+    ``fund_limits``, ``positions``, ``holdings``, ``quote_snapshot``, ``candles``) share a
     query lane. The timeout bounds the
     caller's wait; a slow SDK call may still complete in the background after
     the timeout, in which case its late result is discarded and the caller
@@ -248,7 +256,7 @@ class DhanSDKTransport:
                 available=False,
                 message=f"Dhan fund-limits transport failure: {exc}",
             )
-        return _funds_snapshot(response)
+        return _funds_snapshot(response, expected_client_id=self.credentials.client_id)
 
     def positions(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanPositionsSnapshot:
         try:
@@ -264,7 +272,23 @@ class DhanSDKTransport:
                 available=False,
                 message=f"Dhan positions transport failure: {exc}",
             )
-        return _positions_snapshot(response)
+        return _positions_snapshot(response, expected_client_id=self.credentials.client_id)
+
+    def holdings(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanHoldingsSnapshot:
+        try:
+            response = self._call_with_timeout(
+                self._client.get_holdings,
+                timeout=timeout,
+                operation="holdings",
+                executor=self._query_executor,
+            )
+        except Exception as exc:
+            return DhanHoldingsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan holdings transport failure: {exc}",
+            )
+        return _holdings_snapshot(response)
 
     def quote_snapshot(
         self,
@@ -380,6 +404,9 @@ class InMemoryDhanTransport:
     positions_available: bool = True
     position_snapshots: tuple[DhanPositionSnapshot, ...] = ()
     positions_message: str = ""
+    holding_snapshots: tuple[DhanHoldingSnapshot, ...] = ()
+    holdings_available: bool = True
+    holdings_message: str = ""
     quote_snapshots: dict[tuple[str, str], DhanQuoteSnapshot] = field(default_factory=dict)
     candle_snapshots: dict[tuple[str, str], tuple[DhanCandleSnapshot, ...]] = field(
         default_factory=dict
@@ -443,6 +470,14 @@ class InMemoryDhanTransport:
             positions=self.position_snapshots,
             available=self.positions_available,
             message=self.positions_message,
+        )
+
+    def holdings(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanHoldingsSnapshot:
+        return DhanHoldingsSnapshot(
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            holdings=self.holding_snapshots,
+            available=self.holdings_available,
+            message=self.holdings_message,
         )
 
     def quote_snapshot(
@@ -546,8 +581,10 @@ def _money_field(payload: DhanPayload, key: str) -> Decimal | None:
         raise ValueError(f"invalid Dhan decimal field: {key}") from exc
 
 
-def _funds_snapshot(response: object) -> DhanFundsSnapshot:
-    """Normalize a fund-limits envelope; unusable data stays unavailable."""
+def _funds_snapshot(
+    response: object, *, expected_client_id: str | None = None
+) -> DhanFundsSnapshot:
+    """Normalize fund limits and bind the response to the expected Dhan client."""
     try:
         envelope_status, remarks, payload = _envelope(response)
     except (TypeError, ValueError) as exc:
@@ -561,6 +598,20 @@ def _funds_snapshot(response: object) -> DhanFundsSnapshot:
             observed_at=datetime.now(UTC),
             available=False,
             message=remarks or "Dhan fund limits reported failure",
+        )
+    dhan_client_id = payload.get("dhanClientId")
+    if type(dhan_client_id) is not str or not dhan_client_id.strip():
+        return DhanFundsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan fund limits omit a valid dhanClientId",
+        )
+    if expected_client_id is not None and dhan_client_id != expected_client_id:
+        return DhanFundsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan fund limits returned a different client identity",
+            dhan_client_id=dhan_client_id,
         )
     try:
         available_balance = _money_field(payload, "availabelBalance")
@@ -585,11 +636,14 @@ def _funds_snapshot(response: object) -> DhanFundsSnapshot:
         utilized_amount=utilized_amount,
         available=True,
         message=remarks,
+        dhan_client_id=dhan_client_id,
     )
 
 
-def _positions_snapshot(response: object) -> DhanPositionsSnapshot:
-    """Normalize a positions envelope; malformed data stays unavailable."""
+def _positions_snapshot(
+    response: object, *, expected_client_id: str | None = None
+) -> DhanPositionsSnapshot:
+    """Normalize positions and reject missing or conflicting client identities."""
     if not isinstance(response, dict):
         return DhanPositionsSnapshot(
             observed_at=datetime.now(UTC),
@@ -612,21 +666,131 @@ def _positions_snapshot(response: object) -> DhanPositionsSnapshot:
             message="Dhan positions data must be a list",
         )
     positions: list[DhanPositionSnapshot] = []
+    client_ids: set[str] = set()
     for entry in entries:
         position = _position_snapshot(entry)
         if position is None:
             return DhanPositionsSnapshot(
                 observed_at=datetime.now(UTC),
                 available=False,
-                message="Dhan position entry is malformed",
+                message="Dhan position entry is malformed or omits client identity",
             )
+        position_client_id = position.dhan_client_id
+        if position_client_id is None:
+            return DhanPositionsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message="Dhan position entry omits client identity",
+            )
+        if expected_client_id is not None and position_client_id != expected_client_id:
+            return DhanPositionsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message="Dhan position row returned a different client identity",
+            )
+        client_ids.add(position_client_id)
         positions.append(position)
+    if len(client_ids) > 1:
+        return DhanPositionsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan position rows contain conflicting client identities",
+        )
+    client_id = next(iter(client_ids), None)
     return DhanPositionsSnapshot(
         observed_at=datetime.now(UTC),
         positions=tuple(positions),
         available=True,
         message=remarks,
+        dhan_client_id=client_id,
     )
+
+
+def _holdings_snapshot(response: object) -> DhanHoldingsSnapshot:
+    """Normalize holdings; any malformed row makes the book unavailable."""
+    if not isinstance(response, dict):
+        return DhanHoldingsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan holdings response must be a mapping",
+        )
+    status = str(response.get("status", "failure"))
+    remarks = str(response.get("remarks", ""))
+    if status != "success":
+        return DhanHoldingsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=remarks or "Dhan holdings reported failure",
+        )
+    entries = response.get("data")
+    if not isinstance(entries, list):
+        return DhanHoldingsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan holdings data must be a list",
+        )
+    holdings: list[DhanHoldingSnapshot] = []
+    for entry in entries:
+        holding = _holding_snapshot(entry)
+        if holding is None:
+            return DhanHoldingsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message="Dhan holding entry is malformed or incomplete",
+            )
+        holdings.append(holding)
+    return DhanHoldingsSnapshot(
+        observed_at=datetime.now(UTC),
+        holdings=tuple(holdings),
+        available=True,
+        message=remarks,
+    )
+
+
+def _holding_snapshot(entry: object) -> DhanHoldingSnapshot | None:
+    if not isinstance(entry, dict):
+        return None
+    string_fields = {
+        "security_id": entry.get("securityId"),
+        "exchange": entry.get("exchange"),
+        "trading_symbol": entry.get("tradingSymbol"),
+        "isin": entry.get("isin"),
+    }
+    if any(type(value) is not str or not value.strip() for value in string_fields.values()):
+        return None
+    quantity_fields = {
+        "total_quantity": "totalQty",
+        "delivered_quantity": "dpQty",
+        "pending_delivery_quantity": "t1Qty",
+        "available_quantity": "availableQty",
+        "collateral_quantity": "collateralQty",
+    }
+    quantities: dict[str, Decimal] = {}
+    try:
+        for field_name, payload_name in quantity_fields.items():
+            value = _money_field(entry, payload_name)
+            if value is None or not value.is_finite() or value < 0:
+                return None
+            quantities[field_name] = value
+        average_cost_price = _money_field(entry, "avgCostPrice")
+        if average_cost_price is not None and (
+            not average_cost_price.is_finite() or average_cost_price < 0
+        ):
+            return None
+        return DhanHoldingSnapshot(
+            security_id=string_fields["security_id"],
+            exchange=string_fields["exchange"],
+            trading_symbol=string_fields["trading_symbol"],
+            isin=string_fields["isin"],
+            total_quantity=quantities["total_quantity"],
+            delivered_quantity=quantities["delivered_quantity"],
+            pending_delivery_quantity=quantities["pending_delivery_quantity"],
+            available_quantity=quantities["available_quantity"],
+            collateral_quantity=quantities["collateral_quantity"],
+            average_cost_price=average_cost_price,
+        )
+    except (ValueError, TypeError):
+        return None
 
 
 _INTRADAY_INTERVALS = {"1m": 1, "5m": 5, "15m": 15, "25m": 25, "60m": 60}
@@ -763,21 +927,29 @@ def _position_snapshot(entry: object) -> DhanPositionSnapshot | None:
         return None
     security_id = entry.get("securityId")
     exchange_segment = entry.get("exchangeSegment")
-    if security_id is None or not str(security_id).strip():
+    client_id = entry.get("dhanClientId")
+    if type(security_id) is not str or not security_id.strip():
         return None
-    if exchange_segment is None or not str(exchange_segment).strip():
+    if type(exchange_segment) is not str or not exchange_segment.strip():
+        return None
+    if type(client_id) is not str or not client_id.strip():
         return None
     try:
-        net_quantity = Decimal(str(entry.get("netQty")))
-    except (InvalidOperation, ValueError, TypeError):
-        return None
-    try:
+        net_quantity = _strict_decimal(entry.get("netQty"), "netQty")
         average_price = _money_field(entry, "costPrice")
-    except ValueError:
+        realized_profit = _money_field(entry, "realizedProfit")
+        unrealized_profit = _money_field(entry, "unrealizedProfit")
+    except (ValueError, TypeError):
+        return None
+    numeric_values = (net_quantity, average_price, realized_profit, unrealized_profit)
+    if any(value is not None and not value.is_finite() for value in numeric_values):
         return None
     return DhanPositionSnapshot(
-        security_id=str(security_id),
-        exchange_segment=str(exchange_segment),
+        security_id=security_id,
+        exchange_segment=exchange_segment,
         net_quantity=net_quantity,
         average_price=average_price,
+        realized_profit=realized_profit,
+        unrealized_profit=unrealized_profit,
+        dhan_client_id=client_id,
     )

@@ -47,6 +47,30 @@ derives a deterministic 30-character hexadecimal Dhan correlation ID from the
 QuantX correlation ID. The original QuantX correlation remains unchanged in
 the execution receipt.
 
+## Account and portfolio observations — provenance foundations
+
+The transport normalizes fund limits, open positions, and demat holdings as
+separate observations. Fund limits preserve Dhan's dhanClientId and are
+unavailable if that identity is missing or differs from the client ID bound to
+the authenticated SDK context. Position rows preserve their dhanClientId and
+the broker-reported realized/unrealized P&L fields; missing, mixed, or foreign
+row identities make the position-book observation unavailable.
+
+Holdings are a distinct API surface from open positions. Their normalized
+quantities retain delivered, pending-delivery (T1), available, and collateral
+amounts separately. The holdings response does not include a per-row client
+ID; any future account-risk consumer must bind it to the same transport and a
+separately verified fund-limit identity. Observation timestamps on these
+responses are local response-capture times, not server-authenticated broker
+timestamps.
+
+These are evidence primitives only. They do not establish complete
+equity/exposure/P&L history or authorize LIVE risk evaluation. The
+application-owned LivePreTradeRiskEvaluator.authoritative_evidence_available
+remains false until a complete risk snapshot is proven for the exact account,
+connection, instrument scope, valuation basis, freshness budget, and
+unavailable/contradictory cases.
+
 ## Supported surface in P1.5
 
 The adapter currently advertises only the capabilities implemented by the
