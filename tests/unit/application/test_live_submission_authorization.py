@@ -695,8 +695,12 @@ def test_live_dispatch_blocks_when_the_gate_is_disarmed() -> None:
     _assert_no_durable_work(unit_of_work, request)
 
 
-def test_live_dispatch_blocks_when_pretrade_risk_rejects() -> None:
+def test_untrusted_rejecting_callback_is_not_invoked_as_live_authority() -> None:
+    called = False
+
     def reject(request) -> RiskResult:
+        nonlocal called
+        called = True
         return RiskResult(RiskDecision.REJECT, "risk says no")
 
     request = _request()
@@ -708,7 +712,8 @@ def test_live_dispatch_blocks_when_pretrade_risk_rejects() -> None:
     )
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert "risk rejected" in result.reason
+    assert "application-owned risk evaluator" in result.reason
+    assert called is False
     assert broker.submit_calls == 0
     _assert_no_durable_work(unit_of_work, request)
 
