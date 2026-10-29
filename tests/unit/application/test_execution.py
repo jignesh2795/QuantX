@@ -2006,9 +2006,9 @@ def _wait_for_reservation(unit_of_work, request) -> None:
 def test_live_block_before_submit_admission_denies_without_submit() -> None:
     """Once block() returns, a reserved-but-unadmitted submission is denied.
 
-    The read-only broker observations (connection, health, instrument) run
-    before the reservation and admission boundary, so the denial contract is
-    exactly "never ``broker.submit()``" — not "never any broker contact".
+    This test starts at the transaction boundary to isolate the reservation /
+    admission race. Public-dispatch tests cover the earlier read-only broker
+    observations; here the contract is no broker submission after the block.
     """
     admission_release = Event()
     gate = _AdmissionGatedGate(InMemoryTradingGateStateStore(), admission_release=admission_release)
@@ -2053,8 +2053,6 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
     result = outcome["result"]
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "trading is blocked: operator emergency stop" in result.reason
-    assert broker.health_calls >= 1
-    assert broker.instrument_calls >= 1
     assert broker.submit_calls == 0
     assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
     decision = unit_of_work.idempotency.check(
