@@ -58,6 +58,7 @@ from quantx.plugins.dhan.host import DhanHostConfig, build_dhan_host_runtime
 from quantx.plugins.dhan.models import DhanOrderDetail
 from quantx.plugins.dhan.transport import DhanSDKTransport, DhanTimeoutError
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
+from tests.unit.application.test_execution import _execute_admitted_transaction
 
 _PRODUCT_MAP = {"CNC": "CNC"}
 
@@ -291,8 +292,10 @@ def test_gate_block_completes_while_broker_submit_blocked(tmp_path) -> None:
 
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+        unit_of_work = SqliteUnitOfWork(database)
+        request = _request()
         orchestrator = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database),
+            unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
@@ -313,7 +316,7 @@ def test_gate_block_completes_while_broker_submit_blocked(tmp_path) -> None:
         def do_submit() -> None:
             nonlocal submit_result, submit_error
             try:
-                result = orchestrator.execute(_request(), broker=adapter)
+                result = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
                 submit_result = result.status
             except Exception as exc:
                 submit_error = exc
@@ -462,8 +465,9 @@ def test_authorized_reservation_continues_after_block(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         gate = DurableTradingGate(SqliteTradingGateStateStore(database), default_enabled=True)
+        unit_of_work = SqliteUnitOfWork(database)
         orchestrator = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database),
+            unit_of_work=unit_of_work,
             trading_gate=gate,
             application_runtime=_started_runtime(),
             submission_quarantine=SqliteSubmissionQuarantineRepository(database),
@@ -481,7 +485,9 @@ def test_authorized_reservation_continues_after_block(tmp_path) -> None:
         def do_submit() -> None:
             nonlocal submit_result
             try:
-                submit_result = orchestrator.execute(request, broker=adapter)
+                submit_result = _execute_admitted_transaction(
+                    orchestrator, request, adapter, unit_of_work
+                )
             finally:
                 submit_done.set()
 
@@ -516,8 +522,9 @@ def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
 
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+        unit_of_work = SqliteUnitOfWork(database)
         orchestrator = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database),
+            unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
@@ -532,7 +539,7 @@ def test_broker_timeout_produces_unknown_not_rejected(tmp_path) -> None:
         )
 
         request = _request()
-        result = orchestrator.execute(request, broker=adapter)
+        result = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
 
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is None or result.receipt.outcome is ExecutionOutcome.UNKNOWN
@@ -595,8 +602,9 @@ def test_late_broker_success_reconciles_without_resubmission(tmp_path) -> None:
 
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+        unit_of_work = SqliteUnitOfWork(database)
         orchestrator = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database),
+            unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
@@ -611,7 +619,7 @@ def test_late_broker_success_reconciles_without_resubmission(tmp_path) -> None:
         )
         request = _request()
 
-        result = orchestrator.execute(request, broker=adapter)
+        result = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
 
         receipt = adapter.reconcile(request)
@@ -729,8 +737,9 @@ def test_idempotency_preserved_after_timeout(tmp_path) -> None:
 
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
+        unit_of_work = SqliteUnitOfWork(database)
         orchestrator = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database),
+            unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
@@ -745,10 +754,10 @@ def test_idempotency_preserved_after_timeout(tmp_path) -> None:
         )
         request = _request()
 
-        result1 = orchestrator.execute(request, broker=adapter)
+        result1 = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
         assert result1.status is ExecutionDispatchStatus.UNKNOWN
 
-        result2 = orchestrator.execute(request, broker=adapter)
+        result2 = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
         assert result2.status is ExecutionDispatchStatus.UNKNOWN
         assert "unknown" in result2.reason.lower()
         assert len(transport.submitted) == 1, (
