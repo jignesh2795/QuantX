@@ -8,10 +8,15 @@ required input is absent or mistyped, so LIVE protection is never degraded to
 an optional layer by a convenience default.
 
 It does not make the orchestrator safe by itself: the orchestrator still
-accepts arbitrary callables when it is constructed directly, and the values of
-the risk evidence remain caller-supplied. What this factory guarantees is that
-the stack it returns is disarmed, durably gated, quarantine-backed,
-risk-evaluated against a composition-injected clock, and
+accepts arbitrary callables when it is constructed directly. Callback mode
+remains explicitly non-authoritative: type-correct dataclasses and a trusted
+clock do not authenticate balances, positions, P&L, account, connection,
+transport, client identity, or observation-time provenance. Authority mode
+builds an application-owned ``LiveRiskEvidenceAuthority`` over a wired
+``LiveRiskEvidenceSource``; even then, LIVE dispatch stays blocked unless the
+source declares every field the configured limits require. What this factory
+guarantees is that the stack it returns is disarmed, durably gated,
+quarantine-backed, risk-evaluated against a composition-injected clock, and
 market-policy-complete for India.
 """
 
@@ -20,6 +25,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.clock import Clock
 from quantx.domain.errors import ValidationError
 from quantx.domain.execution_request import ApprovedExecutionRequest
@@ -43,7 +49,12 @@ from quantx.ports.market_checks import (
 )
 
 from .execution import ExecutionOrchestrator
-from .live_risk import LivePreTradeRiskEvaluator, LiveRiskEvaluationInputs
+from .live_risk import (
+    LivePreTradeRiskEvaluator,
+    LiveRiskEvaluationInputs,
+    LiveRiskEvidenceAuthority,
+    LiveRiskEvidenceSource,
+)
 from .production import ProductionRuntime
 
 _LIMITS_REQUIRED_REASON = (
@@ -68,18 +79,33 @@ class LiveExecutionCompositionError(ValidationError):
 class LiveExecutionConfig:
     """Explicit mandatory inputs for :func:`build_live_execution`.
 
-    There are no defaults. A deployment must supply its risk limits, a risk
-    engine, the per-request risk evidence provider, the trusted clock that
-    decides freshness, the market policy that carries both India check stages,
-    and the trusted policy verifier.
+    A deployment supplies its risk limits, risk engine, trusted clock, market
+    policy and trusted policy verifier. It must also supply exactly one evidence
+    mode:
+
+    * ``risk_inputs_for_request`` for explicitly non-authoritative callback
+      mode; or
+    * ``risk_evidence_source`` plus the exact expected account, broker
+      connection, broker client id and transport for application-owned
+      authority mode.
+
+    The identity inputs are rejected in callback mode. No default identity,
+    evidence source, or authorization is selected here.
     """
 
     risk_limits: RiskLimits
     risk_engine: PreTradeRiskEngine
-    risk_inputs_for_request: Callable[[ApprovedExecutionRequest], LiveRiskEvaluationInputs]
     clock: Clock
     market_policy: MarketPolicyConfig
     policy_verifier: MarketPackPolicyVerifier
+    risk_inputs_for_request: (
+        Callable[[ApprovedExecutionRequest], LiveRiskEvaluationInputs] | None
+    ) = None
+    risk_evidence_source: LiveRiskEvidenceSource | None = None
+    expected_account_id: AccountId | None = None
+    expected_broker_connection_id: BrokerConnectionId | None = None
+    expected_broker_client_id: str | None = None
+    expected_transport: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,8 +178,49 @@ def build_live_execution(
         raise LiveExecutionCompositionError("risk_engine must be a PreTradeRiskEngine")
     if not isinstance(config.clock, Clock):
         raise LiveExecutionCompositionError("clock must be a Clock")
-    if not callable(config.risk_inputs_for_request):
-        raise LiveExecutionCompositionError("risk_inputs_for_request must be callable")
+    has_callback = config.risk_inputs_for_request is not None
+    has_source = config.risk_evidence_source is not None
+    if has_callback == has_source:
+        raise LiveExecutionCompositionError(
+            "live execution config requires exactly one of risk_inputs_for_request "
+            "or risk_evidence_source"
+        )
+    authority_identity_supplied = any(
+        value is not None
+        for value in (
+            config.expected_account_id,
+            config.expected_broker_connection_id,
+            config.expected_broker_client_id,
+            config.expected_transport,
+        )
+    )
+    if has_callback:
+        if not callable(config.risk_inputs_for_request):
+            raise LiveExecutionCompositionError("risk_inputs_for_request must be callable")
+        if authority_identity_supplied:
+            raise LiveExecutionCompositionError(
+                "authority identity inputs require risk_evidence_source"
+            )
+    else:
+        if not isinstance(config.risk_evidence_source, LiveRiskEvidenceSource):
+            raise LiveExecutionCompositionError(
+                "risk_evidence_source must implement LiveRiskEvidenceSource"
+            )
+        if type(config.expected_account_id) is not AccountId:
+            raise LiveExecutionCompositionError("expected_account_id must be an AccountId")
+        if type(config.expected_broker_connection_id) is not BrokerConnectionId:
+            raise LiveExecutionCompositionError(
+                "expected_broker_connection_id must be a BrokerConnectionId"
+            )
+        expected_client_id = config.expected_broker_client_id
+        if not isinstance(expected_client_id, str) or not expected_client_id.strip():
+            raise LiveExecutionCompositionError(
+                "expected_broker_client_id must be a non-empty string"
+            )
+        if config.expected_transport is None:
+            raise LiveExecutionCompositionError(
+                "expected_transport must be supplied in authority mode"
+            )
     if type(config.market_policy) is not MarketPolicyConfig:
         raise LiveExecutionCompositionError("market_policy must be a MarketPolicyConfig")
     if any(placed.region is not MarketRegion.INDIA for placed in config.market_policy.checks):
@@ -182,12 +249,42 @@ def build_live_execution(
     # authorization that an operator granted to a previous process.
     gate.block("LIVE gate disarmed for new process start")
     quarantine = SqliteSubmissionQuarantineRepository(runtime.database)
-    evaluator = LivePreTradeRiskEvaluator(
-        engine=config.risk_engine,
-        limits=limits,
-        inputs_for_request=config.risk_inputs_for_request,
-        clock=config.clock,
-    )
+    if has_callback:
+        evaluator = LivePreTradeRiskEvaluator(
+            engine=config.risk_engine,
+            limits=limits,
+            inputs_for_request=config.risk_inputs_for_request,
+            clock=config.clock,
+        )
+    else:
+        source = config.risk_evidence_source
+        expected_account_id = config.expected_account_id
+        expected_connection_id = config.expected_broker_connection_id
+        expected_client_id = config.expected_broker_client_id
+        expected_transport = config.expected_transport
+        if (
+            source is None
+            or type(expected_account_id) is not AccountId
+            or type(expected_connection_id) is not BrokerConnectionId
+            or not isinstance(expected_client_id, str)
+            or expected_transport is None
+        ):  # pragma: no cover - validated above
+            raise LiveExecutionCompositionError("authority evidence inputs are incomplete")
+        authority = LiveRiskEvidenceAuthority(
+            source=source,
+            limits=limits,
+            clock=config.clock,
+            account_id=expected_account_id,
+            broker_connection_id=expected_connection_id,
+            expected_broker_client_id=expected_client_id,
+            expected_transport=expected_transport,
+        )
+        evaluator = LivePreTradeRiskEvaluator(
+            engine=config.risk_engine,
+            limits=limits,
+            clock=config.clock,
+            authority=authority,
+        )
     orchestrator = ExecutionOrchestrator(
         trading_gate=gate,
         application_runtime=runtime.application,

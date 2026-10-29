@@ -43,6 +43,8 @@ from .mapping import normalize_dhan_product_map
 from .market_data import DhanMarketDataAdapter
 from .models import DhanCredentials, DhanInstrumentRef
 from .recovery import build_dhan_recovery_provider
+from .risk_evidence import DhanRiskEvidenceSource
+from .risk_evidence import build_dhan_risk_evidence_source as _build_dhan_risk_evidence_source
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanSDKTransport, DhanTransport
 
 _DHAN_BROKER_ID = "dhan"
@@ -221,6 +223,40 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
     )
 
 
+def build_dhan_risk_evidence_source(
+    host: DhanHostRuntime,
+    *,
+    broker_client_id: str | None = None,
+) -> DhanRiskEvidenceSource:
+    """Build the Dhan risk-evidence source over this host's exact transport.
+
+    The source is bound to the host's configured account, connection, transport
+    and read timeout. A host built from credentials already knows its broker
+    client id; a host built over a custom transport must supply it explicitly.
+    No default identity is invented.
+    """
+    if type(host) is not DhanHostRuntime:
+        raise TypeError("Dhan risk evidence host must be a DhanHostRuntime")
+    client_id = broker_client_id
+    if client_id is None:
+        credentials = host.config.credentials
+        if credentials is None:
+            raise ValueError(
+                "broker_client_id is required when the Dhan host uses a custom transport"
+            )
+        client_id = credentials.client_id
+    if type(client_id) is not str or not client_id.strip():
+        raise ValueError("Dhan risk evidence requires a non-empty broker client id")
+    return _build_dhan_risk_evidence_source(
+        transport=host.transport,
+        account_id=host.config.account_id,
+        broker_connection_id=host.config.connection_id,
+        broker_client_id=client_id,
+        instruments=host.config.instruments,
+        read_timeout=host.config.read_timeout_seconds,
+    )
+
+
 def _validate_timeout_seconds(name: str, value: object) -> None:
     """Fail closed on non-numeric, bool, zero, or negative timeout config."""
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
@@ -237,4 +273,5 @@ __all__ = [
     "DhanHostConfig",
     "DhanHostRuntime",
     "build_dhan_host_runtime",
+    "build_dhan_risk_evidence_source",
 ]

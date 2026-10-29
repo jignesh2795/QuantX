@@ -43,7 +43,12 @@ from quantx.integrations.reconciliation import (
     StateSource,
 )
 from quantx.persistence.sqlite import SqliteReceiptRepository
-from quantx.plugins.dhan.host import DhanHostConfig, DhanHostRuntime, build_dhan_host_runtime
+from quantx.plugins.dhan.host import (
+    DhanHostConfig,
+    DhanHostRuntime,
+    build_dhan_host_runtime,
+    build_dhan_risk_evidence_source,
+)
 from quantx.plugins.dhan.market_data import DhanMarketDataAdapter
 from quantx.plugins.dhan.models import DhanCandleSnapshot, DhanCredentials, DhanInstrumentRef
 from quantx.plugins.dhan.transport import DhanSDKTransport, InMemoryDhanTransport
@@ -513,3 +518,81 @@ def test_host_restart_preserves_resolved_execution_without_redispatch(tmp_path) 
         assert after.receipt_id == before.receipt_id
     finally:
         rebuilt.close()
+
+
+# Risk-evidence source builder: exact host identity binding.
+
+
+def test_risk_evidence_source_builder_binds_the_exact_host(tmp_path) -> None:
+    transport = InMemoryDhanTransport()
+    host = build_dhan_host_runtime(_config(tmp_path, transport=transport))
+    try:
+        source = build_dhan_risk_evidence_source(host, broker_client_id="client-1")
+
+        assert source.transport is transport
+        assert source.account_id == host.config.account_id
+        assert source.broker_connection_id == host.config.connection_id
+        assert source.broker_client_id == "client-1"
+        assert source.instruments == host.config.instruments
+        assert source.read_timeout == host.config.read_timeout_seconds
+    finally:
+        host.close()
+
+
+def test_risk_evidence_source_builder_strips_an_explicit_client_id(tmp_path) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path))
+    try:
+        source = build_dhan_risk_evidence_source(host, broker_client_id="  client-1  ")
+
+        assert source.broker_client_id == "client-1"
+    finally:
+        host.close()
+
+
+def test_risk_evidence_source_builder_requires_a_client_id_for_a_custom_transport(
+    tmp_path,
+) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path))
+    try:
+        with pytest.raises(ValueError, match="broker_client_id is required"):
+            build_dhan_risk_evidence_source(host)
+    finally:
+        host.close()
+
+
+@pytest.mark.parametrize("client_id", ["", "   ", 1])
+def test_risk_evidence_source_builder_rejects_an_invalid_client_id(tmp_path, client_id) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path))
+    try:
+        with pytest.raises(ValueError, match="non-empty broker client id"):
+            build_dhan_risk_evidence_source(host, broker_client_id=client_id)
+    finally:
+        host.close()
+
+
+def test_risk_evidence_source_builder_rejects_a_non_host(tmp_path) -> None:
+    with pytest.raises(TypeError, match="DhanHostRuntime"):
+        build_dhan_risk_evidence_source(
+            object(),  # type: ignore[arg-type]
+            broker_client_id="client-1",
+        )
+
+
+def test_risk_evidence_source_builder_derives_the_client_id_from_credentials(
+    tmp_path,
+) -> None:
+    pytest.importorskip("dhanhq", reason="optional dhan extra is not installed")
+    host = build_dhan_host_runtime(
+        _config(
+            tmp_path,
+            transport=None,
+            credentials=DhanCredentials("credential-client", "access-token"),
+        )
+    )
+    try:
+        source = build_dhan_risk_evidence_source(host)
+
+        assert source.broker_client_id == "credential-client"
+        assert source.transport is host.transport
+    finally:
+        host.close()

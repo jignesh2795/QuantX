@@ -563,3 +563,432 @@ def test_sdk_cancel_refuses_absent_correlation_echo(
         assert client.cancel_calls == []
     finally:
         transport.close()
+
+
+# Profile, extended fund/position fields, and holdings normalization.
+
+
+def test_profile_snapshot_parses_the_authenticated_client_id() -> None:
+    from quantx.plugins.dhan.transport import _profile_snapshot
+
+    snapshot = _profile_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {"dhanClientId": "  client-1  "},
+        }
+    )
+
+    assert snapshot.available is True
+    assert snapshot.client_id == "client-1"
+
+
+def test_profile_snapshot_accepts_a_raw_profile_payload() -> None:
+    from quantx.plugins.dhan.transport import _profile_snapshot
+
+    snapshot = _profile_snapshot({"dhanClientId": "client-1"})
+
+    assert snapshot.available is True
+    assert snapshot.client_id == "client-1"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"status": "failure", "remarks": "invalid access token", "data": ""},
+        {"status": "success", "remarks": "", "data": {}},
+        {"status": "success", "remarks": "", "data": []},
+        ["not", "a", "mapping"],
+    ],
+)
+def test_profile_snapshot_fails_closed_without_identity(response) -> None:
+    from quantx.plugins.dhan.transport import _profile_snapshot
+
+    snapshot = _profile_snapshot(response)
+
+    assert snapshot.available is False
+    assert snapshot.client_id is None
+
+
+def test_fund_limits_parse_every_required_financial_field() -> None:
+    from quantx.plugins.dhan.transport import _funds_snapshot
+
+    snapshot = _funds_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "client-1",
+                "sodLimit": "10000.25",
+                "availabelBalance": "5000.50",
+                "collateralAmount": "100",
+                "receiveableAmount": "50",
+                "utilizedAmount": "1200",
+                "blockedPayoutAmount": "0",
+                "withdrawableBalance": "4800",
+            },
+        }
+    )
+
+    assert snapshot.available is True
+    assert snapshot.client_id == "client-1"
+    assert snapshot.sod_limit == Decimal("10000.25")
+    assert snapshot.available_balance == Decimal("5000.50")
+    assert snapshot.collateral_amount == Decimal("100")
+    assert snapshot.receivable_amount == Decimal("50")
+    assert snapshot.utilized_amount == Decimal("1200")
+    assert snapshot.blocked_payout_amount == Decimal("0")
+    assert snapshot.withdrawable_balance == Decimal("4800")
+
+
+def test_fund_limits_preserve_missing_fields_as_unknown() -> None:
+    from quantx.plugins.dhan.transport import _funds_snapshot
+
+    snapshot = _funds_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {"availabelBalance": "5000"},
+        }
+    )
+
+    assert snapshot.available is True
+    assert snapshot.available_balance == Decimal("5000")
+    assert snapshot.sod_limit is None
+    assert snapshot.collateral_amount is None
+    assert snapshot.receivable_amount is None
+    assert snapshot.blocked_payout_amount is None
+    assert snapshot.withdrawable_balance is None
+
+
+def test_fund_limits_invalid_decimal_is_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _funds_snapshot
+
+    snapshot = _funds_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {"availabelBalance": "5000", "sodLimit": "not-a-number"},
+        }
+    )
+
+    assert snapshot.available is False
+    assert snapshot.available_balance is None
+
+
+def test_positions_parse_identity_product_quantity_and_pnl_fields() -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    snapshot = _positions_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "dhanClientId": "client-1",
+                    "securityId": "1333",
+                    "exchangeSegment": "NSE_EQ",
+                    "productType": "CNC",
+                    "positionType": "LONG",
+                    "buyQty": 10,
+                    "sellQty": 0,
+                    "netQty": 10,
+                    "costPrice": "100.50",
+                    "realizedProfit": "25",
+                    "unrealizedProfit": "-5",
+                    "multiplier": 2,
+                }
+            ],
+        }
+    )
+
+    assert snapshot.available is True
+    position = snapshot.positions[0]
+    assert position.client_id == "client-1"
+    assert position.product_type == "CNC"
+    assert position.position_type == "LONG"
+    assert position.buy_quantity == Decimal("10")
+    assert position.sell_quantity == Decimal("0")
+    assert position.net_quantity == Decimal("10")
+    assert position.average_price == Decimal("100.50")
+    assert position.realized_profit == Decimal("25")
+    assert position.unrealized_profit == Decimal("-5")
+    assert position.multiplier == Decimal("2")
+
+
+def test_positions_contradictory_quantities_make_the_book_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    snapshot = _positions_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "securityId": "1333",
+                    "exchangeSegment": "NSE_EQ",
+                    "buyQty": 10,
+                    "sellQty": 0,
+                    "netQty": 5,
+                }
+            ],
+        }
+    )
+
+    assert snapshot.available is False
+    assert snapshot.positions == ()
+
+
+def test_holdings_parse_quantities_and_available_cost_basis() -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    snapshot = _holdings_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "exchange": "ALL",
+                    "securityId": "1333",
+                    "totalQty": 10,
+                    "dpQty": 7,
+                    "t1Qty": 3,
+                    "availableQty": 8,
+                    "collateralQty": 2,
+                    "avgCostPrice": "100.25",
+                }
+            ],
+        }
+    )
+
+    assert snapshot.available is True
+    holding = snapshot.holdings[0]
+    assert holding.security_id == "1333"
+    assert holding.exchange == "ALL"
+    assert holding.total_quantity == Decimal("10")
+    assert holding.dp_quantity == Decimal("7")
+    assert holding.t1_quantity == Decimal("3")
+    assert holding.available_quantity == Decimal("8")
+    assert holding.collateral_quantity == Decimal("2")
+    assert holding.average_cost_price == Decimal("100.25")
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        [{"exchange": "ALL", "securityId": "1333"}],
+        [{"exchange": "ALL", "securityId": "1333", "totalQty": 10, "dpQty": 7, "t1Qty": 4}],
+        [{"exchange": "ALL", "securityId": "1333", "totalQty": -1}],
+        ["not", "a", "mapping"],
+    ],
+    ids=["missing-total", "contradictory-split", "negative-total", "malformed-entry"],
+)
+def test_holdings_malformed_entries_make_the_book_unavailable(data) -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    snapshot = _holdings_snapshot({"status": "success", "remarks": "", "data": data})
+
+    assert snapshot.available is False
+    assert snapshot.holdings == ()
+
+
+def test_holdings_non_list_data_is_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    snapshot = _holdings_snapshot({"status": "success", "remarks": "", "data": {}})
+
+    assert snapshot.available is False
+    assert snapshot.holdings == ()
+
+
+def test_in_memory_transport_returns_configured_profile_and_holdings() -> None:
+    from quantx.plugins.dhan.models import DhanHoldingSnapshot
+
+    transport = InMemoryDhanTransport(
+        profile_client_id="client-1",
+        holding_snapshots=(
+            DhanHoldingSnapshot(
+                "1333",
+                "ALL",
+                Decimal("5"),
+                average_cost_price=Decimal("100"),
+            ),
+        ),
+    )
+
+    profile = transport.profile()
+    holdings = transport.holdings()
+
+    assert profile.available is True
+    assert profile.client_id == "client-1"
+    assert holdings.available is True
+    assert holdings.holdings[0].security_id == "1333"
+
+
+def test_in_memory_transport_profile_and_holdings_default_to_no_identity_or_rows() -> None:
+    transport = InMemoryDhanTransport()
+
+    profile = transport.profile()
+    holdings = transport.holdings()
+
+    assert profile.available is True
+    assert profile.client_id is None
+    assert holdings.available is True
+    assert holdings.holdings == ()
+
+
+class _ProfileLogin:
+    def __init__(self, response: object) -> None:
+        self._response = response
+        self.tokens: list[str] = []
+
+    def user_profile(self, access_token: str) -> object:
+        self.tokens.append(access_token)
+        return self._response
+
+
+class _ProfileContext:
+    def __init__(self, login: object) -> None:
+        self._login = login
+
+    def get_dhan_login(self) -> object:
+        return self._login
+
+
+class _RaisingProfileLogin:
+    def user_profile(self, access_token: str) -> object:
+        raise RuntimeError("profile endpoint failure")
+
+
+class _HoldingsFakeDhanClient(_CancelEchoFakeDhanClient):
+    def __init__(self, response: object) -> None:
+        super().__init__(correlation_echo=None)
+        self._holdings_response = response
+
+    def get_holdings(self) -> object:
+        return self._holdings_response
+
+
+def _sdk_transport_with_context(
+    monkeypatch: pytest.MonkeyPatch,
+    client: object,
+    context: object,
+) -> DhanSDKTransport:
+    """Build the real SDK transport with a fake SDK module and context."""
+    import sys
+
+    def _context(client_id: str, access_token: str) -> object:
+        return context
+
+    def _client(context: object) -> object:
+        return client
+
+    fake_module = types.ModuleType("dhanhq")
+    fake_module.DhanContext = _context  # type: ignore[attr-defined]
+    fake_module.dhanhq = _client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dhanhq", fake_module)
+    return DhanSDKTransport(
+        credentials=DhanCredentials(client_id="test-id", access_token="test-token")
+    )
+
+
+def test_sdk_profile_reads_through_the_authenticated_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    login = _ProfileLogin({"dhanClientId": "client-1"})
+    transport = _sdk_transport_with_context(
+        monkeypatch,
+        _CancelEchoFakeDhanClient(correlation_echo=None),
+        _ProfileContext(login),
+    )
+    try:
+        profile = transport.profile(timeout=5.0)
+
+        assert profile.available is True
+        assert profile.client_id == "client-1"
+        assert login.tokens == ["test-token"]
+    finally:
+        transport.close()
+
+
+def test_sdk_profile_without_login_capability_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _sdk_transport_with_context(
+        monkeypatch,
+        _CancelEchoFakeDhanClient(correlation_echo=None),
+        object(),
+    )
+    try:
+        profile = transport.profile(timeout=5.0)
+
+        assert profile.available is False
+        assert profile.client_id is None
+    finally:
+        transport.close()
+
+
+def test_sdk_profile_transport_failure_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _sdk_transport_with_context(
+        monkeypatch,
+        _CancelEchoFakeDhanClient(correlation_echo=None),
+        _ProfileContext(_RaisingProfileLogin()),
+    )
+    try:
+        profile = transport.profile(timeout=5.0)
+
+        assert profile.available is False
+        assert profile.client_id is None
+        assert "profile endpoint failure" in profile.message
+    finally:
+        transport.close()
+
+
+def test_sdk_holdings_reads_through_the_authenticated_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _HoldingsFakeDhanClient(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "exchange": "ALL",
+                    "securityId": "1333",
+                    "totalQty": 5,
+                    "dpQty": 5,
+                    "t1Qty": 0,
+                    "availableQty": 5,
+                    "collateralQty": 0,
+                    "avgCostPrice": "100",
+                }
+            ],
+        }
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        holdings = transport.holdings(timeout=5.0)
+
+        assert holdings.available is True
+        assert holdings.holdings[0].security_id == "1333"
+        assert holdings.holdings[0].average_cost_price == Decimal("100")
+    finally:
+        transport.close()
+
+
+def test_sdk_holdings_without_vendor_method_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _sdk_transport_without_sdk(
+        monkeypatch,
+        _CancelEchoFakeDhanClient(correlation_echo=None),
+    )
+    try:
+        holdings = transport.holdings(timeout=5.0)
+
+        assert holdings.available is False
+        assert holdings.holdings == ()
+    finally:
+        transport.close()

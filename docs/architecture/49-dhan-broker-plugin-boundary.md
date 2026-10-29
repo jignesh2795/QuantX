@@ -49,15 +49,64 @@ the execution receipt.
 
 ## Supported surface in P1.5
 
-The adapter currently advertises only the capabilities implemented by the
-existing QuantX `BrokerPort` contract:
+The adapter advertises the capabilities implemented by the existing QuantX
+broker contract:
 
 - order submission
 - order cancellation
+- balances (`account_state`, read from the funds endpoint)
+- positions (`position_states` / `position_state_for`, read from the positions endpoint)
+- market data (snapshot-only adapter described below)
 
-Positions, balances, replacement, and other Dhan functionality remain
-outside the first adapter slice until QuantX exposes normalized contracts
-for them.
+Order replacement is not implemented. The transport additionally exposes
+normalized `profile()`, `fund_limits()`, `positions()`, and `holdings()`
+observations for application-level evidence collection. Those reads are not a
+second broker port, never expose vendor types, and never invent a missing
+value: an unavailable or malformed payload is an unavailable observation.
+
+## LIVE risk-evidence source
+
+```text
+LiveRiskEvidenceAuthority (application-owned)
+        |
+        v
+DhanRiskEvidenceSource (plugin evidence source)
+        |
+        v
+DhanTransport -> profile / fundlimit / positions / holdings
+```
+
+`DhanRiskEvidenceSource` is a neutral evidence producer. It is constructed with
+the exact account, broker connection, expected `dhanClientId`, transport,
+instrument/`DhanInstrumentRef` pairs, and a bounded read timeout. Collection
+is profile-first: the authenticated profile must match the expected client id
+before funds, positions, or holdings are read. Holdings rows carry no client
+id, so their identity is bound by the same authenticated transport rather than
+by a row field. Per-row client ids, when present, are corroborating only; a
+contradiction rejects the collection.
+
+Funds map to the six financial evidence fields: Dhan's `sodLimit` becomes
+cash balance; its `availabelBalance` (vendor spelling) becomes available cash,
+margin available, and buying power; `utilizedAmount` becomes margin used; and
+`blockedPayoutAmount` becomes blocked cash. If any of the six is missing or
+unusable, all six financial observations are dropped instead of exposing a
+partial account state. Positions and holdings are both required before
+exposure is reported; an unavailable book is never treated as an empty book,
+while an absent instrument in an available book is an observed zero. Position
+and holding quantity identities, per-row client ids, and canonical instrument
+mappings are validated before use.
+
+The Dhan endpoints used here do not provide daily P&L, complete portfolio
+equity, a reliable high-water mark, or a mark-to-market portfolio valuation.
+Those fields are therefore reported unavailable, never zero. Because the
+sanctioned LIVE composition requires daily P&L (and the other mandatory
+fields) before it treats evidence as authoritative, this source does not make
+the Dhan LIVE path authoritative: public LIVE dispatch stays blocked by
+design. Issue #267 remains open.
+
+These observations are exercised only through the in-memory transport. No
+real broker call, production credential, or LIVE order is part of the
+implementation or its tests.
 
 ## Market-data composition
 
