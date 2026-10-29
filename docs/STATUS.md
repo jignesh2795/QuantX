@@ -66,6 +66,32 @@ integrity. The documentation commit that records these results changes HEAD and 
 validated separately in both configurations at its own final SHA; the counts above are not
 evidence for that later commit.
 
+**Reconciled candidate validation - SHA `15c9fff039124c13c20ebdc592c0ea0338d0a08f` (2026-10-29):**
+the reconciliation merge commit has parents `10e348ed84035f59661dcce069dbc71996bdd910` and
+`91cca51db45d35afc0eaaac791f557392c627c09`, preserving both the validated remediation and the
+instrument-resolution consistency guard. When `context.instrument_resolution` is present,
+`context.instrument` must equal `context.instrument_resolution.instrument`; divergence is
+rejected as `LIVE_RISK_REQUEST_MISMATCH` before reservation or broker submission. The
+regression is `test_live_pretrade_rejects_instrument_facts_that_diverge_from_resolution`.
+
+Focused results at that SHA: `tests/unit/application/test_execution.py` 118 passed; the
+India-enforcement, R0-B timeout, Dhan adapter, and reference-broker group 69 passed; the
+live-risk, LIVE submission authorization, receipt-identity, and LIVE execution group
+206 passed.
+
+Default configuration: 2,984 passed, 1 skipped; Dhan-enabled configuration: 2,985 passed.
+Changed-file Ruff check and format check passed across 13 Python files, strict mypy passed
+for 202 source files, `uv lock --check` passed, `git diff --check` reported no whitespace
+errors, and the tracked worktree was clean. Both release checks passed with exact HEAD/base
+binding, canonical full-suite argv, 13-file changed-Python scope, and 15-file branch scope.
+Evidence and reports under `%LOCALAPPDATA%\Temp\quantx-validation\`:
+`issue267-reconcile-15c9fff-default.json`, `issue267-reconcile-15c9fff-dhan.json`,
+`release-15c9fff-default.json`, and `release-15c9fff-dhan.json`.
+
+The reconciliation candidate's evidence does not validate the earlier `10e348e` commit or
+any later documentation commit; the documentation commit is validated separately at its own
+final SHA.
+
 Non-claims: the evidence is local, unauthenticated JSON produced without GitHub Actions or
 paid CI; no broker I/O, LIVE order, production credential, or real-broker end-to-end run was
 performed. PASS does not establish production or broker correctness, LIVE readiness, or
