@@ -3872,6 +3872,8 @@ def test_malformed_reserve_decision_rolls_back_and_leaves_no_pending_row(tmp_pat
     finally:
         database.close()
 
+
+
 def test_live_transactional_helper_blocks_direct_call_without_dispatcher_admission() -> None:
     request = _request(
         ExecutionMode.LIVE,
