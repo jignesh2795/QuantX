@@ -44,11 +44,34 @@ both release checks failed because the validation overall was FAIL. The failed t
 included four application execution tests, four India-enforcement tests, five R0-B timeout
 tests, three Dhan adapter tests, and one reference-broker composition test.
 
-**Remediation after that failure:** the same issue branch has since corrected several public
-LIVE versus transaction-test boundary assumptions, preserved fail-closed public dispatch,
-expanded the request/risk identity mismatch matrix, adjusted the instrument-resolution type
-contract, and corrected import ordering. The remediation revision still requires fresh
-focused and full-suite validation plus Ruff, format, strict mypy, and release checks.
+**Remediation validation - SHA `500b9e606c84b52a12513780e5033c991810c6b1` (2026-10-29):**
+the remediation commit corrects the public LIVE versus transaction-test boundary assumptions,
+preserves fail-closed public dispatch, keeps the application-owned `LivePreTradeRiskEvaluator`
+blocked because authoritative evidence is unavailable, expands the request/risk identity
+mismatch matrix, adjusts the instrument-resolution type contract, and corrects import
+ordering. The admission-race regression now expects a direct retry of the pending reservation
+to return `UNKNOWN` rather than `BLOCKED`, while still asserting zero broker submissions.
+
+Focused results at that SHA: `tests/unit/application/test_execution.py` 118 passed; the
+India-enforcement, R0-B timeout, Dhan adapter, and reference-broker group 69 passed; the
+live-risk, LIVE submission authorization, receipt-identity, and LIVE execution group
+205 passed.
+
+Default configuration: 2,983 passed, 1 skipped; Dhan-enabled configuration: 2,984 passed.
+Changed-file Ruff check and format check passed across 13 Python files, strict mypy passed
+for 202 source files, `uv lock --check` passed, and `git diff --check` reported no whitespace
+errors. Both release checks passed for that SHA, including evidence HEAD/base binding,
+canonical argv, 13-file changed-Python scope, 15-file branch scope, and clean tracked-tree
+integrity. The documentation commit that records these results changes HEAD and is therefore
+validated separately in both configurations at its own final SHA; the counts above are not
+evidence for that later commit.
+
+Non-claims: the evidence is local, unauthenticated JSON produced without GitHub Actions or
+paid CI; no broker I/O, LIVE order, production credential, or real-broker end-to-end run was
+performed. PASS does not establish production or broker correctness, LIVE readiness, or
+authenticated risk-evidence provenance. Issue #267 remains open, and public LIVE dispatch
+remains blocked before reservation and submission until an authoritative provenance source
+and its identity, freshness, completeness, unavailable-state, and contradiction tests exist.
 No counts from SHA `c3c29e346548a345eb0f93dfebf65620db6f1e5e` validate a later revision.
 
 No GitHub Actions or paid CI was used; no broker I/O, LIVE order, or production-broker
