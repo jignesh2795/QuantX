@@ -638,10 +638,11 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
         ExecutionMode.LIVE,
         connection_id=BrokerConnectionId("conn-1"),
     )
+    unit_of_work = _FakeUnitOfWork()
     broker = FakeBroker()
     orchestrator = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
-        unit_of_work=_FakeUnitOfWork(),
+        unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
         live_risk_evaluator=_approving_live_risk_evaluator(),
@@ -673,10 +674,11 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
         ExecutionMode.LIVE,
         connection_id=BrokerConnectionId("conn-1"),
     )
+    unit_of_work = _FakeUnitOfWork()
     broker = FailingBroker()
     orchestrator = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
-        unit_of_work=_FakeUnitOfWork(),
+        unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
         live_risk_evaluator=_approving_live_risk_evaluator(),
@@ -1740,9 +1742,10 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     request = _live_request()
     database_a = SqliteDatabase(path)
     try:
+        unit_of_work_a = SqliteUnitOfWork(database_a)
         orchestrator_a = ExecutionOrchestrator(
             application_runtime=_started_runtime(),
-            unit_of_work=SqliteUnitOfWork(database_a),
+            unit_of_work=unit_of_work_a,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database_a), default_enabled=True
             ),
@@ -1754,16 +1757,23 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
             live_risk_evaluator=_approving_live_risk_evaluator(),
             policy_verifier=policy_verifier(),
         )
-        first = orchestrator_a.execute(request, broker=FakeBroker())
+        broker_a = FakeBroker()
+        first = _execute_admitted_transaction(
+            orchestrator_a, request, broker_a, unit_of_work_a
+        )
         assert first.status is ExecutionDispatchStatus.EXECUTED
+        assert first.receipt is not None
+        assert broker_a.submit_calls == 1
     finally:
         database_a.close()
+
     database_b = SqliteDatabase(path)
     try:
+        unit_of_work_b = SqliteUnitOfWork(database_b)
         broker_b = FakeBroker()
         orchestrator_b = ExecutionOrchestrator(
             application_runtime=_started_runtime(),
-            unit_of_work=SqliteUnitOfWork(database_b),
+            unit_of_work=unit_of_work_b,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database_b), default_enabled=True
             ),
@@ -1775,7 +1785,9 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
             live_risk_evaluator=_approving_live_risk_evaluator(),
             policy_verifier=policy_verifier(),
         )
-        second = orchestrator_b.execute(request, broker=broker_b)
+        second = _execute_admitted_transaction(
+            orchestrator_b, request, broker_b, unit_of_work_b
+        )
         assert second.status is ExecutionDispatchStatus.EXECUTED
         assert second.receipt == first.receipt
         assert broker_b.submit_calls == 0
@@ -1844,7 +1856,10 @@ def test_broker_submit_runs_outside_sqlite_transaction(tmp_path) -> None:
                 observed["in_transaction"] = database.connection().in_transaction
                 return super().submit(request)
 
-        result = orchestrator.execute(_live_request(), broker=InspectingBroker())
+        broker = InspectingBroker()
+        result = _execute_admitted_transaction(
+            orchestrator, _live_request(), broker, unit_of_work
+        )
         assert result.status is ExecutionDispatchStatus.EXECUTED
         assert observed["in_transaction"] is False
     finally:
