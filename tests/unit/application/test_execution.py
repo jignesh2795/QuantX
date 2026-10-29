@@ -2534,7 +2534,7 @@ def test_dual_persistence_failure_latches_safety_fault_and_blocks_submission(
         assert persisted is not None
         assert persisted.enabled is False
         assert broker.submit_calls == 1
-        second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
+        second = orchestrator.execute(request, broker=broker)
         assert second.status is ExecutionDispatchStatus.BLOCKED
         assert broker.submit_calls == 1
     finally:
@@ -2588,7 +2588,7 @@ def test_quarantine_record_failure_latches_fault_without_permissive_path() -> No
     assert decision.reservation_pending
     assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
 
-    replay = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
+    replay = orchestrator.execute(request, broker=broker)
 
     assert replay.status is ExecutionDispatchStatus.BLOCKED
     assert "trading is blocked" in replay.reason
