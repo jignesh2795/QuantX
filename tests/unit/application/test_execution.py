@@ -3368,34 +3368,36 @@ def test_live_trading_gate_malformed_allow_blocks_before_reservation() -> None:
     assert unit_of_work.committed is False
 
 
-def test_live_trading_gate_malformed_permit_blocks_before_reservation() -> None:
+def test_transactional_live_gate_malformed_permit_blocks_before_reservation() -> None:
     gate = _ScriptedGate(permit_result="true")
     orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
         trading_gate=gate,
     )
+    request = _live_request()
 
-    execution = orchestrator.execute(_live_request(), broker=broker)
+    execution = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert execution.status is ExecutionDispatchStatus.BLOCKED
     assert execution.reason == "live trading gate returned an invalid result"
-    assert gate.allow_calls == 1
+    assert gate.allow_calls == 0
     assert gate.permit_calls == 1
     assert gate.admit_calls == 0
     assert store.reserve_calls == 0
     assert broker.submit_calls == 0
 
 
-def test_live_trading_gate_malformed_admission_blocks_before_submit() -> None:
+def test_transactional_live_gate_malformed_admission_blocks_before_submit() -> None:
     gate = _ScriptedGate(admit_result=object())
     orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
         trading_gate=gate,
     )
+    request = _live_request()
 
-    execution = orchestrator.execute(_live_request(), broker=broker)
+    execution = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert execution.status is ExecutionDispatchStatus.BLOCKED
     assert execution.reason == "live trading gate returned an invalid result"
-    assert gate.allow_calls == 1
+    assert gate.allow_calls == 0
     assert gate.permit_calls == 1
     assert gate.admit_calls == 1
     assert store.reserve_calls == 1
