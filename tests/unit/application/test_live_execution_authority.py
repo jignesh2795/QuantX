@@ -15,6 +15,7 @@ from decimal import Decimal
 
 import pytest
 
+from quantx.application import execution as execution_module
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.application.live_execution import (
     LiveExecutionCompositionError,
@@ -597,6 +598,51 @@ def test_direct_orchestrator_cannot_bypass_authority_bound_adapter(tmp_path) -> 
         assert impostor.connection.connection_id == registered.connection.connection_id
 
         result = direct.execute(request, broker=impostor)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "registered broker adapter" in result.reason
+        assert source.calls == 0
+        assert impostor.submit_calls == 0
+        assert result.receipt is None
+        assert stack.gate.state().enabled is True
+        _assert_no_submission_side_effects(database, request, impostor)
+    finally:
+        database.close()
+
+
+def test_transactional_entry_rechecks_authority_bound_adapter(tmp_path) -> None:
+    """The private transaction entry point independently enforces adapter identity.
+
+    Mint a valid test authorization for an impostor broker, as the unit-test
+    helper can do through the module-private issuer. The transaction boundary
+    must still reject it before reserving, collecting evidence, or submitting.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        source = _source()
+        stack, registered = _live_stack(database, source=source)
+        stack.gate.enable()
+        request = _request()
+        impostor = FakeBroker(account_id=ACCOUNT, connection_id=CONNECTION)
+        unit_of_work = stack.orchestrator._unit_of_work
+        assert unit_of_work is not None
+
+        with execution_module._LIVE_SUBMISSION_AUTHORITIES_LOCK:
+            authorizer = execution_module._LIVE_SUBMISSION_AUTHORITIES.get(
+                stack.orchestrator
+            )
+        assert authorizer is not None
+        authorization = authorizer.issue(
+            client_order_id=request.order.client_order_id,
+            request_fingerprint=request_fingerprint(request),
+            broker_identity=id(impostor),
+            unit_of_work_identity=id(unit_of_work),
+        )
+
+        assert impostor is not registered
+        result = stack.orchestrator._execute_live_transactional(
+            request, impostor, unit_of_work, authorization
+        )
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
         assert "registered broker adapter" in result.reason
