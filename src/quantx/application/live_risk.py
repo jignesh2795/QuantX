@@ -153,6 +153,10 @@ def _risk_inputs_match_request(
         or intent.execution_context != request.execution_context
         or context.instrument.instrument_id != order.instrument
         or context.instrument.market != request.execution_context.market
+        or (
+            context.instrument_resolution is not None
+            and context.instrument != context.instrument_resolution.instrument
+        )
         or context.product != request.product
         or context.effective_position_effect != request.effective_position_effect
         or context.market_pack_id != request.execution_context.market_pack_id
