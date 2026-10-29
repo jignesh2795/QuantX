@@ -15,7 +15,9 @@ There is no separate catalog input:
 :class:`quantx.application.live_execution.LiveExecutionConfig` cannot carry one,
 and the sanctioned factory creates the catalog from the registered adapter and
 never returns it. The module-local constructor token is API encapsulation, not a
-security boundary against arbitrary Python code executing in this process.
+security boundary against arbitrary Python code executing in this process. Any
+wrapper required for LIVE dispatch must itself be the registered adapter; a
+separate wrapper around the registered object is intentionally rejected.
 
 Python cannot distinguish "the deployment wired this" from "other code in this
 same process wired this", so this boundary does not claim to sandbox arbitrary
@@ -45,8 +47,8 @@ from .live_risk_evidence import LiveRiskEvidenceSource
 _CONSTRUCTION_TOKEN = object()
 
 _CATALOG_CONSTRUCTION_REASON = (
-    "LIVE risk evidence catalogs are created only by the application from a "
-    "registered broker connection"
+    "LIVE risk evidence catalog construction requires the application construction "
+    "token from a registered broker connection"
 )
 
 
