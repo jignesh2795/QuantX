@@ -26,6 +26,7 @@ from quantx.application.live_risk import (
     LiveRiskEvidenceObservation,
     required_live_risk_evidence_fields,
 )
+from quantx.application.live_risk_sources import live_risk_evidence_catalog_for
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.clock import Clock, FixedClock
 from quantx.domain.deployment import (
@@ -345,16 +346,15 @@ def _authority(
     broker_client_id: str = CLIENT,
     transport: object = TRANSPORT,
 ) -> LiveRiskEvidenceAuthority:
-    """Build an authority whose source trust comes from the sanctioned catalog."""
+    """Build an authority whose source trust is the registered adapter's own path."""
     registered = registered_connection(
         account_id=account_id,
         connection_id=broker_connection_id,
-    )
-    catalog = catalog_for(
-        source if source is not None else _source(),
+        source=source if source is not None else _source(),
         broker_client_id=broker_client_id,
         transport=transport,
     )
+    catalog = catalog_for(registered)
     grant = catalog.grant(registered)
     assert grant is not None
     return LiveRiskEvidenceAuthority(
@@ -403,8 +403,10 @@ class _StepClock(Clock):
 
 
 def test_authority_requires_an_application_issued_grant() -> None:
-    registered = registered_connection(account_id=ACCOUNT, connection_id=CONNECTION)
-    catalog = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
+    registered = registered_connection(
+        account_id=ACCOUNT, connection_id=CONNECTION, source=_source()
+    )
+    catalog = catalog_for(registered)
 
     with pytest.raises(TypeError, match="application-issued source grant"):
         LiveRiskEvidenceAuthority(
@@ -422,8 +424,10 @@ def test_authority_requires_a_clock() -> None:
 
 
 def test_authority_rejects_a_connection_this_process_did_not_register() -> None:
-    registered = registered_connection(account_id=ACCOUNT, connection_id=CONNECTION)
-    catalog = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
+    registered = registered_connection(
+        account_id=ACCOUNT, connection_id=CONNECTION, source=_source()
+    )
+    catalog = catalog_for(registered)
     grant = catalog.grant(registered)
     assert grant is not None
 
@@ -447,16 +451,22 @@ def test_authority_rejects_a_disabled_connection() -> None:
         account_id=ACCOUNT,
         connection_id=CONNECTION,
         enabled=False,
+        source=_source(),
     )
-    catalog = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
 
-    assert catalog.grant(disabled) is None
+    catalog = live_risk_evidence_catalog_for(disabled)
+    assert catalog is None
 
 
 def test_authority_rejects_a_catalog_that_did_not_mint_the_grant() -> None:
-    registered = registered_connection(account_id=ACCOUNT, connection_id=CONNECTION)
-    issuing = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
-    stranger = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
+    registered = registered_connection(
+        account_id=ACCOUNT, connection_id=CONNECTION, source=_source()
+    )
+    other_registration = registered_connection(
+        account_id=ACCOUNT, connection_id=CONNECTION, source=_source()
+    )
+    issuing = catalog_for(registered)
+    stranger = catalog_for(other_registration)
     grant = issuing.grant(registered)
     assert grant is not None
 

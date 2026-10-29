@@ -1,20 +1,27 @@
 """Application-owned trust boundary for LIVE risk-evidence sources.
 
 A source is never trusted because it implements a protocol, returns a valid
-dataclass, declares every required field, or echoes configured identities. It
-is trusted only when the deployment registered a construction path for its
-broker in this catalog and the catalog itself built the source over the exact
-account/connection the process registered.
+dataclass, declares every required field, or echoes configured identities. It is
+trusted only when the exact broker connection this process registered supplies
+the source's construction path itself: the adapter held by
+:class:`~quantx.integrations.account_registry.RegisteredConnection` implements
+:class:`LiveRiskEvidenceSourceProvider`.
 
-The catalog is composition state, not source state: it holds builders keyed by
-broker id, calls the allowlisted builder with the process's registered
-connection, validates the returned binding, and mints a sealed grant. The
-authority in :mod:`quantx.application.live_risk` accepts only that grant, and
-derives the expected account, connection, broker client and transport from the
-builder's own binding instead of from caller-supplied values.
+That anchor is deliberate. The object that builds risk evidence is the same
+object that receives orders, reports health and reconciles fills for that
+connection, so replacing it means replacing the broker connection rather than
+swapping only the numbers the risk engine reads. There is no separate catalog
+input: :class:`quantx.application.live_execution.LiveExecutionConfig` cannot
+carry one, this module's catalog cannot be constructed from outside, and the
+sanctioned factory creates it from the registered adapter and never returns it.
+
+Python cannot distinguish "the deployment wired this" from "other code in this
+same process wired this", so this boundary does not claim to sandbox arbitrary
+in-process code. What it does guarantee is that no free-standing evidence
+declaration exists: LIVE authority follows the registered execution path.
 
 This module is vendor-neutral: it names no broker plugin and imports no broker
-SDK. Concrete plugins register their construction path from their own module.
+SDK. Concrete plugins implement the provider on their own adapter.
 """
 
 from __future__ import annotations
@@ -24,11 +31,21 @@ import hmac
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.integrations.account_registry import RegisteredConnection
 
 from .live_risk_evidence import LiveRiskEvidenceSource
+
+# Held only by this module. Without it a catalog cannot be constructed anywhere
+# in the process, so a caller cannot declare a construction path at all.
+_CONSTRUCTION_TOKEN = object()
+
+_CATALOG_CONSTRUCTION_REASON = (
+    "LIVE risk evidence catalogs are created only by the application from a "
+    "registered broker connection"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,17 +64,32 @@ class TrustedLiveRiskEvidenceBinding:
     transport: object
 
 
-@dataclass(frozen=True, slots=True)
-class LiveRiskEvidenceSourceBuilder:
-    """One application-registered construction path for one broker.
+@runtime_checkable
+class LiveRiskEvidenceSourceProvider(Protocol):
+    """A registered broker adapter that owns its LIVE risk-evidence source.
 
-    Registration is an explicit composition act by the deployment. A builder
-    is a module-level factory of the owning plugin; it is never derived from a
-    source instance.
+    The provider is the adapter, not a separate registration record: a
+    deployment that wants LIVE authority must make the connection it registered
+    for submission and reconciliation also responsible for the evidence that
+    authorizes submission.
     """
 
+    def build_live_risk_evidence_binding(
+        self, registered: RegisteredConnection
+    ) -> TrustedLiveRiskEvidenceBinding | None: ...
+
+
+BuildLiveRiskEvidenceBinding = Callable[
+    [RegisteredConnection], TrustedLiveRiskEvidenceBinding | None
+]
+
+
+@dataclass(frozen=True, slots=True)
+class _LiveRiskEvidenceSourceBuilder:
+    """One construction path, always a bound method of a registered adapter."""
+
     broker_id: str
-    build: Callable[[RegisteredConnection], TrustedLiveRiskEvidenceBinding]
+    build: BuildLiveRiskEvidenceBinding
 
     def __post_init__(self) -> None:
         if type(self.broker_id) is not str or not self.broker_id.strip():
@@ -83,28 +115,39 @@ class LiveRiskEvidenceSourceGrant:
     seal: str = field(repr=False)
 
 
-def _module_of(build: Callable[[RegisteredConnection], TrustedLiveRiskEvidenceBinding]) -> str:
+def _module_of(build: BuildLiveRiskEvidenceBinding) -> str:
     module = getattr(build, "__module__", None)
     return module if isinstance(module, str) else ""
 
 
-def _qualname_of(build: Callable[[RegisteredConnection], TrustedLiveRiskEvidenceBinding]) -> str:
+def _qualname_of(build: BuildLiveRiskEvidenceBinding) -> str:
     qualname = getattr(build, "__qualname__", None)
     return qualname if isinstance(qualname, str) else ""
 
 
 class LiveRiskEvidenceSourceCatalog:
-    """Application-owned allowlist of trusted LIVE risk-evidence construction paths."""
+    """Application-minted allowlist of LIVE risk-evidence construction paths.
 
-    def __init__(self, *, builders: tuple[LiveRiskEvidenceSourceBuilder, ...]) -> None:
+    Construction is restricted to this module: there is no public way to create
+    a catalog, so no caller can declare a construction path, and the sanctioned
+    factory never accepts or returns one. A catalog only ever holds the bound
+    construction method of the registered broker adapter it was derived from.
+    """
+
+    def __init__(
+        self,
+        *,
+        builders: tuple[_LiveRiskEvidenceSourceBuilder, ...],
+        token: object | None = None,
+    ) -> None:
+        if token is not _CONSTRUCTION_TOKEN:
+            raise TypeError(_CATALOG_CONSTRUCTION_REASON)
         if type(builders) is not tuple or not builders:
             raise TypeError("LIVE risk evidence catalog requires a builder tuple")
-        registered: dict[str, LiveRiskEvidenceSourceBuilder] = {}
+        registered: dict[str, _LiveRiskEvidenceSourceBuilder] = {}
         for builder in builders:
-            if type(builder) is not LiveRiskEvidenceSourceBuilder:
-                raise TypeError(
-                    "LIVE risk evidence catalog requires LiveRiskEvidenceSourceBuilder entries"
-                )
+            if type(builder) is not _LiveRiskEvidenceSourceBuilder:
+                raise TypeError("LIVE risk evidence catalog requires builder entries")
             if builder.broker_id in registered:
                 raise ValueError(
                     "LIVE risk evidence catalog contains a duplicate broker id: "
@@ -137,6 +180,8 @@ class LiveRiskEvidenceSourceCatalog:
         try:
             binding = builder.build(registered)
         except Exception:
+            return None
+        if type(binding) is not TrustedLiveRiskEvidenceBinding:
             return None
         if not self._binding_shape_is_valid(binding):
             return None
@@ -214,9 +259,36 @@ class LiveRiskEvidenceSourceCatalog:
         return hmac.new(self._key, message, hashlib.sha256).hexdigest()
 
 
+def live_risk_evidence_catalog_for(
+    registered: RegisteredConnection,
+) -> LiveRiskEvidenceSourceCatalog | None:
+    """Derive the catalog for one registered connection, or ``None``.
+
+    Returns ``None`` when the argument is not a registration, when the
+    connection is disabled, or when its adapter exposes no construction path.
+    The adapter's bound method *is* the construction path, so evidence a LIVE
+    stack can authorize always comes from the object registered to submit and
+    reconcile for that connection.
+    """
+    if type(registered) is not RegisteredConnection:
+        return None
+    if not registered.enabled:
+        return None
+    adapter = registered.adapter
+    if not isinstance(adapter, LiveRiskEvidenceSourceProvider):
+        return None
+    builder = _LiveRiskEvidenceSourceBuilder(
+        broker_id=registered.ref.broker_id,
+        build=adapter.build_live_risk_evidence_binding,
+    )
+    return LiveRiskEvidenceSourceCatalog(builders=(builder,), token=_CONSTRUCTION_TOKEN)
+
+
 __all__ = [
-    "LiveRiskEvidenceSourceBuilder",
+    "BuildLiveRiskEvidenceBinding",
     "LiveRiskEvidenceSourceCatalog",
     "LiveRiskEvidenceSourceGrant",
+    "LiveRiskEvidenceSourceProvider",
     "TrustedLiveRiskEvidenceBinding",
+    "live_risk_evidence_catalog_for",
 ]

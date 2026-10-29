@@ -16,12 +16,13 @@ that the evaluator verifies before the same domain engine runs. Missing,
 foreign, contradictory, stale, future-dated, or incomplete evidence never
 reaches the engine as approval.
 
-Source trust is not evidence. The authority accepts only a grant minted by the
-application-owned :class:`quantx.application.live_risk_sources.LiveRiskEvidenceSourceCatalog`
-from a construction path the deployment registered for the exact connection the
-process registered; a protocol implementation, a well-typed dataclass, a
-``supported_fields`` claim, or echoed identity values never qualify on their
-own.
+Source trust is not evidence. The authority accepts only a grant minted by a
+:class:`quantx.application.live_risk_sources.LiveRiskEvidenceSourceCatalog` that
+the application derived from the exact registered broker connection, whose
+evidence construction path is that connection adapter's own bound method. A
+protocol implementation, a well-typed dataclass, a ``supported_fields`` claim,
+or echoed identity values never qualify on their own, and a caller cannot supply
+a catalog or a source instance at all.
 """
 
 from __future__ import annotations
@@ -411,8 +412,11 @@ class LiveRiskEvidenceAuthority:
     It re-verifies that grant against the catalog that minted it, proves the
     grant's connection is still the one this process registered, and derives
     the expected account, broker connection, broker client id and transport
-    from the grant's binding. Nothing a source returns, declares, or echoes is
-    used to decide its own trust.
+    from the grant's binding. The catalog cannot be constructed outside
+    :mod:`quantx.application.live_risk_sources`; the sanctioned composition root
+    derives it from the registered connection's adapter and never returns it.
+    Nothing a source returns, declares, or echoes is used to decide its own
+    trust.
 
     After trust, the authority calls the wired source, verifies every provenance
     dimension of the evidence, stamps the capture instant from the trusted

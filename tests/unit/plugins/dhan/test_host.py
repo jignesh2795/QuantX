@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 
+from quantx.application.live_risk_sources import live_risk_evidence_catalog_for
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
     ExecutionContext,
@@ -47,11 +48,11 @@ from quantx.plugins.dhan.host import (
     DhanHostConfig,
     DhanHostRuntime,
     build_dhan_host_runtime,
-    build_dhan_risk_evidence_catalog,
     build_dhan_risk_evidence_source,
 )
 from quantx.plugins.dhan.market_data import DhanMarketDataAdapter
 from quantx.plugins.dhan.models import DhanCandleSnapshot, DhanCredentials, DhanInstrumentRef
+from quantx.plugins.dhan.risk_evidence import DhanRiskEvidenceSource
 from quantx.plugins.dhan.transport import DhanSDKTransport, InMemoryDhanTransport
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
 
@@ -579,34 +580,50 @@ def test_risk_evidence_source_builder_rejects_a_non_host(tmp_path) -> None:
         )
 
 
-def test_risk_evidence_catalog_sanctions_only_the_dhan_construction_path(tmp_path) -> None:
+def test_host_adapter_exposes_the_dhan_construction_path(tmp_path) -> None:
     transport = InMemoryDhanTransport()
-    host = build_dhan_host_runtime(_config(tmp_path, transport=transport))
+    host = build_dhan_host_runtime(
+        _config(tmp_path, transport=transport, broker_client_id="client-1")
+    )
     try:
-        catalog = build_dhan_risk_evidence_catalog(host, broker_client_id="client-1")
-
-        assert catalog.broker_ids == frozenset({"dhan"})
-
         registered = host.registry.get(host.config.connection_id)
         assert registered is not None
+        catalog = live_risk_evidence_catalog_for(registered)
+        assert catalog is not None
+        assert catalog.broker_ids == frozenset({"dhan"})
+
         grant = catalog.grant(registered)
         assert grant is not None
         assert grant.broker_id == "dhan"
+        assert grant.builder_module == "quantx.plugins.dhan.adapter"
+        assert grant.builder_qualname == "DhanBrokerAdapter.build_live_risk_evidence_binding"
         assert grant.binding.account_id == host.config.account_id
         assert grant.binding.broker_connection_id == host.config.connection_id
         assert grant.binding.broker_client_id == "client-1"
         assert grant.binding.transport is transport
+        assert isinstance(grant.binding.source, DhanRiskEvidenceSource)
         assert catalog.verify(grant) is True
     finally:
         host.close()
 
 
-def test_risk_evidence_catalog_requires_the_host_identity(tmp_path) -> None:
-    with pytest.raises(TypeError, match="DhanHostRuntime"):
-        build_dhan_risk_evidence_catalog(
-            object(),  # type: ignore[arg-type]
-            broker_client_id="client-1",
-        )
+def test_host_adapter_without_a_client_id_yields_no_grant(tmp_path) -> None:
+    """An unknown client identity exposes no usable construction path."""
+    host = build_dhan_host_runtime(_config(tmp_path, transport=InMemoryDhanTransport()))
+    try:
+        registered = host.registry.get(host.config.connection_id)
+        assert registered is not None
+        catalog = live_risk_evidence_catalog_for(registered)
+        assert catalog is not None
+        assert catalog.grant(registered) is None
+    finally:
+        host.close()
+
+
+@pytest.mark.parametrize("client_id", ["", "   ", 1])
+def test_host_config_rejects_an_invalid_broker_client_id(tmp_path, client_id) -> None:
+    with pytest.raises(ValueError, match="broker client id must be a non-empty string"):
+        _config(tmp_path, broker_client_id=client_id)
 
 
 def test_risk_evidence_source_builder_derives_the_client_id_from_credentials(

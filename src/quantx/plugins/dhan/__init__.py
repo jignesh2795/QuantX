@@ -15,7 +15,6 @@ from .host import (
     DhanHostConfig,
     DhanHostRuntime,
     build_dhan_host_runtime,
-    build_dhan_risk_evidence_catalog,
     build_dhan_risk_evidence_source,
 )
 from .market_data import DhanMarketDataAdapter
@@ -35,7 +34,6 @@ from .recovery import DhanRecoveryEvidenceProvider, build_dhan_recovery_provider
 from .risk_evidence import (
     DHAN_BROKER_ID,
     DhanRiskEvidenceSource,
-    build_dhan_risk_evidence_builder,
 )
 from .transport import DhanSDKTransport, DhanTransport, InMemoryDhanTransport
 
@@ -81,8 +79,6 @@ __all__ = [
     "InMemoryDhanTransport",
     "build_dhan_host_runtime",
     "build_dhan_recovery_provider",
-    "build_dhan_risk_evidence_builder",
-    "build_dhan_risk_evidence_catalog",
     "build_dhan_risk_evidence_source",
     "register_dhan_broker",
 ]

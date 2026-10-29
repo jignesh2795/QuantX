@@ -9,7 +9,10 @@ book, or a fabricated complete account.
 The source is not an authority. Only
 ``quantx.application.live_risk.LiveRiskEvidenceAuthority`` binds these
 observations to the configured account, connection, broker client and exact
-transport, stamps the trusted capture instant, and mints admission. Dhan cannot
+transport, stamps the trusted capture instant, and mints admission. The source
+is reachable only through the Dhan adapter's own construction path
+(``DhanBrokerAdapter.build_live_risk_evidence_binding``), so a deployment cannot
+declare a Dhan-labelled source next to a genuine Dhan connection. Dhan cannot
 provide daily P&L, complete equity, a reliable high-water mark, or a
 mark-to-market portfolio valuation from these endpoints, so the source declares
 those fields unsupported and sanctioned LIVE admission remains unavailable.
@@ -27,10 +30,6 @@ from quantx.application.live_risk_evidence import (
     LiveRiskEvidenceField,
     LiveRiskEvidenceObservation,
 )
-from quantx.application.live_risk_sources import (
-    LiveRiskEvidenceSourceBuilder,
-    TrustedLiveRiskEvidenceBinding,
-)
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.enums import OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest
@@ -38,7 +37,6 @@ from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instruments import Instrument
 from quantx.domain.risk import RiskContext, RiskSnapshot
 from quantx.domain.value_objects import Money
-from quantx.integrations.account_registry import RegisteredConnection
 
 from .models import (
     DhanFundsSnapshot,
@@ -546,57 +544,8 @@ def build_dhan_risk_evidence_source(
     )
 
 
-def build_dhan_risk_evidence_builder(
-    *,
-    transport: DhanTransport,
-    broker_client_id: str,
-    instruments: tuple[tuple[Instrument, DhanInstrumentRef], ...],
-    read_timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
-) -> LiveRiskEvidenceSourceBuilder:
-    """Register the Dhan construction path for the application-owned catalog.
-
-    The builder owns the transport, broker client id, instrument mapping and
-    read timeout; the account and broker connection come from the connection
-    this process registered. A deployment that does not register this builder
-    cannot obtain LIVE authority from a Dhan source at all, and registering it
-    does not make Dhan authoritative: the source still declares daily P&L,
-    equity and high-water mark unavailable, so sanctioned admission stays
-    blocked.
-    """
-    if not isinstance(transport, DhanTransport):
-        raise ValueError("Dhan risk evidence builder requires a DhanTransport")
-    if type(broker_client_id) is not str or not broker_client_id.strip():
-        raise ValueError("Dhan risk evidence builder requires a non-empty broker client id")
-    if not instruments:
-        raise ValueError("Dhan risk evidence builder requires at least one instrument")
-    client_id = broker_client_id.strip()
-
-    def build(registered: RegisteredConnection) -> TrustedLiveRiskEvidenceBinding:
-        if type(registered) is not RegisteredConnection:
-            raise ValueError("Dhan risk evidence builder requires a registered connection")
-        account_id = registered.ref.account_id
-        broker_connection_id = registered.ref.connection_id
-        return TrustedLiveRiskEvidenceBinding(
-            source=DhanRiskEvidenceSource(
-                transport=transport,
-                account_id=account_id,
-                broker_connection_id=broker_connection_id,
-                broker_client_id=client_id,
-                instruments=instruments,
-                read_timeout=read_timeout,
-            ),
-            account_id=account_id,
-            broker_connection_id=broker_connection_id,
-            broker_client_id=client_id,
-            transport=transport,
-        )
-
-    return LiveRiskEvidenceSourceBuilder(broker_id=DHAN_BROKER_ID, build=build)
-
-
 __all__ = [
     "DHAN_BROKER_ID",
     "DhanRiskEvidenceSource",
-    "build_dhan_risk_evidence_builder",
     "build_dhan_risk_evidence_source",
 ]
