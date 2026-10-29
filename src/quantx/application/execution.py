@@ -826,6 +826,23 @@ class ExecutionOrchestrator:
         # Otherwise evidence collected from one connection could dispatch an
         # order to a different one that merely reports the same identifiers.
         expected_broker = self._live_broker
+        if type(self._live_risk_evaluator) is LivePreTradeRiskEvaluator:
+            evidence_broker = self._live_risk_evaluator.registered_submission_adapter
+            if evidence_broker is not None:
+                # A direct orchestrator constructor or caller-selected broker
+                # must not weaken the adapter bound to the verified authority.
+                # Conflicting composition inputs fail closed.
+                if expected_broker is not None and expected_broker is not evidence_broker:
+                    return self._with_evidence_prefix(
+                        ExecutionResult(
+                            ExecutionDispatchStatus.BLOCKED,
+                            reason=(
+                                "LIVE composition broker differs from the evidence-authority adapter"
+                            ),
+                        ),
+                        check_entries,
+                    )
+                expected_broker = evidence_broker
         if expected_broker is not None and broker is not expected_broker:
             return self._with_evidence_prefix(
                 ExecutionResult(
