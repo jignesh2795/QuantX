@@ -15,7 +15,7 @@ from decimal import Decimal
 
 import pytest
 
-from quantx.application.execution import ExecutionDispatchStatus
+from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.application.live_execution import (
     LiveExecutionCompositionError,
     LiveExecutionConfig,
@@ -559,6 +559,52 @@ def test_complete_authority_evidence_executes_through_the_registered_adapter(tmp
             )
             == ()
         )
+    finally:
+        database.close()
+
+
+def test_direct_orchestrator_cannot_bypass_authority_bound_adapter(tmp_path) -> None:
+    """A valid evaluator authority must bind dispatch even without factory wiring.
+
+    The old optional live_broker guard was skipped when a caller directly
+    constructed an orchestrator with no live_broker argument. The authority's
+    registered adapter is the trust anchor even on this construction path, so
+    a different broker with matching identifiers must not collect evidence,
+    reserve, or submit.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        source = _source()
+        stack, registered = _live_stack(database, source=source)
+        stack.gate.enable()
+        request = _request()
+        impostor = FakeBroker(account_id=ACCOUNT, connection_id=CONNECTION)
+
+        direct = ExecutionOrchestrator(
+            trading_gate=stack.gate,
+            unit_of_work=stack.orchestrator._unit_of_work,
+            application_runtime=stack.orchestrator._application_runtime,
+            live_risk_evaluator=stack.orchestrator._live_risk_evaluator,
+            # Intentionally omit live_broker: the authority binding must survive
+            # direct orchestrator construction.
+            market_policy=stack.orchestrator._market_policy,
+            submission_quarantine=stack.orchestrator._submission_quarantine,
+            policy_verifier=policy_verifier(),
+        )
+
+        assert impostor is not registered
+        assert impostor.connection.account_id == registered.connection.account_id
+        assert impostor.connection.connection_id == registered.connection.connection_id
+
+        result = direct.execute(request, broker=impostor)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "registered broker adapter" in result.reason
+        assert source.calls == 0
+        assert impostor.submit_calls == 0
+        assert result.receipt is None
+        assert stack.gate.state().enabled is True
+        _assert_no_submission_side_effects(database, request, impostor)
     finally:
         database.close()
 
