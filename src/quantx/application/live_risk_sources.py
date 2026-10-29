@@ -13,8 +13,9 @@ reconciliation and recovery observations, so replacing it means replacing the
 broker connection rather than swapping only the numbers the risk engine reads.
 There is no separate catalog input:
 :class:`quantx.application.live_execution.LiveExecutionConfig` cannot carry one,
-this module's catalog cannot be constructed from outside, and the sanctioned
-factory creates it from the registered adapter and never returns it.
+and the sanctioned factory creates the catalog from the registered adapter and
+never returns it. The module-local constructor token is API encapsulation, not a
+security boundary against arbitrary Python code executing in this process.
 
 Python cannot distinguish "the deployment wired this" from "other code in this
 same process wired this", so this boundary does not claim to sandbox arbitrary
@@ -39,8 +40,8 @@ from quantx.integrations.account_registry import RegisteredConnection
 
 from .live_risk_evidence import LiveRiskEvidenceSource
 
-# Held only by this module. Without it a catalog cannot be constructed anywhere
-# in the process, so a caller cannot declare a construction path at all.
+# Module-local token gates ordinary constructor use. This is API encapsulation,
+# not a sandbox against arbitrary Python code that can import underscored names.
 _CONSTRUCTION_TOKEN = object()
 
 _CATALOG_CONSTRUCTION_REASON = (
@@ -129,10 +130,11 @@ def _qualname_of(build: BuildLiveRiskEvidenceBinding) -> str:
 class LiveRiskEvidenceSourceCatalog:
     """Application-minted allowlist of LIVE risk-evidence construction paths.
 
-    Construction is restricted to this module: there is no public way to create
-    a catalog, so no caller can declare a construction path, and the sanctioned
-    factory never accepts or returns one. A catalog only ever holds the bound
-    construction method of the registered broker adapter it was derived from.
+    The supported public composition API does not expose catalog creation, and
+    the constructor requires a module-local token. This is API encapsulation,
+    not a sandbox against arbitrary in-process Python code. A catalog created by
+    the sanctioned factory holds only the bound construction method of the
+    registered broker adapter it was derived from.
     """
 
     def __init__(
