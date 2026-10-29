@@ -103,6 +103,53 @@ No counts from SHA `c3c29e346548a345eb0f93dfebf65620db6f1e5e` validate a later r
 No GitHub Actions or paid CI was used; no broker I/O, LIVE order, or production-broker
 end-to-end run was performed.
 
+## Issue #267 — Dhan risk-evidence authority slice (2026-10-29)
+
+Branch `feat/issue267-dhan-risk-evidence-authority-v1`, based on the frozen
+remediation SHA `17cd4c8de01e283b2e3101c2d06cee7397a70b24`. The application layer
+now owns a `LiveRiskEvidenceAuthority` over a neutral `LiveRiskEvidenceSource`
+port. The authority binds each evidence candidate to the configured account,
+broker connection, expected broker client id, exact transport, approved
+request, and a trusted capture instant. It rejects identity, request,
+completeness, contradiction, stale, future-dated, and missing-observation paths
+with fixed sanitized reasons, then mints a per-instance HMAC authorization that
+the evaluator verifies before the existing `PreTradeRiskEngine` runs. Callback
+mode remains explicitly non-authoritative.
+
+The Dhan plugin adds normalized profile, funds, positions, and holdings
+observations to the canonical transport and a `DhanRiskEvidenceSource`.
+Collection is profile-first and requires the authenticated client id to match.
+Funds map to the six financial evidence fields; positions and holdings are both
+required for exposure; an unavailable book never becomes an empty book; missing
+or contradictory values stay unavailable. Dhan does not expose daily P&L,
+complete equity, a reliable high-water mark, or mark-to-market portfolio
+valuation, so the source declares those fields unsupported. The sanctioned LIVE
+limits always require daily P&L, so the Dhan path remains blocked before
+reservation and broker submission; `authoritative_evidence_available` stays
+false for this source and public LIVE dispatch is not unblocked.
+
+**Validation at SHA `194036627a69d22254804cc07a0c39a65cf6b6fd` (base
+`17cd4c8de01e283b2e3101c2d06cee7397a70b24`):** default configuration
+3,191 passed, 2 skipped; Dhan-enabled configuration 3,193 passed. Changed-file
+Ruff check and format passed for 12 Python files; strict mypy passed for 203
+source files; `uv lock --check` and `git diff --check` passed; the tracked
+worktree was clean. Both release checks passed with exact HEAD/base binding,
+canonical full-suite argv, 12-file changed-Python scope, and 13-file branch
+scope. Evidence and reports under `%LOCALAPPDATA%\Temp\quantx-validation\`:
+`issue267-dhan-authority-1940366-default.json`,
+`issue267-dhan-authority-1940366-dhan.json`,
+`release-1940366-default.json`, and `release-1940366-dhan.json`.
+
+Non-claims: the evidence is local, unauthenticated JSON produced without GitHub
+Actions or paid CI; no real broker I/O, authenticated Dhan session, production
+credential, or LIVE order was used. Dhan endpoint behavior is implemented
+against documented fields and exercised only through the in-memory transport;
+no Dhan response fidelity or production correctness is claimed. Issue #267
+remains open, and this slice does not establish LIVE readiness or authoritative
+Dhan risk evidence. The documentation commit that records these results changes
+HEAD and is validated separately at its own final SHA; the counts above are not
+evidence for that later commit.
+
 ## LIVE trusted clock for risk freshness — slice B (2026-10-24)
 
 `LiveExecutionConfig` requires an injected `Clock`; the factory rejects any non-`Clock` before writing durable state. `LivePreTradeRiskEvaluator` reads it once per evaluation and passes only that reading to the clock-free engine as `evaluated_at`, so the engine computes snapshot age from trusted time against the provider-supplied `snapshot.observed_at`.
