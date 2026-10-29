@@ -454,6 +454,9 @@ class LiveRiskEvidenceAuthority:
             raise TypeError(_REGISTRY_REQUIRED_REASON)
         self._grant = grant
         self._catalog = catalog
+        # Retain the exact registered adapter from which the trusted construction
+        # path was derived. Dispatch must use this object, not a peer with matching ids.
+        self._registered_adapter = registered.adapter
         self._source = binding.source
         self._clock = clock
         self._account_id = binding.account_id
@@ -471,6 +474,11 @@ class LiveRiskEvidenceAuthority:
     @property
     def required_fields(self) -> frozenset[LiveRiskEvidenceField]:
         return self._required_fields
+
+    @property
+    def registered_adapter(self) -> object:
+        """The exact registered adapter this authority was constructed against."""
+        return self._registered_adapter
 
     @property
     def authoritative_evidence_available(self) -> bool:
@@ -740,6 +748,13 @@ class LivePreTradeRiskEvaluator:
         if self._authority is None:
             return False
         return self._authority.authoritative_evidence_available
+
+    @property
+    def registered_submission_adapter(self) -> object | None:
+        """Adapter bound to the evidence authority; callback mode has none."""
+        if self._authority is None:
+            return None
+        return self._authority.registered_adapter
 
     def __call__(self, request: ApprovedExecutionRequest) -> RiskResult:
         if self._authority is not None:
