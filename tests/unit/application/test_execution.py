@@ -10,7 +10,11 @@ import pytest
 
 from quantx.application.evidence_refresh import EvidenceRefreshOutcome
 import quantx.application.execution as execution_module
-from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator, ExecutionResult
+from quantx.application.execution import (
+    ExecutionDispatchStatus,
+    ExecutionOrchestrator,
+    ExecutionResult,
+)
 from quantx.application.pending_recovery import PendingRecoveryResult, PendingRecoveryRun
 from quantx.application.reconciliation import (
     OrderStateReconciliationResult,
@@ -1457,7 +1461,9 @@ def test_live_gate_block_not_blocked_by_slow_broker() -> None:
     )
 
     def run_execution() -> None:
-        outcome["result"] = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
+        outcome["result"] = _execute_admitted_transaction(
+            orchestrator, request, broker, unit_of_work
+        )
 
     def block_gate() -> None:
         gate.block("operator emergency stop")
@@ -2022,7 +2028,9 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
 
     def run_execute() -> None:
         try:
-            outcome["result"] = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
+            outcome["result"] = _execute_admitted_transaction(
+            orchestrator, request, broker, unit_of_work
+        )
         except BaseException as exc:
             outcome["error"] = exc
 
@@ -2105,7 +2113,9 @@ def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
 
     def run_execute() -> None:
         try:
-            outcome["result"] = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
+            outcome["result"] = _execute_admitted_transaction(
+            orchestrator, request, broker, unit_of_work
+        )
         except BaseException as exc:
             outcome["error"] = exc
 
