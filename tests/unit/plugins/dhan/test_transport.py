@@ -130,7 +130,11 @@ def test_fund_limits_success_parses_documented_spelling() -> None:
         {
             "status": "success",
             "remarks": "",
-            "data": {"dhanClientId": "test-id", "availabelBalance": 5000.0, "utilizedAmount": "1200.50"},
+            "data": {
+                "dhanClientId": "test-id",
+                "availabelBalance": 5000.0,
+                "utilizedAmount": "1200.50",
+            },
         }
     )
 
@@ -147,7 +151,11 @@ def test_fund_limits_tolerates_alternate_balance_spelling() -> None:
         {
             "status": "success",
             "remarks": "",
-            "data": {"dhanClientId": "test-id", "availableBalance": "250", "utilizedAmount": 0},
+            "data": {
+                "dhanClientId": "test-id",
+                "availableBalance": "250",
+                "utilizedAmount": 0,
+            },
         }
     )
 
@@ -396,7 +404,7 @@ class _HungFakeDhanClient:
         }
 
     def get_fund_limits(self) -> object:
-        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id"}}
+        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id", "availabelBalance": "5000"}}
 
     def get_positions(self) -> object:
         return {"status": "success", "remarks": "", "data": []}
@@ -404,7 +412,7 @@ class _HungFakeDhanClient:
     def get_holdings(self) -> object:
         return {"status": "success", "remarks": "", "data": []}
 
-    def cancel_order(self, order_id: str):
+    def cancel_order(self, order_id: str) -> object:
         return {
             "status": "success",
             "remarks": "",
@@ -417,7 +425,7 @@ class _HungFundsFakeDhanClient(_HungFakeDhanClient):
 
     def get_fund_limits(self) -> object:
         assert self._release.wait(timeout=30)
-        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id"}}
+        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id", "availabelBalance": "5000"}}
 
 
 def _sdk_transport_without_sdk(monkeypatch: pytest.MonkeyPatch, client: object) -> DhanSDKTransport:
@@ -535,7 +543,7 @@ class _CountingHungFundsClient:
             if self._seen >= self._count:
                 self._entered.set()
         assert self._release.wait(timeout=30)
-        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id"}}
+        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id", "availabelBalance": "5000"}}
 
     def get_order_by_correlationID(self, correlation_id: str) -> object:  # noqa: N802
         return {
@@ -637,7 +645,7 @@ class _CancelEchoFakeDhanClient:
         }
 
     def get_fund_limits(self) -> object:
-        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id"}}
+        return {"status": "success", "remarks": "", "data": {"dhanClientId": "test-id", "availabelBalance": "5000"}}
 
     def get_positions(self) -> object:
         return {"status": "success", "remarks": "", "data": []}
