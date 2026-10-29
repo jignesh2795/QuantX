@@ -447,7 +447,7 @@ def test_india_live_without_evaluator_fails_closed(tmp_path) -> None:
         database.close()
 
 
-def test_india_approval_keeps_submission_reachable(tmp_path) -> None:
+def test_india_approval_reaches_authority_gate_but_stays_blocked(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -624,7 +624,7 @@ def _us_request() -> tuple[ApprovedExecutionRequest, Instrument]:
     )
 
 
-def test_non_india_live_without_evaluator_preserves_legacy_behavior(tmp_path) -> None:
+def test_non_india_live_without_application_owned_evaluator_is_blocked(tmp_path) -> None:
     request, us_instrument = _us_request()
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -749,7 +749,7 @@ def test_compat_missing_rule_data_blocks(tmp_path) -> None:
         database.close()
 
 
-def test_compat_approval_reaches_submission(tmp_path) -> None:
+def test_compat_approval_reaches_authority_gate_but_stays_blocked(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -768,7 +768,7 @@ def test_compat_approval_reaches_submission(tmp_path) -> None:
         database.close()
 
 
-def test_non_india_live_skips_configured_india_evaluator(tmp_path) -> None:
+def test_non_india_live_skips_india_evaluator_and_stays_blocked_without_risk_authority(tmp_path) -> None:
     request, us_instrument = _us_request()
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
