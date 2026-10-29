@@ -2373,7 +2373,9 @@ def test_sqlite_completion_failure_receipt_durable_across_reopen(tmp_path, monke
         assert decision.reservation_pending
         assert decision.existing_receipt_id is None
         broker_b = FakeBroker()
-        replay = orchestrator_b.execute(request, broker=broker_b)
+        replay = _execute_admitted_transaction(
+            orchestrator_b, request, broker_b, unit_of_work_b
+        )
         assert replay.status is ExecutionDispatchStatus.UNKNOWN
         assert broker_b.submit_calls == 0
     finally:
