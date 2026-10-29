@@ -8,8 +8,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from quantx.application.evidence_refresh import EvidenceRefreshOutcome
 import quantx.application.execution as execution_module
+from quantx.application.evidence_refresh import EvidenceRefreshOutcome
 from quantx.application.execution import (
     ExecutionDispatchStatus,
     ExecutionOrchestrator,
