@@ -45,6 +45,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import (
     IdempotencyDecision,
+    IdempotencyDecisionValidationError,
     InMemoryIdempotencyStore,
     NotSubmittedSource,
 )
@@ -2999,15 +3000,19 @@ def test_quarantined_observations_never_become_authoritative(tmp_path) -> None:
     try:
         unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
         foreign_request = _live_request()
-        foreign_result = orchestrator.execute(
-            foreign_request, broker=_FixedReceiptBroker(_foreign_receipt(foreign_request))
+        foreign_broker = _FixedReceiptBroker(_foreign_receipt(foreign_request))
+        foreign_result = _execute_admitted_transaction(
+            orchestrator, foreign_request, foreign_broker, unit_of_work
         )
         assert foreign_result.status is ExecutionDispatchStatus.UNKNOWN
+        assert foreign_broker.submit_calls == 1
         unknown_request = _live_request()
-        unknown_result = orchestrator.execute(
-            unknown_request, broker=_FixedReceiptBroker(_unknown_broker_receipt(unknown_request))
+        unknown_broker = _FixedReceiptBroker(_unknown_broker_receipt(unknown_request))
+        unknown_result = _execute_admitted_transaction(
+            orchestrator, unknown_request, unknown_broker, unit_of_work
         )
         assert unknown_result.status is ExecutionDispatchStatus.UNKNOWN
+        assert unknown_broker.submit_calls == 1
 
         for request in (foreign_request, unknown_request):
             assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
@@ -3735,12 +3740,10 @@ def test_check_decision_with_receipt_on_a_pending_reservation_is_blocked() -> No
         )
     )
     orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+    request = _live_request()
 
-    result = orchestrator.execute(_live_request(), broker=broker)
-
-    assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == _LIVE_DECISION_REJECTED_REASON
-    assert result.receipt is None
+    with pytest.raises(IdempotencyDecisionValidationError):
+        _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert store.check_calls == 1
     assert store.reserve_calls == 0
     assert gate.permit_calls == 0
@@ -3757,12 +3760,10 @@ def test_check_decision_with_a_foreign_identity_is_blocked() -> None:
         check_corruption=lambda decision: replace(decision, client_order_id=uuid4())
     )
     orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+    request = _live_request()
 
-    result = orchestrator.execute(_live_request(), broker=broker)
-
-    assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == _LIVE_DECISION_REJECTED_REASON
-    assert result.receipt is None
+    with pytest.raises(IdempotencyDecisionValidationError):
+        _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert store.check_calls == 1
     assert gate.permit_calls == 0
     assert gate.admit_calls == 0
@@ -3783,12 +3784,10 @@ def test_reserve_decision_acquired_without_pending_is_blocked_and_rolled_back() 
         reserve_corruption=lambda decision: replace(decision, reservation_pending=False)
     )
     orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+    request = _live_request()
 
-    result = orchestrator.execute(_live_request(), broker=broker)
-
-    assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == _LIVE_DECISION_REJECTED_REASON
-    assert result.receipt is None
+    with pytest.raises(IdempotencyDecisionValidationError):
+        _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert store.reserve_calls == 1
     assert gate.permit_calls == 1
     assert gate.admit_calls == 0
@@ -3808,12 +3807,10 @@ def test_reserve_decision_with_receipt_on_a_pending_reservation_is_blocked() -> 
         )
     )
     orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+    request = _live_request()
 
-    result = orchestrator.execute(_live_request(), broker=broker)
-
-    assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == _LIVE_DECISION_REJECTED_REASON
-    assert result.receipt is None
+    with pytest.raises(IdempotencyDecisionValidationError):
+        _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert store.reserve_calls == 1
     assert gate.admit_calls == 0
     assert broker.submit_calls == 0
@@ -3906,11 +3903,8 @@ def test_malformed_reserve_decision_rolls_back_and_leaves_no_pending_row(tmp_pat
         )
         request = _live_request()
 
-        result = orchestrator.execute(request, broker=broker)
-
-        assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert result.reason == _LIVE_DECISION_REJECTED_REASON
-        assert result.receipt is None
+        with pytest.raises(IdempotencyDecisionValidationError):
+            _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert gate.admit_calls == 0
         assert broker.submit_calls == 0
         assert unit_of_work.outcomes == ["commit", "rollback"]
