@@ -15,10 +15,12 @@ composition root next to a genuine registered connection. The catalog minted
 its own grant, the authority verified it against that same catalog, and
 fabricated evidence reached the risk engine and the broker.
 
-The correction: trust follows the registered execution path. No catalog can be
-constructed outside the application, no configuration field accepts one, and the
-only construction path is the bound method of the adapter behind the connection
-this process registered.
+The correction: trust follows the registered execution path. The sanctioned
+configuration has no catalog field, and catalog creation is not exposed as a
+public composition API. A module-local constructor token is API encapsulation,
+not a security boundary against arbitrary Python code running in the same
+process. The only sanctioned construction path is the bound method of the
+adapter behind the connection this process registered.
 """
 
 from __future__ import annotations
@@ -169,7 +171,7 @@ def test_execution_config_has_no_catalog_field() -> None:
         )
 
 
-def test_a_catalog_cannot_be_constructed_outside_the_application() -> None:
+def test_catalog_has_no_public_construction_path() -> None:
     with pytest.raises(TypeError, match="created only by the application"):
         LiveRiskEvidenceSourceCatalog(builders=())  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="created only by the application"):
