@@ -3871,3 +3871,33 @@ def test_malformed_reserve_decision_rolls_back_and_leaves_no_pending_row(tmp_pat
         assert remaining[0] == 0
     finally:
         database.close()
+
+def test_live_transactional_helper_blocks_direct_call_without_dispatcher_admission() -> None:
+    request = _request(
+        ExecutionMode.LIVE,
+        connection_id=BrokerConnectionId("conn-1"),
+        required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
+    )
+    broker = FakeBroker()
+    unit_of_work = _FakeUnitOfWork()
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    )
+
+    result = orchestrator._execute_live_transactional(request, broker, unit_of_work)
+
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert result.reason == "live transaction requires a single-use dispatcher admission"
+    assert broker.submit_calls == 0
+    assert unit_of_work.committed is False
+    assert unit_of_work.rolled_back is False
+
