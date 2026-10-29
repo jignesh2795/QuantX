@@ -723,9 +723,7 @@ def test_live_dispatch_blocks_when_the_broker_account_does_not_match() -> None:
     foreign_request = _request()
     unit_of_work = _FakeUnitOfWork()
 
-    blocked = _live_orchestrator(unit_of_work).execute(
-        foreign_request, broker=foreign_broker
-    )
+    blocked = _live_orchestrator(unit_of_work).execute(foreign_request, broker=foreign_broker)
 
     assert blocked.status is ExecutionDispatchStatus.BLOCKED
     assert "broker account does not match" in blocked.reason

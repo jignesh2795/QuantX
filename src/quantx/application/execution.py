@@ -73,12 +73,12 @@ from quantx.ports.market_checks import (
     trusted_failure_codes,
 )
 
+from .live_risk import LivePreTradeRiskEvaluator
 from .live_submission_capability import (
     LiveSubmissionAuthorization,
     LiveSubmissionAuthorizationError,
     LiveSubmissionAuthorizer,
 )
-from .live_risk import LivePreTradeRiskEvaluator
 from .runtime import ApplicationRuntime
 
 # The issuer is deliberately not stored on an ExecutionOrchestrator instance.
@@ -90,8 +90,6 @@ _LIVE_SUBMISSION_AUTHORITIES: WeakKeyDictionary[object, LiveSubmissionAuthorizer
     WeakKeyDictionary()
 )
 _LIVE_SUBMISSION_AUTHORITIES_LOCK = RLock()
-
-
 
 
 class ExecutionDispatchStatus(StrEnum):

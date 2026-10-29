@@ -1738,9 +1738,7 @@ def test_sqlite_fingerprint_mismatch_rejected_without_submit(tmp_path) -> None:
         changed_order = replace(request.order, quantity=Decimal("11"))
         changed_request = replace(request, order=changed_order)
         with pytest.raises(ValueError, match="different request"):
-            _execute_admitted_transaction(
-                orchestrator, changed_request, broker, unit_of_work
-            )
+            _execute_admitted_transaction(orchestrator, changed_request, broker, unit_of_work)
         assert broker.submit_calls == 1
     finally:
         database.close()
@@ -1767,9 +1765,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
             policy_verifier=policy_verifier(),
         )
         broker_a = FakeBroker()
-        first = _execute_admitted_transaction(
-            orchestrator_a, request, broker_a, unit_of_work_a
-        )
+        first = _execute_admitted_transaction(orchestrator_a, request, broker_a, unit_of_work_a)
         assert first.status is ExecutionDispatchStatus.EXECUTED
         assert first.receipt is not None
         assert broker_a.submit_calls == 1
@@ -1794,9 +1790,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
             live_risk_evaluator=_approving_live_risk_evaluator(),
             policy_verifier=policy_verifier(),
         )
-        second = _execute_admitted_transaction(
-            orchestrator_b, request, broker_b, unit_of_work_b
-        )
+        second = _execute_admitted_transaction(orchestrator_b, request, broker_b, unit_of_work_b)
         assert second.status is ExecutionDispatchStatus.EXECUTED
         assert second.receipt == first.receipt
         assert broker_b.submit_calls == 0
@@ -1866,9 +1860,7 @@ def test_broker_submit_runs_outside_sqlite_transaction(tmp_path) -> None:
                 return super().submit(request)
 
         broker = InspectingBroker()
-        result = _execute_admitted_transaction(
-            orchestrator, _live_request(), broker, unit_of_work
-        )
+        result = _execute_admitted_transaction(orchestrator, _live_request(), broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.EXECUTED
         assert observed["in_transaction"] is False
     finally:
@@ -2061,8 +2053,12 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
     assert decision.reservation_pending
     assert decision.existing_receipt_id is None
 
+    # The denied admission left the reservation PENDING. A direct transaction
+    # retry therefore reports UNKNOWN before it can reach the gate admission;
+    # the safety property is that the pending reservation is never resubmitted.
     retry_while_blocked = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
-    assert retry_while_blocked.status is ExecutionDispatchStatus.BLOCKED
+    assert retry_while_blocked.status is ExecutionDispatchStatus.UNKNOWN
+    assert "submission outcome is unknown" in retry_while_blocked.reason
     assert broker.submit_calls == 0
 
     gate.enable()
@@ -2384,9 +2380,7 @@ def test_sqlite_completion_failure_receipt_durable_across_reopen(tmp_path, monke
         assert decision.reservation_pending
         assert decision.existing_receipt_id is None
         broker_b = FakeBroker()
-        replay = _execute_admitted_transaction(
-            orchestrator_b, request, broker_b, unit_of_work_b
-        )
+        replay = _execute_admitted_transaction(orchestrator_b, request, broker_b, unit_of_work_b)
         assert replay.status is ExecutionDispatchStatus.UNKNOWN
         assert broker_b.submit_calls == 0
     finally:

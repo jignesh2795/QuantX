@@ -12,7 +12,6 @@ from decimal import Decimal
 from enum import StrEnum
 
 from .accounts import AccountId, BrokerConnectionId
-from .deployment import PortfolioId
 from .constraints import (
     ConstraintDecision,
     ConstraintResult,
@@ -20,6 +19,7 @@ from .constraints import (
     evaluate_broker_constraint,
     evaluate_capital,
 )
+from .deployment import PortfolioId
 from .enums import OrderSide, PositionEffect
 from .errors import ValidationError
 from .finance import AccountFinancialState, BrokerConstraint

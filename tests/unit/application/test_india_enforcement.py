@@ -768,7 +768,9 @@ def test_compat_approval_reaches_authority_gate_but_stays_blocked(tmp_path) -> N
         database.close()
 
 
-def test_non_india_live_skips_india_evaluator_and_stays_blocked_without_risk_authority(tmp_path) -> None:
+def test_non_india_live_skips_india_evaluator_and_stays_blocked_without_risk_authority(
+    tmp_path,
+) -> None:
     request, us_instrument = _us_request()
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:

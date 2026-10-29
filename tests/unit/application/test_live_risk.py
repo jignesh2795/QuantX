@@ -840,6 +840,43 @@ def test_arbitrary_risk_callback_blocks_before_reservation_and_submit(tmp_path) 
         database.close()
 
 
+def test_application_owned_evaluator_blocks_public_live_without_authority(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        evaluator = _live_pre_trade_evaluator(_limits())
+        orchestrator = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
+            market_policy=india_market_policy(
+                session_evaluator=_approving_india_session_evaluator(),
+                rule_evaluator=_approving_india_evaluator(),
+            ),
+            application_runtime=_started_runtime(),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=evaluator,
+            policy_verifier=policy_verifier(),
+        )
+        request = _request()
+
+        result = orchestrator.execute(request, broker=_adapter(transport))
+
+        assert evaluator.authoritative_evidence_available is False
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in result.reason
+        assert transport.submitted == ()
+        fingerprint = request_fingerprint(request)
+        with SqliteUnitOfWork(database) as check_uow:
+            decision = check_uow.idempotency.check(request.order.client_order_id, fingerprint)
+            assert decision.reservation_pending is False
+            assert decision.existing_receipt_id is None
+            assert check_uow.receipts.get_by_client_order(request.order.client_order_id) is None
+    finally:
+        database.close()
+
+
 def test_arbitrary_risk_approval_cannot_reach_live_gate(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
@@ -1248,9 +1285,7 @@ def test_live_pre_trade_evaluator_rejections_keep_the_resolved_instrument() -> N
         {
             "execution_context": replace(
                 _execution_context(),
-                market=MarketContext(
-                    MarketRegion.NORTH_AMERICA, MarketFamily.EQUITY, "NYSE", "US"
-                ),
+                market=MarketContext(MarketRegion.NORTH_AMERICA, MarketFamily.EQUITY, "NYSE", "US"),
             )
         },
         {"intent_id": UUID("00000000-0000-0000-0000-000000000009")},
