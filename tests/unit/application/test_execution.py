@@ -1738,7 +1738,9 @@ def test_sqlite_fingerprint_mismatch_rejected_without_submit(tmp_path) -> None:
         changed_order = replace(request.order, quantity=Decimal("11"))
         changed_request = replace(request, order=changed_order)
         with pytest.raises(ValueError, match="different request"):
-            orchestrator.execute(changed_request, broker=broker)
+            _execute_admitted_transaction(
+                orchestrator, changed_request, broker, unit_of_work
+            )
         assert broker.submit_calls == 1
     finally:
         database.close()
