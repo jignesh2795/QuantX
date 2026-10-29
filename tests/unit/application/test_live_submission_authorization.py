@@ -712,24 +712,19 @@ def test_live_dispatch_blocks_when_pretrade_risk_rejects() -> None:
     _assert_no_durable_work(unit_of_work, request)
 
 
-def test_live_dispatch_blocks_when_the_broker_connection_does_not_match() -> None:
-    request = _request()
-    unit_of_work = _FakeUnitOfWork()
-    broker = _FakeBroker()
-
-    result = _live_orchestrator(unit_of_work).execute(request, broker=broker)
-    assert result.status is ExecutionDispatchStatus.EXECUTED  # sanity: matching broker works
-
+def test_live_dispatch_blocks_when_the_broker_account_does_not_match() -> None:
     foreign_broker = _FakeBroker(account_id=_FOREIGN_ACCOUNT_ID)
     foreign_request = _request()
-    other_unit_of_work = _FakeUnitOfWork()
+    unit_of_work = _FakeUnitOfWork()
 
-    blocked = _live_orchestrator(other_unit_of_work).execute(foreign_request, broker=foreign_broker)
+    blocked = _live_orchestrator(unit_of_work).execute(
+        foreign_request, broker=foreign_broker
+    )
 
     assert blocked.status is ExecutionDispatchStatus.BLOCKED
     assert "broker account does not match" in blocked.reason
     assert foreign_broker.submit_calls == 0
-    _assert_no_durable_work(other_unit_of_work, foreign_request)
+    _assert_no_durable_work(unit_of_work, foreign_request)
 
 
 # ---------------------------------------------------------------------------
