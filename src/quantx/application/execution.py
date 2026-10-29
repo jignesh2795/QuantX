@@ -1222,6 +1222,29 @@ class ExecutionOrchestrator:
         remaining read-only observations (fund limits, positions, quotes,
         candles) are outside the R0-B bounded-call contract.
         """
+        # Recheck the trusted adapter at the transaction boundary itself.
+        # A direct/internal caller must not bypass execute()'s binding by
+        # minting an authorization for a different broker identity.
+        expected_broker = self._live_broker
+        if type(self._live_risk_evaluator) is LivePreTradeRiskEvaluator:
+            evidence_broker = self._live_risk_evaluator.registered_submission_adapter
+            if evidence_broker is not None:
+                if expected_broker is not None and expected_broker is not evidence_broker:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=(
+                            "LIVE composition broker differs from the evidence-authority adapter"
+                        ),
+                    )
+                expected_broker = evidence_broker
+        if expected_broker is not None and broker is not expected_broker:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=(
+                    "LIVE submission requires the registered broker adapter for this connection"
+                ),
+            )
+
         fingerprint = request_fingerprint(request)
         client_order_id = request.order.client_order_id
 
