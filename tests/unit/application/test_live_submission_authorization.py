@@ -63,7 +63,6 @@ from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
-from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.execution.trading_gate import (
     DurableTradingGate,
     InMemoryTradingGateStateStore,
@@ -770,7 +769,7 @@ def test_paper_execution_needs_no_live_authorization() -> None:
 def test_public_dispatch_blocks_before_submit_when_authority_is_unavailable() -> None:
     request = _request()
     unit_of_work = _FakeUnitOfWork()
-    broker = _FakeBroker(submit_error=BrokerPreflightRejected("instrument mapping rejected"))
+    broker = _FakeBroker()
 
     first = _live_orchestrator(unit_of_work).execute(request, broker=broker)
 
