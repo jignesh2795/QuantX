@@ -20,6 +20,7 @@ from pathlib import Path
 from types import TracebackType
 
 from quantx.application.evidence_refresh import DefinitiveEvidencePolicy, RefreshPolicy
+from quantx.application.live_risk_sources import LiveRiskEvidenceSourceCatalog
 from quantx.application.pending_recovery import (
     FillProvider,
     LocalAccountProvider,
@@ -44,6 +45,7 @@ from .market_data import DhanMarketDataAdapter
 from .models import DhanCredentials, DhanInstrumentRef
 from .recovery import build_dhan_recovery_provider
 from .risk_evidence import DhanRiskEvidenceSource
+from .risk_evidence import build_dhan_risk_evidence_builder as _build_dhan_risk_evidence_builder
 from .risk_evidence import build_dhan_risk_evidence_source as _build_dhan_risk_evidence_source
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanSDKTransport, DhanTransport
 
@@ -233,10 +235,49 @@ def build_dhan_risk_evidence_source(
     The source is bound to the host's configured account, connection, transport
     and read timeout. A host built from credentials already knows its broker
     client id; a host built over a custom transport must supply it explicitly.
-    No default identity is invented.
+    No default identity is invented. A bare source can be collected from, but it
+    cannot reach LIVE admission: only the catalog-registered construction path
+    in :func:`build_dhan_risk_evidence_catalog` issues the grant an authority
+    consumes.
     """
     if type(host) is not DhanHostRuntime:
         raise TypeError("Dhan risk evidence host must be a DhanHostRuntime")
+    return _build_dhan_risk_evidence_source(
+        transport=host.transport,
+        account_id=host.config.account_id,
+        broker_connection_id=host.config.connection_id,
+        broker_client_id=_dhan_broker_client_id(host, broker_client_id),
+        instruments=host.config.instruments,
+        read_timeout=host.config.read_timeout_seconds,
+    )
+
+
+def build_dhan_risk_evidence_catalog(
+    host: DhanHostRuntime,
+    *,
+    broker_client_id: str | None = None,
+) -> LiveRiskEvidenceSourceCatalog:
+    """Compose the application-owned catalog that sanctions this host's Dhan source.
+
+    The catalog registers exactly one construction path, keyed by the Dhan
+    broker id, over the host's own transport, client id, instruments and read
+    timeout. Registering it does not make Dhan authoritative: the source still
+    declares daily P&L, equity and high-water mark unavailable, so sanctioned
+    LIVE admission remains blocked before reservation and submission.
+    """
+    if type(host) is not DhanHostRuntime:
+        raise TypeError("Dhan risk evidence host must be a DhanHostRuntime")
+    builder = _build_dhan_risk_evidence_builder(
+        transport=host.transport,
+        broker_client_id=_dhan_broker_client_id(host, broker_client_id),
+        instruments=host.config.instruments,
+        read_timeout=host.config.read_timeout_seconds,
+    )
+    return LiveRiskEvidenceSourceCatalog(builders=(builder,))
+
+
+def _dhan_broker_client_id(host: DhanHostRuntime, broker_client_id: str | None) -> str:
+    """Derive the host's broker client id, never inventing a default."""
     client_id = broker_client_id
     if client_id is None:
         credentials = host.config.credentials
@@ -247,14 +288,7 @@ def build_dhan_risk_evidence_source(
         client_id = credentials.client_id
     if type(client_id) is not str or not client_id.strip():
         raise ValueError("Dhan risk evidence requires a non-empty broker client id")
-    return _build_dhan_risk_evidence_source(
-        transport=host.transport,
-        account_id=host.config.account_id,
-        broker_connection_id=host.config.connection_id,
-        broker_client_id=client_id,
-        instruments=host.config.instruments,
-        read_timeout=host.config.read_timeout_seconds,
-    )
+    return client_id
 
 
 def _validate_timeout_seconds(name: str, value: object) -> None:
@@ -273,5 +307,6 @@ __all__ = [
     "DhanHostConfig",
     "DhanHostRuntime",
     "build_dhan_host_runtime",
+    "build_dhan_risk_evidence_catalog",
     "build_dhan_risk_evidence_source",
 ]

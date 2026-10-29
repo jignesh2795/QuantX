@@ -58,6 +58,11 @@ from quantx.domain.risk import (
 )
 from quantx.domain.value_objects import Money, ProductCode
 from tests.unit._execution_request_proofs import approved_request
+from tests.unit.application._live_risk_trust import (
+    catalog_for,
+    registered_connection,
+    registry_with,
+)
 
 EVALUATED_AT = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
 OBSERVED_AT = datetime(2026, 1, 1, 9, 29, tzinfo=UTC)
@@ -335,19 +340,29 @@ def _authority(
     source=None,
     limits: RiskLimits | None = None,
     clock: Clock | None = None,
-    account_id: object = ACCOUNT,
-    broker_connection_id: object = CONNECTION,
-    expected_broker_client_id: object = CLIENT,
-    expected_transport: object = TRANSPORT,
+    account_id: AccountId = ACCOUNT,
+    broker_connection_id: BrokerConnectionId = CONNECTION,
+    broker_client_id: str = CLIENT,
+    transport: object = TRANSPORT,
 ) -> LiveRiskEvidenceAuthority:
+    """Build an authority whose source trust comes from the sanctioned catalog."""
+    registered = registered_connection(
+        account_id=account_id,
+        connection_id=broker_connection_id,
+    )
+    catalog = catalog_for(
+        source if source is not None else _source(),
+        broker_client_id=broker_client_id,
+        transport=transport,
+    )
+    grant = catalog.grant(registered)
+    assert grant is not None
     return LiveRiskEvidenceAuthority(
-        source=source if source is not None else _source(),
+        grant=grant,
+        catalog=catalog,
+        registry=registry_with(registered),
         limits=limits if limits is not None else _limits(),
         clock=clock if clock is not None else FixedClock(EVALUATED_AT),
-        account_id=account_id,  # type: ignore[arg-type]
-        broker_connection_id=broker_connection_id,  # type: ignore[arg-type]
-        expected_broker_client_id=expected_broker_client_id,  # type: ignore[arg-type]
-        expected_transport=expected_transport,
     )
 
 
@@ -387,9 +402,18 @@ class _StepClock(Clock):
 # Construction and required-field derivation.
 
 
-def test_authority_requires_a_risk_evidence_source() -> None:
-    with pytest.raises(TypeError, match="LiveRiskEvidenceSource"):
-        _authority(source=object())
+def test_authority_requires_an_application_issued_grant() -> None:
+    registered = registered_connection(account_id=ACCOUNT, connection_id=CONNECTION)
+    catalog = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
+
+    with pytest.raises(TypeError, match="application-issued source grant"):
+        LiveRiskEvidenceAuthority(
+            grant=object(),  # type: ignore[arg-type]
+            catalog=catalog,
+            registry=registry_with(registered),
+            limits=_limits(),
+            clock=FixedClock(EVALUATED_AT),
+        )
 
 
 def test_authority_requires_a_clock() -> None:
@@ -397,20 +421,53 @@ def test_authority_requires_a_clock() -> None:
         _authority(clock=object())
 
 
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("account_id", "acct-1"),
-        ("broker_connection_id", "conn-1"),
-        ("expected_broker_client_id", None),
-        ("expected_broker_client_id", ""),
-        ("expected_broker_client_id", "   "),
-        ("expected_transport", None),
-    ],
-)
-def test_authority_rejects_invalid_identity_inputs(field, value) -> None:
-    with pytest.raises(TypeError):
-        _authority(**{field: value})
+def test_authority_rejects_a_connection_this_process_did_not_register() -> None:
+    registered = registered_connection(account_id=ACCOUNT, connection_id=CONNECTION)
+    catalog = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
+    grant = catalog.grant(registered)
+    assert grant is not None
+
+    with pytest.raises(TypeError, match="registered broker connection"):
+        LiveRiskEvidenceAuthority(
+            grant=grant,
+            catalog=catalog,
+            registry=registry_with(
+                registered_connection(
+                    account_id=ACCOUNT,
+                    connection_id=BrokerConnectionId("conn-other"),
+                )
+            ),
+            limits=_limits(),
+            clock=FixedClock(EVALUATED_AT),
+        )
+
+
+def test_authority_rejects_a_disabled_connection() -> None:
+    disabled = registered_connection(
+        account_id=ACCOUNT,
+        connection_id=CONNECTION,
+        enabled=False,
+    )
+    catalog = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
+
+    assert catalog.grant(disabled) is None
+
+
+def test_authority_rejects_a_catalog_that_did_not_mint_the_grant() -> None:
+    registered = registered_connection(account_id=ACCOUNT, connection_id=CONNECTION)
+    issuing = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
+    stranger = catalog_for(_source(), broker_client_id=CLIENT, transport=TRANSPORT)
+    grant = issuing.grant(registered)
+    assert grant is not None
+
+    with pytest.raises(TypeError, match="application-issued source grant"):
+        LiveRiskEvidenceAuthority(
+            grant=grant,
+            catalog=stranger,
+            registry=registry_with(registered),
+            limits=_limits(),
+            clock=FixedClock(EVALUATED_AT),
+        )
 
 
 def test_authority_requires_complete_live_limits() -> None:

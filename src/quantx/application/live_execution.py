@@ -11,10 +11,16 @@ It does not make the orchestrator safe by itself: the orchestrator still
 accepts arbitrary callables when it is constructed directly. Callback mode
 remains explicitly non-authoritative: type-correct dataclasses and a trusted
 clock do not authenticate balances, positions, P&L, account, connection,
-transport, client identity, or observation-time provenance. Authority mode
-builds an application-owned ``LiveRiskEvidenceAuthority`` over a wired
-``LiveRiskEvidenceSource``; even then, LIVE dispatch stays blocked unless the
-source declares every field the configured limits require. What this factory
+transport, client identity, or observation-time provenance.
+
+Authority mode does not accept a source instance. It requires an
+application-owned ``LiveRiskEvidenceSourceCatalog`` whose registered
+construction path builds a source for a broker whose connection this process
+already registered in ``ProductionRuntime.registry``. The catalog mints the
+grant the authority consumes, and the expected account, connection, broker
+client and transport are derived from that grant rather than supplied next to
+the source. A deployment that registers no source for its broker gets a
+composition error, never a quietly degraded LIVE stack. What this factory
 guarantees is that the stack it returns is disarmed, durably gated,
 quarantine-backed, risk-evaluated against a composition-injected clock, and
 market-policy-complete for India.
@@ -53,7 +59,10 @@ from .live_risk import (
     LivePreTradeRiskEvaluator,
     LiveRiskEvaluationInputs,
     LiveRiskEvidenceAuthority,
-    LiveRiskEvidenceSource,
+)
+from .live_risk_sources import (
+    LiveRiskEvidenceSourceCatalog,
+    LiveRiskEvidenceSourceGrant,
 )
 from .production import ProductionRuntime
 
@@ -64,6 +73,14 @@ _LIMITS_REQUIRED_REASON = (
 
 _NON_INDIA_PLACEMENT_REASON = (
     "market_policy must not place checks for a non-India region: LIVE execution is India-only"
+)
+
+_REGISTRY_REQUIRED_REASON = (
+    "authority mode requires the account and broker connection this process registered"
+)
+
+_UNREGISTERED_SOURCE_REASON = (
+    "authority mode requires an application-registered risk evidence source for this broker"
 )
 
 
@@ -85,11 +102,13 @@ class LiveExecutionConfig:
 
     * ``risk_inputs_for_request`` for explicitly non-authoritative callback
       mode; or
-    * ``risk_evidence_source`` plus the exact expected account, broker
-      connection, broker client id and transport for application-owned
-      authority mode.
+    * ``risk_evidence_catalog`` plus the account and broker connection for
+      application-owned authority mode.
 
-    The identity inputs are rejected in callback mode. No default identity,
+    There is deliberately no field for a source instance: authority mode selects
+    a source only through the catalog's registered construction path, so a
+    caller-configured object can never be wrapped into LIVE authority. The
+    identity inputs are rejected in callback mode. No default identity,
     evidence source, or authorization is selected here.
     """
 
@@ -101,11 +120,9 @@ class LiveExecutionConfig:
     risk_inputs_for_request: (
         Callable[[ApprovedExecutionRequest], LiveRiskEvaluationInputs] | None
     ) = None
-    risk_evidence_source: LiveRiskEvidenceSource | None = None
+    risk_evidence_catalog: LiveRiskEvidenceSourceCatalog | None = None
     expected_account_id: AccountId | None = None
     expected_broker_connection_id: BrokerConnectionId | None = None
-    expected_broker_client_id: str | None = None
-    expected_transport: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,10 +172,14 @@ def build_live_execution(
     """Build one disarmed, fully guarded LIVE execution stack.
 
     Validation runs before construction, so invalid configuration writes no
-    durable state. When building the gate, the factory overwrites any enabled
-    state left by a prior process with a durably disarmed state before returning.
-    Each new process therefore requires an explicit operator enable after startup.
-    If disarming cannot be persisted, construction raises and returns no stack.
+    durable state. In authority mode that validation includes the account/
+    connection registry lookup and the catalog's construction-path grant, so a
+    source this process did not register stops the build instead of becoming a
+    runtime surprise. When building the gate, the factory overwrites any
+    enabled state left by a prior process with a durably disarmed state before
+    returning. Each new process therefore requires an explicit operator enable
+    after startup. If disarming cannot be persisted, construction raises and
+    returns no stack.
 
     The market policy must require the India pack and place at least one check
     in both India stages. Construction already rejects a core-only India or a
@@ -179,32 +200,28 @@ def build_live_execution(
     if not isinstance(config.clock, Clock):
         raise LiveExecutionCompositionError("clock must be a Clock")
     has_callback = config.risk_inputs_for_request is not None
-    has_source = config.risk_evidence_source is not None
-    if has_callback == has_source:
+    has_catalog = config.risk_evidence_catalog is not None
+    if has_callback == has_catalog:
         raise LiveExecutionCompositionError(
             "live execution config requires exactly one of risk_inputs_for_request "
-            "or risk_evidence_source"
+            "or risk_evidence_catalog"
         )
-    authority_identity_supplied = any(
-        value is not None
-        for value in (
-            config.expected_account_id,
-            config.expected_broker_connection_id,
-            config.expected_broker_client_id,
-            config.expected_transport,
-        )
+    authority_identity_supplied = (
+        config.expected_account_id is not None or config.expected_broker_connection_id is not None
     )
+    grant: LiveRiskEvidenceSourceGrant | None = None
     if has_callback:
         if not callable(config.risk_inputs_for_request):
             raise LiveExecutionCompositionError("risk_inputs_for_request must be callable")
         if authority_identity_supplied:
             raise LiveExecutionCompositionError(
-                "authority identity inputs require risk_evidence_source"
+                "authority identity inputs require risk_evidence_catalog"
             )
     else:
-        if not isinstance(config.risk_evidence_source, LiveRiskEvidenceSource):
+        catalog = config.risk_evidence_catalog
+        if type(catalog) is not LiveRiskEvidenceSourceCatalog:
             raise LiveExecutionCompositionError(
-                "risk_evidence_source must implement LiveRiskEvidenceSource"
+                "risk_evidence_catalog must be a LiveRiskEvidenceSourceCatalog"
             )
         if type(config.expected_account_id) is not AccountId:
             raise LiveExecutionCompositionError("expected_account_id must be an AccountId")
@@ -212,15 +229,14 @@ def build_live_execution(
             raise LiveExecutionCompositionError(
                 "expected_broker_connection_id must be a BrokerConnectionId"
             )
-        expected_client_id = config.expected_broker_client_id
-        if not isinstance(expected_client_id, str) or not expected_client_id.strip():
-            raise LiveExecutionCompositionError(
-                "expected_broker_client_id must be a non-empty string"
-            )
-        if config.expected_transport is None:
-            raise LiveExecutionCompositionError(
-                "expected_transport must be supplied in authority mode"
-            )
+        registered = runtime.registry.get(config.expected_broker_connection_id)
+        if registered is None or not registered.enabled:
+            raise LiveExecutionCompositionError(_REGISTRY_REQUIRED_REASON)
+        if registered.ref.account_id != config.expected_account_id:
+            raise LiveExecutionCompositionError(_REGISTRY_REQUIRED_REASON)
+        grant = catalog.grant(registered)
+        if grant is None:
+            raise LiveExecutionCompositionError(_UNREGISTERED_SOURCE_REASON)
     if type(config.market_policy) is not MarketPolicyConfig:
         raise LiveExecutionCompositionError("market_policy must be a MarketPolicyConfig")
     if any(placed.region is not MarketRegion.INDIA for placed in config.market_policy.checks):
@@ -257,27 +273,15 @@ def build_live_execution(
             clock=config.clock,
         )
     else:
-        source = config.risk_evidence_source
-        expected_account_id = config.expected_account_id
-        expected_connection_id = config.expected_broker_connection_id
-        expected_client_id = config.expected_broker_client_id
-        expected_transport = config.expected_transport
-        if (
-            source is None
-            or type(expected_account_id) is not AccountId
-            or type(expected_connection_id) is not BrokerConnectionId
-            or not isinstance(expected_client_id, str)
-            or expected_transport is None
-        ):  # pragma: no cover - validated above
-            raise LiveExecutionCompositionError("authority evidence inputs are incomplete")
+        catalog = config.risk_evidence_catalog
+        if catalog is None or grant is None:  # pragma: no cover - validated above
+            raise LiveExecutionCompositionError(_UNREGISTERED_SOURCE_REASON)
         authority = LiveRiskEvidenceAuthority(
-            source=source,
+            grant=grant,
+            catalog=catalog,
+            registry=runtime.registry,
             limits=limits,
             clock=config.clock,
-            account_id=expected_account_id,
-            broker_connection_id=expected_connection_id,
-            expected_broker_client_id=expected_client_id,
-            expected_transport=expected_transport,
         )
         evaluator = LivePreTradeRiskEvaluator(
             engine=config.risk_engine,

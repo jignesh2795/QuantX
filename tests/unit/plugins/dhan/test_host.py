@@ -47,6 +47,7 @@ from quantx.plugins.dhan.host import (
     DhanHostConfig,
     DhanHostRuntime,
     build_dhan_host_runtime,
+    build_dhan_risk_evidence_catalog,
     build_dhan_risk_evidence_source,
 )
 from quantx.plugins.dhan.market_data import DhanMarketDataAdapter
@@ -573,6 +574,36 @@ def test_risk_evidence_source_builder_rejects_an_invalid_client_id(tmp_path, cli
 def test_risk_evidence_source_builder_rejects_a_non_host(tmp_path) -> None:
     with pytest.raises(TypeError, match="DhanHostRuntime"):
         build_dhan_risk_evidence_source(
+            object(),  # type: ignore[arg-type]
+            broker_client_id="client-1",
+        )
+
+
+def test_risk_evidence_catalog_sanctions_only_the_dhan_construction_path(tmp_path) -> None:
+    transport = InMemoryDhanTransport()
+    host = build_dhan_host_runtime(_config(tmp_path, transport=transport))
+    try:
+        catalog = build_dhan_risk_evidence_catalog(host, broker_client_id="client-1")
+
+        assert catalog.broker_ids == frozenset({"dhan"})
+
+        registered = host.registry.get(host.config.connection_id)
+        assert registered is not None
+        grant = catalog.grant(registered)
+        assert grant is not None
+        assert grant.broker_id == "dhan"
+        assert grant.binding.account_id == host.config.account_id
+        assert grant.binding.broker_connection_id == host.config.connection_id
+        assert grant.binding.broker_client_id == "client-1"
+        assert grant.binding.transport is transport
+        assert catalog.verify(grant) is True
+    finally:
+        host.close()
+
+
+def test_risk_evidence_catalog_requires_the_host_identity(tmp_path) -> None:
+    with pytest.raises(TypeError, match="DhanHostRuntime"):
+        build_dhan_risk_evidence_catalog(
             object(),  # type: ignore[arg-type]
             broker_client_id="client-1",
         )

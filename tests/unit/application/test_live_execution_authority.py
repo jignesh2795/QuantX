@@ -27,6 +27,8 @@ from quantx.application.live_risk import (
     LiveRiskEvidenceField,
     LiveRiskEvidenceObservation,
 )
+from quantx.application.live_risk_sources import LiveRiskEvidenceSourceCatalog
+from quantx.application.production import ProductionRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import PortfolioId
@@ -53,9 +55,19 @@ from quantx.persistence.sqlite import (
     SqliteUnitOfWork,
 )
 from quantx.plugins.dhan.models import DhanInstrumentRef, DhanPositionSnapshot
-from quantx.plugins.dhan.risk_evidence import DhanRiskEvidenceSource
+from quantx.plugins.dhan.risk_evidence import (
+    DHAN_BROKER_ID,
+    DhanRiskEvidenceSource,
+    build_dhan_risk_evidence_builder,
+)
 from quantx.plugins.dhan.transport import InMemoryDhanTransport
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
+from tests.unit.application._live_risk_trust import (
+    BROKER_ID,
+    catalog_for,
+    registered_connection,
+    registry_with,
+)
 from tests.unit.application.test_execution import FakeBroker
 from tests.unit.application.test_live_execution import (
     EVALUATED_AT,
@@ -260,15 +272,13 @@ def _source(
     )
 
 
-def _authority_config(
-    source,
+def _config_for_catalog(
+    catalog,
     *,
     clock=None,
     limits: RiskLimits | None = None,
     expected_account_id: object = ACCOUNT,
     expected_connection_id: object = CONNECTION,
-    expected_client_id: object = CLIENT,
-    expected_transport: object = TRANSPORT,
 ) -> LiveExecutionConfig:
     return LiveExecutionConfig(
         risk_limits=limits if limits is not None else _limits(),
@@ -276,11 +286,60 @@ def _authority_config(
         clock=clock if clock is not None else FixedClock(EVALUATED_AT),
         market_policy=_policy(),
         policy_verifier=policy_verifier(),
-        risk_evidence_source=source,
+        risk_evidence_catalog=catalog,
         expected_account_id=expected_account_id,  # type: ignore[arg-type]
         expected_broker_connection_id=expected_connection_id,  # type: ignore[arg-type]
-        expected_broker_client_id=expected_client_id,  # type: ignore[arg-type]
-        expected_transport=expected_transport,
+    )
+
+
+def _authority_config(
+    source,
+    *,
+    clock=None,
+    limits: RiskLimits | None = None,
+    expected_account_id: object = ACCOUNT,
+    expected_connection_id: object = CONNECTION,
+    broker_client_id: str = CLIENT,
+    transport: object = TRANSPORT,
+    broker_id: str = BROKER_ID,
+) -> LiveExecutionConfig:
+    """Build an authority-mode config whose catalog sanctions ``source``."""
+    return _config_for_catalog(
+        catalog_for(
+            source,
+            broker_client_id=broker_client_id,
+            transport=transport,
+            broker_id=broker_id,
+        ),
+        clock=clock,
+        limits=limits,
+        expected_account_id=expected_account_id,
+        expected_connection_id=expected_connection_id,
+    )
+
+
+def _live_runtime(
+    database: SqliteDatabase,
+    *,
+    account_id: AccountId = ACCOUNT,
+    connection_id: BrokerConnectionId = CONNECTION,
+    broker_id: str = BROKER_ID,
+    enabled: bool = True,
+) -> ProductionRuntime:
+    """Build the runtime whose registry registers the exact connection."""
+    runtime = _runtime(database)
+    return ProductionRuntime(
+        database=runtime.database,
+        unit_of_work=runtime.unit_of_work,
+        registry=registry_with(
+            registered_connection(
+                account_id=account_id,
+                connection_id=connection_id,
+                broker_id=broker_id,
+                enabled=enabled,
+            )
+        ),
+        application=runtime.application,
     )
 
 
@@ -299,7 +358,7 @@ def _expect_build_error(
     database: SqliteDatabase, config: LiveExecutionConfig, message: str
 ) -> None:
     with pytest.raises(LiveExecutionCompositionError, match=message):
-        build_live_execution(_runtime(database), config)
+        build_live_execution(_live_runtime(database), config)
     assert SqliteTradingGateStateStore(database).load() is None
 
 
@@ -346,7 +405,9 @@ def test_build_requires_exactly_one_evidence_mode(tmp_path) -> None:
             market_policy=_policy(),
             policy_verifier=policy_verifier(),
             risk_inputs_for_request=lambda request: None,
-            risk_evidence_source=_source(),
+            risk_evidence_catalog=catalog_for(
+                _source(), broker_client_id=CLIENT, transport=TRANSPORT
+            ),
         )
         _expect_build_error(database, both, "exactly one")
     finally:
@@ -377,11 +438,6 @@ def test_build_rejects_authority_identity_in_callback_mode(tmp_path) -> None:
         ("expected_account_id", "acct-1"),
         ("expected_connection_id", None),
         ("expected_connection_id", "conn-1"),
-        ("expected_client_id", None),
-        ("expected_client_id", ""),
-        ("expected_client_id", "   "),
-        ("expected_client_id", 1),
-        ("expected_transport", None),
     ],
 )
 def test_build_rejects_incomplete_authority_identity(tmp_path, field, value) -> None:
@@ -389,20 +445,72 @@ def test_build_rejects_incomplete_authority_identity(tmp_path, field, value) -> 
     try:
         config = _authority_config(_source(), **{field: value})
         with pytest.raises(LiveExecutionCompositionError):
-            build_live_execution(_runtime(database), config)
+            build_live_execution(_live_runtime(database), config)
         assert SqliteTradingGateStateStore(database).load() is None
     finally:
         database.close()
 
 
-def test_build_rejects_a_duck_typed_source(tmp_path) -> None:
+def test_build_rejects_an_unregistered_connection(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        _expect_build_error(
-            database,
-            _authority_config(object()),
-            "risk_evidence_source must implement LiveRiskEvidenceSource",
+        with pytest.raises(
+            LiveExecutionCompositionError,
+            match="account and broker connection this process registered",
+        ):
+            build_live_execution(_runtime(database), _authority_config(_source()))
+        assert SqliteTradingGateStateStore(database).load() is None
+    finally:
+        database.close()
+
+
+def test_build_rejects_a_disabled_registered_connection(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        with pytest.raises(
+            LiveExecutionCompositionError,
+            match="account and broker connection this process registered",
+        ):
+            build_live_execution(
+                _live_runtime(database, enabled=False),
+                _authority_config(_source()),
+            )
+        assert SqliteTradingGateStateStore(database).load() is None
+    finally:
+        database.close()
+
+
+def test_build_rejects_a_connection_registered_for_another_account(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        with pytest.raises(
+            LiveExecutionCompositionError,
+            match="account and broker connection this process registered",
+        ):
+            build_live_execution(
+                _live_runtime(database),
+                _authority_config(_source(), expected_account_id=AccountId("acct-other")),
+            )
+        assert SqliteTradingGateStateStore(database).load() is None
+    finally:
+        database.close()
+
+
+def test_build_rejects_a_catalog_without_a_construction_path_for_the_broker(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        catalog = catalog_for(
+            _source(),
+            broker_client_id=CLIENT,
+            transport=TRANSPORT,
+            broker_id="some-other-broker",
         )
+        with pytest.raises(
+            LiveExecutionCompositionError,
+            match="application-registered risk evidence source for this broker",
+        ):
+            build_live_execution(_live_runtime(database), _config_for_catalog(catalog))
+        assert SqliteTradingGateStateStore(database).load() is None
     finally:
         database.close()
 
@@ -410,7 +518,7 @@ def test_build_rejects_a_duck_typed_source(tmp_path) -> None:
 def test_build_returns_a_disarmed_gate_for_authority_mode(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        stack = build_live_execution(_runtime(database), _authority_config(_source()))
+        stack = build_live_execution(_live_runtime(database), _authority_config(_source()))
 
         assert stack.gate.state().enabled is False
     finally:
@@ -424,7 +532,7 @@ def test_complete_authority_evidence_executes_through_the_fake_broker(tmp_path) 
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         source = _source()
-        stack = build_live_execution(_runtime(database), _authority_config(source))
+        stack = build_live_execution(_live_runtime(database), _authority_config(source))
         stack.gate.enable()
         broker = FakeBroker()
         request = _request()
@@ -458,7 +566,7 @@ def test_authority_rejects_a_market_order_without_a_reference_price(tmp_path) ->
             reference_price=None,
         )
         stack = build_live_execution(
-            _runtime(database),
+            _live_runtime(database),
             _authority_config(_source(evidence_factory=lambda request: evidence)),
         )
         stack.gate.enable()
@@ -525,7 +633,7 @@ def test_built_stack_blocks_every_unknown_authority_path(tmp_path, overrides, cl
     try:
         evidence = _evidence(**overrides)
         stack = build_live_execution(
-            _runtime(database),
+            _live_runtime(database),
             _authority_config(
                 _source(evidence_factory=lambda request: evidence),
                 clock=FixedClock(clock) if clock is not None else None,
@@ -552,7 +660,7 @@ def test_built_stack_blocks_a_missing_required_observation(tmp_path) -> None:
         del observations[LiveRiskEvidenceField.DAILY_PNL]
         evidence = _evidence(observations=observations)
         stack = build_live_execution(
-            _runtime(database),
+            _live_runtime(database),
             _authority_config(_source(evidence_factory=lambda request: evidence)),
         )
         stack.gate.enable()
@@ -572,7 +680,7 @@ def test_built_stack_blocks_a_source_exception(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         stack = build_live_execution(
-            _runtime(database),
+            _live_runtime(database),
             _authority_config(_source(error=RuntimeError("transport failure"))),
         )
         stack.gate.enable()
@@ -593,7 +701,7 @@ def test_built_stack_blocks_a_non_evidence_source_result(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         stack = build_live_execution(
-            _runtime(database),
+            _live_runtime(database),
             _authority_config(_source(evidence_factory=lambda request: None)),
         )
         stack.gate.enable()
@@ -616,7 +724,7 @@ def test_built_stack_never_consults_a_callback_that_claims_authority(tmp_path) -
         def forbidden(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
             raise AssertionError("callback mode must not be consulted for LIVE admission")
 
-        stack = build_live_execution(_runtime(database), _callback_config(forbidden))
+        stack = build_live_execution(_live_runtime(database), _callback_config(forbidden))
         stack.gate.enable()
         broker = FakeBroker()
         request = _request()
@@ -678,6 +786,16 @@ def _dhan_source(transport: _CountingDhanTransport) -> DhanRiskEvidenceSource:
     )
 
 
+def _dhan_catalog(transport: _CountingDhanTransport) -> LiveRiskEvidenceSourceCatalog:
+    """Sanction the real Dhan construction path over an in-memory transport."""
+    builder = build_dhan_risk_evidence_builder(
+        transport=transport,
+        broker_client_id=CLIENT,
+        instruments=((_india_instrument(), DhanInstrumentRef("1333", "NSE_EQ", "TCS")),),
+    )
+    return LiveRiskEvidenceSourceCatalog(builders=(builder,))
+
+
 def test_dhan_source_declares_daily_pnl_equity_and_high_water_mark_unsupported() -> None:
     source = _dhan_source(_dhan_transport())
 
@@ -704,11 +822,8 @@ def test_built_stack_blocks_the_dhan_source_before_collection(tmp_path, override
     try:
         transport = _dhan_transport(**overrides)
         stack = build_live_execution(
-            _runtime(database),
-            _authority_config(
-                _dhan_source(transport),
-                expected_transport=transport,
-            ),
+            _live_runtime(database, broker_id=DHAN_BROKER_ID),
+            _config_for_catalog(_dhan_catalog(transport)),
         )
         stack.gate.enable()
         broker = FakeBroker()

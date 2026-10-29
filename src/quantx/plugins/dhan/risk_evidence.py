@@ -22,10 +22,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from quantx.application.live_risk import (
+from quantx.application.live_risk_evidence import (
     LiveRiskEvidence,
     LiveRiskEvidenceField,
     LiveRiskEvidenceObservation,
+)
+from quantx.application.live_risk_sources import (
+    LiveRiskEvidenceSourceBuilder,
+    TrustedLiveRiskEvidenceBinding,
 )
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.enums import OrderType
@@ -34,6 +38,7 @@ from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instruments import Instrument
 from quantx.domain.risk import RiskContext, RiskSnapshot
 from quantx.domain.value_objects import Money
+from quantx.integrations.account_registry import RegisteredConnection
 
 from .models import (
     DhanFundsSnapshot,
@@ -45,6 +50,8 @@ from .models import (
     DhanProfileSnapshot,
 )
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanTransport
+
+DHAN_BROKER_ID = "dhan"
 
 _SOURCE_ID = "dhan-risk-evidence-v1"
 
@@ -539,4 +546,57 @@ def build_dhan_risk_evidence_source(
     )
 
 
-__all__ = ["DhanRiskEvidenceSource", "build_dhan_risk_evidence_source"]
+def build_dhan_risk_evidence_builder(
+    *,
+    transport: DhanTransport,
+    broker_client_id: str,
+    instruments: tuple[tuple[Instrument, DhanInstrumentRef], ...],
+    read_timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+) -> LiveRiskEvidenceSourceBuilder:
+    """Register the Dhan construction path for the application-owned catalog.
+
+    The builder owns the transport, broker client id, instrument mapping and
+    read timeout; the account and broker connection come from the connection
+    this process registered. A deployment that does not register this builder
+    cannot obtain LIVE authority from a Dhan source at all, and registering it
+    does not make Dhan authoritative: the source still declares daily P&L,
+    equity and high-water mark unavailable, so sanctioned admission stays
+    blocked.
+    """
+    if not isinstance(transport, DhanTransport):
+        raise ValueError("Dhan risk evidence builder requires a DhanTransport")
+    if type(broker_client_id) is not str or not broker_client_id.strip():
+        raise ValueError("Dhan risk evidence builder requires a non-empty broker client id")
+    if not instruments:
+        raise ValueError("Dhan risk evidence builder requires at least one instrument")
+    client_id = broker_client_id.strip()
+
+    def build(registered: RegisteredConnection) -> TrustedLiveRiskEvidenceBinding:
+        if type(registered) is not RegisteredConnection:
+            raise ValueError("Dhan risk evidence builder requires a registered connection")
+        account_id = registered.ref.account_id
+        broker_connection_id = registered.ref.connection_id
+        return TrustedLiveRiskEvidenceBinding(
+            source=DhanRiskEvidenceSource(
+                transport=transport,
+                account_id=account_id,
+                broker_connection_id=broker_connection_id,
+                broker_client_id=client_id,
+                instruments=instruments,
+                read_timeout=read_timeout,
+            ),
+            account_id=account_id,
+            broker_connection_id=broker_connection_id,
+            broker_client_id=client_id,
+            transport=transport,
+        )
+
+    return LiveRiskEvidenceSourceBuilder(broker_id=DHAN_BROKER_ID, build=build)
+
+
+__all__ = [
+    "DHAN_BROKER_ID",
+    "DhanRiskEvidenceSource",
+    "build_dhan_risk_evidence_builder",
+    "build_dhan_risk_evidence_source",
+]

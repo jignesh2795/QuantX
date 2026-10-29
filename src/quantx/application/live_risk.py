@@ -15,6 +15,13 @@ trusted capture instant. The authority returns an HMAC-sealed authorization
 that the evaluator verifies before the same domain engine runs. Missing,
 foreign, contradictory, stale, future-dated, or incomplete evidence never
 reaches the engine as approval.
+
+Source trust is not evidence. The authority accepts only a grant minted by the
+application-owned :class:`quantx.application.live_risk_sources.LiveRiskEvidenceSourceCatalog`
+from a construction path the deployment registered for the exact connection the
+process registered; a protocol implementation, a well-typed dataclass, a
+``supported_fields`` claim, or echoed identity values never qualify on their
+own.
 """
 
 from __future__ import annotations
@@ -22,15 +29,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from enum import StrEnum
-from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.clock import Clock
 from quantx.domain.enums import OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest
@@ -48,6 +52,19 @@ from quantx.domain.risk import (
     require_live_risk_limits,
 )
 from quantx.domain.value_objects import Money, canonical_decimal, canonical_instant
+from quantx.integrations.account_registry import AccountConnectionRegistry
+
+from .live_risk_evidence import (
+    LiveRiskEvidence,
+    LiveRiskEvidenceField,
+    LiveRiskEvidenceObservation,
+    LiveRiskEvidenceSource,
+    required_live_risk_evidence_fields,
+)
+from .live_risk_sources import (
+    LiveRiskEvidenceSourceCatalog,
+    LiveRiskEvidenceSourceGrant,
+)
 
 # Fixed policy threshold for how far a provider timestamp claim may sit from the
 # trusted clock. It bounds claim credibility only: freshness is always computed
@@ -130,7 +147,8 @@ def _risk_inputs_match_request(
 
     This is identity consistency only. It does not establish that balances,
     positions, P&L, quote timestamps, or snapshots came from an authoritative
-    source; that separate provenance gap keeps public LIVE readiness unclaimed.
+    source; source trust is established separately by the application-owned
+    catalog before any evidence reaches this function.
     """
     if (
         type(inputs.intent) is not TradeIntent
@@ -188,115 +206,6 @@ def _risk_inputs_match_request(
     return True
 
 
-class LiveRiskEvidenceField(StrEnum):
-    """One mandatory risk-evidence value a LIVE evaluation may consume."""
-
-    CASH_BALANCE = "cash_balance"
-    AVAILABLE_CASH = "available_cash"
-    BLOCKED_CASH = "blocked_cash"
-    MARGIN_USED = "margin_used"
-    MARGIN_AVAILABLE = "margin_available"
-    BUYING_POWER = "buying_power"
-    CURRENT_POSITION_EXPOSURE = "current_position_exposure"
-    CURRENT_INSTRUMENT_EXPOSURE = "current_instrument_exposure"
-    CURRENT_PORTFOLIO_EXPOSURE = "current_portfolio_exposure"
-    DAILY_PNL = "daily_pnl"
-    EQUITY = "equity"
-    HIGH_WATER_MARK = "high_water_mark"
-
-
-_FINANCIAL_EVIDENCE_FIELDS: tuple[LiveRiskEvidenceField, ...] = (
-    LiveRiskEvidenceField.CASH_BALANCE,
-    LiveRiskEvidenceField.AVAILABLE_CASH,
-    LiveRiskEvidenceField.BLOCKED_CASH,
-    LiveRiskEvidenceField.MARGIN_USED,
-    LiveRiskEvidenceField.MARGIN_AVAILABLE,
-    LiveRiskEvidenceField.BUYING_POWER,
-)
-
-
-def required_live_risk_evidence_fields(limits: RiskLimits) -> frozenset[LiveRiskEvidenceField]:
-    """Return the evidence fields the configured LIVE limits actually consume.
-
-    The six account-financial values are always required because the existing
-    ``RiskContext`` contract cannot be built without them. Every additional
-    field is required only when its check is enabled; a disabled check never
-    turns an unavailable value into a requirement.
-    """
-    required = set(_FINANCIAL_EVIDENCE_FIELDS)
-    if limits.max_position_notional is not None:
-        required.add(LiveRiskEvidenceField.CURRENT_POSITION_EXPOSURE)
-    if limits.max_portfolio_exposure is not None:
-        required.add(LiveRiskEvidenceField.CURRENT_PORTFOLIO_EXPOSURE)
-    if limits.max_instrument_concentration is not None:
-        required.add(LiveRiskEvidenceField.CURRENT_INSTRUMENT_EXPOSURE)
-        required.add(LiveRiskEvidenceField.CURRENT_PORTFOLIO_EXPOSURE)
-    if limits.max_daily_loss is not None:
-        required.add(LiveRiskEvidenceField.DAILY_PNL)
-    if limits.max_drawdown is not None:
-        required.add(LiveRiskEvidenceField.EQUITY)
-        required.add(LiveRiskEvidenceField.HIGH_WATER_MARK)
-    return frozenset(required)
-
-
-@dataclass(frozen=True, slots=True)
-class LiveRiskEvidenceObservation:
-    """One source observation with the instant the source captured it."""
-
-    value: Decimal
-    observed_at: datetime
-
-    def __post_init__(self) -> None:
-        if type(self.value) is not Decimal or not self.value.is_finite():
-            raise ValueError("risk evidence observation value must be a finite Decimal")
-        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
-            raise ValueError("risk evidence observation instant must be timezone-aware")
-
-
-@dataclass(frozen=True, slots=True)
-class LiveRiskEvidence:
-    """One source's evidence candidate before application-owned validation.
-
-    This is deliberately a neutral record, not an authorization. A source may
-    construct it, but only :class:`LiveRiskEvidenceAuthority` can bind it to
-    the configured account/connection/client/transport and mint admission.
-    """
-
-    source_id: str
-    broker_client_id: str | None
-    account_id: AccountId | None
-    broker_connection_id: BrokerConnectionId | None
-    transport: object | None
-    identity_observed_at: datetime | None
-    context: RiskContext | None
-    snapshot: RiskSnapshot | None
-    observations: Mapping[LiveRiskEvidenceField, LiveRiskEvidenceObservation] = field(
-        default_factory=dict
-    )
-    reference_price: Decimal | None = None
-    unavailable_fields: tuple[LiveRiskEvidenceField, ...] = ()
-    contradictions: tuple[str, ...] = ()
-    message: str = ""
-
-
-@runtime_checkable
-class LiveRiskEvidenceSource(Protocol):
-    """Application-wired source of broker-bound LIVE risk evidence.
-
-    ``supported_fields`` declares what the source can ever provide. The
-    authority compares it with the fields the configured limits require; a
-    source that cannot satisfy them never makes LIVE admission available.
-    """
-
-    @property
-    def source_id(self) -> str: ...
-
-    @property
-    def supported_fields(self) -> frozenset[LiveRiskEvidenceField]: ...
-
-    def collect(self, request: ApprovedExecutionRequest) -> LiveRiskEvidence: ...
-
-
 @dataclass(frozen=True, slots=True)
 class LiveRiskEvidenceAuthorization:
     """Per-authority HMAC seal over one request's evidence inputs.
@@ -348,6 +257,9 @@ _EVIDENCE_CLOCK_UNAVAILABLE_REASON = (
 _EVIDENCE_CLOCK_INVALID_REASON = (
     "LIVE_RISK_EVIDENCE_CLOCK_INVALID: the trusted clock returned an unusable instant"
 )
+
+_TRUST_REQUIRED_REASON = "LIVE risk evidence authority requires an application-issued source grant"
+_REGISTRY_REQUIRED_REASON = "LIVE risk evidence authority requires a registered broker connection"
 
 
 def _intent_for_request(request: ApprovedExecutionRequest) -> TradeIntent | None:
@@ -494,42 +406,56 @@ def _snapshot_expected(
 class LiveRiskEvidenceAuthority:
     """Application-owned authority that binds and seals LIVE risk evidence.
 
-    The authority is constructed by the sanctioned composition root with the
-    exact expected account, broker connection, broker client id and transport.
-    It calls the wired source, verifies every provenance dimension, stamps the
-    capture instant from the trusted clock, and mints a per-instance HMAC seal.
-    No caller-built dataclass or arbitrary callback can mint that seal.
+    The authority accepts only an application-issued
+    :class:`~quantx.application.live_risk_sources.LiveRiskEvidenceSourceGrant`.
+    It re-verifies that grant against the catalog that minted it, proves the
+    grant's connection is still the one this process registered, and derives
+    the expected account, broker connection, broker client id and transport
+    from the grant's binding. Nothing a source returns, declares, or echoes is
+    used to decide its own trust.
+
+    After trust, the authority calls the wired source, verifies every provenance
+    dimension of the evidence, stamps the capture instant from the trusted
+    clock, and mints a per-instance HMAC authorization. No caller-built
+    dataclass or arbitrary callback can mint either seal.
     """
 
     def __init__(
         self,
         *,
-        source: LiveRiskEvidenceSource,
+        grant: LiveRiskEvidenceSourceGrant,
+        catalog: LiveRiskEvidenceSourceCatalog,
+        registry: AccountConnectionRegistry,
         limits: RiskLimits,
         clock: Clock,
-        account_id: AccountId,
-        broker_connection_id: BrokerConnectionId,
-        expected_broker_client_id: str,
-        expected_transport: object,
     ) -> None:
-        if not isinstance(source, LiveRiskEvidenceSource):
-            raise TypeError("LIVE risk evidence authority requires a LiveRiskEvidenceSource")
+        if type(grant) is not LiveRiskEvidenceSourceGrant:
+            raise TypeError(_TRUST_REQUIRED_REASON)
+        if type(catalog) is not LiveRiskEvidenceSourceCatalog:
+            raise TypeError(_TRUST_REQUIRED_REASON)
+        if not isinstance(registry, AccountConnectionRegistry):
+            raise TypeError(_REGISTRY_REQUIRED_REASON)
+        if not catalog.verify(grant):
+            raise TypeError(_TRUST_REQUIRED_REASON)
         if not isinstance(clock, Clock):
             raise TypeError("LIVE risk evidence authority requires a Clock")
-        if type(account_id) is not AccountId:
-            raise TypeError("LIVE risk evidence authority requires an AccountId")
-        if type(broker_connection_id) is not BrokerConnectionId:
-            raise TypeError("LIVE risk evidence authority requires a BrokerConnectionId")
-        if type(expected_broker_client_id) is not str or not expected_broker_client_id.strip():
-            raise TypeError("LIVE risk evidence authority requires a broker client id")
-        if expected_transport is None:
-            raise TypeError("LIVE risk evidence authority requires the exact transport")
-        self._source = source
+        binding = grant.binding
+        registered = registry.get(binding.broker_connection_id)
+        if registered is None or not registered.enabled:
+            raise TypeError(_REGISTRY_REQUIRED_REASON)
+        if (
+            registered.ref.account_id != binding.account_id
+            or registered.ref.broker_id != grant.broker_id
+        ):
+            raise TypeError(_REGISTRY_REQUIRED_REASON)
+        self._grant = grant
+        self._catalog = catalog
+        self._source = binding.source
         self._clock = clock
-        self._account_id = account_id
-        self._broker_connection_id = broker_connection_id
-        self._broker_client_id = expected_broker_client_id
-        self._transport = expected_transport
+        self._account_id = binding.account_id
+        self._broker_connection_id = binding.broker_connection_id
+        self._broker_client_id = binding.broker_client_id
+        self._transport = binding.transport
         self._limits = require_live_risk_limits(limits)
         max_snapshot_age = self._limits.max_snapshot_age
         if max_snapshot_age is None:  # pragma: no cover - require_live_risk_limits guarantees it
@@ -544,7 +470,13 @@ class LiveRiskEvidenceAuthority:
 
     @property
     def authoritative_evidence_available(self) -> bool:
-        """True only when the wired source declares every required field."""
+        """True only when a trusted source declares every required field.
+
+        Trust is already proven by construction; this property reports the
+        sanctioned source's finite capability, never its self-declared honesty.
+        """
+        if not self._catalog.verify(self._grant):  # pragma: no cover - sealed and immutable
+            return False
         return self._required_fields <= self._source.supported_fields
 
     def admit(
@@ -797,8 +729,9 @@ class LivePreTradeRiskEvaluator:
         Callback mode is always non-authoritative: type-correct dataclasses and
         trusted-clock freshness do not authenticate balances, positions, P&L,
         account, connection, transport, client identity, or observation-time
-        provenance. Authority mode is available only when its wired source
-        declares every field the configured limits require.
+        provenance. Authority mode is available only when its application-issued
+        grant names a source that declares every field the configured limits
+        require.
         """
         if self._authority is None:
             return False
@@ -873,3 +806,18 @@ class LivePreTradeRiskEvaluator:
             snapshot=inputs.snapshot,
             evaluated_at=trusted,
         )
+
+
+__all__ = [
+    "LivePreTradeRiskEvaluator",
+    "LiveRiskEvaluationInputs",
+    "LiveRiskEvidence",
+    "LiveRiskEvidenceAuthority",
+    "LiveRiskEvidenceAuthorization",
+    "LiveRiskEvidenceField",
+    "LiveRiskEvidenceObservation",
+    "LiveRiskEvidenceSource",
+    "LiveRiskEvidenceSourceCatalog",
+    "LiveRiskEvidenceSourceGrant",
+    "required_live_risk_evidence_fields",
+]
