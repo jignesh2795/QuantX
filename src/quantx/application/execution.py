@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timezone
 from decimal import Decimal
@@ -128,6 +129,30 @@ _LIVE_DECISION_REJECTED_REASON = (
 _CACHED_RECEIPT_IDENTITY_REASON = (
     "cached receipt for a completed reservation does not belong to the approved request; "
     "reconciliation is required"
+)
+_LIVE_TRANSACTION_ADMISSION_REQUIRED_REASON = (
+    "live transaction requires a single-use dispatcher admission"
+)
+
+
+@dataclass(slots=True)
+class _LiveDispatchPermit:
+    """Single-use capability binding a LIVE transaction to its dispatcher call.
+
+    This is an internal control-flow guard, not a substitute for risk-evidence
+    authority. It prevents a direct or re-entrant call to the transactional
+    helper from creating a reservation or submitting without the corresponding
+    public ``execute`` call having completed its pre-dispatch checks.
+    """
+
+    request: ApprovedExecutionRequest
+    broker: BrokerPort
+    unit_of_work: UnitOfWork
+    consumed: bool = False
+
+
+_LIVE_DISPATCH_PERMIT: ContextVar[_LiveDispatchPermit | None] = ContextVar(
+    "quantx_live_dispatch_permit", default=None
 )
 
 
@@ -937,13 +962,18 @@ class ExecutionOrchestrator:
                     ),
                     check_entries,
                 )
+        permit = _LiveDispatchPermit(request=request, broker=broker, unit_of_work=unit_of_work)
+        permit_token = _LIVE_DISPATCH_PERMIT.set(permit)
         try:
-            live_result = self._execute_live_transactional(request, broker, unit_of_work)
-        except IdempotencyDecisionValidationError:
-            return ExecutionResult(
-                ExecutionDispatchStatus.BLOCKED,
-                reason=_LIVE_DECISION_REJECTED_REASON,
-            )
+            try:
+                live_result = self._execute_live_transactional(request, broker, unit_of_work)
+            except IdempotencyDecisionValidationError:
+                return ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=_LIVE_DECISION_REJECTED_REASON,
+                )
+        finally:
+            _LIVE_DISPATCH_PERMIT.reset(permit_token)
         if pack_applies:
             return self._with_evidence_prefix(live_result, check_entries)
         return live_result
@@ -1093,6 +1123,21 @@ class ExecutionOrchestrator:
         remaining read-only observations (fund limits, positions, quotes,
         candles) are outside the R0-B bounded-call contract.
         """
+        permit = _LIVE_DISPATCH_PERMIT.get()
+        if (
+            type(permit) is not _LiveDispatchPermit
+            or permit.consumed is not False
+            or permit.request is not request
+            or permit.broker is not broker
+            or permit.unit_of_work is not unit_of_work
+        ):
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=_LIVE_TRANSACTION_ADMISSION_REQUIRED_REASON,
+            )
+        # Consume before touching persistence so nested/re-entrant helper calls
+        # during broker code cannot reuse the same dispatcher authority.
+        permit.consumed = True
         fingerprint = request_fingerprint(request)
         client_order_id = request.order.client_order_id
 
