@@ -49,6 +49,7 @@ from quantx.plugins.reference_broker import (
     ReferenceBrokerAdapter,
 )
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
+from tests.unit.application.test_execution import _execute_admitted_transaction
 
 
 def _instrument() -> Instrument:
@@ -235,8 +236,9 @@ def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> Non
     adapter = _adapter(InMemoryReferenceBrokerTransport())
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        result = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database),
+        unit_of_work = SqliteUnitOfWork(database)
+        orchestrator = ExecutionOrchestrator(
+            unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
@@ -248,7 +250,8 @@ def test_reference_adapter_composes_with_execution_orchestrator(tmp_path) -> Non
                 rule_evaluator=_approving_india_evaluator(),
             ),
             policy_verifier=policy_verifier(),
-        ).execute(request, broker=adapter)
+        )
+        result = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
     finally:
         database.close()
 
