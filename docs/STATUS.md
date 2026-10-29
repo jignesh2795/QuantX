@@ -103,6 +103,89 @@ No counts from SHA `c3c29e346548a345eb0f93dfebf65620db6f1e5e` validate a later r
 No GitHub Actions or paid CI was used; no broker I/O, LIVE order, or production-broker
 end-to-end run was performed.
 
+## Issue #267 — LIVE risk-evidence source-trust remediation (2026-10-29)
+
+Branch `fix/issue267-trusted-source-registration-v1`, created from the published
+candidate `9977cb05ab5fa6c9ab2d61c3523eef2b0d7a6e46` over the frozen remediation
+base `17cd4c8de01e283b2e3101c2d06cee7397a70b24`.
+
+**Root cause.** `LiveExecutionConfig` accepted any object satisfying the
+runtime-checkable `LiveRiskEvidenceSource` protocol. Availability was decided
+from that source's own `supported_fields` claim, identity was checked against
+account/connection/client/transport values supplied by the same caller, and
+completeness compared observations against the `RiskContext`/`RiskSnapshot` the
+source itself produced. The authority HMAC sealed only its own wrapping, so an
+internally consistent fabricated source reached the risk engine and the broker.
+
+**Trust model.** Trust is an application-owned, composition-time allowlist of
+source construction paths, anchored on the existing `AccountConnectionRegistry`:
+
+```text
+LiveRiskEvidenceSourceCatalog   (application-owned; builders keyed by broker id)
+        |  grant(): build over the connection this process registered
+        v
+LiveRiskEvidenceSourceGrant     (sealed construction proof)
+        v
+LiveRiskEvidenceAuthority       (re-verifies the grant and its registry entry)
+        v
+LiveRiskEvidenceSource          (built only by the registered path)
+```
+
+`LiveExecutionConfig` has no source field; authority mode takes
+`risk_evidence_catalog` plus the account and connection. The factory resolves
+`ProductionRuntime.registry`, asks the catalog for a grant, and fails closed
+with a fixed composition error for an unregistered or disabled connection, a
+wrong account, or a broker with no registered construction path. The authority
+derives the expected account, connection, broker client and transport from the
+grant's binding instead of from caller arguments, then re-verifies the grant
+seal and the registry entry. Existing controls are unchanged: evidence
+identity, request binding, contradictions, completeness, freshness,
+future-dated rejection, trusted capture instant, and the per-instance HMAC
+authorization. The neutral evidence contracts moved to
+`quantx/application/live_risk_evidence.py` and are re-exported from
+`quantx/application/live_risk.py`.
+
+The Dhan plugin registers its own construction path
+(`build_dhan_risk_evidence_builder`, composed by
+`build_dhan_risk_evidence_catalog`), so the application layer names no vendor.
+Dhan remains non-authoritative: it still reports daily P&L, equity and
+high-water mark unavailable, so sanctioned LIVE admission stays blocked before
+reservation and broker submission.
+
+**Regressions.** `tests/unit/application/test_live_risk_source_trust.py` pins
+the bypass: a custom source claiming every field with internally consistent
+fabricated values cannot be admitted because no API accepts a source instance;
+a hand-forged or source-swapped grant fails the seal even when account,
+connection, client id and transport all match; an unregistered connection or
+unsanctioned broker is rejected at composition with zero durable gate state,
+zero reservation, zero broker submit and no quarantine row; a registered test
+builder still exercises the sanctioned path end to end.
+
+**Validation at SHA `478e66d83ad8c911ae0c9f10e4c3ad09980e9354` (base
+`17cd4c8de01e283b2e3101c2d06cee7397a70b24`):** default configuration
+3,211 passed, 2 skipped; Dhan-enabled configuration 3,213 passed. Focused LIVE
+authority/composition suites 259 passed; focused Dhan risk-evidence and
+transport suites 127 passed, 2 skipped (129 passed with the Dhan extra).
+Changed-file Ruff check and format passed for 16 Python files; strict mypy
+passed for 205 source files; `uv lock --check` and `git diff --check` passed;
+the tracked worktree was clean. Both release checks passed with exact HEAD/base
+binding, canonical full-suite argv, 16-file changed-Python scope and 18-file
+branch scope. Evidence and reports under
+`%LOCALAPPDATA%\Temp\quantx-validation\`:
+`issue267-trust-478e66d-default.json`, `issue267-trust-478e66d-dhan.json`,
+`release-478e66d-default.json`, and `release-478e66d-dhan.json`.
+
+Non-claims: the evidence is local, unauthenticated JSON produced without GitHub
+Actions or paid CI; no real broker I/O, authenticated Dhan session, production
+credential, or LIVE order was used. Source trust is only as strong as the
+deployment's catalog: a caller that owns the whole composition root also owns
+the allowlist, which no in-process Python design can prevent. Issue #267 remains
+open, this slice does not establish LIVE readiness, and sanctioned LIVE dispatch
+remains blocked because no registered source supplies every required field. The
+documentation commit that records these results changes HEAD and is validated
+separately at its own final SHA; the counts above are not evidence for that
+later commit.
+
 ## Issue #267 — Dhan risk-evidence authority slice (2026-10-29)
 
 Branch `feat/issue267-dhan-risk-evidence-authority-v1`, based on the frozen

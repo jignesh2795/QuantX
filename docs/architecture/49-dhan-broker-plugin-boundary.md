@@ -67,14 +67,27 @@ value: an unavailable or malformed payload is an unavailable observation.
 ## LIVE risk-evidence source
 
 ```text
+LiveRiskEvidenceSourceCatalog (application-owned allowlist, keyed by broker id)
+        |  grant(): build over the connection this process registered
+        v
 LiveRiskEvidenceAuthority (application-owned)
         |
         v
-DhanRiskEvidenceSource (plugin evidence source)
+DhanRiskEvidenceSource (plugin evidence source, built by the registered path)
         |
         v
 DhanTransport -> profile / fundlimit / positions / holdings
 ```
+
+The source is not trusted by its type, its `source_id`, its `supported_fields`
+declaration, or the identity values it echoes. The deployment registers
+`build_dhan_risk_evidence_builder` in an application-owned
+`LiveRiskEvidenceSourceCatalog`; the catalog builds the source over the
+account/connection this process registered in `AccountConnectionRegistry` and
+mints the sealed grant the authority accepts. `build_dhan_risk_evidence_catalog`
+composes that catalog from a `DhanHostRuntime`, and no application-layer module
+names the plugin. A deployment that registers no Dhan construction path cannot
+obtain LIVE authority from a Dhan source at all.
 
 `DhanRiskEvidenceSource` is a neutral evidence producer. It is constructed with
 the exact account, broker connection, expected `dhanClientId`, transport,
