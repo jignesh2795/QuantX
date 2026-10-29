@@ -3270,13 +3270,21 @@ def test_live_without_risk_evaluator_blocks_before_gate_reservation_and_broker()
         "wrong-reason-type",
     ],
 )
-def test_live_risk_evaluator_malformed_result_blocks_before_submit(evaluator) -> None:
-    orchestrator, gate, store, broker, unit_of_work = _live_risk_orchestrator(evaluator)
+def test_untrusted_live_risk_callback_is_rejected_before_invocation(evaluator) -> None:
+    called = False
+
+    def untrusted(request):
+        nonlocal called
+        called = True
+        return evaluator(request)
+
+    orchestrator, gate, store, broker, unit_of_work = _live_risk_orchestrator(untrusted)
 
     result = orchestrator.execute(_live_request(), broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == "live pre-trade risk evaluation returned an invalid result"
+    assert "application-owned risk evaluator" in result.reason
+    assert called is False
     assert gate.permit_calls == 0
     assert gate.admit_calls == 0
     assert store.check_calls == 0
