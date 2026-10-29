@@ -35,7 +35,22 @@ passed, 2,959 full-suite tests passed, Ruff/format, strict mypy, `uv lock --chec
 `git diff --check` passed. Those results are historical, have not been independently
 reproduced here, and do not validate the follow-up commits.
 
-**Current revision:** local validation has not yet been run for the follow-up changes.
+**Failed follow-up validation — SHA `c3c29e346548a345eb0f93dfebf65620db6f1e5e` (2026-10-29):**
+default configuration: 17 failed, 2,965 passed, 1 skipped; Dhan-enabled configuration:
+17 failed, 2,966 passed. Changed-file Ruff reported 3 errors across 9 files, format check
+reported 4 files requiring formatting, and strict mypy reported `no-any-return` in
+`src/quantx/application/live_risk.py:96`. `uv lock --check` and `git diff --check` passed;
+both release checks failed because the validation overall was FAIL. The failed test set
+included four application execution tests, four India-enforcement tests, five R0-B timeout
+tests, three Dhan adapter tests, and one reference-broker composition test.
+
+**Remediation after that failure:** the same issue branch has since corrected several public
+LIVE versus transaction-test boundary assumptions, preserved fail-closed public dispatch,
+expanded the request/risk identity mismatch matrix, adjusted the instrument-resolution type
+contract, and corrected import ordering. The remediation revision still requires fresh
+focused and full-suite validation plus Ruff, format, strict mypy, and release checks.
+No counts from SHA `c3c29e346548a345eb0f93dfebf65620db6f1e5e` validate a later revision.
+
 No GitHub Actions or paid CI was used; no broker I/O, LIVE order, or production-broker
 end-to-end run was performed.
 
