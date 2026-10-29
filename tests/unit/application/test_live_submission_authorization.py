@@ -767,7 +767,7 @@ def test_paper_execution_needs_no_live_authorization() -> None:
     assert broker.submit_calls == 0
 
 
-def test_preflight_rejection_still_closes_the_reservation_without_authorization_reuse() -> None:
+def test_public_dispatch_blocks_before_submit_when_authority_is_unavailable() -> None:
     request = _request()
     unit_of_work = _FakeUnitOfWork()
     broker = _FakeBroker(submit_error=BrokerPreflightRejected("instrument mapping rejected"))
@@ -775,19 +775,16 @@ def test_preflight_rejection_still_closes_the_reservation_without_authorization_
     first = _live_orchestrator(unit_of_work).execute(request, broker=broker)
 
     assert first.status is ExecutionDispatchStatus.BLOCKED
-    assert "submission was not sent" in first.reason
-    assert broker.submit_calls == 1
-    decision = unit_of_work.idempotency.check(
-        request.order.client_order_id, request_fingerprint(request)
-    )
-    assert not decision.reservation_pending
-    assert decision.not_submitted_resolution is not None
+    assert "application-owned risk evaluator" in first.reason
+    assert broker.submit_calls == 0
+    _assert_no_durable_work(unit_of_work, request)
 
     second = _live_orchestrator(unit_of_work).execute(request, broker=broker)
 
     assert second.status is ExecutionDispatchStatus.BLOCKED
-    assert "not submitted" in second.reason
-    assert broker.submit_calls == 1, "a closed reservation must not resubmit"
+    assert "application-owned risk evaluator" in second.reason
+    assert broker.submit_calls == 0
+    _assert_no_durable_work(unit_of_work, request)
 
 
 def test_continue_partial_cannot_reach_live_broker_submission() -> None:
