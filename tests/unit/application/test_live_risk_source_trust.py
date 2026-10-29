@@ -172,9 +172,9 @@ def test_execution_config_has_no_catalog_field() -> None:
 
 
 def test_catalog_has_no_public_construction_path() -> None:
-    with pytest.raises(TypeError, match="created only by the application"):
+    with pytest.raises(TypeError, match="application construction token"):
         LiveRiskEvidenceSourceCatalog(builders=())  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="created only by the application"):
+    with pytest.raises(TypeError, match="application construction token"):
         LiveRiskEvidenceSourceCatalog(builders=(object(),), token=object())  # type: ignore[arg-type]
 
     assert not hasattr(live_risk_sources, "LiveRiskEvidenceSourceBuilder")
