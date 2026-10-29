@@ -409,6 +409,8 @@ def test_hand_built_authorization_with_a_guessed_proof_is_rejected() -> None:
         authorization_id=uuid4(),
         client_order_id=request.order.client_order_id,
         request_fingerprint=request_fingerprint(request),
+        broker_identity=id(broker),
+        unit_of_work_identity=id(unit_of_work),
         proof="0" * 64,
     )
 
