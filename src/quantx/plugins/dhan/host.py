@@ -43,6 +43,8 @@ from .mapping import normalize_dhan_product_map
 from .market_data import DhanMarketDataAdapter
 from .models import DhanCredentials, DhanInstrumentRef
 from .recovery import build_dhan_recovery_provider
+from .risk_evidence import DhanRiskEvidenceSource
+from .risk_evidence import build_dhan_risk_evidence_source as _build_dhan_risk_evidence_source
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanSDKTransport, DhanTransport
 
 _DHAN_BROKER_ID = "dhan"
@@ -77,6 +79,7 @@ class DhanHostConfig:
     read_timeout_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS
     credentials: DhanCredentials | None = None
     transport: DhanTransport | None = None
+    broker_client_id: str | None = None
     local_order_provider: LocalOrderProvider | None = None
     local_position_provider: LocalPositionProvider | None = None
     local_account_provider: LocalAccountProvider | None = None
@@ -96,6 +99,10 @@ class DhanHostConfig:
             raise ValueError("host instruments contain a duplicate instrument id")
         if (self.credentials is None) == (self.transport is None):
             raise ValueError("host requires exactly one of credentials or transport")
+        if self.broker_client_id is not None:
+            if type(self.broker_client_id) is not str or not self.broker_client_id.strip():
+                raise ValueError("broker client id must be a non-empty string")
+            object.__setattr__(self, "broker_client_id", self.broker_client_id.strip())
         try:
             product_map = normalize_dhan_product_map(self.product_map)
         except ValueError as exc:
@@ -191,6 +198,7 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         _reconcile_timeout=config.reconcile_timeout_seconds,
         _read_timeout=config.read_timeout_seconds,
         _product_map=config.product_map,
+        _risk_evidence_client_id=_dhan_evidence_client_id(config),
     )
     market_data = DhanMarketDataAdapter(_instruments=instrument_map, _transport=transport)
 
@@ -221,6 +229,63 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
     )
 
 
+def build_dhan_risk_evidence_source(
+    host: DhanHostRuntime,
+    *,
+    broker_client_id: str | None = None,
+) -> DhanRiskEvidenceSource:
+    """Build the Dhan risk-evidence source over this host's exact transport.
+
+    The source is bound to the host's configured account, connection, transport
+    and read timeout. A host built from credentials already knows its broker
+    client id; a host built over a custom transport must supply it explicitly.
+    No default identity is invented. A bare source can be collected from, but it
+    cannot reach LIVE admission: only the application path over the registered
+    connection's ``DhanBrokerAdapter.build_live_risk_evidence_binding`` issues
+    the grant an authority consumes.
+    """
+    if type(host) is not DhanHostRuntime:
+        raise TypeError("Dhan risk evidence host must be a DhanHostRuntime")
+    return _build_dhan_risk_evidence_source(
+        transport=host.transport,
+        account_id=host.config.account_id,
+        broker_connection_id=host.config.connection_id,
+        broker_client_id=_dhan_broker_client_id(host, broker_client_id),
+        instruments=host.config.instruments,
+        read_timeout=host.config.read_timeout_seconds,
+    )
+
+
+def _dhan_evidence_client_id(config: DhanHostConfig) -> str | None:
+    """The client id the adapter may bind risk evidence to, when it is known.
+
+    A host built from credentials already knows its client id; a custom
+    transport must declare it explicitly. When neither is available the adapter
+    exposes no evidence construction path and LIVE authority stays unavailable.
+    """
+    if config.broker_client_id is not None:
+        return config.broker_client_id
+    credentials = config.credentials
+    return credentials.client_id if credentials is not None else None
+
+
+def _dhan_broker_client_id(host: DhanHostRuntime, broker_client_id: str | None) -> str:
+    """Derive the host's broker client id, never inventing a default."""
+    client_id = broker_client_id
+    if client_id is None:
+        client_id = host.config.broker_client_id
+    if client_id is None:
+        credentials = host.config.credentials
+        if credentials is None:
+            raise ValueError(
+                "broker_client_id is required when the Dhan host uses a custom transport"
+            )
+        client_id = credentials.client_id
+    if type(client_id) is not str or not client_id.strip():
+        raise ValueError("Dhan risk evidence requires a non-empty broker client id")
+    return client_id
+
+
 def _validate_timeout_seconds(name: str, value: object) -> None:
     """Fail closed on non-numeric, bool, zero, or negative timeout config."""
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
@@ -237,4 +302,5 @@ __all__ = [
     "DhanHostConfig",
     "DhanHostRuntime",
     "build_dhan_host_runtime",
+    "build_dhan_risk_evidence_source",
 ]

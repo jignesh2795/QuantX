@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from quantx.application.live_risk_sources import TrustedLiveRiskEvidenceBinding
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES, Instrument
@@ -17,6 +18,7 @@ from quantx.execution.receipts.models import (
     ExecutionReceipt,
 )
 from quantx.execution.submission_preflight import BrokerPreflightRejected
+from quantx.integrations.account_registry import RegisteredConnection
 from quantx.integrations.brokers import (
     BrokerConnectionRef,
     BrokerDescriptor,
@@ -38,6 +40,7 @@ from .mapping import (
     parse_dhan_timestamp,
 )
 from .models import DhanInstrumentRef, DhanOrderDetail, DhanPositionSnapshot
+from .risk_evidence import DhanRiskEvidenceSource
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanTimeoutError, DhanTransport
 
 
@@ -55,6 +58,7 @@ class DhanBrokerAdapter:
     _capabilities: CapabilitySet = DHAN_CAPABILITIES
     _adapter_version: str = "dhan-0.1"
     _product_map: Mapping[str, str] | None = None
+    _risk_evidence_client_id: str | None = None
 
     def __post_init__(self) -> None:
         if self._connection.broker_id != "dhan":
@@ -69,6 +73,14 @@ class DhanBrokerAdapter:
                 raise ValueError(f"{name} must be a positive number")
         if self._product_map is not None:
             object.__setattr__(self, "_product_map", normalize_dhan_product_map(self._product_map))
+        if self._risk_evidence_client_id is not None:
+            if type(self._risk_evidence_client_id) is not str or not (
+                self._risk_evidence_client_id.strip()
+            ):
+                raise ValueError("risk evidence client id must be a non-empty string")
+            object.__setattr__(
+                self, "_risk_evidence_client_id", self._risk_evidence_client_id.strip()
+            )
 
     @property
     def descriptor(self) -> BrokerDescriptor:
@@ -146,6 +158,39 @@ class DhanBrokerAdapter:
 
     def capabilities(self) -> CapabilitySet:
         return self._capabilities
+
+    def build_live_risk_evidence_binding(
+        self, registered: RegisteredConnection
+    ) -> TrustedLiveRiskEvidenceBinding | None:
+        """Expose this connection's own Dhan LIVE risk-evidence construction path.
+
+        The binding is built from this adapter's transport, instrument map and
+        configured broker client id; the account and connection come from the
+        registration. An adapter without a configured broker client id exposes
+        no path, so LIVE authority stays unavailable instead of inventing an
+        identity.
+        """
+        if type(registered) is not RegisteredConnection:
+            return None
+        if registered.ref != self._connection:
+            return None
+        client_id = self._risk_evidence_client_id
+        if client_id is None:
+            return None
+        return TrustedLiveRiskEvidenceBinding(
+            source=DhanRiskEvidenceSource(
+                transport=self._transport,
+                account_id=self._connection.account_id,
+                broker_connection_id=self._connection.connection_id,
+                broker_client_id=client_id,
+                instruments=tuple(self._instruments.values()),
+                read_timeout=self._read_timeout,
+            ),
+            account_id=self._connection.account_id,
+            broker_connection_id=self._connection.connection_id,
+            broker_client_id=client_id,
+            transport=self._transport,
+        )
 
     def instrument(self, instrument_id: InstrumentId) -> Instrument | None:
         item = self._instruments.get(instrument_id)

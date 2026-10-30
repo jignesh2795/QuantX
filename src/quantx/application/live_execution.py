@@ -8,11 +8,26 @@ required input is absent or mistyped, so LIVE protection is never degraded to
 an optional layer by a convenience default.
 
 It does not make the orchestrator safe by itself: the orchestrator still
-accepts arbitrary callables when it is constructed directly, and the values of
-the risk evidence remain caller-supplied. What this factory guarantees is that
-the stack it returns is disarmed, durably gated, quarantine-backed,
-risk-evaluated against a composition-injected clock, and
-market-policy-complete for India.
+accepts arbitrary callables when it is constructed directly. Callback mode
+remains explicitly non-authoritative: type-correct dataclasses and a trusted
+clock do not authenticate balances, positions, P&L, account, connection,
+transport, client identity, or observation-time provenance.
+
+Authority mode accepts no source instance and no catalog. It requires the
+account and broker connection this process registered in
+``ProductionRuntime.registry``, and the evidence source must come from that
+connection's own adapter: the only accepted construction path is the adapter's
+``build_live_risk_evidence_binding``. The factory derives the catalog from the
+registered adapter, mints the grant the authority consumes, and never returns
+the catalog, so a caller cannot declare a construction path next to a genuine
+broker connection. A connection whose adapter exposes no construction path gets
+a composition error, never a quietly degraded LIVE stack. The same registered
+adapter must also be the object ``execute`` submits through: matching account
+and connection identifiers are not enough, so risk evidence collected from one
+connection cannot dispatch an order to another that reports the same ids. What
+this factory guarantees is that the stack it returns is disarmed, durably
+gated, quarantine-backed, risk-evaluated against a composition-injected clock,
+and market-policy-complete for India.
 """
 
 from __future__ import annotations
@@ -20,6 +35,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.clock import Clock
 from quantx.domain.errors import ValidationError
 from quantx.domain.execution_request import ApprovedExecutionRequest
@@ -43,7 +59,16 @@ from quantx.ports.market_checks import (
 )
 
 from .execution import ExecutionOrchestrator
-from .live_risk import LivePreTradeRiskEvaluator, LiveRiskEvaluationInputs
+from .live_risk import (
+    LivePreTradeRiskEvaluator,
+    LiveRiskEvaluationInputs,
+    LiveRiskEvidenceAuthority,
+)
+from .live_risk_sources import (
+    LiveRiskEvidenceSourceCatalog,
+    LiveRiskEvidenceSourceGrant,
+    live_risk_evidence_catalog_for,
+)
 from .production import ProductionRuntime
 
 _LIMITS_REQUIRED_REASON = (
@@ -53,6 +78,18 @@ _LIMITS_REQUIRED_REASON = (
 
 _NON_INDIA_PLACEMENT_REASON = (
     "market_policy must not place checks for a non-India region: LIVE execution is India-only"
+)
+
+_REGISTRY_REQUIRED_REASON = (
+    "authority mode requires the account and broker connection this process registered"
+)
+
+_UNREGISTERED_SOURCE_REASON = (
+    "authority mode requires a risk evidence construction path on the registered broker adapter"
+)
+
+_AUTHORITY_IDENTITY_REQUIRED_REASON = (
+    "authority mode requires the registered account and broker connection"
 )
 
 
@@ -68,18 +105,32 @@ class LiveExecutionCompositionError(ValidationError):
 class LiveExecutionConfig:
     """Explicit mandatory inputs for :func:`build_live_execution`.
 
-    There are no defaults. A deployment must supply its risk limits, a risk
-    engine, the per-request risk evidence provider, the trusted clock that
-    decides freshness, the market policy that carries both India check stages,
-    and the trusted policy verifier.
+    A deployment supplies its risk limits, risk engine, trusted clock, market
+    policy and trusted policy verifier, plus one evidence mode:
+
+    * ``risk_inputs_for_request`` for explicitly non-authoritative callback
+      mode; or
+    * the account and broker connection this process registered, for authority
+      mode.
+
+    There is deliberately no field for a source instance and no field for a
+    catalog: authority mode takes its construction path from the registered
+    connection's own adapter, so a caller cannot declare a source or an
+    allowlist next to a genuine broker connection. The identity inputs are
+    rejected in callback mode. No default identity, evidence source, or
+    authorization is selected here.
     """
 
     risk_limits: RiskLimits
     risk_engine: PreTradeRiskEngine
-    risk_inputs_for_request: Callable[[ApprovedExecutionRequest], LiveRiskEvaluationInputs]
     clock: Clock
     market_policy: MarketPolicyConfig
     policy_verifier: MarketPackPolicyVerifier
+    risk_inputs_for_request: (
+        Callable[[ApprovedExecutionRequest], LiveRiskEvaluationInputs] | None
+    ) = None
+    expected_account_id: AccountId | None = None
+    expected_broker_connection_id: BrokerConnectionId | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +173,39 @@ def _india_only_market_policy(policy: MarketPolicyConfig) -> MarketPolicyConfig:
     return MarketPolicyConfig(regions=regions, checks=checks)
 
 
+def _authority_catalog_and_grant(
+    runtime: ProductionRuntime,
+    config: LiveExecutionConfig,
+) -> tuple[LiveRiskEvidenceSourceCatalog, LiveRiskEvidenceSourceGrant, object]:
+    """Resolve the registered connection and the construction path it owns.
+
+    The catalog is derived from the registered adapter, is never accepted from
+    the caller, and is never returned to a caller of this factory. The adapter
+    itself is returned so the orchestrator can require that the object which
+    submits is the object whose evidence authorized the submission.
+    """
+    if config.expected_account_id is None and config.expected_broker_connection_id is None:
+        raise LiveExecutionCompositionError(_AUTHORITY_IDENTITY_REQUIRED_REASON)
+    if type(config.expected_account_id) is not AccountId:
+        raise LiveExecutionCompositionError("expected_account_id must be an AccountId")
+    if type(config.expected_broker_connection_id) is not BrokerConnectionId:
+        raise LiveExecutionCompositionError(
+            "expected_broker_connection_id must be a BrokerConnectionId"
+        )
+    registered = runtime.registry.get(config.expected_broker_connection_id)
+    if registered is None or not registered.enabled:
+        raise LiveExecutionCompositionError(_REGISTRY_REQUIRED_REASON)
+    if registered.ref.account_id != config.expected_account_id:
+        raise LiveExecutionCompositionError(_REGISTRY_REQUIRED_REASON)
+    catalog = live_risk_evidence_catalog_for(registered)
+    if catalog is None:
+        raise LiveExecutionCompositionError(_UNREGISTERED_SOURCE_REASON)
+    grant = catalog.grant(registered)
+    if grant is None:
+        raise LiveExecutionCompositionError(_UNREGISTERED_SOURCE_REASON)
+    return catalog, grant, registered.adapter
+
+
 def build_live_execution(
     runtime: ProductionRuntime,
     config: LiveExecutionConfig,
@@ -129,10 +213,14 @@ def build_live_execution(
     """Build one disarmed, fully guarded LIVE execution stack.
 
     Validation runs before construction, so invalid configuration writes no
-    durable state. When building the gate, the factory overwrites any enabled
-    state left by a prior process with a durably disarmed state before returning.
-    Each new process therefore requires an explicit operator enable after startup.
-    If disarming cannot be persisted, construction raises and returns no stack.
+    durable state. In authority mode that validation includes the account/
+    connection registry lookup and the catalog's construction-path grant, so a
+    source this process did not register stops the build instead of becoming a
+    runtime surprise. When building the gate, the factory overwrites any
+    enabled state left by a prior process with a durably disarmed state before
+    returning. Each new process therefore requires an explicit operator enable
+    after startup. If disarming cannot be persisted, construction raises and
+    returns no stack.
 
     The market policy must require the India pack and place at least one check
     in both India stages. Construction already rejects a core-only India or a
@@ -152,8 +240,22 @@ def build_live_execution(
         raise LiveExecutionCompositionError("risk_engine must be a PreTradeRiskEngine")
     if not isinstance(config.clock, Clock):
         raise LiveExecutionCompositionError("clock must be a Clock")
-    if not callable(config.risk_inputs_for_request):
-        raise LiveExecutionCompositionError("risk_inputs_for_request must be callable")
+    has_callback = config.risk_inputs_for_request is not None
+    authority_identity_supplied = (
+        config.expected_account_id is not None or config.expected_broker_connection_id is not None
+    )
+    catalog: LiveRiskEvidenceSourceCatalog | None = None
+    grant: LiveRiskEvidenceSourceGrant | None = None
+    live_broker: object | None = None
+    if has_callback:
+        if not callable(config.risk_inputs_for_request):
+            raise LiveExecutionCompositionError("risk_inputs_for_request must be callable")
+        if authority_identity_supplied:
+            raise LiveExecutionCompositionError(
+                "authority identity inputs are rejected in callback mode"
+            )
+    else:
+        catalog, grant, live_broker = _authority_catalog_and_grant(runtime, config)
     if type(config.market_policy) is not MarketPolicyConfig:
         raise LiveExecutionCompositionError("market_policy must be a MarketPolicyConfig")
     if any(placed.region is not MarketRegion.INDIA for placed in config.market_policy.checks):
@@ -182,17 +284,35 @@ def build_live_execution(
     # authorization that an operator granted to a previous process.
     gate.block("LIVE gate disarmed for new process start")
     quarantine = SqliteSubmissionQuarantineRepository(runtime.database)
-    evaluator = LivePreTradeRiskEvaluator(
-        engine=config.risk_engine,
-        limits=limits,
-        inputs_for_request=config.risk_inputs_for_request,
-        clock=config.clock,
-    )
+    if has_callback:
+        evaluator = LivePreTradeRiskEvaluator(
+            engine=config.risk_engine,
+            limits=limits,
+            inputs_for_request=config.risk_inputs_for_request,
+            clock=config.clock,
+        )
+    else:
+        if catalog is None or grant is None:  # pragma: no cover - validated above
+            raise LiveExecutionCompositionError(_UNREGISTERED_SOURCE_REASON)
+        authority = LiveRiskEvidenceAuthority(
+            grant=grant,
+            catalog=catalog,
+            registry=runtime.registry,
+            limits=limits,
+            clock=config.clock,
+        )
+        evaluator = LivePreTradeRiskEvaluator(
+            engine=config.risk_engine,
+            limits=limits,
+            clock=config.clock,
+            authority=authority,
+        )
     orchestrator = ExecutionOrchestrator(
         trading_gate=gate,
         application_runtime=runtime.application,
         unit_of_work=runtime.unit_of_work,
         live_risk_evaluator=evaluator,
+        live_broker=live_broker,
         market_policy=_india_only_market_policy(config.market_policy),
         submission_quarantine=quarantine,
         policy_verifier=config.policy_verifier,

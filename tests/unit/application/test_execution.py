@@ -8,8 +8,13 @@ from uuid import UUID, uuid4
 
 import pytest
 
+import quantx.application.execution as execution_module
 from quantx.application.evidence_refresh import EvidenceRefreshOutcome
-from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
+from quantx.application.execution import (
+    ExecutionDispatchStatus,
+    ExecutionOrchestrator,
+    ExecutionResult,
+)
 from quantx.application.pending_recovery import PendingRecoveryResult, PendingRecoveryRun
 from quantx.application.reconciliation import (
     OrderStateReconciliationResult,
@@ -40,11 +45,12 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import (
     IdempotencyDecision,
+    IdempotencyDecisionValidationError,
     InMemoryIdempotencyStore,
     NotSubmittedSource,
 )
 from quantx.execution.idempotency.fingerprint import request_fingerprint
-from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+from quantx.execution.ports import BrokerPort, ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.quarantine import QuarantineObservationKind
 from quantx.execution.session_guard import SessionExecutionGuard, SessionGuardResult
 from quantx.execution.submission_preflight import BrokerPreflightRejected
@@ -363,6 +369,30 @@ def _live_request():
     )
 
 
+def _execute_admitted_transaction(
+    orchestrator: ExecutionOrchestrator,
+    request: ApprovedExecutionRequest,
+    broker: BrokerPort,
+    unit_of_work: UnitOfWork,
+) -> ExecutionResult:
+    """Exercise transaction semantics after an explicitly simulated admission.
+
+    Public LIVE dispatch is separately required to reject untrusted evidence.
+    These unit tests isolate the downstream transaction contract using a
+    single-use credential bound to the exact fake broker and unit of work.
+    """
+    with execution_module._LIVE_SUBMISSION_AUTHORITIES_LOCK:
+        authority = execution_module._LIVE_SUBMISSION_AUTHORITIES.get(orchestrator)
+    assert authority is not None
+    authorization = authority.issue(
+        client_order_id=request.order.client_order_id,
+        request_fingerprint=request_fingerprint(request),
+        broker_identity=id(broker),
+        unit_of_work_identity=id(unit_of_work),
+    )
+    return orchestrator._execute_live_transactional(request, broker, unit_of_work, authorization)
+
+
 def test_paper_requires_an_observed_snapshot() -> None:
     orchestrator = ExecutionOrchestrator(
         paper_executor=FakePaperExecutor(),
@@ -590,6 +620,7 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
         connection_id=BrokerConnectionId("conn-1"),
         required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
     )
+    broker = FakeBroker()
     result = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
         unit_of_work=_FakeUnitOfWork(),
@@ -601,13 +632,10 @@ def test_live_submits_only_after_identity_health_and_capability_checks() -> None
             rule_evaluator=_approving_india_evaluator(),
         ),
         policy_verifier=policy_verifier(),
-    ).execute(
-        request,
-        broker=FakeBroker(),
-    )
-    assert result.status is ExecutionDispatchStatus.EXECUTED
-    assert result.receipt is not None
-    assert result.receipt.source == "fake-broker"
+    ).execute(request, broker=broker)
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "application-owned risk evaluator" in result.reason
+    assert broker.submit_calls == 0
 
 
 def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
@@ -615,10 +643,11 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
         ExecutionMode.LIVE,
         connection_id=BrokerConnectionId("conn-1"),
     )
+    unit_of_work = _FakeUnitOfWork()
     broker = FakeBroker()
     orchestrator = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
-        unit_of_work=_FakeUnitOfWork(),
+        unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
         live_risk_evaluator=_approving_live_risk_evaluator(),
@@ -629,8 +658,8 @@ def test_live_submission_is_idempotent_through_canonical_boundary() -> None:
         policy_verifier=policy_verifier(),
     )
 
-    first = orchestrator.execute(request, broker=broker)
-    second = orchestrator.execute(request, broker=broker)
+    first = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
+    second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert first.status is ExecutionDispatchStatus.EXECUTED
     assert first.receipt is not None
@@ -650,10 +679,11 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
         ExecutionMode.LIVE,
         connection_id=BrokerConnectionId("conn-1"),
     )
+    unit_of_work = _FakeUnitOfWork()
     broker = FailingBroker()
     orchestrator = ExecutionOrchestrator(
         application_runtime=_started_runtime(),
-        unit_of_work=_FakeUnitOfWork(),
+        unit_of_work=unit_of_work,
         trading_gate=_durable_gate(),
         submission_quarantine=_FakeSubmissionQuarantine(),
         live_risk_evaluator=_approving_live_risk_evaluator(),
@@ -664,7 +694,7 @@ def test_live_submission_failure_is_unknown_through_canonical_boundary() -> None
         policy_verifier=policy_verifier(),
     )
 
-    result = orchestrator.execute(request, broker=broker)
+    result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert result.status is ExecutionDispatchStatus.UNKNOWN
     assert result.receipt is None
@@ -704,7 +734,7 @@ def test_live_unknown_receipt_preserves_pending_reservation() -> None:
         policy_verifier=policy_verifier(),
     )
 
-    first = orchestrator.execute(request, broker=broker)
+    first = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert first.status is ExecutionDispatchStatus.UNKNOWN
     assert first.receipt is not None
@@ -717,7 +747,7 @@ def test_live_unknown_receipt_preserves_pending_reservation() -> None:
     assert decision.existing_receipt_id is None
     assert unit_of_work.receipts.get(first.receipt.receipt_id) is None
 
-    second = orchestrator.execute(request, broker=broker)
+    second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert second.status is ExecutionDispatchStatus.UNKNOWN
     assert broker.submit_calls == 1
@@ -740,7 +770,7 @@ def test_live_unit_of_work_groups_receipt_and_completion() -> None:
         policy_verifier=policy_verifier(),
     )
 
-    result = orchestrator.execute(request, broker=broker)
+    result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert result.status is ExecutionDispatchStatus.EXECUTED
     assert result.receipt is not None
@@ -783,7 +813,7 @@ def test_live_unit_of_work_submit_failure_is_unknown_without_receipt() -> None:
         policy_verifier=policy_verifier(),
     )
 
-    result = orchestrator.execute(request, broker=broker)
+    result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert result.status is ExecutionDispatchStatus.UNKNOWN
     assert result.receipt is None
@@ -1432,7 +1462,9 @@ def test_live_gate_block_not_blocked_by_slow_broker() -> None:
     )
 
     def run_execution() -> None:
-        outcome["result"] = orchestrator.execute(request, broker=broker)
+        outcome["result"] = _execute_admitted_transaction(
+            orchestrator, request, broker, unit_of_work
+        )
 
     def block_gate() -> None:
         gate.block("operator emergency stop")
@@ -1604,11 +1636,11 @@ def test_live_unit_of_work_duplicate_returns_persisted_receipt() -> None:
         policy_verifier=policy_verifier(),
     )
 
-    first = orchestrator.execute(request, broker=broker)
+    first = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert first.status is ExecutionDispatchStatus.EXECUTED
     assert first.receipt is not None
 
-    second = orchestrator.execute(request, broker=broker)
+    second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert second.status is ExecutionDispatchStatus.EXECUTED
     assert second.receipt == first.receipt
     assert "idempotent duplicate" in second.reason
@@ -1640,7 +1672,7 @@ def test_sqlite_first_execution_persists_receipt_and_completion(tmp_path) -> Non
     try:
         request = _live_request()
         broker = FakeBroker()
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.EXECUTED
         assert result.receipt is not None
         assert broker.submit_calls == 1
@@ -1659,9 +1691,9 @@ def test_sqlite_duplicate_returns_persisted_receipt_without_resubmit(tmp_path) -
     try:
         request = _live_request()
         broker = FakeBroker()
-        first = orchestrator.execute(request, broker=broker)
+        first = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert first.status is ExecutionDispatchStatus.EXECUTED
-        second = orchestrator.execute(request, broker=broker)
+        second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert second.status is ExecutionDispatchStatus.EXECUTED
         assert second.receipt == first.receipt
         assert broker.submit_calls == 1
@@ -1679,7 +1711,7 @@ def test_sqlite_submission_failure_preserves_pending_without_retry(tmp_path) -> 
     try:
         request = _live_request()
         broker = FailingBroker()
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is None
         assert "reconciliation" in result.reason
@@ -1689,7 +1721,7 @@ def test_sqlite_submission_failure_preserves_pending_without_retry(tmp_path) -> 
         )
         assert decision.reservation_pending
         assert decision.existing_receipt_id is None
-        second = orchestrator.execute(request, broker=broker)
+        second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert second.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
     finally:
@@ -1701,12 +1733,12 @@ def test_sqlite_fingerprint_mismatch_rejected_without_submit(tmp_path) -> None:
     try:
         request = _live_request()
         broker = FakeBroker()
-        first = orchestrator.execute(request, broker=broker)
+        first = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert first.status is ExecutionDispatchStatus.EXECUTED
         changed_order = replace(request.order, quantity=Decimal("11"))
         changed_request = replace(request, order=changed_order)
         with pytest.raises(ValueError, match="different request"):
-            orchestrator.execute(changed_request, broker=broker)
+            _execute_admitted_transaction(orchestrator, changed_request, broker, unit_of_work)
         assert broker.submit_calls == 1
     finally:
         database.close()
@@ -1717,9 +1749,10 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
     request = _live_request()
     database_a = SqliteDatabase(path)
     try:
+        unit_of_work_a = SqliteUnitOfWork(database_a)
         orchestrator_a = ExecutionOrchestrator(
             application_runtime=_started_runtime(),
-            unit_of_work=SqliteUnitOfWork(database_a),
+            unit_of_work=unit_of_work_a,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database_a), default_enabled=True
             ),
@@ -1731,16 +1764,21 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
             live_risk_evaluator=_approving_live_risk_evaluator(),
             policy_verifier=policy_verifier(),
         )
-        first = orchestrator_a.execute(request, broker=FakeBroker())
+        broker_a = FakeBroker()
+        first = _execute_admitted_transaction(orchestrator_a, request, broker_a, unit_of_work_a)
         assert first.status is ExecutionDispatchStatus.EXECUTED
+        assert first.receipt is not None
+        assert broker_a.submit_calls == 1
     finally:
         database_a.close()
+
     database_b = SqliteDatabase(path)
     try:
+        unit_of_work_b = SqliteUnitOfWork(database_b)
         broker_b = FakeBroker()
         orchestrator_b = ExecutionOrchestrator(
             application_runtime=_started_runtime(),
-            unit_of_work=SqliteUnitOfWork(database_b),
+            unit_of_work=unit_of_work_b,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database_b), default_enabled=True
             ),
@@ -1752,7 +1790,7 @@ def test_sqlite_complete_survives_restart_proxy(tmp_path) -> None:
             live_risk_evaluator=_approving_live_risk_evaluator(),
             policy_verifier=policy_verifier(),
         )
-        second = orchestrator_b.execute(request, broker=broker_b)
+        second = _execute_admitted_transaction(orchestrator_b, request, broker_b, unit_of_work_b)
         assert second.status is ExecutionDispatchStatus.EXECUTED
         assert second.receipt == first.receipt
         assert broker_b.submit_calls == 0
@@ -1770,7 +1808,7 @@ def test_sqlite_completion_failure_is_unknown_with_pending(tmp_path, monkeypatch
             raise RuntimeError("completion unavailable")
 
         monkeypatch.setattr(unit_of_work.idempotency, "complete", boom)
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is not None
         assert "reconciliation" in result.reason
@@ -1783,7 +1821,7 @@ def test_sqlite_completion_failure_is_unknown_with_pending(tmp_path, monkeypatch
         assert decision.reservation_pending
         assert decision.existing_receipt_id is None
         assert broker.submit_calls == 1
-        second = orchestrator.execute(request, broker=broker)
+        second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert second.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
     finally:
@@ -1821,7 +1859,8 @@ def test_broker_submit_runs_outside_sqlite_transaction(tmp_path) -> None:
                 observed["in_transaction"] = database.connection().in_transaction
                 return super().submit(request)
 
-        result = orchestrator.execute(_live_request(), broker=InspectingBroker())
+        broker = InspectingBroker()
+        result = _execute_admitted_transaction(orchestrator, _live_request(), broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.EXECUTED
         assert observed["in_transaction"] is False
     finally:
@@ -1959,9 +1998,9 @@ def _wait_for_reservation(unit_of_work, request) -> None:
 def test_live_block_before_submit_admission_denies_without_submit() -> None:
     """Once block() returns, a reserved-but-unadmitted submission is denied.
 
-    The read-only broker observations (connection, health, instrument) run
-    before the reservation and admission boundary, so the denial contract is
-    exactly "never ``broker.submit()``" — not "never any broker contact".
+    This test starts at the transaction boundary to isolate the reservation /
+    admission race. Public-dispatch tests cover the earlier read-only broker
+    observations; here the contract is no broker submission after the block.
     """
     admission_release = Event()
     gate = _AdmissionGatedGate(InMemoryTradingGateStateStore(), admission_release=admission_release)
@@ -1984,7 +2023,9 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
 
     def run_execute() -> None:
         try:
-            outcome["result"] = orchestrator.execute(request, broker=broker)
+            outcome["result"] = _execute_admitted_transaction(
+                orchestrator, request, broker, unit_of_work
+            )
         except BaseException as exc:
             outcome["error"] = exc
 
@@ -2004,8 +2045,6 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
     result = outcome["result"]
     assert result.status is ExecutionDispatchStatus.BLOCKED
     assert "trading is blocked: operator emergency stop" in result.reason
-    assert broker.health_calls >= 1
-    assert broker.instrument_calls >= 1
     assert broker.submit_calls == 0
     assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
     decision = unit_of_work.idempotency.check(
@@ -2014,12 +2053,16 @@ def test_live_block_before_submit_admission_denies_without_submit() -> None:
     assert decision.reservation_pending
     assert decision.existing_receipt_id is None
 
-    retry_while_blocked = orchestrator.execute(request, broker=broker)
-    assert retry_while_blocked.status is ExecutionDispatchStatus.BLOCKED
+    # The denied admission left the reservation PENDING. A direct transaction
+    # retry therefore reports UNKNOWN before it can reach the gate admission;
+    # the safety property is that the pending reservation is never resubmitted.
+    retry_while_blocked = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
+    assert retry_while_blocked.status is ExecutionDispatchStatus.UNKNOWN
+    assert "submission outcome is unknown" in retry_while_blocked.reason
     assert broker.submit_calls == 0
 
     gate.enable()
-    retry_after_enable = orchestrator.execute(request, broker=broker)
+    retry_after_enable = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert retry_after_enable.status is ExecutionDispatchStatus.UNKNOWN
     assert broker.submit_calls == 0
 
@@ -2067,7 +2110,9 @@ def test_live_block_during_inflight_submit_neither_cancels_nor_waits() -> None:
 
     def run_execute() -> None:
         try:
-            outcome["result"] = orchestrator.execute(request, broker=broker)
+            outcome["result"] = _execute_admitted_transaction(
+                orchestrator, request, broker, unit_of_work
+            )
         except BaseException as exc:
             outcome["error"] = exc
 
@@ -2234,7 +2279,7 @@ def test_sqlite_receipt_save_failure_is_unknown_with_quarantined_evidence(
             raise RuntimeError("receipt storage unavailable")
 
         monkeypatch.setattr(unit_of_work.receipts, "save", failing_save)
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert "reconciliation" in result.reason
         decision = unit_of_work.idempotency.check(
@@ -2250,7 +2295,7 @@ def test_sqlite_receipt_save_failure_is_unknown_with_quarantined_evidence(
         assert observation.outcome == "ACCEPTED"
         assert observation.order_status == "ACCEPTED"
         assert observation.observed_at.tzinfo is not None
-        second = orchestrator.execute(request, broker=broker)
+        second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert second.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
     finally:
@@ -2279,7 +2324,7 @@ def test_sqlite_commit_boundary_failure_is_unknown_not_false_success(tmp_path) -
         )
         request = _live_request()
         broker = FakeBroker()
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert "uncertain" in result.reason
         assert "reconciliation" in result.reason
@@ -2292,7 +2337,7 @@ def test_sqlite_commit_boundary_failure_is_unknown_not_false_success(tmp_path) -
         observations = quarantine.list_by_client_order(request.order.client_order_id)
         assert len(observations) == 1
         assert observations[0].kind is QuarantineObservationKind.RECEIPT_PERSISTENCE_UNCERTAIN
-        second = orchestrator.execute(request, broker=broker)
+        second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert second.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
     finally:
@@ -2311,7 +2356,7 @@ def test_sqlite_completion_failure_receipt_durable_across_reopen(tmp_path, monke
             raise RuntimeError("completion unavailable")
 
         monkeypatch.setattr(unit_of_work.idempotency, "complete", boom)
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is not None
         assert "reconciliation" in result.reason
@@ -2335,7 +2380,7 @@ def test_sqlite_completion_failure_receipt_durable_across_reopen(tmp_path, monke
         assert decision.reservation_pending
         assert decision.existing_receipt_id is None
         broker_b = FakeBroker()
-        replay = orchestrator_b.execute(request, broker=broker_b)
+        replay = _execute_admitted_transaction(orchestrator_b, request, broker_b, unit_of_work_b)
         assert replay.status is ExecutionDispatchStatus.UNKNOWN
         assert broker_b.submit_calls == 0
     finally:
@@ -2349,7 +2394,7 @@ def test_sqlite_foreign_receipt_quarantined_and_survives_restart(tmp_path) -> No
     try:
         unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
         broker = _FixedReceiptBroker(_foreign_receipt(request))
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is None
         assert "identity mismatch" in result.reason
@@ -2394,7 +2439,7 @@ def test_sqlite_unknown_receipt_quarantined_and_survives_restart(tmp_path) -> No
     try:
         unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
         broker = _FixedReceiptBroker(_unknown_broker_receipt(request))
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is not None
         assert result.receipt.outcome is ExecutionOutcome.UNKNOWN
@@ -2436,7 +2481,7 @@ def test_sqlite_transport_failure_after_send_is_unknown_with_quarantine(tmp_path
     try:
         request = _live_request()
         broker = FailingBroker()
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is None
         assert broker.submit_calls == 1
@@ -2447,7 +2492,7 @@ def test_sqlite_transport_failure_after_send_is_unknown_with_quarantine(tmp_path
             request.order.client_order_id, request_fingerprint(request)
         )
         assert decision.reservation_pending
-        second = orchestrator.execute(request, broker=broker)
+        second = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert second.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
     finally:
@@ -2473,7 +2518,7 @@ def test_dual_persistence_failure_latches_safety_fault_and_blocks_submission(
 
         monkeypatch.setattr(unit_of_work.receipts, "save", failing_save)
         monkeypatch.setattr(quarantine, "record", failing_record)
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert "submissions are disabled pending reconciliation" in result.reason
         assert gate.allow() is False
@@ -2522,7 +2567,7 @@ def test_quarantine_record_failure_latches_fault_without_permissive_path() -> No
         policy_verifier=policy_verifier(),
     )
 
-    first = orchestrator.execute(request, broker=broker)
+    first = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert first.status is ExecutionDispatchStatus.UNKNOWN
     assert "submission evidence persistence failed" in first.reason
@@ -2567,7 +2612,7 @@ def test_preflight_rejection_is_typed_not_submitted_without_operator_record() ->
     )
     fingerprint = request_fingerprint(request)
 
-    first = orchestrator.execute(request, broker=broker)
+    first = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert first.status is ExecutionDispatchStatus.BLOCKED
     assert "submission was not sent" in first.reason
@@ -2589,7 +2634,7 @@ def test_preflight_rejection_is_typed_not_submitted_without_operator_record() ->
     }
     assert str(request.order.client_order_id) not in pending_ids
 
-    replay = orchestrator.execute(request, broker=broker)
+    replay = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert replay.status is ExecutionDispatchStatus.BLOCKED
     assert "durably closed as not submitted" in replay.reason
@@ -2631,7 +2676,7 @@ def test_preflight_rejection_closure_failure_is_unresolved_without_resubmit(monk
         policy_verifier=policy_verifier(),
     )
 
-    first = orchestrator.execute(request, broker=broker)
+    first = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert first.status is ExecutionDispatchStatus.UNKNOWN
     assert "durable closure of the reservation failed" in first.reason
@@ -2643,7 +2688,7 @@ def test_preflight_rejection_closure_failure_is_unresolved_without_resubmit(monk
     assert decision.not_submitted_resolution is None
     assert decision.operator_resolved is False
 
-    replay = orchestrator.execute(request, broker=broker)
+    replay = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert replay.status is ExecutionDispatchStatus.UNKNOWN
     assert broker.submit_calls == 1
@@ -2674,7 +2719,7 @@ def test_malformed_receipt_shape_after_submit_is_unknown_not_raised(tmp_path) ->
         request = _live_request()
         broker = _ArbitraryResponseBroker(object())
 
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is None
@@ -2696,7 +2741,7 @@ def test_malformed_receipt_shape_after_submit_is_unknown_not_raised(tmp_path) ->
         assert observation.outcome is None
         assert observation.order_status is None
 
-        replay = orchestrator.execute(request, broker=broker)
+        replay = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert replay.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
@@ -2734,7 +2779,7 @@ def test_malformed_receipt_runtime_enum_is_unknown_and_sanitized(tmp_path) -> No
         )
         broker = _ArbitraryResponseBroker(malformed)
 
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is None
@@ -2757,7 +2802,7 @@ def test_malformed_receipt_runtime_enum_is_unknown_and_sanitized(tmp_path) -> No
         # Evidence was retained, so the fail-closed admission fault is not latched.
         assert gate.allow() is True
 
-        replay = orchestrator.execute(request, broker=broker)
+        replay = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert replay.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
@@ -2797,7 +2842,7 @@ def test_receipt_serialization_failure_after_submit_is_unknown_with_quarantine(
         )
         broker = _ArbitraryResponseBroker(unserializable)
 
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert "post-submit persistence failed" in result.reason
@@ -2813,7 +2858,7 @@ def test_receipt_serialization_failure_after_submit_is_unknown_with_quarantine(
         assert observations[0].broker_order_id == "BR-UNSERIALIZABLE-1"
         assert gate.allow() is True
 
-        replay = orchestrator.execute(request, broker=broker)
+        replay = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert replay.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
@@ -2851,7 +2896,7 @@ def test_hostile_receipt_attribute_access_cannot_escape_or_latch_fault(tmp_path)
         object.__setattr__(hostile, "broker_order_id", "BR-HOSTILE-1")
         broker = _ArbitraryResponseBroker(hostile)
 
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is None
@@ -2873,7 +2918,7 @@ def test_hostile_receipt_attribute_access_cannot_escape_or_latch_fault(tmp_path)
         # The observation was recorded, so no spurious admission fault.
         assert gate.allow() is True
 
-        replay = orchestrator.execute(request, broker=broker)
+        replay = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert replay.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
@@ -2914,7 +2959,7 @@ def test_uninitialized_enum_receipt_is_malformed_not_persisted(tmp_path) -> None
         object.__setattr__(receipt, "order_status", str.__new__(OrderStatus, "ACCEPTED"))
         broker = _ArbitraryResponseBroker(receipt)
 
-        result = orchestrator.execute(request, broker=broker)
+        result = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert result.status is ExecutionDispatchStatus.UNKNOWN
         assert result.receipt is None
@@ -2936,7 +2981,7 @@ def test_uninitialized_enum_receipt_is_malformed_not_persisted(tmp_path) -> None
         # The observation was recorded, so no spurious admission fault.
         assert gate.allow() is True
 
-        replay = orchestrator.execute(request, broker=broker)
+        replay = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
         assert replay.status is ExecutionDispatchStatus.UNKNOWN
         assert broker.submit_calls == 1
@@ -2949,15 +2994,19 @@ def test_quarantined_observations_never_become_authoritative(tmp_path) -> None:
     try:
         unit_of_work, quarantine, orchestrator = _quarantine_orchestrator(database)
         foreign_request = _live_request()
-        foreign_result = orchestrator.execute(
-            foreign_request, broker=_FixedReceiptBroker(_foreign_receipt(foreign_request))
+        foreign_broker = _FixedReceiptBroker(_foreign_receipt(foreign_request))
+        foreign_result = _execute_admitted_transaction(
+            orchestrator, foreign_request, foreign_broker, unit_of_work
         )
         assert foreign_result.status is ExecutionDispatchStatus.UNKNOWN
+        assert foreign_broker.submit_calls == 1
         unknown_request = _live_request()
-        unknown_result = orchestrator.execute(
-            unknown_request, broker=_FixedReceiptBroker(_unknown_broker_receipt(unknown_request))
+        unknown_broker = _FixedReceiptBroker(_unknown_broker_receipt(unknown_request))
+        unknown_result = _execute_admitted_transaction(
+            orchestrator, unknown_request, unknown_broker, unit_of_work
         )
         assert unknown_result.status is ExecutionDispatchStatus.UNKNOWN
+        assert unknown_broker.submit_calls == 1
 
         for request in (foreign_request, unknown_request):
             assert unit_of_work.receipts.get_by_client_order(request.order.client_order_id) is None
@@ -3220,13 +3269,21 @@ def test_live_without_risk_evaluator_blocks_before_gate_reservation_and_broker()
         "wrong-reason-type",
     ],
 )
-def test_live_risk_evaluator_malformed_result_blocks_before_submit(evaluator) -> None:
-    orchestrator, gate, store, broker, unit_of_work = _live_risk_orchestrator(evaluator)
+def test_untrusted_live_risk_callback_is_rejected_before_invocation(evaluator) -> None:
+    called = False
+
+    def untrusted(request):
+        nonlocal called
+        called = True
+        return evaluator(request)
+
+    orchestrator, gate, store, broker, unit_of_work = _live_risk_orchestrator(untrusted)
 
     result = orchestrator.execute(_live_request(), broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == "live pre-trade risk evaluation returned an invalid result"
+    assert "application-owned risk evaluator" in result.reason
+    assert called is False
     assert gate.permit_calls == 0
     assert gate.admit_calls == 0
     assert store.check_calls == 0
@@ -3310,34 +3367,36 @@ def test_live_trading_gate_malformed_allow_blocks_before_reservation() -> None:
     assert unit_of_work.committed is False
 
 
-def test_live_trading_gate_malformed_permit_blocks_before_reservation() -> None:
+def test_transactional_live_gate_malformed_permit_blocks_before_reservation() -> None:
     gate = _ScriptedGate(permit_result="true")
     orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
         trading_gate=gate,
     )
+    request = _live_request()
 
-    execution = orchestrator.execute(_live_request(), broker=broker)
+    execution = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert execution.status is ExecutionDispatchStatus.BLOCKED
     assert execution.reason == "live trading gate returned an invalid result"
-    assert gate.allow_calls == 1
+    assert gate.allow_calls == 0
     assert gate.permit_calls == 1
     assert gate.admit_calls == 0
     assert store.reserve_calls == 0
     assert broker.submit_calls == 0
 
 
-def test_live_trading_gate_malformed_admission_blocks_before_submit() -> None:
+def test_transactional_live_gate_malformed_admission_blocks_before_submit() -> None:
     gate = _ScriptedGate(admit_result=object())
     orchestrator, gate, store, broker, unit_of_work = _live_callback_orchestrator(
         trading_gate=gate,
     )
+    request = _live_request()
 
-    execution = orchestrator.execute(_live_request(), broker=broker)
+    execution = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
 
     assert execution.status is ExecutionDispatchStatus.BLOCKED
     assert execution.reason == "live trading gate returned an invalid result"
-    assert gate.allow_calls == 1
+    assert gate.allow_calls == 0
     assert gate.permit_calls == 1
     assert gate.admit_calls == 1
     assert store.reserve_calls == 1
@@ -3355,14 +3414,14 @@ def test_live_valid_session_guard_and_gate_proceed() -> None:
 
     execution = orchestrator.execute(_live_request(), broker=broker)
 
-    assert execution.status is ExecutionDispatchStatus.EXECUTED
-    assert execution.receipt is not None
+    assert execution.status is ExecutionDispatchStatus.BLOCKED
+    assert "application-owned risk evaluator" in execution.reason
     assert gate.allow_calls == 1
-    assert gate.permit_calls == 1
-    assert gate.admit_calls == 1
-    assert store.reserve_calls == 1
-    assert broker.submit_calls == 1
-    assert unit_of_work.committed is True
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert store.reserve_calls == 0
+    assert broker.submit_calls == 0
+    assert unit_of_work.committed is False
 
 
 def test_live_risk_rejection_blocks_without_broker_submit() -> None:
@@ -3387,7 +3446,7 @@ def test_live_risk_rejection_blocks_without_broker_submit() -> None:
     ).execute(_live_request(), broker=broker)
 
     assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert "live pre-trade risk rejected the request: test risk rejected" in result.reason
+    assert "application-owned risk evaluator" in result.reason
     assert store.reserve_calls == 0
     assert broker.submit_calls == 0
 
@@ -3408,9 +3467,9 @@ def test_live_with_approving_risk_evaluator_proceeds() -> None:
         policy_verifier=policy_verifier(),
     ).execute(_live_request(), broker=broker)
 
-    assert result.status is ExecutionDispatchStatus.EXECUTED
-    assert result.receipt is not None
-    assert broker.submit_calls == 1
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "application-owned risk evaluator" in result.reason
+    assert broker.submit_calls == 0
 
 
 def test_paper_execution_does_not_require_live_risk_evaluator() -> None:
@@ -3574,13 +3633,13 @@ def test_live_exact_true_prerequisites_proceed() -> None:
 
     result = orchestrator.execute(_live_request(), broker=broker)
 
-    assert result.status is ExecutionDispatchStatus.EXECUTED
-    assert result.receipt is not None
-    assert broker.submit_calls == 1
+    assert result.status is ExecutionDispatchStatus.BLOCKED
+    assert "application-owned risk evaluator" in result.reason
+    assert broker.submit_calls == 0
     assert gate.allow_calls == 1
-    assert gate.permit_calls == 1
-    assert gate.admit_calls == 1
-    assert store.reserve_calls == 1
+    assert gate.permit_calls == 0
+    assert gate.admit_calls == 0
+    assert store.reserve_calls == 0
 
 
 # The orchestrator validates the idempotency decision returned by ``check()`` and
@@ -3675,12 +3734,10 @@ def test_check_decision_with_receipt_on_a_pending_reservation_is_blocked() -> No
         )
     )
     orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+    request = _live_request()
 
-    result = orchestrator.execute(_live_request(), broker=broker)
-
-    assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == _LIVE_DECISION_REJECTED_REASON
-    assert result.receipt is None
+    with pytest.raises(IdempotencyDecisionValidationError):
+        _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert store.check_calls == 1
     assert store.reserve_calls == 0
     assert gate.permit_calls == 0
@@ -3697,12 +3754,10 @@ def test_check_decision_with_a_foreign_identity_is_blocked() -> None:
         check_corruption=lambda decision: replace(decision, client_order_id=uuid4())
     )
     orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+    request = _live_request()
 
-    result = orchestrator.execute(_live_request(), broker=broker)
-
-    assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == _LIVE_DECISION_REJECTED_REASON
-    assert result.receipt is None
+    with pytest.raises(IdempotencyDecisionValidationError):
+        _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert store.check_calls == 1
     assert gate.permit_calls == 0
     assert gate.admit_calls == 0
@@ -3723,12 +3778,10 @@ def test_reserve_decision_acquired_without_pending_is_blocked_and_rolled_back() 
         reserve_corruption=lambda decision: replace(decision, reservation_pending=False)
     )
     orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+    request = _live_request()
 
-    result = orchestrator.execute(_live_request(), broker=broker)
-
-    assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == _LIVE_DECISION_REJECTED_REASON
-    assert result.receipt is None
+    with pytest.raises(IdempotencyDecisionValidationError):
+        _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert store.reserve_calls == 1
     assert gate.permit_calls == 1
     assert gate.admit_calls == 0
@@ -3748,12 +3801,10 @@ def test_reserve_decision_with_receipt_on_a_pending_reservation_is_blocked() -> 
         )
     )
     orchestrator, gate, broker, unit_of_work = _live_decision_orchestrator(store)
+    request = _live_request()
 
-    result = orchestrator.execute(_live_request(), broker=broker)
-
-    assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert result.reason == _LIVE_DECISION_REJECTED_REASON
-    assert result.receipt is None
+    with pytest.raises(IdempotencyDecisionValidationError):
+        _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
     assert store.reserve_calls == 1
     assert gate.admit_calls == 0
     assert broker.submit_calls == 0
@@ -3846,11 +3897,8 @@ def test_malformed_reserve_decision_rolls_back_and_leaves_no_pending_row(tmp_pat
         )
         request = _live_request()
 
-        result = orchestrator.execute(request, broker=broker)
-
-        assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert result.reason == _LIVE_DECISION_REJECTED_REASON
-        assert result.receipt is None
+        with pytest.raises(IdempotencyDecisionValidationError):
+            _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
         assert gate.admit_calls == 0
         assert broker.submit_calls == 0
         assert unit_of_work.outcomes == ["commit", "rollback"]

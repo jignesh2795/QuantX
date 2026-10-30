@@ -13,6 +13,357 @@ The active cross-workstream priority order is maintained in the [master work pro
 
 This documentation reconciliation did not run tests or CI, call a broker, run a sandbox, or perform a LIVE operation. Do not attribute validation results to this documentation commit.
 
+## Issue #267 — LIVE authorization boundary and risk-evidence authority (2026-10-28)
+
+The feature branch now moves authorization issuance out of the `ExecutionOrchestrator`
+instance, rejects malformed nonce types before replay/digest processing, validates the
+risk intent/order/execution-context identity, and rejects arbitrary evaluator callbacks.
+The application-owned `LivePreTradeRiskEvaluator` reports authoritative evidence unavailable
+because its provider inputs have no authenticated provenance source. Public LIVE dispatch is
+therefore blocked before reservation and broker submission, even when the trading gate is
+explicitly enabled.
+
+**Issue #267 remains open.** No implemented trusted source currently binds positions,
+balances, P&L, snapshot observation time, account, and connection identity to authenticated
+broker/host evidence. Fresh timestamps and a matching request do not establish provenance.
+Do not remove the fail-closed authority guard until an authoritative adapter/composition and
+its identity, freshness, completeness, unavailable-state, and contradiction tests exist.
+
+**Previous candidate validation record — SHA `8034905f064af7d12537936810e9d23a447b92e9`:**
+the branch author reported 32 focused authorization tests passed, 1,789 affected tests
+passed, 2,959 full-suite tests passed, Ruff/format, strict mypy, `uv lock --check`, and
+`git diff --check` passed. Those results are historical, have not been independently
+reproduced here, and do not validate the follow-up commits.
+
+**Failed follow-up validation — SHA `c3c29e346548a345eb0f93dfebf65620db6f1e5e` (2026-10-29):**
+default configuration: 17 failed, 2,965 passed, 1 skipped; Dhan-enabled configuration:
+17 failed, 2,966 passed. Changed-file Ruff reported 3 errors across 9 files, format check
+reported 4 files requiring formatting, and strict mypy reported `no-any-return` in
+`src/quantx/application/live_risk.py:96`. `uv lock --check` and `git diff --check` passed;
+both release checks failed because the validation overall was FAIL. The failed test set
+included four application execution tests, four India-enforcement tests, five R0-B timeout
+tests, three Dhan adapter tests, and one reference-broker composition test.
+
+**Remediation validation - SHA `500b9e606c84b52a12513780e5033c991810c6b1` (2026-10-29):**
+the remediation commit corrects the public LIVE versus transaction-test boundary assumptions,
+preserves fail-closed public dispatch, keeps the application-owned `LivePreTradeRiskEvaluator`
+blocked because authoritative evidence is unavailable, expands the request/risk identity
+mismatch matrix, adjusts the instrument-resolution type contract, and corrects import
+ordering. The admission-race regression now expects a direct retry of the pending reservation
+to return `UNKNOWN` rather than `BLOCKED`, while still asserting zero broker submissions.
+
+Focused results at that SHA: `tests/unit/application/test_execution.py` 118 passed; the
+India-enforcement, R0-B timeout, Dhan adapter, and reference-broker group 69 passed; the
+live-risk, LIVE submission authorization, receipt-identity, and LIVE execution group
+205 passed.
+
+Default configuration: 2,983 passed, 1 skipped; Dhan-enabled configuration: 2,984 passed.
+Changed-file Ruff check and format check passed across 13 Python files, strict mypy passed
+for 202 source files, `uv lock --check` passed, and `git diff --check` reported no whitespace
+errors. Both release checks passed for that SHA, including evidence HEAD/base binding,
+canonical argv, 13-file changed-Python scope, 15-file branch scope, and clean tracked-tree
+integrity. The documentation commit that records these results changes HEAD and is therefore
+validated separately in both configurations at its own final SHA; the counts above are not
+evidence for that later commit.
+
+**Reconciled candidate validation - SHA `15c9fff039124c13c20ebdc592c0ea0338d0a08f` (2026-10-29):**
+the reconciliation merge commit has parents `10e348ed84035f59661dcce069dbc71996bdd910` and
+`91cca51db45d35afc0eaaac791f557392c627c09`, preserving both the validated remediation and the
+instrument-resolution consistency guard. When `context.instrument_resolution` is present,
+`context.instrument` must equal `context.instrument_resolution.instrument`; divergence is
+rejected as `LIVE_RISK_REQUEST_MISMATCH` before reservation or broker submission. The
+regression is `test_live_pretrade_rejects_instrument_facts_that_diverge_from_resolution`.
+
+Focused results at that SHA: `tests/unit/application/test_execution.py` 118 passed; the
+India-enforcement, R0-B timeout, Dhan adapter, and reference-broker group 69 passed; the
+live-risk, LIVE submission authorization, receipt-identity, and LIVE execution group
+206 passed.
+
+Default configuration: 2,984 passed, 1 skipped; Dhan-enabled configuration: 2,985 passed.
+Changed-file Ruff check and format check passed across 13 Python files, strict mypy passed
+for 202 source files, `uv lock --check` passed, `git diff --check` reported no whitespace
+errors, and the tracked worktree was clean. Both release checks passed with exact HEAD/base
+binding, canonical full-suite argv, 13-file changed-Python scope, and 15-file branch scope.
+Evidence and reports under `%LOCALAPPDATA%\Temp\quantx-validation\`:
+`issue267-reconcile-15c9fff-default.json`, `issue267-reconcile-15c9fff-dhan.json`,
+`release-15c9fff-default.json`, and `release-15c9fff-dhan.json`.
+
+The reconciliation candidate's evidence does not validate the earlier `10e348e` commit or
+any later documentation commit; the documentation commit is validated separately at its own
+final SHA.
+
+Non-claims: the evidence is local, unauthenticated JSON produced without GitHub Actions or
+paid CI; no broker I/O, LIVE order, production credential, or real-broker end-to-end run was
+performed. PASS does not establish production or broker correctness, LIVE readiness, or
+authenticated risk-evidence provenance. Issue #267 remains open, and public LIVE dispatch
+remains blocked before reservation and submission until an authoritative provenance source
+and its identity, freshness, completeness, unavailable-state, and contradiction tests exist.
+No counts from SHA `c3c29e346548a345eb0f93dfebf65620db6f1e5e` validate a later revision.
+
+No GitHub Actions or paid CI was used; no broker I/O, LIVE order, or production-broker
+end-to-end run was performed.
+
+## Issue #267 — LIVE risk-evidence source-trust remediation (2026-10-29)
+
+Branch `fix/issue267-trusted-source-registration-v1`, created from the published
+candidate `9977cb05ab5fa6c9ab2d61c3523eef2b0d7a6e46` over the frozen remediation
+base `17cd4c8de01e283b2e3101c2d06cee7397a70b24`.
+
+**Root cause.** `LiveExecutionConfig` accepted any object satisfying the
+runtime-checkable `LiveRiskEvidenceSource` protocol. Availability was decided
+from that source's own `supported_fields` claim, identity was checked against
+account/connection/client/transport values supplied by the same caller, and
+completeness compared observations against the `RiskContext`/`RiskSnapshot` the
+source itself produced. The authority HMAC sealed only its own wrapping, so an
+internally consistent fabricated source reached the risk engine and the broker.
+
+**Trust model.** Trust follows the registered execution path. The evidence
+construction path is the bound method of the adapter behind the account /
+connection this process registered; there is no separate declaration to supply:
+
+```text
+AccountConnectionRegistry
+        |  registered connection -> adapter
+        v
+DhanBrokerAdapter.build_live_risk_evidence_binding   (plugin construction path)
+        |  derived by the application, never supplied by the caller
+        v
+LiveRiskEvidenceSourceCatalog   (application-minted; not constructible outside)
+        |  grant(): build over the exact registered connection
+        v
+LiveRiskEvidenceSourceGrant     (sealed construction proof)
+        v
+LiveRiskEvidenceAuthority       (re-verifies the grant and its registry entry)
+```
+
+`LiveExecutionConfig` has no source field and no catalog field. Authority mode
+takes the registered account and broker connection; the factory resolves
+`ProductionRuntime.registry`, derives the catalog from that connection's own
+adapter, and fails closed with a fixed composition error for an unregistered or
+disabled connection, a wrong account, a connection whose adapter exposes no
+construction path, or a construction path that does not describe the
+registration. The authority
+derives the expected account, connection, broker client and transport from the
+grant's binding instead of from caller arguments, then re-verifies the grant
+seal and the registry entry. Existing controls are unchanged: evidence
+identity, request binding, contradictions, completeness, freshness,
+future-dated rejection, trusted capture instant, and the per-instance HMAC
+authorization. The neutral evidence contracts moved to
+`quantx/application/live_risk_evidence.py` and are re-exported from
+`quantx/application/live_risk.py`.
+
+The Dhan plugin implements the construction path on its own adapter
+(`DhanBrokerAdapter.build_live_risk_evidence_binding`), so the application layer
+names no vendor and no plugin-only builder record exists. Dhan remains
+non-authoritative: it still reports daily P&L, equity and high-water mark
+unavailable, so sanctioned LIVE admission stays blocked before reservation and
+broker submission.
+
+**Regressions.** `tests/unit/application/test_live_risk_source_trust.py` pins
+the bypass: a custom source claiming every field with internally consistent
+fabricated values cannot be admitted because no API accepts a source instance;
+a caller-supplied catalog cannot even be constructed, and the configuration
+surface has no field for one; a hand-forged or source-swapped grant fails the
+seal even when account, connection, client id and transport all match; an
+unregistered connection, an adapter without a construction path, or a
+construction path describing a foreign identity is rejected at composition with
+zero durable gate state, zero evidence collection, zero reservation, zero broker
+submit and no quarantine row; a registered adapter path still exercises the
+sanctioned stack end to end.
+
+**Validation at SHA `478e66d83ad8c911ae0c9f10e4c3ad09980e9354` (base
+`17cd4c8de01e283b2e3101c2d06cee7397a70b24`):** default configuration
+3,211 passed, 2 skipped; Dhan-enabled configuration 3,213 passed. Focused LIVE
+authority/composition suites 259 passed; focused Dhan risk-evidence and
+transport suites 127 passed, 2 skipped (129 passed with the Dhan extra).
+Changed-file Ruff check and format passed for 16 Python files; strict mypy
+passed for 205 source files; `uv lock --check` and `git diff --check` passed;
+the tracked worktree was clean. Both release checks passed with exact HEAD/base
+binding, canonical full-suite argv, 16-file changed-Python scope and 18-file
+branch scope. Evidence and reports under
+`%LOCALAPPDATA%\Temp\quantx-validation\`:
+`issue267-trust-478e66d-default.json`, `issue267-trust-478e66d-dhan.json`,
+`release-478e66d-default.json`, and `release-478e66d-dhan.json`.
+
+Non-claims: the evidence is local, unauthenticated JSON produced without GitHub
+Actions or paid CI; no real broker I/O, authenticated Dhan session, production
+credential, or LIVE order was used. Source trust is composition configuration,
+not an in-process security boundary: Python cannot distinguish the deployment
+wiring a connection from other code in the same process wiring one, so this
+design does not claim to sandbox arbitrary in-process code. What it does
+guarantee is that no separate evidence declaration exists to inject —
+substituting the evidence path means substituting the registered broker
+connection itself, which is also the object the process uses for health,
+capability routing and recovery observations. Issue #267 remains open, this
+slice does not establish LIVE readiness, and sanctioned LIVE dispatch remains
+blocked because no registered source supplies every required field. The
+documentation commit that records these results changes HEAD and is validated
+separately at its own final SHA; the counts above are not evidence for that
+later commit.
+
+### Provenance follow-up — caller-supplied catalogs removed (2026-10-29)
+
+Branch `fix/issue267-catalog-provenance-v1`, created from the reviewed candidate
+`0b066366789350ff917365c8b555cd07e7004a0e`. An independent adversarial review
+demonstrated that the allowlist above was still caller-controlled:
+`LiveExecutionConfig.risk_evidence_catalog` accepted a catalog the caller
+constructed, a builder labelled `dhan` was granted over a genuine registered
+connection, `authoritative_evidence_available` became true, and fabricated but
+internally consistent evidence reached the broker (one submit).
+
+**Correction.** The catalog leaves the composition surface entirely. Authority
+mode is selected by the registered account/connection alone; the factory derives
+the catalog from that connection's adapter through
+`live_risk_evidence_catalog_for`, and `LiveRiskEvidenceSourceCatalog` can only be
+constructed with a module-private token, so no caller can declare a construction
+path anywhere in the process. `LiveRiskEvidenceSourceBuilder` is no longer
+public, and the Dhan plugin's `build_dhan_risk_evidence_builder` /
+`build_dhan_risk_evidence_catalog` helpers were removed in favour of the
+adapter's own method. `DhanHostConfig` gained an optional `broker_client_id` so a
+host over a custom transport can declare the client identity the adapter binds
+evidence to; without it the adapter exposes no usable construction path and
+composition fails closed.
+
+**Regressions.** `test_the_published_catalog_bypass_cannot_be_reconstructed`
+replays the reported exploit shape and proves each step is refused: the catalog
+cannot be built, the config has no field for it, and the sanctioned root raises a
+fixed composition error with zero gate state, zero evidence collection, zero
+reservation and zero broker submit.
+`test_a_catalog_cannot_be_constructed_outside_the_application`,
+`test_a_plain_registration_exposes_no_construction_path`,
+`test_a_provider_result_that_is_not_the_registered_construction_is_not_granted`,
+`test_a_raising_provider_is_not_granted` and the Dhan adapter/host tests cover
+the remaining edges.
+
+**Validation at SHA `acea2894b12f0884834786858dd0446a7f2d0f99` (base
+`17cd4c8de01e283b2e3101c2d06cee7397a70b24`):** default configuration 3,217
+passed, 2 skipped; Dhan-enabled configuration 3,219 passed. Focused LIVE
+trust/authority/composition and Dhan suites 236 passed, 2 skipped in the default
+configuration and 282 passed with the Dhan extra (that run also includes the
+Dhan transport suite). Changed-file Ruff check and format passed for 17 Python
+files; strict mypy passed for 205 source files; `uv lock --check` and
+`git diff --check` passed; the tracked worktree was clean. Both release checks
+passed with exact HEAD/base binding, canonical full-suite argv, 17-file
+changed-Python scope and 19-file branch scope. An executed probe at this SHA
+replayed the original exploit attempt and recorded: catalog construction
+refused, no config field, composition error before any durable write, zero
+submits, zero evidence collections. Dhan remains non-authoritative
+(`authoritative_evidence_available` false,
+`LIVE_RISK_EVIDENCE_SOURCE_UNAVAILABLE`, zero profile reads, zero submits).
+Evidence and reports under `%LOCALAPPDATA%\Temp\quantx-validation\`:
+`provenance-acea289-default.json`, `provenance-acea289-dhan.json`,
+`provenance-acea289-default-release.json`,
+`provenance-acea289-dhan-release.json`, and `provenance-acea289-probe.txt`.
+
+Non-claims: local, unauthenticated JSON evidence produced without GitHub Actions
+or paid CI; no real broker I/O, authenticated Dhan session, production
+credential or LIVE order. This boundary is application composition, not an
+in-process sandbox, and it does not establish independent corroboration of
+broker-reported financial values. Issue #267 remains open and the sanctioned
+LIVE path remains blocked.
+
+### Dispatch-adapter binding follow-up (2026-10-29)
+
+Branch `fix/issue267-dispatch-adapter-binding-v1`, created from the published
+candidate `f2b464fb153a2a9cdbc44c208843ab9b52cb2e61`.
+
+**Confirmed gap.** The sanctioned factory bound risk evidence to the registered
+connection's adapter, but `ExecutionOrchestrator.execute` accepted any
+`BrokerPort` whose `account_id` and `connection_id` matched the request. A
+deterministic probe registered adapter A as the evidence path and passed a
+distinct broker B reporting the same identifiers:
+
+```text
+before: A is B: False | refs equal: True | dispatch: EXECUTED | evidence from A: 1 | B submits: 1
+after:  A is B: False | refs equal: True | dispatch: BLOCKED  | evidence from A: 0 | B submits: 0
+```
+
+Evidence collected from one connection could therefore authorize an order sent
+to another that merely echoed the same ids.
+
+**Correction.** `build_live_execution` passes the registered adapter to the
+orchestrator, and LIVE dispatch requires identity with that object before
+evidence collection, reservation, gate admission or submission. Matching
+identifiers remain necessary but are no longer sufficient; the relationship is
+the proof. Callback mode has no registered adapter, is unchanged, and remains
+non-authoritative and blocked before evaluation.
+
+**Regressions.** `test_a_distinct_broker_with_matching_identifiers_is_rejected`
+asserts the block reason, no receipt, zero submits, zero evidence collections,
+an unchanged enabled gate and zero reservation/quarantine rows. The sanctioned
+path now executes through the registered adapter itself, and the caller-catalog,
+unconstructible-catalog, callback, freshness, contradiction, trusted-clock,
+recovery, idempotency, UNKNOWN/quarantine, reconciliation and no-auto-retry
+invariants are unchanged.
+
+**Validation at SHA `14c264843deda3ce43a98407ab76bb8872fca918` (base
+`f2b464fb153a2a9cdbc44c208843ab9b52cb2e61`):** default configuration 3,218
+passed, 2 skipped; Dhan-enabled configuration 3,220 passed. Focused LIVE and
+Dhan suites 237 passed, 2 skipped (283 passed with the Dhan extra). Changed-file
+Ruff check/format passed for 5 Python files; strict mypy passed for 205 source
+files; `uv lock --check` and `git diff --check` passed; both release checks
+passed with exact HEAD/base binding and 5-file scope. Evidence under
+`%LOCALAPPDATA%\Temp\quantx-validation\`:
+`dispatch-14c2648-default.json`, `dispatch-14c2648-dhan.json`,
+`dispatch-14c2648-default-release.json`,
+`dispatch-14c2648-dhan-release.json`, and
+`issue267-dispatch-probe-after.txt`.
+
+Non-claims: local, unauthenticated JSON evidence produced without CI; no real
+broker I/O, authenticated session, production credential or LIVE order. This
+binding constrains dispatch within one composed process; it is not an in-process
+sandbox. Dhan remains non-authoritative while daily P&L, equity and high-water
+mark are unavailable, and the sanctioned LIVE path remains blocked. The
+documentation commit that records these results changes HEAD and is validated at
+its own final SHA; the counts above are not evidence for that later commit.
+
+## Issue #267 — Dhan risk-evidence authority slice (2026-10-29)
+
+Branch `feat/issue267-dhan-risk-evidence-authority-v1`, based on the frozen
+remediation SHA `17cd4c8de01e283b2e3101c2d06cee7397a70b24`. The application layer
+now owns a `LiveRiskEvidenceAuthority` over a neutral `LiveRiskEvidenceSource`
+port. The authority binds each evidence candidate to the configured account,
+broker connection, expected broker client id, exact transport, approved
+request, and a trusted capture instant. It rejects identity, request,
+completeness, contradiction, stale, future-dated, and missing-observation paths
+with fixed sanitized reasons, then mints a per-instance HMAC authorization that
+the evaluator verifies before the existing `PreTradeRiskEngine` runs. Callback
+mode remains explicitly non-authoritative.
+
+The Dhan plugin adds normalized profile, funds, positions, and holdings
+observations to the canonical transport and a `DhanRiskEvidenceSource`.
+Collection is profile-first and requires the authenticated client id to match.
+Funds map to the six financial evidence fields; positions and holdings are both
+required for exposure; an unavailable book never becomes an empty book; missing
+or contradictory values stay unavailable. Dhan does not expose daily P&L,
+complete equity, a reliable high-water mark, or mark-to-market portfolio
+valuation, so the source declares those fields unsupported. The sanctioned LIVE
+limits always require daily P&L, so the Dhan path remains blocked before
+reservation and broker submission; `authoritative_evidence_available` stays
+false for this source and public LIVE dispatch is not unblocked.
+
+**Validation at SHA `194036627a69d22254804cc07a0c39a65cf6b6fd` (base
+`17cd4c8de01e283b2e3101c2d06cee7397a70b24`):** default configuration
+3,191 passed, 2 skipped; Dhan-enabled configuration 3,193 passed. Changed-file
+Ruff check and format passed for 12 Python files; strict mypy passed for 203
+source files; `uv lock --check` and `git diff --check` passed; the tracked
+worktree was clean. Both release checks passed with exact HEAD/base binding,
+canonical full-suite argv, 12-file changed-Python scope, and 13-file branch
+scope. Evidence and reports under `%LOCALAPPDATA%\Temp\quantx-validation\`:
+`issue267-dhan-authority-1940366-default.json`,
+`issue267-dhan-authority-1940366-dhan.json`,
+`release-1940366-default.json`, and `release-1940366-dhan.json`.
+
+Non-claims: the evidence is local, unauthenticated JSON produced without GitHub
+Actions or paid CI; no real broker I/O, authenticated Dhan session, production
+credential, or LIVE order was used. Dhan endpoint behavior is implemented
+against documented fields and exercised only through the in-memory transport;
+no Dhan response fidelity or production correctness is claimed. Issue #267
+remains open, and this slice does not establish LIVE readiness or authoritative
+Dhan risk evidence. The documentation commit that records these results changes
+HEAD and is validated separately at its own final SHA; the counts above are not
+evidence for that later commit.
+
 ## LIVE trusted clock for risk freshness — slice B (2026-10-24)
 
 `LiveExecutionConfig` requires an injected `Clock`; the factory rejects any non-`Clock` before writing durable state. `LivePreTradeRiskEvaluator` reads it once per evaluation and passes only that reading to the clock-free engine as `evaluated_at`, so the engine computes snapshot age from trusted time against the provider-supplied `snapshot.observed_at`.

@@ -11,18 +11,30 @@ from quantx.plugins import (
 
 from .adapter import DhanBrokerAdapter
 from .capabilities import DHAN_CAPABILITIES
-from .host import DhanHostConfig, DhanHostRuntime, build_dhan_host_runtime
+from .host import (
+    DhanHostConfig,
+    DhanHostRuntime,
+    build_dhan_host_runtime,
+    build_dhan_risk_evidence_source,
+)
 from .market_data import DhanMarketDataAdapter
 from .models import (
     DhanCredentials,
     DhanFundsSnapshot,
+    DhanHoldingSnapshot,
+    DhanHoldingsSnapshot,
     DhanInstrumentRef,
     DhanOrderRequest,
     DhanOrderResponse,
     DhanPositionSnapshot,
     DhanPositionsSnapshot,
+    DhanProfileSnapshot,
 )
 from .recovery import DhanRecoveryEvidenceProvider, build_dhan_recovery_provider
+from .risk_evidence import (
+    DHAN_BROKER_ID,
+    DhanRiskEvidenceSource,
+)
 from .transport import DhanSDKTransport, DhanTransport, InMemoryDhanTransport
 
 DHAN_PLUGIN_DESCRIPTOR = PluginDescriptor(
@@ -46,6 +58,8 @@ __all__ = [
     "DhanBrokerAdapter",
     "DhanCredentials",
     "DhanFundsSnapshot",
+    "DhanHoldingSnapshot",
+    "DhanHoldingsSnapshot",
     "DhanHostConfig",
     "DhanHostRuntime",
     "DhanInstrumentRef",
@@ -54,13 +68,17 @@ __all__ = [
     "DhanOrderResponse",
     "DhanPositionSnapshot",
     "DhanPositionsSnapshot",
+    "DhanProfileSnapshot",
     "DhanRecoveryEvidenceProvider",
+    "DhanRiskEvidenceSource",
     "DhanSDKTransport",
     "DhanTransport",
     "DHAN_CAPABILITIES",
+    "DHAN_BROKER_ID",
     "DHAN_PLUGIN_DESCRIPTOR",
     "InMemoryDhanTransport",
     "build_dhan_host_runtime",
     "build_dhan_recovery_provider",
+    "build_dhan_risk_evidence_source",
     "register_dhan_broker",
 ]

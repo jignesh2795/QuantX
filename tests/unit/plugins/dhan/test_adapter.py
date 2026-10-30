@@ -73,6 +73,7 @@ from quantx.plugins.dhan.models import (
     DhanPositionsSnapshot,
 )
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
+from tests.unit.application.test_execution import _execute_admitted_transaction
 
 _DEFAULT_PRODUCT = ProductCode("CNC")
 
@@ -571,8 +572,9 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
     adapter = _adapter(InMemoryDhanTransport(response_status="PENDING"))
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        result = ExecutionOrchestrator(
-            unit_of_work=SqliteUnitOfWork(database),
+        unit_of_work = SqliteUnitOfWork(database)
+        orchestrator = ExecutionOrchestrator(
+            unit_of_work=unit_of_work,
             trading_gate=DurableTradingGate(
                 SqliteTradingGateStateStore(database), default_enabled=True
             ),
@@ -584,7 +586,9 @@ def test_dhan_adapter_composes_with_live_execution_orchestrator(tmp_path) -> Non
                 rule_evaluator=_approving_india_evaluator(),
             ),
             policy_verifier=policy_verifier(),
-        ).execute(_request(), broker=adapter)
+        )
+        request = _request()
+        result = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
     finally:
         database.close()
 
@@ -711,9 +715,11 @@ def test_adapter_rejects_non_positive_read_timeout() -> None:
             replace(_adapter(), _read_timeout=bad)
 
 
-def _quarantine_orchestrator(database) -> ExecutionOrchestrator:
+def _quarantine_orchestrator(
+    database, *, unit_of_work: SqliteUnitOfWork | None = None
+) -> ExecutionOrchestrator:
     return ExecutionOrchestrator(
-        unit_of_work=SqliteUnitOfWork(database),
+        unit_of_work=unit_of_work or SqliteUnitOfWork(database),
         trading_gate=DurableTradingGate(
             SqliteTradingGateStateStore(database), default_enabled=True
         ),
@@ -742,10 +748,10 @@ def test_dhan_preflight_failure_is_known_not_submitted_with_durable_closure(tmp_
     database = SqliteDatabase(path)
     try:
         unit_of_work = SqliteUnitOfWork(database)
-        orchestrator = _quarantine_orchestrator(database)
+        orchestrator = _quarantine_orchestrator(database, unit_of_work=unit_of_work)
         request = _request(time_in_force=TimeInForce.GTC)
         fingerprint = request_fingerprint(request)
-        result = orchestrator.execute(request, broker=adapter)
+        result = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
         assert "submission was not sent" in result.reason
@@ -777,8 +783,10 @@ def test_dhan_preflight_failure_is_known_not_submitted_with_durable_closure(tmp_
     try:
         unit_of_work_b = SqliteUnitOfWork(database_b)
         transport_b = InMemoryDhanTransport()
-        orchestrator_b = _quarantine_orchestrator(database_b)
-        replay = orchestrator_b.execute(request, broker=_adapter(transport_b))
+        orchestrator_b = _quarantine_orchestrator(database_b, unit_of_work=unit_of_work_b)
+        replay = _execute_admitted_transaction(
+            orchestrator_b, request, _adapter(transport_b), unit_of_work_b
+        )
         assert replay.status is ExecutionDispatchStatus.BLOCKED
         assert "durably closed as not submitted" in replay.reason
         assert transport_b.submitted == ()
@@ -813,10 +821,10 @@ def test_dhan_transport_failure_after_send_is_unknown_quarantined_and_not_retrie
     try:
         unit_of_work = SqliteUnitOfWork(database)
         quarantine = SqliteSubmissionQuarantineRepository(database)
-        orchestrator = _quarantine_orchestrator(database)
+        orchestrator = _quarantine_orchestrator(database, unit_of_work=unit_of_work)
         adapter = _adapter(transport)
         request = _request()
-        result = orchestrator.execute(request, broker=adapter)
+        result = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
 
         # The Dhan adapter normalizes a mid-flight transport failure into an
         # UNKNOWN receipt; the orchestrator reports uncertainty and keeps
@@ -835,7 +843,7 @@ def test_dhan_transport_failure_after_send_is_unknown_quarantined_and_not_retrie
         )
         assert decision.reservation_pending
 
-        replay = orchestrator.execute(request, broker=adapter)
+        replay = _execute_admitted_transaction(orchestrator, request, adapter, unit_of_work)
         assert replay.status is ExecutionDispatchStatus.UNKNOWN
         assert transport.submit_attempts == 1
     finally:

@@ -90,6 +90,27 @@ class DhanOrderDetail:
 
 
 @dataclass(frozen=True, slots=True)
+class DhanProfileSnapshot:
+    """Normalized authenticated profile observation; identity anchor for evidence.
+
+    The profile endpoint is the only Dhan read that independently proves which
+    client the authenticated transport belongs to. A missing client id is an
+    unavailable observation, never an empty string or a guessed identity.
+    """
+
+    observed_at: datetime
+    client_id: str | None = None
+    available: bool = True
+    message: str = ""
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
+        if self.client_id is not None and not self.client_id.strip():
+            raise ValueError("client_id must be non-empty when present")
+
+
+@dataclass(frozen=True, slots=True)
 class DhanFundsSnapshot:
     """Normalized broker fund observation; no domain or vendor types."""
 
@@ -98,10 +119,18 @@ class DhanFundsSnapshot:
     utilized_amount: Decimal | None = None
     available: bool = True
     message: str = ""
+    client_id: str | None = None
+    sod_limit: Decimal | None = None
+    collateral_amount: Decimal | None = None
+    receivable_amount: Decimal | None = None
+    blocked_payout_amount: Decimal | None = None
+    withdrawable_balance: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
+        if self.client_id is not None and not self.client_id.strip():
+            raise ValueError("client_id must be non-empty when present")
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,12 +141,85 @@ class DhanPositionSnapshot:
     exchange_segment: str
     net_quantity: Decimal
     average_price: Decimal | None = None
+    client_id: str | None = None
+    product_type: str | None = None
+    position_type: str | None = None
+    buy_quantity: Decimal | None = None
+    sell_quantity: Decimal | None = None
+    realized_profit: Decimal | None = None
+    unrealized_profit: Decimal | None = None
+    multiplier: Decimal | None = None
 
     def __post_init__(self) -> None:
         if not self.security_id.strip():
             raise ValueError("security_id must not be empty")
         if not self.exchange_segment.strip():
             raise ValueError("exchange_segment must not be empty")
+        if self.client_id is not None and not self.client_id.strip():
+            raise ValueError("client_id must be non-empty when present")
+        if (
+            self.buy_quantity is not None
+            and self.sell_quantity is not None
+            and self.net_quantity != self.buy_quantity - self.sell_quantity
+        ):
+            raise ValueError("net quantity must equal buy quantity minus sell quantity")
+        if self.multiplier is not None and self.multiplier <= 0:
+            raise ValueError("multiplier must be positive when present")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanHoldingSnapshot:
+    """Normalized delivery-holding observation; no domain or vendor types.
+
+    Holdings rows do not carry a client id. Their identity is bound to the
+    authenticated transport by the collection flow, not by a row field.
+    """
+
+    security_id: str
+    exchange: str
+    total_quantity: Decimal
+    dp_quantity: Decimal | None = None
+    t1_quantity: Decimal | None = None
+    available_quantity: Decimal | None = None
+    collateral_quantity: Decimal | None = None
+    average_cost_price: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        if not self.security_id.strip():
+            raise ValueError("security_id must not be empty")
+        if not self.exchange.strip():
+            raise ValueError("exchange must not be empty")
+        if (
+            self.dp_quantity is not None
+            and self.t1_quantity is not None
+            and self.total_quantity != self.dp_quantity + self.t1_quantity
+        ):
+            raise ValueError("total quantity must equal dp quantity plus t1 quantity")
+        for name in (
+            "total_quantity",
+            "dp_quantity",
+            "t1_quantity",
+            "available_quantity",
+            "collateral_quantity",
+            "average_cost_price",
+        ):
+            value = getattr(self, name)
+            if value is not None and value < 0:
+                raise ValueError(f"{name} cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanHoldingsSnapshot:
+    """Normalized broker holdings-book observation; no domain or vendor types."""
+
+    observed_at: datetime
+    holdings: tuple[DhanHoldingSnapshot, ...] = ()
+    available: bool = True
+    message: str = ""
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,7 +7,9 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
+from threading import RLock
 from uuid import NAMESPACE_URL, UUID, uuid5
+from weakref import WeakKeyDictionary
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
@@ -71,7 +73,23 @@ from quantx.ports.market_checks import (
     trusted_failure_codes,
 )
 
+from .live_risk import LivePreTradeRiskEvaluator
+from .live_submission_capability import (
+    LiveSubmissionAuthorization,
+    LiveSubmissionAuthorizationError,
+    LiveSubmissionAuthorizer,
+)
 from .runtime import ApplicationRuntime
+
+# The issuer is deliberately not stored on an ExecutionOrchestrator instance.
+# Supported call paths can issue/verify a token only through this module's
+# admission helpers; callers inspecting an orchestrator do not receive its
+# secret key or issuer object. This is not process isolation against arbitrary
+# code executing in the same interpreter.
+_LIVE_SUBMISSION_AUTHORITIES: WeakKeyDictionary[object, LiveSubmissionAuthorizer] = (
+    WeakKeyDictionary()
+)
+_LIVE_SUBMISSION_AUTHORITIES_LOCK = RLock()
 
 
 class ExecutionDispatchStatus(StrEnum):
@@ -124,6 +142,9 @@ def _quarantine_reason(kind: QuarantineObservationKind) -> str:
 # reconciliation evidence instead.
 _LIVE_DECISION_REJECTED_REASON = (
     "live idempotency decision failed contract validation; no broker submission was attempted"
+)
+_LIVE_AUTHORIZATION_REJECTED_REASON = (
+    "live submission lacks a valid admission authorization; no broker submission was attempted"
 )
 _CACHED_RECEIPT_IDENTITY_REASON = (
     "cached receipt for a completed reservation does not belong to the approved request; "
@@ -282,6 +303,7 @@ class ExecutionOrchestrator:
         application_runtime: ApplicationRuntime | None = None,
         session_guard: SessionExecutionGuard | None = None,
         live_risk_evaluator: Callable[[ApprovedExecutionRequest], RiskResult] | None = None,
+        live_broker: object | None = None,
         market_policy: MarketPolicyConfig | None = None,
         submission_quarantine: SubmissionQuarantineRepository | None = None,
         policy_verifier: MarketPackPolicyVerifier,
@@ -293,9 +315,17 @@ class ExecutionOrchestrator:
         self._application_runtime = application_runtime
         self._session_guard = session_guard
         self._live_risk_evaluator = live_risk_evaluator
+        # The exact adapter registered for this connection. When the sanctioned
+        # factory sets it, LIVE submission is bound to the same object that owns
+        # the trusted risk-evidence construction path.
+        self._live_broker = live_broker
         self._market_policy = market_policy or default_market_policy()
         self._submission_quarantine = submission_quarantine
         self._policy_verifier = policy_verifier
+        # Keep the issuer in the module-private registry rather than on
+        # the instance, where a caller could obtain a genuine token directly.
+        with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
+            _LIVE_SUBMISSION_AUTHORITIES[self] = LiveSubmissionAuthorizer()
 
     def _verify_request_proofs(self, request: ApprovedExecutionRequest) -> str | None:
         """Return a blocking reason when the request's proofs are not authentic.
@@ -790,6 +820,41 @@ class ExecutionOrchestrator:
                 check_entries,
             )
 
+        # A matching account/connection pair is not enough: the object that
+        # receives the order must be the exact registered adapter whose
+        # construction path produces the risk evidence that authorized it.
+        # Otherwise evidence collected from one connection could dispatch an
+        # order to a different one that merely reports the same identifiers.
+        expected_broker = self._live_broker
+        if type(self._live_risk_evaluator) is LivePreTradeRiskEvaluator:
+            evidence_broker = self._live_risk_evaluator.registered_submission_adapter
+            if evidence_broker is not None:
+                # A direct orchestrator constructor or caller-selected broker
+                # must not weaken the adapter bound to the verified authority.
+                # Conflicting composition inputs fail closed.
+                if expected_broker is not None and expected_broker is not evidence_broker:
+                    return self._with_evidence_prefix(
+                        ExecutionResult(
+                            ExecutionDispatchStatus.BLOCKED,
+                            reason=(
+                                "LIVE composition broker differs from the "
+                                "evidence-authority adapter"
+                            ),
+                        ),
+                        check_entries,
+                    )
+                expected_broker = evidence_broker
+        if expected_broker is not None and broker is not expected_broker:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason=(
+                        "LIVE submission requires the registered broker adapter for this connection"
+                    ),
+                ),
+                check_entries,
+            )
+
         connection_id = request.execution_context.broker_connection_id
         if connection_id is None:
             return self._with_evidence_prefix(
@@ -905,6 +970,26 @@ class ExecutionOrchestrator:
                 ),
                 check_entries,
             )
+        # An arbitrary callable returning a RiskResult is not LIVE risk
+        # authority. The only accepted evaluator is the application-owned
+        # evaluator, and it still cannot authorize LIVE until a trusted,
+        # account/connection-bound evidence source is implemented.
+        if type(self._live_risk_evaluator) is not LivePreTradeRiskEvaluator:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE execution requires the application-owned risk evaluator",
+                ),
+                check_entries,
+            )
+        if self._live_risk_evaluator.authoritative_evidence_available is not True:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="authoritative LIVE risk evidence source is unavailable",
+                ),
+                check_entries,
+            )
         if self._live_risk_evaluator is not None:
             try:
                 live_risk = self._live_risk_evaluator(request)
@@ -937,12 +1022,47 @@ class ExecutionOrchestrator:
                     ),
                     check_entries,
                 )
+        # Every LIVE admission check has now succeeded for this exact
+        # request: proofs, product, LIVE prerequisites, trading gate,
+        # market-policy stages, session guard, broker observations, the
+        # durable unit of work, and pre-trade risk. Mint the single-use
+        # submit authorization here, immediately before the transactional
+        # path, so that path can prove admission happened for this request
+        # and this execution context. The capability relays this admission;
+        # it grants no authority of its own.
+        with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
+            authority = _LIVE_SUBMISSION_AUTHORITIES.get(self)
+        if authority is None:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live submission authority is unavailable for this execution",
+                ),
+                check_entries,
+            )
+        authorization = authority.issue(
+            client_order_id=request.order.client_order_id,
+            request_fingerprint=request_fingerprint(request),
+            broker_identity=id(broker),
+            unit_of_work_identity=id(unit_of_work),
+        )
         try:
-            live_result = self._execute_live_transactional(request, broker, unit_of_work)
+            live_result = self._execute_live_transactional(
+                request, broker, unit_of_work, authorization
+            )
         except IdempotencyDecisionValidationError:
             return ExecutionResult(
                 ExecutionDispatchStatus.BLOCKED,
                 reason=_LIVE_DECISION_REJECTED_REASON,
+            )
+        except LiveSubmissionAuthorizationError:
+            # Unreachable through execute(): an authorization minted here
+            # for this request is presented exactly once. Fail closed anyway
+            # so no routing change can turn a credential fault into a
+            # reservation or a broker submission.
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=_LIVE_AUTHORIZATION_REJECTED_REASON,
             )
         if pack_applies:
             return self._with_evidence_prefix(live_result, check_entries)
@@ -1074,6 +1194,7 @@ class ExecutionOrchestrator:
         request: ApprovedExecutionRequest,
         broker: BrokerPort,
         unit_of_work: UnitOfWork,
+        authorization: LiveSubmissionAuthorization,
     ) -> ExecutionResult:
         """Live execution in two scopes so no transaction spans broker submit.
 
@@ -1086,6 +1207,15 @@ class ExecutionOrchestrator:
         connection/health/instrument/capability observations in ``execute``
         may already have run and are not undone by the denial.
 
+        ``authorization`` is the single-use admission credential minted by
+        ``execute`` only after every LIVE admission check succeeded for this
+        exact request. It is verified first, before any durable work: a
+        missing, foreign, tampered, mismatched, or replayed credential
+        raises :class:`LiveSubmissionAuthorizationError` here, so no
+        reservation is created and no broker call is attempted. The
+        credential proves admission already happened; it submits nothing
+        and weakens no downstream check.
+
         R0-B scope: only the safety-critical submit/cancel/reconcile broker
         operations carry bounded timeouts. ``broker.health()`` (checked in
         ``execute`` before this method) never holds the submission permit,
@@ -1093,8 +1223,50 @@ class ExecutionOrchestrator:
         remaining read-only observations (fund limits, positions, quotes,
         candles) are outside the R0-B bounded-call contract.
         """
+        # Recheck the trusted adapter at the transaction boundary itself.
+        # A direct/internal caller must not bypass execute()'s binding by
+        # minting an authorization for a different broker identity.
+        expected_broker = self._live_broker
+        if type(self._live_risk_evaluator) is LivePreTradeRiskEvaluator:
+            evidence_broker = self._live_risk_evaluator.registered_submission_adapter
+            if evidence_broker is not None:
+                if expected_broker is not None and expected_broker is not evidence_broker:
+                    return ExecutionResult(
+                        ExecutionDispatchStatus.BLOCKED,
+                        reason=(
+                            "LIVE composition broker differs from the evidence-authority adapter"
+                        ),
+                    )
+                expected_broker = evidence_broker
+        if expected_broker is not None and broker is not expected_broker:
+            return ExecutionResult(
+                ExecutionDispatchStatus.BLOCKED,
+                reason=(
+                    "LIVE submission requires the registered broker adapter for this connection"
+                ),
+            )
+
         fingerprint = request_fingerprint(request)
         client_order_id = request.order.client_order_id
+
+        # Admission boundary: prove the admission checks in ``execute``
+        # already passed for this exact request before any durable
+        # reservation or broker contact can happen. Both reads below are
+        # pure derivations of the submitted request, so an authorization
+        # mismatch is detected before the first store or broker call.
+        with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
+            authority = _LIVE_SUBMISSION_AUTHORITIES.get(self)
+        if authority is None:
+            raise LiveSubmissionAuthorizationError(
+                "live submission authority is unavailable for this execution"
+            )
+        authority.authorize(
+            authorization,
+            client_order_id=client_order_id,
+            request_fingerprint=fingerprint,
+            broker_identity=id(broker),
+            unit_of_work_identity=id(unit_of_work),
+        )
 
         # Completed duplicates and existing pending reservations never submit.
         with unit_of_work:

@@ -18,12 +18,15 @@ from .models import (
     DhanCandleSnapshot,
     DhanCredentials,
     DhanFundsSnapshot,
+    DhanHoldingSnapshot,
+    DhanHoldingsSnapshot,
     DhanOrderDetail,
     DhanOrderRequest,
     DhanOrderResponse,
     DhanPayload,
     DhanPositionSnapshot,
     DhanPositionsSnapshot,
+    DhanProfileSnapshot,
     DhanQuoteSnapshot,
 )
 
@@ -61,6 +64,8 @@ class DhanTransport(Protocol):
 
     def reconcile(self, correlation_id: str, *, timeout: float) -> DhanOrderDetail: ...
 
+    def profile(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanProfileSnapshot: ...
+
     def fund_limits(
         self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
     ) -> DhanFundsSnapshot: ...
@@ -68,6 +73,10 @@ class DhanTransport(Protocol):
     def positions(
         self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
     ) -> DhanPositionsSnapshot: ...
+
+    def holdings(
+        self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS
+    ) -> DhanHoldingsSnapshot: ...
 
     def quote_snapshot(
         self,
@@ -96,6 +105,8 @@ class _DhanClient(Protocol):
     def get_fund_limits(self) -> object: ...
 
     def get_positions(self) -> object: ...
+
+    def get_holdings(self) -> object: ...
 
     def place_order(self, **kwargs: object) -> object: ...
 
@@ -234,6 +245,33 @@ class DhanSDKTransport:
         )
         return _order_detail(response)
 
+    def profile(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanProfileSnapshot:
+        """Read the authenticated profile through the same SDK context.
+
+        The pinned SDK exposes the profile through ``DhanContext.get_dhan_login``
+        rather than the shared HTTP envelope. Any missing capability, transport
+        failure, or malformed payload is an unavailable observation.
+        """
+        try:
+            login_factory = getattr(self._context, "get_dhan_login", None)
+            if not callable(login_factory):
+                raise RuntimeError("Dhan SDK context does not expose login/profile access")
+            login = login_factory()
+            response = self._call_with_timeout(
+                login.user_profile,
+                self.credentials.access_token,
+                timeout=timeout,
+                operation="profile",
+                executor=self._query_executor,
+            )
+        except Exception as exc:
+            return DhanProfileSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan profile transport failure: {exc}",
+            )
+        return _profile_snapshot(response)
+
     def fund_limits(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanFundsSnapshot:
         try:
             response = self._call_with_timeout(
@@ -265,6 +303,22 @@ class DhanSDKTransport:
                 message=f"Dhan positions transport failure: {exc}",
             )
         return _positions_snapshot(response)
+
+    def holdings(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanHoldingsSnapshot:
+        try:
+            response = self._call_with_timeout(
+                self._client.get_holdings,
+                timeout=timeout,
+                operation="holdings",
+                executor=self._query_executor,
+            )
+        except Exception as exc:
+            return DhanHoldingsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan holdings transport failure: {exc}",
+            )
+        return _holdings_snapshot(response)
 
     def quote_snapshot(
         self,
@@ -377,9 +431,21 @@ class InMemoryDhanTransport:
     funds_available_balance: Decimal | None = Decimal("5000")
     funds_utilized_amount: Decimal | None = Decimal("1200")
     funds_message: str = ""
+    funds_client_id: str | None = None
+    funds_sod_limit: Decimal | None = None
+    funds_collateral_amount: Decimal | None = None
+    funds_receivable_amount: Decimal | None = None
+    funds_blocked_payout_amount: Decimal | None = None
+    funds_withdrawable_balance: Decimal | None = None
+    profile_available: bool = True
+    profile_client_id: str | None = None
+    profile_message: str = ""
     positions_available: bool = True
     position_snapshots: tuple[DhanPositionSnapshot, ...] = ()
     positions_message: str = ""
+    holdings_available: bool = True
+    holding_snapshots: tuple[DhanHoldingSnapshot, ...] = ()
+    holdings_message: str = ""
     quote_snapshots: dict[tuple[str, str], DhanQuoteSnapshot] = field(default_factory=dict)
     candle_snapshots: dict[tuple[str, str], tuple[DhanCandleSnapshot, ...]] = field(
         default_factory=dict
@@ -428,6 +494,14 @@ class InMemoryDhanTransport:
             update_time="2026-01-01 10:00:00",
         )
 
+    def profile(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanProfileSnapshot:
+        return DhanProfileSnapshot(
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            client_id=self.profile_client_id,
+            available=self.profile_available,
+            message=self.profile_message,
+        )
+
     def fund_limits(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanFundsSnapshot:
         return DhanFundsSnapshot(
             observed_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -435,6 +509,12 @@ class InMemoryDhanTransport:
             utilized_amount=self.funds_utilized_amount,
             available=self.funds_available,
             message=self.funds_message,
+            client_id=self.funds_client_id,
+            sod_limit=self.funds_sod_limit,
+            collateral_amount=self.funds_collateral_amount,
+            receivable_amount=self.funds_receivable_amount,
+            blocked_payout_amount=self.funds_blocked_payout_amount,
+            withdrawable_balance=self.funds_withdrawable_balance,
         )
 
     def positions(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanPositionsSnapshot:
@@ -443,6 +523,14 @@ class InMemoryDhanTransport:
             positions=self.position_snapshots,
             available=self.positions_available,
             message=self.positions_message,
+        )
+
+    def holdings(self, *, timeout: float = DEFAULT_READ_TIMEOUT_SECONDS) -> DhanHoldingsSnapshot:
+        return DhanHoldingsSnapshot(
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            holdings=self.holding_snapshots,
+            available=self.holdings_available,
+            message=self.holdings_message,
         )
 
     def quote_snapshot(
@@ -546,6 +634,54 @@ def _money_field(payload: DhanPayload, key: str) -> Decimal | None:
         raise ValueError(f"invalid Dhan decimal field: {key}") from exc
 
 
+def _text_field(payload: DhanPayload, key: str) -> str | None:
+    """Parse an optional text field; blank text stays missing, never a value."""
+    value = payload.get(key)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _profile_snapshot(response: object) -> DhanProfileSnapshot:
+    """Normalize an authenticated profile response; missing identity is unavailable."""
+    if not isinstance(response, dict):
+        return DhanProfileSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan profile response must be a mapping",
+        )
+    payload: object = response
+    if "status" in response:
+        envelope_status = str(response.get("status", "failure"))
+        remarks = str(response.get("remarks", ""))
+        if envelope_status != "success":
+            return DhanProfileSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=remarks or "Dhan profile reported failure",
+            )
+        payload = response.get("data")
+    if not isinstance(payload, dict):
+        return DhanProfileSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan profile payload must be a mapping",
+        )
+    client_id = payload.get("dhanClientId")
+    if client_id is None or not str(client_id).strip():
+        return DhanProfileSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan profile carries no authenticated client id",
+        )
+    return DhanProfileSnapshot(
+        observed_at=datetime.now(UTC),
+        client_id=str(client_id).strip(),
+        available=True,
+    )
+
+
 def _funds_snapshot(response: object) -> DhanFundsSnapshot:
     """Normalize a fund-limits envelope; unusable data stays unavailable."""
     try:
@@ -567,6 +703,12 @@ def _funds_snapshot(response: object) -> DhanFundsSnapshot:
         if available_balance is None:
             available_balance = _money_field(payload, "availableBalance")
         utilized_amount = _money_field(payload, "utilizedAmount")
+        client_id = _text_field(payload, "dhanClientId")
+        sod_limit = _money_field(payload, "sodLimit")
+        collateral_amount = _money_field(payload, "collateralAmount")
+        receivable_amount = _money_field(payload, "receiveableAmount")
+        blocked_payout_amount = _money_field(payload, "blockedPayoutAmount")
+        withdrawable_balance = _money_field(payload, "withdrawableBalance")
     except ValueError as exc:
         return DhanFundsSnapshot(
             observed_at=datetime.now(UTC),
@@ -585,6 +727,12 @@ def _funds_snapshot(response: object) -> DhanFundsSnapshot:
         utilized_amount=utilized_amount,
         available=True,
         message=remarks,
+        client_id=client_id,
+        sod_limit=sod_limit,
+        collateral_amount=collateral_amount,
+        receivable_amount=receivable_amount,
+        blocked_payout_amount=blocked_payout_amount,
+        withdrawable_balance=withdrawable_balance,
     )
 
 
@@ -627,6 +775,82 @@ def _positions_snapshot(response: object) -> DhanPositionsSnapshot:
         available=True,
         message=remarks,
     )
+
+
+def _holdings_snapshot(response: object) -> DhanHoldingsSnapshot:
+    """Normalize a holdings envelope; malformed data stays unavailable."""
+    if not isinstance(response, dict):
+        return DhanHoldingsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan holdings response must be a mapping",
+        )
+    envelope_status = str(response.get("status", "failure"))
+    remarks = str(response.get("remarks", ""))
+    if envelope_status != "success":
+        return DhanHoldingsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=remarks or "Dhan holdings reported failure",
+        )
+    entries = response.get("data")
+    if not isinstance(entries, list):
+        return DhanHoldingsSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan holdings data must be a list",
+        )
+    holdings: list[DhanHoldingSnapshot] = []
+    for entry in entries:
+        holding = _holding_snapshot(entry)
+        if holding is None:
+            return DhanHoldingsSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message="Dhan holding entry is malformed",
+            )
+        holdings.append(holding)
+    return DhanHoldingsSnapshot(
+        observed_at=datetime.now(UTC),
+        holdings=tuple(holdings),
+        available=True,
+        message=remarks,
+    )
+
+
+def _holding_snapshot(entry: object) -> DhanHoldingSnapshot | None:
+    if not isinstance(entry, dict):
+        return None
+    security_id = _text_field(entry, "securityId")
+    exchange = _text_field(entry, "exchange")
+    if security_id is None or exchange is None:
+        return None
+    try:
+        total_quantity = _required_decimal(entry, "totalQty")
+        dp_quantity = _money_field(entry, "dpQty")
+        t1_quantity = _money_field(entry, "t1Qty")
+        available_quantity = _money_field(entry, "availableQty")
+        collateral_quantity = _money_field(entry, "collateralQty")
+        average_cost_price = _money_field(entry, "avgCostPrice")
+        return DhanHoldingSnapshot(
+            security_id=security_id,
+            exchange=exchange,
+            total_quantity=total_quantity,
+            dp_quantity=dp_quantity,
+            t1_quantity=t1_quantity,
+            available_quantity=available_quantity,
+            collateral_quantity=collateral_quantity,
+            average_cost_price=average_cost_price,
+        )
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
+def _required_decimal(payload: DhanPayload, key: str) -> Decimal:
+    value = payload.get(key)
+    if value is None:
+        raise ValueError(f"Dhan field is missing: {key}")
+    return Decimal(str(value))
 
 
 _INTRADAY_INTERVALS = {"1m": 1, "5m": 5, "15m": 15, "25m": 25, "60m": 60}
@@ -761,23 +985,31 @@ def _strict_decimal(value: object, field: str) -> Decimal:
 def _position_snapshot(entry: object) -> DhanPositionSnapshot | None:
     if not isinstance(entry, dict):
         return None
-    security_id = entry.get("securityId")
-    exchange_segment = entry.get("exchangeSegment")
-    if security_id is None or not str(security_id).strip():
-        return None
-    if exchange_segment is None or not str(exchange_segment).strip():
+    security_id = _text_field(entry, "securityId")
+    exchange_segment = _text_field(entry, "exchangeSegment")
+    if security_id is None or exchange_segment is None:
         return None
     try:
-        net_quantity = Decimal(str(entry.get("netQty")))
+        net_quantity = _required_decimal(entry, "netQty")
+        average_price = _money_field(entry, "costPrice")
+        buy_quantity = _money_field(entry, "buyQty")
+        sell_quantity = _money_field(entry, "sellQty")
+        realized_profit = _money_field(entry, "realizedProfit")
+        unrealized_profit = _money_field(entry, "unrealizedProfit")
+        multiplier = _money_field(entry, "multiplier")
+        return DhanPositionSnapshot(
+            security_id=security_id,
+            exchange_segment=exchange_segment,
+            net_quantity=net_quantity,
+            average_price=average_price,
+            client_id=_text_field(entry, "dhanClientId"),
+            product_type=_text_field(entry, "productType"),
+            position_type=_text_field(entry, "positionType"),
+            buy_quantity=buy_quantity,
+            sell_quantity=sell_quantity,
+            realized_profit=realized_profit,
+            unrealized_profit=unrealized_profit,
+            multiplier=multiplier,
+        )
     except (InvalidOperation, ValueError, TypeError):
         return None
-    try:
-        average_price = _money_field(entry, "costPrice")
-    except ValueError:
-        return None
-    return DhanPositionSnapshot(
-        security_id=str(security_id),
-        exchange_segment=str(exchange_segment),
-        net_quantity=net_quantity,
-        average_price=average_price,
-    )

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import cast
+from uuid import UUID
 
 import pytest
 
@@ -19,7 +21,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import AssetClass, OrderSide
+from quantx.domain.enums import AssetClass, OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint, CapitalSourceType
 from quantx.domain.instrument_registry import InstrumentResolution
@@ -84,7 +86,7 @@ def _instrument() -> Instrument:
 
 def _financial() -> AccountFinancialState:
     return AccountFinancialState(
-        CapitalSourceType.PAPER_CONFIGURED,
+        CapitalSourceType.LIVE_BROKER,
         Money(Decimal("100000"), "INR"),
         Money(Decimal("100000"), "INR"),
         Money(Decimal("0"), "INR"),
@@ -95,13 +97,21 @@ def _financial() -> AccountFinancialState:
 
 
 def _context(**overrides) -> RiskContext:
-    values: dict = {"reference_price": Decimal("100")}
+    values: dict = {
+        "reference_price": Decimal("100"),
+        "product": ProductCode("CNC"),
+        "market_pack_id": "india-equity",
+        "rule_version": "india-products-v1",
+        "account_id": AccountId("acct-1"),
+        "portfolio_id": PortfolioId("portfolio-1"),
+        "broker_connection_id": BrokerConnectionId("conn-1"),
+    }
     values.update(overrides)
     return RiskContext(
         _instrument(),
         _financial(),
         broker_constraints=values.pop("broker_constraints", ()),
-        reference_price=values.pop("reference_price"),
+        **values,
     )
 
 
@@ -157,6 +167,9 @@ def _snapshot(**overrides) -> RiskSnapshot:
         "daily_pnl": Decimal("0"),
         "equity": Decimal("100000"),
         "high_water_mark": Decimal("100000"),
+        "account_id": AccountId("acct-1"),
+        "portfolio_id": PortfolioId("portfolio-1"),
+        "broker_connection_id": BrokerConnectionId("conn-1"),
     }
     values.update(overrides)
     return RiskSnapshot(**values)
@@ -180,6 +193,7 @@ def _request() -> ApprovedExecutionRequest:
         execution_context=context,
         risk_result=RiskResult(RiskDecision.APPROVE, "upstream approved"),
         policy_result=PolicyResult(PolicyDecision.APPROVE, "approved"),
+        required_margin=intent.required_margin,
         product=ProductCode("CNC"),
     )
 
@@ -283,7 +297,26 @@ def _live_pre_trade_evaluator(
     clock: Clock | None = None,
 ) -> LivePreTradeRiskEvaluator:
     def inputs_for_request(request: ApprovedExecutionRequest) -> LiveRiskEvaluationInputs:
-        return inputs if inputs is not None else _live_evaluation_inputs()
+        selected = inputs if inputs is not None else _live_evaluation_inputs()
+        order = request.order
+        bound_intent = TradeIntent(
+            instrument=order.instrument,
+            side=order.side,
+            quantity=order.quantity,
+            order_type=order.order_type,
+            limit_price=order.limit_price,
+            stop_price=order.stop_price,
+            time_in_force=order.time_in_force,
+            required_margin=request.required_margin,
+            required_capabilities=order.required_capabilities,
+            execution_context=request.execution_context,
+            intent_id=order.intent_id,
+            product=request.product,
+            position_effect=request.position_effect,
+            strategy_id=order.strategy_id,
+            strategy_version=order.strategy_version,
+        )
+        return replace(selected, intent=bound_intent)
 
     return LivePreTradeRiskEvaluator(
         engine=PreTradeRiskEngine(),
@@ -291,6 +324,81 @@ def _live_pre_trade_evaluator(
         inputs_for_request=inputs_for_request,
         clock=clock if clock is not None else FixedClock(EVALUATED_AT),
     )
+
+
+@pytest.mark.parametrize(
+    "inputs_overrides",
+    [
+        {"context": _context(account_id=AccountId("acct-foreign"))},
+        {"context": _context(portfolio_id=PortfolioId("portfolio-foreign"))},
+        {"context": _context(broker_connection_id=BrokerConnectionId("conn-foreign"))},
+        {"context": _context(market_pack_id="foreign-pack")},
+        {"context": _context(rule_version="foreign-rules")},
+        {
+            "context": replace(
+                _context(),
+                instrument=replace(
+                    _instrument(),
+                    market=MarketContext(
+                        MarketRegion.NORTH_AMERICA, MarketFamily.EQUITY, "NYSE", "US"
+                    ),
+                ),
+            )
+        },
+        {"snapshot": _snapshot(account_id=AccountId("acct-foreign"))},
+        {"snapshot": _snapshot(portfolio_id=PortfolioId("portfolio-foreign"))},
+        {"snapshot": _snapshot(broker_connection_id=BrokerConnectionId("conn-foreign"))},
+    ],
+    ids=[
+        "risk-context-account",
+        "risk-context-portfolio",
+        "risk-context-connection",
+        "risk-context-market-pack",
+        "risk-context-rule-version",
+        "risk-context-market",
+        "snapshot-account",
+        "snapshot-portfolio",
+        "snapshot-connection",
+    ],
+)
+def test_live_pretrade_evaluator_rejects_foreign_risk_state_identity(inputs_overrides) -> None:
+    request = _request()
+    inputs = _live_evaluation_inputs()
+    inputs = replace(inputs, **inputs_overrides)
+    evaluator = _live_pre_trade_evaluator(_limits(), inputs, clock=FixedClock(EVALUATED_AT))
+
+    result = evaluator(request)
+
+    assert result.decision is RiskDecision.REJECT
+    assert "LIVE_RISK_REQUEST_MISMATCH" in result.reason
+
+
+def test_live_pretrade_rejects_instrument_facts_that_diverge_from_resolution() -> None:
+    canonical_instrument = _instrument()
+    resolution = InstrumentResolution(
+        instrument=canonical_instrument,
+        instrument_rule_version="instrument-rules-v1",
+        instrument_rule_effective_from=EVALUATED_AT - timedelta(days=1),
+        resolved_at=EVALUATED_AT,
+    )
+    request = replace(_request(), instrument_resolution=resolution)
+    altered_instrument = replace(canonical_instrument, multiplier=Decimal("0.01"))
+    context = replace(
+        _context(),
+        instrument=altered_instrument,
+        instrument_resolution=resolution,
+    )
+    inputs = _live_evaluation_inputs(context=context)
+    evaluator = _live_pre_trade_evaluator(
+        _limits(max_order_notional=Decimal("100")),
+        inputs,
+        clock=FixedClock(EVALUATED_AT),
+    )
+
+    result = evaluator(request)
+
+    assert result.decision is RiskDecision.REJECT
+    assert "LIVE_RISK_REQUEST_MISMATCH" in result.reason
 
 
 # Existing behavior regression.
@@ -713,7 +821,7 @@ def test_identical_inputs_give_identical_decisions() -> None:
 # Enforcement integration.
 
 
-def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
+def test_arbitrary_risk_callback_blocks_before_reservation_and_submit(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -736,7 +844,7 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
         result = orchestrator.execute(request, broker=_adapter(transport))
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "ORDER_NOTIONAL_LIMIT_EXCEEDED" in result.reason
+        assert "application-owned risk evaluator" in result.reason
         assert transport.submitted == ()
         fingerprint = request_fingerprint(request)
         with SqliteUnitOfWork(database) as check_uow:
@@ -760,7 +868,44 @@ def test_risk_rejection_blocks_gate_reservation_and_submit(tmp_path) -> None:
         database.close()
 
 
-def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
+def test_application_owned_evaluator_blocks_public_live_without_authority(tmp_path) -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        evaluator = _live_pre_trade_evaluator(_limits())
+        orchestrator = ExecutionOrchestrator(
+            unit_of_work=SqliteUnitOfWork(database),
+            trading_gate=DurableTradingGate(
+                SqliteTradingGateStateStore(database), default_enabled=True
+            ),
+            market_policy=india_market_policy(
+                session_evaluator=_approving_india_session_evaluator(),
+                rule_evaluator=_approving_india_evaluator(),
+            ),
+            application_runtime=_started_runtime(),
+            submission_quarantine=SqliteSubmissionQuarantineRepository(database),
+            live_risk_evaluator=evaluator,
+            policy_verifier=policy_verifier(),
+        )
+        request = _request()
+
+        result = orchestrator.execute(request, broker=_adapter(transport))
+
+        assert evaluator.authoritative_evidence_available is False
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "authoritative LIVE risk evidence source is unavailable" in result.reason
+        assert transport.submitted == ()
+        fingerprint = request_fingerprint(request)
+        with SqliteUnitOfWork(database) as check_uow:
+            decision = check_uow.idempotency.check(request.order.client_order_id, fingerprint)
+            assert decision.reservation_pending is False
+            assert decision.existing_receipt_id is None
+            assert check_uow.receipts.get_by_client_order(request.order.client_order_id) is None
+    finally:
+        database.close()
+
+
+def test_arbitrary_risk_approval_cannot_reach_live_gate(tmp_path) -> None:
     transport = InMemoryDhanTransport(response_status="PENDING")
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -780,8 +925,9 @@ def test_risk_approval_keeps_gate_reachable(tmp_path) -> None:
         )
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 
-        assert result.status is ExecutionDispatchStatus.EXECUTED
-        assert len(transport.submitted) == 1
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert "application-owned risk evaluator" in result.reason
+        assert transport.submitted == ()
     finally:
         database.close()
 
@@ -814,7 +960,7 @@ def test_upstream_approve_cannot_bypass_authoritative_risk(tmp_path) -> None:
         result = orchestrator.execute(snapshot_request, broker=_adapter(transport))
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "DAILY_LOSS_LIMIT_EXCEEDED" in result.reason
+        assert "application-owned risk evaluator" in result.reason
         assert transport.submitted == ()
     finally:
         database.close()
@@ -845,8 +991,8 @@ def test_failing_risk_evaluator_fails_closed(tmp_path) -> None:
         result = orchestrator.execute(_request(), broker=_adapter(transport))
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
-        assert "failed closed" in result.reason
-        # The public reason must not carry the evaluator's internal exception text.
+        assert "application-owned risk evaluator" in result.reason
+        # The callback is rejected before invocation, so no arbitrary error is surfaced.
         assert "risk snapshot unavailable" not in result.reason
         assert transport.submitted == ()
     finally:
@@ -1148,3 +1294,72 @@ def test_live_pre_trade_evaluator_rejections_keep_the_resolved_instrument() -> N
 
     assert result.decision is RiskDecision.REJECT
     assert result.instrument_resolution is resolution
+
+
+@pytest.mark.parametrize(
+    "intent_overrides",
+    [
+        {"instrument": InstrumentId("NSE", "INFY")},
+        {"side": OrderSide.SELL},
+        {"quantity": Decimal("9")},
+        {"order_type": OrderType.LIMIT, "limit_price": Decimal("101")},
+        {"required_capabilities": frozenset()},
+        {"product": ProductCode("MIS")},
+        {
+            "execution_context": replace(
+                _execution_context(), account_id=AccountId("foreign-account")
+            )
+        },
+        {
+            "execution_context": replace(
+                _execution_context(),
+                market=MarketContext(MarketRegion.NORTH_AMERICA, MarketFamily.EQUITY, "NYSE", "US"),
+            )
+        },
+        {"intent_id": UUID("00000000-0000-0000-0000-000000000009")},
+    ],
+    ids=[
+        "instrument",
+        "side",
+        "quantity",
+        "order-type-and-price",
+        "capabilities",
+        "product",
+        "account-context",
+        "market-context",
+        "intent-identity",
+    ],
+)
+def test_live_pretrade_evaluator_rejects_intent_that_differs_from_request(intent_overrides) -> None:
+    request = _request()
+    order = request.order
+    intent = TradeIntent(
+        instrument=order.instrument,
+        side=order.side,
+        quantity=order.quantity,
+        order_type=order.order_type,
+        limit_price=order.limit_price,
+        stop_price=order.stop_price,
+        time_in_force=order.time_in_force,
+        required_margin=request.required_margin,
+        required_capabilities=order.required_capabilities,
+        execution_context=request.execution_context,
+        intent_id=order.intent_id,
+        product=request.product,
+        position_effect=request.position_effect,
+        strategy_id=order.strategy_id,
+        strategy_version=order.strategy_version,
+    )
+    intent = replace(intent, **intent_overrides)
+    inputs = replace(_live_evaluation_inputs(), intent=intent)
+    evaluator = LivePreTradeRiskEvaluator(
+        engine=PreTradeRiskEngine(),
+        limits=_limits(),
+        inputs_for_request=lambda _request: inputs,
+        clock=FixedClock(EVALUATED_AT),
+    )
+
+    result = evaluator(request)
+
+    assert result.decision is RiskDecision.REJECT
+    assert "LIVE_RISK_REQUEST_MISMATCH" in result.reason
