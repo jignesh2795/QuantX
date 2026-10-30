@@ -628,9 +628,7 @@ def test_transactional_entry_rechecks_authority_bound_adapter(tmp_path) -> None:
         assert unit_of_work is not None
 
         with execution_module._LIVE_SUBMISSION_AUTHORITIES_LOCK:
-            authorizer = execution_module._LIVE_SUBMISSION_AUTHORITIES.get(
-                stack.orchestrator
-            )
+            authorizer = execution_module._LIVE_SUBMISSION_AUTHORITIES.get(stack.orchestrator)
         assert authorizer is not None
         authorization = authorizer.issue(
             client_order_id=request.order.client_order_id,
