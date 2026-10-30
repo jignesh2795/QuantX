@@ -9,14 +9,14 @@ class DhanTokenLifetimeError(ValueError):
     """The configured Dhan access token cannot safely cover another operation."""
 
 
-class DhanAuthenticationExpiredError(RuntimeError):
+class DhanAuthenticationRejectedError(RuntimeError):
     """Dhan returned its documented invalid-or-expired-token error code."""
 
     code = "DH-901"
 
     def __init__(self, operation: str) -> None:
         self.operation = operation
-        super().__init__(f"Dhan authentication expired ({self.code}) during {operation}")
+        super().__init__(f"Dhan authentication rejected ({self.code}): client id or access token is invalid or expired during {operation}")
 
 
 def require_minimum_token_lifetime(
@@ -44,7 +44,7 @@ def require_minimum_token_lifetime(
 
 
 __all__ = [
-    "DhanAuthenticationExpiredError",
+    "DhanAuthenticationRejectedError",
     "DhanTokenLifetimeError",
     "require_minimum_token_lifetime",
 ]
