@@ -684,6 +684,7 @@ def test_authority_rejects_a_market_order_without_a_reference_price(tmp_path) ->
     finally:
         database.close()
 
+
 # Request-binding mismatches are exercised through the sanctioned composition.
 # Fault injection makes the application-owned intent builder return one
 # contradictory field while keeping the registered fake adapter and complete
@@ -763,9 +764,7 @@ def test_built_stack_rejects_a_risk_intent_mismatch_before_submission(
                     intent,
                     execution_context=replace(
                         intent.execution_context,
-                        market=MarketContext(
-                            MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"
-                        ),
+                        market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"),
                     ),
                 )
             if mismatch_dimension == "market-pack":
@@ -835,17 +834,13 @@ def test_built_stack_rejects_mismatched_evidence_context_before_submission(
             overrides["context"] = _live_context(
                 instrument=replace(
                     _india_instrument(),
-                    market=MarketContext(
-                        MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"
-                    ),
+                    market=MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"),
                 )
             )
         elif mismatch_dimension == "product":
             overrides["context"] = _live_context(product=ProductCode("MIS"))
         elif mismatch_dimension == "position-effect":
-            overrides["context"] = _live_context(
-                effective_position_effect=PositionEffect.OPEN
-            )
+            overrides["context"] = _live_context(effective_position_effect=PositionEffect.OPEN)
         elif mismatch_dimension == "market-pack":
             overrides["context"] = _live_context(market_pack_id="foreign-pack")
         elif mismatch_dimension == "rule-version":
