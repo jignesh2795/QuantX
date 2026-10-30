@@ -1,13 +1,14 @@
 """Tests for the Dhan production host/deployment adapter."""
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
 from quantx.application.live_risk_sources import live_risk_evidence_catalog_for
 from quantx.domain.accounts import AccountId, BrokerConnectionId
+from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -82,14 +83,25 @@ def _instrument_ref() -> DhanInstrumentRef:
 
 
 def _config(tmp_path, **overrides) -> DhanHostConfig:
+    credentials = overrides.pop("credentials", None)
+    transport = overrides.pop("transport", InMemoryDhanTransport())
+    credential_expires_at = overrides.pop(
+        "credential_expires_at",
+        None if credentials is not None else datetime(2099, 1, 1, tzinfo=UTC),
+    )
     return DhanHostConfig(
         database_path=overrides.pop("database_path", tmp_path / "quantx.db"),
         account_id=overrides.pop("account_id", AccountId("acct-1")),
         connection_id=overrides.pop("connection_id", BrokerConnectionId("conn-1")),
         market_context_id=overrides.pop("market_context_id", "NSE_EQ"),
         instruments=overrides.pop("instruments", ((_instrument(), _instrument_ref()),)),
-        transport=overrides.pop("transport", InMemoryDhanTransport()),
-        credentials=overrides.pop("credentials", None),
+        transport=transport,
+        credentials=credentials,
+        credential_expires_at=credential_expires_at,
+        minimum_token_lifetime=overrides.pop(
+            "minimum_token_lifetime", timedelta(minutes=5)
+        ),
+        clock=overrides.pop("clock", FixedClock(CHECKED_AT)),
         submit_timeout_seconds=overrides.pop("submit_timeout_seconds", 5.0),
         cancel_timeout_seconds=overrides.pop("cancel_timeout_seconds", 5.0),
         reconcile_timeout_seconds=overrides.pop("reconcile_timeout_seconds", 5.0),
@@ -173,6 +185,9 @@ def _resolving_config(tmp_path, approved: ApprovedExecutionRequest) -> DhanHostC
         market_context_id="NSE_EQ",
         instruments=((_instrument(), _instrument_ref()),),
         transport=_filled_transport(),
+        credential_expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+        minimum_token_lifetime=timedelta(minutes=5),
+        clock=FixedClock(CHECKED_AT),
         submit_timeout_seconds=5.0,
         cancel_timeout_seconds=5.0,
         reconcile_timeout_seconds=5.0,
@@ -343,7 +358,53 @@ def test_host_requires_exactly_one_transport_source(tmp_path) -> None:
         _config(
             tmp_path,
             transport=InMemoryDhanTransport(),
-            credentials=DhanCredentials("client", "token"),
+            credentials=DhanCredentials("client", "token", datetime(2099, 1, 1, tzinfo=UTC)),
+        )
+
+
+def test_host_rejects_expired_or_near_expiry_credentials(tmp_path) -> None:
+    clock = FixedClock(CHECKED_AT)
+    for expiry in (
+        CHECKED_AT - timedelta(seconds=1),
+        CHECKED_AT + timedelta(minutes=4, seconds=59),
+    ):
+        credentials = DhanCredentials("client", "token", expiry)
+        with pytest.raises(ValueError, match="expired|insufficient remaining"):
+            _config(
+                tmp_path,
+                transport=None,
+                credentials=credentials,
+                clock=clock,
+                minimum_token_lifetime=timedelta(minutes=5),
+            )
+
+
+def test_host_rejects_custom_transport_without_explicit_token_expiry(tmp_path) -> None:
+    with pytest.raises(ValueError, match="requires broker-supplied credential expiryTime"):
+        _config(tmp_path, credential_expires_at=None)
+
+
+def test_credentials_factory_parses_naive_expiry_as_ist_and_hides_token() -> None:
+    credentials = DhanCredentials.from_token_response(
+        "client",
+        {
+            "dhanClientId": "client",
+            "accessToken": "secret-token",
+            "expiryTime": "2026-10-30T12:00:00.000",
+        },
+    )
+
+    assert credentials.expires_at == datetime(2026, 10, 30, 6, 30, tzinfo=UTC)
+    assert "secret-token" not in repr(credentials)
+
+
+def test_credentials_factory_rejects_missing_or_malformed_expiry() -> None:
+    with pytest.raises(ValueError, match="expiryTime"):
+        DhanCredentials.from_token_response("client", {"accessToken": "secret"})
+    with pytest.raises(ValueError, match="valid ISO timestamp"):
+        DhanCredentials.from_token_response(
+            "client",
+            {"accessToken": "secret", "expiryTime": "not-a-timestamp"},
         )
 
 
@@ -395,7 +456,7 @@ def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:
         _config(
             tmp_path,
             transport=None,
-            credentials=DhanCredentials("client-id", "access-token"),
+            credentials=DhanCredentials("client-id", "access-token", datetime(2099, 1, 1, tzinfo=UTC)),
             submit_timeout_seconds=5.0,
             cancel_timeout_seconds=5.0,
             reconcile_timeout_seconds=5.0,
@@ -634,7 +695,7 @@ def test_risk_evidence_source_builder_derives_the_client_id_from_credentials(
         _config(
             tmp_path,
             transport=None,
-            credentials=DhanCredentials("credential-client", "access-token"),
+            credentials=DhanCredentials("credential-client", "access-token", datetime(2099, 1, 1, tzinfo=UTC)),
         )
     )
     try:
