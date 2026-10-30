@@ -263,6 +263,11 @@ def test_submit_translates_to_dhan_and_returns_normalized_receipt() -> None:
     assert transport.submitted[0].correlation_id == dhan_correlation_id(request.correlation_id)
 
 
+def test_adapter_rejects_missing_token_expiry_metadata() -> None:
+    with pytest.raises(ValueError, match="requires a broker-supplied token expiry"):
+        _adapter(credentials_expires_at=None)
+
+
 def test_submit_rechecks_token_lifetime_before_transport() -> None:
     now = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
     clock = FixedClock(now)
