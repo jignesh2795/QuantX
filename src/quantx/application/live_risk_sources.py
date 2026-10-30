@@ -240,9 +240,8 @@ class LiveRiskEvidenceSourceCatalog:
             return False
         if getattr(builder.build, "__self__", None) is not registered.adapter:
             return False
-        return (
-            grant.broker_id == registered.ref.broker_id
-            and self._binding_matches(grant.binding, registered)
+        return grant.broker_id == registered.ref.broker_id and self._binding_matches(
+            grant.binding, registered
         )
 
     def _binding_shape_is_valid(self, binding: object) -> bool:
