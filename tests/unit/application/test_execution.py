@@ -2745,6 +2745,57 @@ def test_preflight_rejection_closure_failure_is_unresolved_without_resubmit(monk
     assert broker.submit_calls == 1
 
 
+def test_broker_rejection_closure_failure_remains_unknown_without_resubmit(
+    monkeypatch,
+) -> None:
+    """A broker rejection is not definitive until its durable closure commits."""
+
+    class BrokerRejectingBroker(FakeBroker):
+        def submit(self, request):
+            self.submit_calls += 1
+            raise BrokerSubmissionRejected("Dhan authentication rejected (DH-901)")
+
+    request = _live_request()
+    broker = BrokerRejectingBroker()
+    unit_of_work = _FakeUnitOfWork()
+
+    def failing_record_not_submitted(*args, **kwargs):
+        raise RuntimeError("idempotency storage unavailable")
+
+    monkeypatch.setattr(
+        unit_of_work.idempotency, "record_not_submitted", failing_record_not_submitted
+    )
+    orchestrator = ExecutionOrchestrator(
+        application_runtime=_started_runtime(),
+        unit_of_work=unit_of_work,
+        trading_gate=_durable_gate(),
+        submission_quarantine=_FakeSubmissionQuarantine(),
+        live_risk_evaluator=_approving_live_risk_evaluator(),
+        market_policy=india_market_policy(
+            session_evaluator=_approving_india_session_evaluator(),
+            rule_evaluator=_approving_india_evaluator(),
+        ),
+        policy_verifier=policy_verifier(),
+    )
+
+    first = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
+
+    assert first.status is ExecutionDispatchStatus.UNKNOWN
+    assert "durable not-submitted closure failed" in first.reason
+    assert broker.submit_calls == 1
+    decision = unit_of_work.idempotency.check(
+        request.order.client_order_id, request_fingerprint(request)
+    )
+    assert decision.reservation_pending is True
+    assert decision.not_submitted_resolution is None
+    assert decision.operator_resolved is False
+
+    replay = _execute_admitted_transaction(orchestrator, request, broker, unit_of_work)
+
+    assert replay.status is ExecutionDispatchStatus.UNKNOWN
+    assert broker.submit_calls == 1
+
+
 class _ArbitraryResponseBroker(FakeBroker):
     """Broker double returning an arbitrary (possibly malformed) response."""
 
