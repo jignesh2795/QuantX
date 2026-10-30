@@ -678,7 +678,6 @@ def test_authority_rejects_a_market_order_without_a_reference_price(tmp_path) ->
         database.close()
 
 
-
 # Request-binding mismatches are exercised through the sanctioned composition.
 # Fault injection makes the application-owned intent builder return one
 # contradictory field while keeping the registered fake adapter and complete
@@ -781,9 +780,7 @@ def test_built_stack_rejects_a_risk_intent_mismatch_before_submission(
                 )
             raise AssertionError(f"unknown mismatch dimension: {mismatch_dimension}")
 
-        monkeypatch.setattr(
-            live_risk_module, "_intent_for_request", _mismatched_intent
-        )
+        monkeypatch.setattr(live_risk_module, "_intent_for_request", _mismatched_intent)
         gate_before = stack.gate.state()
 
         result = stack.orchestrator.execute(request, broker=broker)
