@@ -418,9 +418,7 @@ class DhanRiskEvidenceSource:
             if instrument is None:
                 reasons.add(LiveRiskPositionPnlUnavailableReason.POSITION_INSTRUMENT_UNMAPPED)
             if position.client_id is not None and position.client_id != self.broker_client_id:
-                reasons.add(
-                    LiveRiskPositionPnlUnavailableReason.POSITION_CLIENT_ID_MISMATCH
-                )
+                reasons.add(LiveRiskPositionPnlUnavailableReason.POSITION_CLIENT_ID_MISMATCH)
 
             quantity = (
                 position.net_quantity
@@ -428,15 +426,11 @@ class DhanRiskEvidenceSource:
                 else None
             )
             if quantity is None:
-                reasons.add(
-                    LiveRiskPositionPnlUnavailableReason.POSITION_QUANTITY_UNAVAILABLE
-                )
+                reasons.add(LiveRiskPositionPnlUnavailableReason.POSITION_QUANTITY_UNAVAILABLE)
 
             realized_pnl = _pnl_money(position.realized_profit)
             if realized_pnl is None:
-                reasons.add(
-                    LiveRiskPositionPnlUnavailableReason.POSITION_REALIZED_PNL_UNAVAILABLE
-                )
+                reasons.add(LiveRiskPositionPnlUnavailableReason.POSITION_REALIZED_PNL_UNAVAILABLE)
 
             unrealized_pnl = _pnl_money(position.unrealized_profit)
             if unrealized_pnl is None:
