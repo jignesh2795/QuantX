@@ -442,9 +442,7 @@ def test_build_preserves_existing_persisted_block_reason(tmp_path) -> None:
         database.close()
 
 
-def test_build_fails_with_fixed_error_when_gate_state_cannot_be_read(
-    tmp_path, monkeypatch
-) -> None:
+def test_build_fails_with_fixed_error_when_gate_state_cannot_be_read(tmp_path, monkeypatch) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         injected = _InjectedGateStateStore(load_error=OSError("sensitive store read detail"))
