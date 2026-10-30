@@ -1,6 +1,6 @@
 """Typed submission-preflight boundary for broker adapters.
 
-Exactly two mutually exclusive classes of ``submit`` failure exist on the
+Three mutually exclusive classes of ``submit`` failure exist on the
 LIVE boundary, and the orchestrator must never conflate them:
 
 - ``NOT_SUBMITTED`` — a deterministic adapter/preflight check (connection
@@ -23,11 +23,10 @@ LIVE boundary, and the orchestrator must never conflate them:
   broker status). Every other ``submit`` failure stays in this class.
   These outcomes remain UNKNOWN and are never automatically retried.
 
-The typed exception is deliberately a ``ValueError`` so existing
-adapter-contract callers that reject invalid requests keep working; the
-orchestrator is the only consumer that treats it as the NOT_SUBMITTED
-proof and durably closes the pending reservation as a typed
-not-submitted closure (never as a human operator decision).
+Both exception types are deliberately ``ValueError`` subclasses for
+adapter-contract compatibility. Only the orchestrator consumes them as
+typed proof for a durable not-submitted closure; this is never a human
+operator decision.
 """
 
 from __future__ import annotations
