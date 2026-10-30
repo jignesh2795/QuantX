@@ -259,6 +259,33 @@ def test_a_forged_grant_for_the_sanctioned_broker_is_rejected() -> None:
         )
 
 
+def test_authority_rejects_grant_from_distinct_adapter_with_matching_identifiers() -> None:
+    """A valid grant from a second registration must not authorize this registry adapter."""
+    registered = registered_connection(
+        account_id=ACCOUNT, connection_id=CONNECTION, source=_source()
+    )
+    other = registered_connection(
+        account_id=ACCOUNT, connection_id=CONNECTION, source=_source(source_id="foreign-source")
+    )
+    foreign_catalog = catalog_for(other)
+    foreign_grant = foreign_catalog.grant(other)
+    assert foreign_grant is not None
+
+    # The foreign catalog legitimately minted this grant; the missing proof is
+    # that its bound builder belongs to the adapter registered in this runtime.
+    assert foreign_catalog.verify(foreign_grant) is True
+    assert foreign_catalog.verify_for_registered(foreign_grant, registered) is False
+
+    with pytest.raises(TypeError, match="application-issued source grant"):
+        LiveRiskEvidenceAuthority(
+            grant=foreign_grant,
+            catalog=foreign_catalog,
+            registry=registry_with(registered),
+            limits=_limits(),
+            clock=FixedClock(EVALUATED_AT),
+        )
+
+
 def test_swapping_a_hostile_source_into_a_real_grant_breaks_the_seal() -> None:
     registered = registered_connection(
         account_id=ACCOUNT, connection_id=CONNECTION, source=_source()
