@@ -980,6 +980,7 @@ def test_verify_binds_supplemental_position_pnl_collection() -> None:
         observations=(
             LiveRiskPositionPnlObservation(
                 source_position_key="0:NSE_EQ:1333",
+                broker_client_id=CLIENT,
                 instrument_id=InstrumentId("NSE", "TCS"),
                 net_quantity=Decimal("10"),
                 product_type="CNC",
