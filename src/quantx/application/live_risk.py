@@ -334,6 +334,7 @@ def _position_pnl_collection_digest(collection: LiveRiskPositionPnlCollection) -
             (
                 f"row={index}",
                 f"source_key={observation.source_position_key}",
+                f"broker_client_id={observation.broker_client_id}",
                 f"instrument={observation.instrument_id}",
                 f"quantity={_decimal_digest(observation.net_quantity)}",
                 f"product_type={observation.product_type}",
