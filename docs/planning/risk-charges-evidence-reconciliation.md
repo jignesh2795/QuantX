@@ -270,7 +270,7 @@ that the published DhanHQ v2 documentation and Dhan Support material describe it
   optional equity/cash/margin values, but does not express an equity basis,
   whole-account valuation coverage, trusted capture time, or session baseline.
 - SQLite schema v8 has no account-equity observations, risk-session baselines,
-  external cash-flow event ledger, or durable high-water-mark state.
+  external capital-flow event ledger, or durable high-water-mark state.
 
 PR #285 adds HMAC-bound supplemental per-position P&L rows. It does not provide
 account/day P&L, a complete account equity value, baseline state, or an
@@ -287,7 +287,7 @@ Published DhanHQ v2 docs describe these relevant resources:
 | `GET /positions` | Open position rows for the day, including F&O carry-forward; realized/unrealized profit; day and carry-forward buy/sell quantities and values | A canonical daily account P&L definition or complete account equity |
 | `GET /holdings` | Demat holdings, delivered/T1 quantities, collateral quantity and average cost | Current holding market value, account-wide net liquidation equity, or all liabilities |
 | `POST /marketfeed/ltp` / `ohlc` / `quote` | Batched market observations; up to 1,000 instruments per request and documented 1 request/second limit | Complete valuation unless every held/position instrument is known and a usable current mark is available |
-| `GET /trades/{from-date}/{to-date}/{page}` | Paginated historical trades, exchange trade IDs, quantities, prices, trade timestamps and listed charge fields (SEBI tax, STT, brokerage, service tax, exchange transaction charges, stamp duty) | A complete account cash/equity snapshot or all non-trade capital movements |
+| `GET /trades/{from-date}/{to-date}/{page}` | Paginated historical trades, exchange trade IDs, quantities, prices, trade timestamps and listed charge fields (SEBI tax, STT, brokerage, service tax, exchange transaction charges, stamp duty) | A complete account cash/equity snapshot or all non-trade capital movements, including non-cash asset transfers |
 | `GET /ledger?from-date=...&to-date=...` | Debit/credit entries, narration, voucher date, voucher number and running balance | An intraday transaction timestamp or a published complete classification taxonomy for external capital flows |
 | `GET /fundlimit` | Available balance, start-of-day limit/balance, collateral, receivables, utilized amount, blocked payout and withdrawable balance | A documented net-liquidation equity measure or a formal relation that makes these fields equivalent to account equity |
 
@@ -314,7 +314,10 @@ equivalence.
 
 The Ledger response documents `voucherdate` as a transaction date and shows
 no transaction-time field. That is insufficient to assign same-day deposits
-or withdrawals precisely to an intraday equity observation. The public v2
+or withdrawals precisely to an intraday equity observation. The support
+material also mentions share transfers and IPO allotments in Trader's Diary
+adjustments; the published Ledger/Trade History schemas do not establish a
+complete, timestamped feed of those non-cash capital events. The public v2
 Statement API documents Ledger and Trade History; it does not document an API
 that returns the Trader's Diary summary.
 
@@ -362,14 +365,18 @@ For one account risk scope and one currency:
 session_equity_pnl(t)
     = current_net_liquidation_equity(t)
     - session_open_net_liquidation_equity
-    - net_external_capital_flows(session_open, t]
+    - net_external_capital_contributions(session_open, t]
 ```
 
-External inflows are positive; withdrawals/outflows are negative. Subtracting
-the signed net flow prevents a deposit from appearing as trading profit and a
-withdrawal from appearing as trading loss. Trade fees, taxes, financing and
-other expenses already reflected in the current account equity must not be
-subtracted a second time. If the selected equity basis excludes an expense,
+External capital contributions are positive; withdrawals/dispositions are
+negative. This includes both cash movements and non-cash asset transfers into
+or out of the measured account scope, valued at their effective time from
+explicit evidence. Internal transfers wholly inside the measured scope are
+neutral. Subtracting signed net contributions prevents a deposit or transferred
+holding from appearing as trading profit, and a withdrawal or asset transfer
+out from appearing as trading loss. Trade fees, taxes, financing and other
+expenses already reflected in current account equity must not be subtracted a
+second time. If the selected equity basis excludes an expense,
 that exclusion must be explicit and the expense must be included once.
 
 The corresponding loss is the negative signed session P&L. A separately
@@ -397,11 +404,14 @@ minimum:
    balance components make equity unavailable. A provider's self-declared
    COMPLETE string is not authority; the application-owned registered source
    and expected scope must validate coverage.
-5. **Cash-flow records:** stable source transaction identity, signed Decimal
-   Money, currency, external-versus-internal classification, effective
-   timestamp and observation timestamp. Unknown classifications, missing
-   pages, date-only timing where intraday attribution is required, or
-   contradictory balances make the adjustment incomplete.
+5. **Capital-flow records:** stable source transaction identity, signed
+   Decimal Money value, currency, external-versus-internal classification,
+   effective timestamp and observation timestamp. Non-cash asset transfers
+   additionally require canonical asset identity, quantity, and an explicit
+   valuation basis/source at the transfer time. Unknown classifications or
+   non-cash valuations, missing pages, date-only timing where intraday
+   attribution is required, or contradictory balances make the adjustment
+   incomplete.
 6. **Provenance:** source identity, source record references/fingerprint,
    per-component observations, and explicit unavailable/contradictory reasons.
 
