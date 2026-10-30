@@ -851,17 +851,13 @@ def test_built_stack_rejects_mismatched_evidence_context_before_submission(
         elif mismatch_dimension == "rule-version":
             overrides["context"] = _live_context(rule_version="foreign-rules")
         elif mismatch_dimension == "context-account":
-            overrides["context"] = _live_context(
-                account_id=AccountId("acct-foreign")
-            )
+            overrides["context"] = _live_context(account_id=AccountId("acct-foreign"))
         elif mismatch_dimension == "context-connection":
             overrides["context"] = _live_context(
                 broker_connection_id=BrokerConnectionId("conn-foreign")
             )
         elif mismatch_dimension == "snapshot-portfolio":
-            overrides["snapshot"] = _snapshot(
-                portfolio_id=PortfolioId("portfolio-foreign")
-            )
+            overrides["snapshot"] = _snapshot(portfolio_id=PortfolioId("portfolio-foreign"))
         else:
             raise AssertionError(f"unknown mismatch dimension: {mismatch_dimension}")
 
