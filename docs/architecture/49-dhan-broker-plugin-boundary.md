@@ -128,6 +128,28 @@ fields) before it treats evidence as authoritative, this source does not make
 the Dhan LIVE path authoritative: public LIVE dispatch stays blocked by
 design. Issue #267 remains open.
 
+The positions response also carries `realizedProfit` and `unrealizedProfit`
+on individual position rows. QuantX preserves those values in the supplemental
+`LiveRiskPositionPnlCollection`, separate from `LiveRiskEvidenceField` and
+the `RiskSnapshot`. Each row retains its canonical instrument mapping when
+available, signed quantity, optional product/position labels, both broker-
+reported P&L amounts, the positions-response observation instant, and explicit
+`BROKER_REPORTED` provenance. A missing/non-finite P&L value, unmapped row,
+foreign row client id, or unavailable positions book marks the collection
+incomplete; rows are not silently dropped to create a complete subset. An
+available empty positions response is an empty row collection, not account
+P&L of zero.
+
+This supplemental collection is included in the application authority's
+per-evaluation integrity seal, but it is not a required risk field, is not
+aggregated into account/day P&L, and is never copied into
+`RiskSnapshot.daily_pnl`, `equity`, or `high_water_mark`. Its timestamp is
+source metadata, not a new daily-P&L accounting basis or a substitute for the
+risk authority's mandatory field freshness/completeness checks. Any future
+consumer must define its own freshness and accounting semantics before using
+these row values in risk decisions. The Dhan LIVE path therefore remains
+fail-closed under the existing required fields.
+
 These observations are exercised only through the in-memory transport. No
 real broker call, production credential, or LIVE order is part of the
 implementation or its tests.
