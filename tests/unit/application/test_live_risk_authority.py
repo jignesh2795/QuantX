@@ -26,6 +26,11 @@ from quantx.application.live_risk import (
     LiveRiskEvidenceObservation,
     required_live_risk_evidence_fields,
 )
+from quantx.application.live_risk_evidence import (
+    LiveRiskPositionPnlCollection,
+    LiveRiskPositionPnlObservation,
+    LiveRiskPositionPnlProvenance,
+)
 from quantx.application.live_risk_sources import live_risk_evidence_catalog_for
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.clock import Clock, FixedClock
@@ -967,6 +972,43 @@ def test_verify_rejects_altered_inputs() -> None:
     altered = replace(inputs, snapshot=replace(inputs.snapshot, daily_pnl=Decimal("1")))
 
     assert authority.verify(authorization, request, altered) is False
+
+
+def test_verify_binds_supplemental_position_pnl_collection() -> None:
+    collection = LiveRiskPositionPnlCollection(
+        observed_at=OBSERVED_AT,
+        observations=(
+            LiveRiskPositionPnlObservation(
+                source_position_key="0:NSE_EQ:1333",
+                instrument_id=InstrumentId("NSE", "TCS"),
+                net_quantity=Decimal("10"),
+                product_type="CNC",
+                position_type="LONG",
+                realized_pnl=Money(Decimal("-12.50"), "INR"),
+                unrealized_pnl=Money(Decimal("3.25"), "INR"),
+                observed_at=OBSERVED_AT,
+                provenance=LiveRiskPositionPnlProvenance.BROKER_REPORTED,
+            ),
+        ),
+        unavailable_reasons=(),
+    )
+    authority = _authority_for({"position_pnl_collection": collection})
+    request = _request()
+
+    admission = authority.admit(request)
+
+    assert type(admission) is tuple
+    inputs, authorization = admission
+    assert inputs.position_pnl_collection == collection
+    assert authority.verify(authorization, request, inputs) is True
+
+    changed_row = replace(
+        collection.observations[0],
+        unrealized_pnl=Money(Decimal("99"), "INR"),
+    )
+    changed_collection = replace(collection, observations=(changed_row,))
+    changed_inputs = replace(inputs, position_pnl_collection=changed_collection)
+    assert authority.verify(authorization, request, changed_inputs) is False
 
 
 def test_verify_rejects_a_non_authorization_value() -> None:
