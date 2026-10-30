@@ -947,9 +947,7 @@ def test_collect_preserves_each_broker_reported_position_pnl_row() -> None:
 def test_collect_keeps_missing_position_pnl_values_unknown() -> None:
     source = _source(
         _transport(
-            position_snapshots=(
-                _position(realized_profit=None, unrealized_profit=Decimal("0")),
-            )
+            position_snapshots=(_position(realized_profit=None, unrealized_profit=Decimal("0")),)
         )
     )
 
