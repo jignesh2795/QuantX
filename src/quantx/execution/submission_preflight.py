@@ -12,12 +12,16 @@ LIVE boundary, and the orchestrator must never conflate them:
   I/O has begun violates the adapter contract and misreports an uncertain
   submission as a known local rejection.
 
+- ``BROKER_NOT_ACCEPTED`` — the transport call did occur, but the broker
+  returned an authoritative protocol response that proves the order was not
+  accepted (for example, an explicit authentication rejection before order
+  processing). Only an exact, documented response contract may raise
+  ``BrokerSubmissionRejected``; arbitrary HTTP errors, timeouts, or message
+  text are not proof.
 - ``SUBMISSION_UNKNOWN`` — the transport call may have started or its
   external response is ambiguous (timeout, transport exception, unknown
-  broker status). Every other ``submit`` failure stays in this class,
-  including untyped exceptions, because another adapter can raise a
-  generic exception after external submission has begun. These outcomes
-  remain UNKNOWN and are never automatically retried.
+  broker status). Every other ``submit`` failure stays in this class.
+  These outcomes remain UNKNOWN and are never automatically retried.
 
 The typed exception is deliberately a ``ValueError`` so existing
 adapter-contract callers that reject invalid requests keep working; the
@@ -32,13 +36,17 @@ from __future__ import annotations
 class BrokerPreflightRejected(ValueError):
     """A trusted adapter-proved, pre-transport local rejection.
 
-    Contract: the raising adapter must have entered no external transport
-    call for the request. The orchestrator reports the outcome as a known
-    local block (never an ambiguous remote submission), durably closes the
-    pending reservation through the typed not-submitted resolution
-    contract, and never fabricates a broker receipt, a human operator
-    identity, or a retry of the request.
+    The adapter entered no external transport call for the request.
+    """
+
+class BrokerSubmissionRejected(ValueError):
+    """An authoritative broker response proves that the order was not accepted.
+
+    This is distinct from local preflight: transport I/O has occurred, but a
+    documented broker response (never a generic HTTP failure) proves the order
+    was rejected before acceptance. The orchestrator may close the reservation
+    as NOT_SUBMITTED using a separate broker-response provenance value.
     """
 
 
-__all__ = ["BrokerPreflightRejected"]
+__all__ = ["BrokerPreflightRejected", "BrokerSubmissionRejected"]
