@@ -1,6 +1,7 @@
 import threading
 import time
 import types
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -9,6 +10,7 @@ from quantx.plugins.dhan.mapping import dhan_correlation_id
 from quantx.plugins.dhan.models import DhanCredentials, DhanOrderRequest
 from quantx.plugins.dhan.transport import (
     DhanSDKTransport,
+    DhanAuthenticationExpiredError,
     DhanTimeoutError,
     DhanTransport,
     InMemoryDhanTransport,
@@ -82,6 +84,29 @@ def test_transport_helpers_unwrap_success_and_failure_envelopes() -> None:
     }
     order = _order_response(success)
     failed = _order_response(failure)
+
+    auth_failure = {
+        "status": "failure",
+        "remarks": {
+            "error_code": "DH-901",
+            "error_type": "Invalid Authentication",
+            "error_message": "token is invalid or expired",
+        },
+        "data": "",
+    }
+    with pytest.raises(DhanAuthenticationExpiredError, match="DH-901"):
+        _order_response(auth_failure)
+    with pytest.raises(DhanAuthenticationExpiredError, match="DH-901"):
+        _order_detail(auth_failure)
+
+    # Free text is never promoted to typed authentication evidence.
+    text_only_auth_hint = {
+        "status": "failure",
+        "remarks": "request failed with DH-901 somewhere in the text",
+        "data": "",
+    }
+    text_only_failure = _order_response(text_only_auth_hint)
+    assert text_only_failure.order_status == "UNKNOWN"
 
     assert order.order_id == "123"
     assert order.order_status == "PENDING"
@@ -310,7 +335,11 @@ def _sdk_transport_without_sdk(monkeypatch: pytest.MonkeyPatch, client: object) 
     fake_module.dhanhq = _client  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "dhanhq", fake_module)
     return DhanSDKTransport(
-        credentials=DhanCredentials(client_id="test-id", access_token="test-token")
+        credentials=DhanCredentials(
+            client_id="test-id",
+            access_token="test-token",
+            expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+        )
     )
 
 
@@ -888,7 +917,11 @@ def _sdk_transport_with_context(
     fake_module.dhanhq = _client  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "dhanhq", fake_module)
     return DhanSDKTransport(
-        credentials=DhanCredentials(client_id="test-id", access_token="test-token")
+        credentials=DhanCredentials(
+            client_id="test-id",
+            access_token="test-token",
+            expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+        )
     )
 
 
