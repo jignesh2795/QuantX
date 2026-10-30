@@ -94,6 +94,8 @@ class DhanBrokerAdapter:
             # Direct adapter composition must not bypass the host's token
             # lifetime guard when the official SDK transport is supplied.
             self._credentials_expires_at = self._transport.credentials.expires_at
+        if self._credentials_expires_at is None:
+            raise ValueError("Dhan adapter requires a broker-supplied token expiry instant")
         if self._product_map is not None:
             object.__setattr__(self, "_product_map", normalize_dhan_product_map(self._product_map))
         if self._risk_evidence_client_id is not None:
@@ -139,7 +141,7 @@ class DhanBrokerAdapter:
     def _validate_token_lifetime(self) -> None:
         """Re-check the session margin immediately before any order transport call."""
         if self._credentials_expires_at is None:
-            return
+            raise BrokerPreflightRejected("Dhan access-token expiry is not configured")
         try:
             require_minimum_token_lifetime(
                 self._credentials_expires_at,
