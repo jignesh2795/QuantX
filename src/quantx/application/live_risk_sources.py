@@ -218,6 +218,33 @@ class LiveRiskEvidenceSourceCatalog:
         expected = self._seal(grant.broker_id, module, qualname, grant.binding)
         return hmac.compare_digest(grant.seal, expected)
 
+    def verify_for_registered(
+        self,
+        grant: LiveRiskEvidenceSourceGrant,
+        registered: RegisteredConnection,
+    ) -> bool:
+        """Verify a grant was built by the exact adapter in this registry entry.
+
+        The ordinary verify method proves only that this catalog minted the
+        grant. A catalog derived from another adapter can have the same broker
+        method module/qualname and issue a valid grant for matching identifiers.
+        The binding is valid for LIVE only when this catalog's bound construction
+        method belongs to this exact registered adapter.
+        """
+        if type(registered) is not RegisteredConnection or not registered.enabled:
+            return False
+        if not self.verify(grant):
+            return False
+        builder = self._builders.get(registered.ref.broker_id)
+        if builder is None:
+            return False
+        if getattr(builder.build, "__self__", None) is not registered.adapter:
+            return False
+        return (
+            grant.broker_id == registered.ref.broker_id
+            and self._binding_matches(grant.binding, registered)
+        )
+
     def _binding_shape_is_valid(self, binding: object) -> bool:
         """Reject anything that is not a complete, exact builder result."""
         if type(binding) is not TrustedLiveRiskEvidenceBinding:
