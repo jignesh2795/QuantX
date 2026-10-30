@@ -16,7 +16,10 @@ class DhanAuthenticationRejectedError(RuntimeError):
 
     def __init__(self, operation: str) -> None:
         self.operation = operation
-        super().__init__(f"Dhan authentication rejected ({self.code}): client id or access token is invalid or expired during {operation}")
+        super().__init__(
+            f"Dhan authentication rejected ({self.code}): client id or access token "
+            f"is invalid or expired during {operation}"
+        )
 
 
 def require_minimum_token_lifetime(
