@@ -1010,6 +1010,12 @@ def test_verify_binds_supplemental_position_pnl_collection() -> None:
     changed_inputs = replace(inputs, position_pnl_collection=changed_collection)
     assert authority.verify(authorization, request, changed_inputs) is False
 
+    malformed_inputs = replace(
+        inputs,
+        position_pnl_collection=cast(LiveRiskPositionPnlCollection, object()),
+    )
+    assert authority.verify(authorization, request, malformed_inputs) is False
+
 
 def test_verify_rejects_a_non_authorization_value() -> None:
     authority, request, inputs, _ = _admitted()
