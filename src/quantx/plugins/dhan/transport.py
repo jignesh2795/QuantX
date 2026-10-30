@@ -14,7 +14,7 @@ from typing import Protocol, runtime_checkable
 from zoneinfo import ZoneInfo
 
 from .mapping import decimal_field, extract_filled_quantity, parse_dhan_timestamp
-from .session import DhanAuthenticationExpiredError
+from .session import DhanAuthenticationRejectedError
 from .models import (
     DhanCandleSnapshot,
     DhanCredentials,
@@ -564,8 +564,8 @@ class InMemoryDhanTransport:
 def _order_response(response: object) -> DhanOrderResponse:
     envelope_status, remarks, payload = _envelope(response)
     if envelope_status != "success":
-        if _dhan_error_code(response) == DhanAuthenticationExpiredError.code:
-            raise DhanAuthenticationExpiredError("submit")
+        if _dhan_error_code(response) == DhanAuthenticationRejectedError.code:
+            raise DhanAuthenticationRejectedError("submit")
         return DhanOrderResponse(
             order_id=None,
             order_status="UNKNOWN",
@@ -587,8 +587,8 @@ def _order_response(response: object) -> DhanOrderResponse:
 def _order_detail(response: object) -> DhanOrderDetail:
     status, remarks, payload = _envelope(response)
     if status != "success":
-        if _dhan_error_code(response) == DhanAuthenticationExpiredError.code:
-            raise DhanAuthenticationExpiredError("reconcile")
+        if _dhan_error_code(response) == DhanAuthenticationRejectedError.code:
+            raise DhanAuthenticationRejectedError("reconcile")
         return DhanOrderDetail(
             order_id=None,
             correlation_id=None,
