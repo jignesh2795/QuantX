@@ -152,6 +152,8 @@ class LiveRiskPositionPnlObservation:
                 type(value) is not Money
                 or type(value.amount) is not Decimal
                 or not value.amount.is_finite()
+                or type(value.currency) is not str
+                or not value.currency.strip()
             ):
                 raise ValueError(f"position P&L {name} must be finite Money")
         if type(self.observed_at) is not datetime:
