@@ -274,7 +274,12 @@ that the published DhanHQ v2 documentation and Dhan Support material describe it
 
 PR #285 adds HMAC-bound supplemental per-position P&L rows. It does not provide
 account/day P&L, a complete account equity value, baseline state, or an
-application-facing account-P&L read service. The sanctioned Dhan authority
+application-facing account-P&L read service. In the current Dhan source,
+`funds.sod_limit` is mapped into `domain.finance.AccountFinancialState.cash_balance`,
+while `funds.available_balance` is mapped into available cash, margin available
+and buying power. These are current funds mappings, not proof that either field
+is net-liquidation equity or that `sodLimit` is a valid session-equity baseline.
+The sanctioned Dhan authority
 still declares `DAILY_PNL`, `EQUITY`, and `HIGH_WATER_MARK` unsupported and
 returns unavailable before invoking the source collector.
 
@@ -369,10 +374,13 @@ session_equity_pnl(t)
 ```
 
 External capital contributions are positive; withdrawals/dispositions are
-negative. This includes both cash movements and non-cash asset transfers into
-or out of the measured account scope, valued at their effective time from
+negative. This includes cash movements and genuine non-cash asset transfers
+into or out of the measured account scope, valued at their effective time from
 explicit evidence. Internal transfers wholly inside the measured scope are
-neutral. Subtracting signed net contributions prevents a deposit or transferred
+neutral. Corporate actions, splits, bonuses, dividends, settlements, IPO
+purchases and product conversions must be reconciled as their own accounting
+events; do not automatically classify them as external contributions. Only
+capital or assets entering/leaving the measured scope are flow adjustments. Subtracting signed net contributions prevents a deposit or transferred
 holding from appearing as trading profit, and a withdrawal or asset transfer
 out from appearing as trading loss. Trade fees, taxes, financing and other
 expenses already reflected in current account equity must not be subtracted a
@@ -471,8 +479,9 @@ following together:
 - one authoritative, timestamped trading-account net-liquidation equity
   including cash, all demat/T1 holdings, open derivative positions, collateral,
   MTF/other liabilities and applicable currency conversion;
-- a complete intraday external-capital-flow feed (including non-cash asset transfers) with an effective time that can
-  be aligned to a live equity snapshot (Ledger only documents a voucher date);
+- a complete intraday external-capital-flow feed, including non-cash asset
+  transfers, with an effective time that can be aligned to a live equity
+  snapshot (Ledger only documents a voucher date);
 - exact session-level semantics for the Positions API's realized/unrealized
   fields and whether these reconcile with Trader's Diary FIFO/speculation P&L;
 - a guaranteed complete instrument/asset mapping and usable fresh mark for
@@ -496,8 +505,11 @@ the Dhan mapping must demonstrate:
 - deposits/withdrawals and internal transfers do not create artificial P&L;
 - trade charges are reflected exactly once;
 - full holdings and positions coverage, including carry-forward and T1 state;
-- partial close, full close, reversal, corporate actions and share transfers
-  do not create discontinuous or double-counted results;
+- partial close, full close and reversal do not create discontinuous or
+  double-counted results;
+- corporate actions, share transfers, IPO allotments and product conversions
+  are classified as in-scope accounting events or external contributions only
+  when source evidence establishes the treatment;
 - stale/future marks, missing pages, unmapped instruments, unknown ledger
   classifications, currency mismatch and absent baseline remain UNKNOWN;
 - profitable realized P&L with a large current session equity loss is rejected
