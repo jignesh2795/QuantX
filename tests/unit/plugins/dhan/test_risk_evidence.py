@@ -920,6 +920,7 @@ def test_collect_preserves_each_broker_reported_position_pnl_row() -> None:
     assert len(collection.observations) == 2
     first, second = collection.observations
     assert first.instrument_id == _instrument().instrument_id
+    assert first.broker_client_id == CLIENT
     assert first.net_quantity == Decimal("10")
     assert first.realized_pnl is not None
     assert first.realized_pnl.amount == Decimal("-12.50")
@@ -1039,6 +1040,7 @@ def test_collect_marks_a_foreign_position_client_as_incomplete() -> None:
         LiveRiskPositionPnlUnavailableReason.POSITION_CLIENT_ID_MISMATCH
         in collection.unavailable_reasons
     )
+    assert collection.observations[0].broker_client_id == "foreign-client"
     assert "position client identity mismatch" in evidence.contradictions
 
 
