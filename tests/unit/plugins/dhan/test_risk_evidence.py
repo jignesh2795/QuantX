@@ -1045,7 +1045,7 @@ def test_collect_marks_a_foreign_position_client_as_incomplete() -> None:
 
 
 def test_collect_marks_an_unavailable_positions_book_not_collected() -> None:
-    source = _source(_RecordingTransport(fail="positions"))
+    source = _source(_RecordingTransport(profile_client_id=CLIENT, fail="positions"))
 
     evidence = source.collect(_request())
 
