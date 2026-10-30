@@ -10,12 +10,14 @@ complete equity, or a high-water mark.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 
 from quantx.application import execution as execution_module
+from quantx.application import live_risk as live_risk_module
 from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrchestrator
 from quantx.application.live_execution import (
     LiveExecutionCompositionError,
@@ -36,7 +38,7 @@ from quantx.domain.deployment import PortfolioId
 from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
-from quantx.domain.instruments import InstrumentId
+from quantx.domain.instruments import InstrumentId, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import (
@@ -47,6 +49,7 @@ from quantx.domain.risk import (
     RiskResult,
     RiskSnapshot,
 )
+from quantx.domain.position_effect import PositionEffect
 from quantx.domain.value_objects import Money, ProductCode
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.persistence.sqlite import (
@@ -670,6 +673,209 @@ def test_authority_rejects_a_market_order_without_a_reference_price(tmp_path) ->
 
         assert result.status is ExecutionDispatchStatus.BLOCKED
         assert "order value cannot be determined" in result.reason
+        _assert_no_submission_side_effects(database, request, broker)
+    finally:
+        database.close()
+
+
+
+# Request-binding mismatches are exercised through the sanctioned composition.
+# Fault injection makes the application-owned intent builder return one
+# contradictory field while keeping the registered fake adapter and complete
+# evidence source legitimate. The authority must reject before reservation.
+
+@pytest.mark.parametrize(
+    "mismatch_dimension",
+    [
+        "instrument",
+        "side",
+        "quantity",
+        "order-type",
+        "limit-price",
+        "account",
+        "portfolio",
+        "broker-connection",
+        "market-context",
+        "market-pack",
+        "rule-version",
+    ],
+)
+def test_built_stack_rejects_a_risk_intent_mismatch_before_submission(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    mismatch_dimension: str,
+) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        source = _source()
+        stack, broker = _live_stack(database, source=source)
+        stack.gate.enable()
+        request = _request()
+        original_builder = live_risk_module._intent_for_request
+
+        def _mismatched_intent(
+            approved: ApprovedExecutionRequest,
+        ) -> TradeIntent | None:
+            intent = original_builder(approved)
+            if intent is None:
+                return None
+            if mismatch_dimension == "instrument":
+                return replace(intent, instrument=InstrumentId("NSE", "INFY"))
+            if mismatch_dimension == "side":
+                return replace(intent, side=OrderSide.SELL)
+            if mismatch_dimension == "quantity":
+                return replace(intent, quantity=Decimal("2"))
+            if mismatch_dimension == "order-type":
+                return replace(intent, order_type=OrderType.MARKET, limit_price=None)
+            if mismatch_dimension == "limit-price":
+                return replace(intent, limit_price=Decimal("101"))
+            if mismatch_dimension == "account":
+                return replace(
+                    intent,
+                    execution_context=replace(
+                        intent.execution_context,
+                        account_id=AccountId("acct-foreign"),
+                    ),
+                )
+            if mismatch_dimension == "portfolio":
+                return replace(
+                    intent,
+                    execution_context=replace(
+                        intent.execution_context,
+                        portfolio_id=PortfolioId("portfolio-foreign"),
+                    ),
+                )
+            if mismatch_dimension == "broker-connection":
+                return replace(
+                    intent,
+                    execution_context=replace(
+                        intent.execution_context,
+                        broker_connection_id=BrokerConnectionId("conn-foreign"),
+                    ),
+                )
+            if mismatch_dimension == "market-context":
+                return replace(
+                    intent,
+                    execution_context=replace(
+                        intent.execution_context,
+                        market=MarketContext(
+                            MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"
+                        ),
+                    ),
+                )
+            if mismatch_dimension == "market-pack":
+                return replace(
+                    intent,
+                    execution_context=replace(
+                        intent.execution_context,
+                        market_pack_id="foreign-pack",
+                    ),
+                )
+            if mismatch_dimension == "rule-version":
+                return replace(
+                    intent,
+                    execution_context=replace(
+                        intent.execution_context,
+                        rule_version="foreign-rules",
+                    ),
+                )
+            raise AssertionError(f"unknown mismatch dimension: {mismatch_dimension}")
+
+        monkeypatch.setattr(
+            live_risk_module, "_intent_for_request", _mismatched_intent
+        )
+        gate_before = stack.gate.state()
+
+        result = stack.orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert _REQUEST in result.reason
+        assert source.calls == 1
+        assert broker.submit_calls == 0
+        assert stack.gate.state() == gate_before
+        _assert_no_submission_side_effects(database, request, broker)
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize(
+    ("mismatch_dimension", "expected_reason"),
+    [
+        ("instrument", _REQUEST),
+        ("market", _REQUEST),
+        ("product", _REQUEST),
+        ("position-effect", _REQUEST),
+        ("market-pack", _REQUEST),
+        ("rule-version", _REQUEST),
+        ("context-account", _IDENTITY),
+        ("context-connection", _IDENTITY),
+        ("snapshot-portfolio", _REQUEST),
+    ],
+)
+def test_built_stack_rejects_mismatched_evidence_context_before_submission(
+    tmp_path,
+    mismatch_dimension: str,
+    expected_reason: str,
+) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        overrides: dict[str, object] = {}
+        if mismatch_dimension == "instrument":
+            overrides["context"] = _live_context(
+                instrument=replace(
+                    _india_instrument(),
+                    instrument_id=InstrumentId("NSE", "INFY"),
+                    symbol="INFY",
+                )
+            )
+        elif mismatch_dimension == "market":
+            overrides["context"] = _live_context(
+                instrument=replace(
+                    _india_instrument(),
+                    market=MarketContext(
+                        MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN"
+                    ),
+                )
+            )
+        elif mismatch_dimension == "product":
+            overrides["context"] = _live_context(product=ProductCode("MIS"))
+        elif mismatch_dimension == "position-effect":
+            overrides["context"] = _live_context(
+                effective_position_effect=PositionEffect.OPEN
+            )
+        elif mismatch_dimension == "market-pack":
+            overrides["context"] = _live_context(market_pack_id="foreign-pack")
+        elif mismatch_dimension == "rule-version":
+            overrides["context"] = _live_context(rule_version="foreign-rules")
+        elif mismatch_dimension == "context-account":
+            overrides["context"] = _live_context(
+                account_id=AccountId("acct-foreign")
+            )
+        elif mismatch_dimension == "context-connection":
+            overrides["context"] = _live_context(
+                broker_connection_id=BrokerConnectionId("conn-foreign")
+            )
+        elif mismatch_dimension == "snapshot-portfolio":
+            overrides["snapshot"] = _snapshot(
+                portfolio_id=PortfolioId("portfolio-foreign")
+            )
+        else:
+            raise AssertionError(f"unknown mismatch dimension: {mismatch_dimension}")
+
+        evidence = _evidence(**overrides)
+        source = _source(evidence_factory=lambda _request: evidence)
+        stack, broker = _live_stack(database, source=source)
+        stack.gate.enable()
+        request = _request()
+        gate_before = stack.gate.state()
+
+        result = stack.orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert expected_reason in result.reason
+        assert source.calls == 1
+        assert broker.submit_calls == 0
+        assert stack.gate.state() == gate_before
         _assert_no_submission_side_effects(database, request, broker)
     finally:
         database.close()
