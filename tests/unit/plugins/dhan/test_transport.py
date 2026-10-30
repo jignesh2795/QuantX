@@ -10,7 +10,7 @@ from quantx.plugins.dhan.mapping import dhan_correlation_id
 from quantx.plugins.dhan.models import DhanCredentials, DhanOrderRequest
 from quantx.plugins.dhan.transport import (
     DhanSDKTransport,
-    DhanAuthenticationExpiredError,
+    DhanAuthenticationRejectedError,
     DhanTimeoutError,
     DhanTransport,
     InMemoryDhanTransport,
@@ -94,9 +94,9 @@ def test_transport_helpers_unwrap_success_and_failure_envelopes() -> None:
         },
         "data": "",
     }
-    with pytest.raises(DhanAuthenticationExpiredError, match="DH-901"):
+    with pytest.raises(DhanAuthenticationRejectedError, match="DH-901"):
         _order_response(auth_failure)
-    with pytest.raises(DhanAuthenticationExpiredError, match="DH-901"):
+    with pytest.raises(DhanAuthenticationRejectedError, match="DH-901"):
         _order_detail(auth_failure)
 
     # Free text is never promoted to typed authentication evidence.
