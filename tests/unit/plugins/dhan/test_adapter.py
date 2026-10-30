@@ -211,7 +211,7 @@ def _adapter(
     transport: InMemoryDhanTransport | None = None,
     *,
     product_map: dict[str, str] | None = _PRODUCT_MAP,
-    credentials_expires_at: datetime | None = None,
+    credentials_expires_at: datetime | None = datetime(2099, 1, 1, tzinfo=UTC),
     minimum_token_lifetime: timedelta = timedelta(minutes=5),
     clock: Clock | None = None,
 ) -> DhanBrokerAdapter:
@@ -624,6 +624,7 @@ def test_market_segment_mismatch_is_rejected() -> None:
         _submit_timeout=5.0,
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
+        _credentials_expires_at=datetime(2099, 1, 1, tzinfo=UTC),
     )
 
     with pytest.raises(ValueError, match="market venue"):
