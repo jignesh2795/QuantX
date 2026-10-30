@@ -399,6 +399,21 @@ def test_credentials_factory_parses_naive_expiry_as_ist_and_hides_token() -> Non
     assert "secret-token" not in repr(credentials)
 
 
+def test_credentials_factory_normalizes_offset_aware_expiry_and_rejects_naive_constructor() -> None:
+    credentials = DhanCredentials.from_token_response(
+        "client",
+        {
+            "dhanClientId": "client",
+            "accessToken": "secret-token",
+            "expiryTime": "2026-10-30T12:00:00+05:30",
+        },
+    )
+
+    assert credentials.expires_at == datetime(2026, 10, 30, 6, 30, tzinfo=UTC)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        DhanCredentials("client", "secret-token", datetime(2026, 10, 30, 12, 0))
+
+
 def test_credentials_factory_rejects_missing_or_malformed_expiry() -> None:
     with pytest.raises(ValueError, match="expiryTime"):
         DhanCredentials.from_token_response("client", {"accessToken": "secret"})
