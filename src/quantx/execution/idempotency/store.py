@@ -425,15 +425,10 @@ class OperatorResolution:
 
 
 class NotSubmittedSource(StrEnum):
-    """True provenance of a definite NOT_SUBMITTED closure.
-
-    Only a trusted adapter's typed preflight rejection can produce this
-    today. The typed source keeps the durable record machine-distinguishable
-    from a human operator closure instead of relying on a sentinel string
-    inside the operator identity.
-    """
+    """True provenance of a definite NOT_SUBMITTED closure."""
 
     ADAPTER_PREFLIGHT_REJECTION = "ADAPTER_PREFLIGHT_REJECTION"
+    ADAPTER_BROKER_REJECTION = "ADAPTER_BROKER_REJECTION"
 
 
 @dataclass(frozen=True, slots=True)
