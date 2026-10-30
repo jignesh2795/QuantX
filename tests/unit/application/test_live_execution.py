@@ -8,6 +8,7 @@ result.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -281,6 +282,40 @@ def _risk_inputs_at(*, observed_at: datetime, claimed_at: datetime):
     return provide
 
 
+class _InjectedGateStateStore:
+    """Small deterministic store for startup composition failure regressions."""
+
+    def __init__(
+        self,
+        *,
+        state: TradingGateState | None = None,
+        load_error: Exception | None = None,
+        save_error: Exception | None = None,
+    ) -> None:
+        self._state = state
+        self._load_error = load_error
+        self._save_error = save_error
+        self.save_calls = 0
+
+    @property
+    def shared_fault_domain(self) -> object:
+        return self
+
+    def load(self) -> TradingGateState | None:
+        if self._load_error is not None:
+            raise self._load_error
+        return self._state
+
+    def save(self, state: TradingGateState) -> None:
+        self.save_calls += 1
+        if self._save_error is not None:
+            raise self._save_error
+        self._state = state
+
+    def synchronize(self) -> AbstractContextManager[None]:
+        return nullcontext()
+
+
 class _RaisingClock(Clock):
     def now(self) -> datetime:
         raise RuntimeError("internal clock failure detail")
@@ -387,6 +422,82 @@ def test_build_disarms_persisted_enabled_gate_on_new_process_start(tmp_path) -> 
         database.close()
 
 
+def test_build_preserves_existing_persisted_block_reason(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        store = SqliteTradingGateStateStore(database)
+        persisted = TradingGateState(enabled=False, reason="operator emergency stop")
+        store.save(persisted)
+
+        stack = build_live_execution(_runtime(database), _config())
+
+        assert store.load() == persisted
+        assert stack.gate.state() == persisted
+        broker = FakeBroker()
+        blocked = stack.orchestrator.execute(_live_request(), broker=broker)
+        assert blocked.status is ExecutionDispatchStatus.BLOCKED
+        assert blocked.reason == "trading is blocked: operator emergency stop"
+        assert broker.submit_calls == 0
+    finally:
+        database.close()
+
+
+def test_build_fails_with_fixed_error_when_gate_state_cannot_be_read(
+    tmp_path, monkeypatch
+) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        injected = _InjectedGateStateStore(load_error=OSError("sensitive store read detail"))
+        monkeypatch.setattr(
+            "quantx.application.live_execution.SqliteTradingGateStateStore",
+            lambda _: injected,
+        )
+
+        with pytest.raises(
+            LiveExecutionCompositionError,
+            match="durable LIVE trading gate could not be initialized safely",
+        ) as raised:
+            build_live_execution(_runtime(database), _config())
+
+        assert "sensitive store read detail" not in str(raised.value)
+        assert injected.save_calls == 0
+        assert SqliteTradingGateStateStore(database).load() is None
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize(
+    "initial_state",
+    (None, TradingGateState(enabled=True, reason="")),
+    ids=("default-state-persist-fails", "startup-disarm-persist-fails"),
+)
+def test_build_fails_with_fixed_error_when_gate_state_cannot_be_persisted(
+    tmp_path, monkeypatch, initial_state: TradingGateState | None
+) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        injected = _InjectedGateStateStore(
+            state=initial_state,
+            save_error=OSError("sensitive store write detail"),
+        )
+        monkeypatch.setattr(
+            "quantx.application.live_execution.SqliteTradingGateStateStore",
+            lambda _: injected,
+        )
+
+        with pytest.raises(
+            LiveExecutionCompositionError,
+            match="durable LIVE trading gate could not be initialized safely",
+        ) as raised:
+            build_live_execution(_runtime(database), _config())
+
+        assert "sensitive store write detail" not in str(raised.value)
+        assert injected.save_calls == 1
+        assert SqliteTradingGateStateStore(database).load() is None
+    finally:
+        database.close()
+
+
 def test_built_stack_is_disarmed_and_blocks_a_valid_live_request(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
@@ -400,6 +511,7 @@ def test_built_stack_is_disarmed_and_blocks_a_valid_live_request(tmp_path) -> No
         assert result.status is ExecutionDispatchStatus.BLOCKED
         assert result.reason.startswith("trading is blocked")
         assert stack.gate.state().enabled is False
+        assert stack.gate.state().reason == "LIVE gate disarmed for new process start"
         assert broker.submit_calls == 0
         assert SqliteTradingGateStateStore(database).load() == stack.gate.state()
         assert (
