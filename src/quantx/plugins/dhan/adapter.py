@@ -46,7 +46,7 @@ from .mapping import (
 from .models import DhanInstrumentRef, DhanOrderDetail, DhanPositionSnapshot
 from .risk_evidence import DhanRiskEvidenceSource
 from .session import (
-    DhanAuthenticationExpiredError,
+    DhanAuthenticationRejectedError,
     DhanTokenLifetimeError,
     require_minimum_token_lifetime,
 )
@@ -274,7 +274,7 @@ class DhanBrokerAdapter:
             ) from exc
         try:
             response = self._transport.submit(wire, timeout=self._submit_timeout)
-        except DhanAuthenticationExpiredError as exc:
+        except DhanAuthenticationRejectedError as exc:
             raise BrokerSubmissionRejected(str(exc)) from exc
         except DhanTimeoutError as exc:
             return self._unknown_receipt(request, f"Dhan submit timed out after {exc.timeout}s")
@@ -304,7 +304,7 @@ class DhanBrokerAdapter:
             response = self._transport.cancel(
                 dhan_correlation_id(request.correlation_id), timeout=self._cancel_timeout
             )
-        except DhanAuthenticationExpiredError as exc:
+        except DhanAuthenticationRejectedError as exc:
             return self._unknown_receipt(
                 request,
                 f"authentication expired ({exc.code}); cancel outcome remains UNKNOWN",
@@ -337,7 +337,7 @@ class DhanBrokerAdapter:
             detail = self._transport.reconcile(
                 dhan_correlation_id(request.correlation_id), timeout=self._reconcile_timeout
             )
-        except DhanAuthenticationExpiredError as exc:
+        except DhanAuthenticationRejectedError as exc:
             return self._unknown_receipt(
                 request,
                 f"authentication expired ({exc.code}); reconciliation unavailable",
