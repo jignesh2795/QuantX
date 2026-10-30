@@ -439,18 +439,15 @@ class LiveRiskEvidenceAuthority:
             raise TypeError(_TRUST_REQUIRED_REASON)
         if not isinstance(registry, AccountConnectionRegistry):
             raise TypeError(_REGISTRY_REQUIRED_REASON)
-        if not catalog.verify(grant):
-            raise TypeError(_TRUST_REQUIRED_REASON)
         if not isinstance(clock, Clock):
             raise TypeError("LIVE risk evidence authority requires a Clock")
         binding = grant.binding
         registered = registry.get(binding.broker_connection_id)
         if registered is None or not registered.enabled:
             raise TypeError(_REGISTRY_REQUIRED_REASON)
-        if (
-            registered.ref.account_id != binding.account_id
-            or registered.ref.broker_id != grant.broker_id
-        ):
+        if not catalog.verify_for_registered(grant, registered):
+            raise TypeError(_TRUST_REQUIRED_REASON)
+        if registered.ref.account_id != binding.account_id:
             raise TypeError(_REGISTRY_REQUIRED_REASON)
         self._grant = grant
         self._catalog = catalog
