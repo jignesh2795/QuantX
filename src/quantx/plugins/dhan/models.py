@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
-from zoneinfo import ZoneInfo
 
 DhanPayload = Mapping[str, Any]
 
@@ -70,7 +69,10 @@ def _parse_token_expiry(value: object) -> datetime:
     else:
         raise ValueError("Dhan token response must contain expiryTime")
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+        # IST is fixed at UTC+05:30; avoid requiring an operating-system
+        # IANA timezone database (not present by default on Windows).
+        india_standard_time = timezone(timedelta(hours=5, minutes=30))
+        parsed = parsed.replace(tzinfo=india_standard_time)
     return parsed.astimezone(UTC)
 
 
