@@ -14,7 +14,6 @@ from typing import Protocol, runtime_checkable
 from zoneinfo import ZoneInfo
 
 from .mapping import decimal_field, extract_filled_quantity, parse_dhan_timestamp
-from .session import DhanAuthenticationRejectedError
 from .models import (
     DhanCandleSnapshot,
     DhanCredentials,
@@ -30,6 +29,7 @@ from .models import (
     DhanProfileSnapshot,
     DhanQuoteSnapshot,
 )
+from .session import DhanAuthenticationRejectedError
 
 
 class DhanTimeoutError(Exception):
