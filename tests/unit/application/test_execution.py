@@ -2646,7 +2646,7 @@ def test_preflight_rejection_is_typed_not_submitted_without_operator_record() ->
 
 def test_authoritative_broker_rejection_is_typed_not_submitted() -> None:
     """A broker protocol rejection is distinct from pre-transport preflight."""
-    
+
     class BrokerRejectingBroker(FakeBroker):
         def submit(self, request):
             self.submit_calls += 1
