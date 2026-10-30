@@ -1435,11 +1435,11 @@ class ExecutionOrchestrator:
             )
 
         # Broker call happens OUTSIDE the trading-gate lock.
-        # Timeout is enforced by the broker adapter; any timeout/exception
-        # produces UNKNOWN outcome, never REJECTED, and no automatic retry.
-        # A typed preflight rejection proves the trusted adapter entered no
-        # transport I/O (NOT_SUBMITTED); every other failure after admission
-        # stays SUBMISSION_UNKNOWN and is never retried automatically.
+        # A typed preflight rejection proves no transport I/O occurred; an
+        # exact typed broker rejection proves a documented pre-acceptance
+        # response after transport I/O. Both close as typed NOT_SUBMITTED.
+        # Every other post-admission failure remains SUBMISSION_UNKNOWN and
+        # is never retried automatically.
         try:
             receipt = broker.submit(request)
         except BrokerPreflightRejected as exc:
