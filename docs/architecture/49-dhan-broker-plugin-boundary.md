@@ -132,8 +132,9 @@ The positions response also carries `realizedProfit` and `unrealizedProfit`
 on individual position rows. QuantX preserves those values in the supplemental
 `LiveRiskPositionPnlCollection`, separate from `LiveRiskEvidenceField` and
 the `RiskSnapshot`. Each row retains its canonical instrument mapping when
-available, signed quantity, optional product/position labels, both broker-
-reported P&L amounts, the positions-response observation instant, and explicit
+available, signed quantity, optional broker client id and product/position
+labels, both broker-reported P&L amounts, the positions-response observation
+instant, and explicit
 `BROKER_REPORTED` provenance. A missing/non-finite P&L value, unmapped row,
 foreign row client id, or unavailable positions book marks the collection
 incomplete; rows are not silently dropped to create a complete subset. An
