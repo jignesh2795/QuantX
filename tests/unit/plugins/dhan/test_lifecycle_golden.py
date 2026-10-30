@@ -9,6 +9,7 @@ path. Outcome and status are asserted as distinct dimensions.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.domain.accounts import AccountId, BrokerConnectionId
@@ -132,6 +133,7 @@ def _adapter(transport: DhanTransport) -> DhanBrokerAdapter:
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
         _product_map={"CNC": "CNC"},
+        _credentials_expires_at=datetime(2099, 1, 1, tzinfo=UTC),
     )
 
 
