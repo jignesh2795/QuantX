@@ -1,7 +1,22 @@
 # QuantX Status
 
 
-## Current work-program reconciliation — 2026-10-27
+## Current work-program reconciliation — 2026-10-30
+
+The active cross-workstream priority order remains in the [master work programme](planning/quantx-work-program-2026-10.md). This status file records the implemented state and exact-SHA evidence.
+
+- **P0.1 / #239, P0.2 / #240 and P0.3 / #241:** fixed and merged. Do not reimplement without a newly reproduced defect.
+- **QX-04 / #193, QX-05 / #194, QX-07 / #181, QX-08 / #196 and QX-09 / #197:** implementation recorded as merged/completed. QX-07 Slices 1, 2A and 2B landed in PRs #257, #259 and #261.
+- **LIVE trusted-clock slice / PR #281:** merged; it does not establish risk-evidence provenance. **Supplemental Dhan position P&L evidence / PR #285:** merged at `6daaa481854fe412bb2582e46d6312c6738d0ba8` from validated feature head `a95d29d88d539632fd9b9792f38e6b9c79ab29ad`. PR #285 preserves broker-reported position-row P&L as supplemental HMAC-bound evidence; it does not derive account/day P&L, equity or high-water mark, nor unblock LIVE.
+- **Issue #267 remains open.** The Dhan source still does not support required account-level `DAILY_PNL`; `authoritative_evidence_available` therefore remains false and the sanctioned authority returns before invoking source collection. The new row collection is not yet an application-facing P&L read service. Public LIVE dispatch remains blocked before reservation and broker submission. #266 accounting semantics and #269 broker-probe validation remain separate follow-up work.
+- **QX-12 / #200:** the India charges design and evidence notes are recorded under `docs/planning/`; implementation remains gated on unresolved GST/stamp-duty rate applicability.
+- **Global-market comparison and crypto extension:** remain proposals on separate unmerged docs branches; their existence does not establish audit completion, connector support, or LIVE eligibility.
+
+**PR #285 validation at exact feature head `a95d29d88d539632fd9b9792f38e6b9c79ab29ad` (base `ff46a3626e4a40bc890521554bd97a1af259df69`):** default locked configuration 3,250 passed / 2 skipped; Dhan-enabled locked configuration 3,252 passed / 0 skipped; focused Dhan risk-evidence and application authority tests 146 passed. Changed-file Ruff check and format passed for 5 Python files; strict mypy and diff checks passed; both local release gates passed. Validation was performed before squash merge, on the exact feature head; it is not a claim about authenticated runner attestation or production behavior. The four local JSON reports were retained under `%LOCALAPPDATA%\\Temp\\quantx-validation\\pr285-a95d29d\\`.
+
+This status reconciliation is documentation-only. It did not run tests or CI, call a broker, run a sandbox, or perform a LIVE operation. The PR #285 validation above belongs to its exact feature head and is not attributed to this documentation commit.
+
+## Historical work-program reconciliation — 2026-10-27
 
 The active cross-workstream priority order is maintained in the [master work programme](planning/quantx-work-program-2026-10.md). Use it with GitHub's individual issue acceptance criteria; this file remains the implementation and exact-SHA evidence ledger.
 
@@ -363,6 +378,49 @@ remains open, and this slice does not establish LIVE readiness or authoritative
 Dhan risk evidence. The documentation commit that records these results changes
 HEAD and is validated separately at its own final SHA; the counts above are not
 evidence for that later commit.
+
+## Issue #267 — Supplemental row-level position P&L evidence (PR #285; 2026-10-30)
+
+PR #285 (`feat/issue267-position-pnl-evidence-v1`) was squash-merged as
+`6daaa481854fe412bb2582e46d6312c6738d0ba8`; its validated feature head was
+`a95d29d88d539632fd9b9792f38e6b9c79ab29ad`, based on
+`ff46a3626e4a40bc890521554bd97a1af259df69`.
+
+The neutral application evidence contract now includes immutable
+`LiveRiskPositionPnlObservation` rows and a
+`LiveRiskPositionPnlCollection`. The Dhan source preserves each available
+positions-response row's signed finite Decimal quantity, canonical instrument
+mapping when known, optional client id and product/position labels, broker-
+reported realized/unrealized P&L, response observation instant, and provenance.
+Missing/non-finite values, unmapped rows, foreign client ids, and an unavailable
+positions book remain explicitly incomplete; an available empty response is
+not account P&L zero. The application HMAC digest binds the complete collection
+using canonical JSON serialization. A regression pins the newline-delimiter
+collision that was found during independent review.
+
+**Integration boundary:** this remains supplemental source-level collection
+groundwork. It does not add a separate application-facing read/report API. The
+Dhan source still lacks required account-level `DAILY_PNL`, so
+`LiveRiskEvidenceAuthority.authoritative_evidence_available` remains false
+and `admit()` returns before calling `DhanRiskEvidenceSource.collect()` in the
+sanctioned LIVE path. The row collection is therefore not yet available to an
+application consumer through that path. PR #285 does not derive account/day
+P&L from position rows, compute equity/high-water mark, change mandatory risk
+fields, or unblock LIVE. Issue #267 remains open.
+
+**Exact feature-head validation:** default configuration 3,250 passed, 2
+skipped; Dhan-enabled configuration 3,252 passed; focused regressions 146
+passed. Changed-file Ruff check/format, strict mypy, diff checks, both producer
+runs, and both release gates passed. Reports:
+`validation-default.json`, `validation-dhan.json`,
+`release-check-default.json`, and `release-check-dhan.json` under
+`%LOCALAPPDATA%\\Temp\\quantx-validation\\pr285-a95d29d\\`.
+
+Non-claims: local editable evidence, no GitHub Actions or paid CI, no
+authenticated Dhan session or production broker call, no production-broker
+correctness claim, and no LIVE operation. The validation does not establish
+production readiness or LIVE safety.
+
 
 ## LIVE trusted clock for risk freshness — slice B (2026-10-24)
 
