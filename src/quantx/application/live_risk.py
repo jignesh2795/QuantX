@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -60,6 +61,7 @@ from .live_risk_evidence import (
     LiveRiskEvidenceField,
     LiveRiskEvidenceObservation,
     LiveRiskEvidenceSource,
+    LiveRiskPositionPnlCollection,
     required_live_risk_evidence_fields,
 )
 from .live_risk_sources import (
@@ -94,6 +96,9 @@ class LiveRiskEvaluationInputs:
     context: RiskContext
     snapshot: RiskSnapshot
     claimed_evaluated_at: datetime
+    position_pnl_collection: LiveRiskPositionPnlCollection = field(
+        default_factory=LiveRiskPositionPnlCollection.not_collected
+    )
 
 
 def _utc_instant(value: object) -> datetime | None:
@@ -311,12 +316,68 @@ def _resolution_digest(value: InstrumentResolution | None) -> str:
     return repr(value.identity_payload())
 
 
+def _position_pnl_collection_digest(collection: LiveRiskPositionPnlCollection) -> str:
+    """Digest supplemental row evidence with unambiguous structured serialization."""
+    payload = {
+        "schema": "quantx.live-risk-position-pnl.v1",
+        "observed_at": (
+            _instant_digest(collection.observed_at) if collection.observed_at is not None else None
+        ),
+        "complete": collection.complete,
+        "unavailable_reasons": [reason.value for reason in collection.unavailable_reasons],
+        "observations": [
+            {
+                "source_position_key": observation.source_position_key,
+                "broker_client_id": observation.broker_client_id,
+                "instrument_id": (
+                    {
+                        "venue": observation.instrument_id.venue,
+                        "symbol": observation.instrument_id.symbol,
+                    }
+                    if observation.instrument_id is not None
+                    else None
+                ),
+                "net_quantity": _decimal_digest(observation.net_quantity),
+                "product_type": observation.product_type,
+                "position_type": observation.position_type,
+                "realized_pnl": (
+                    {
+                        "amount": canonical_decimal(observation.realized_pnl.amount),
+                        "currency": observation.realized_pnl.currency,
+                    }
+                    if observation.realized_pnl is not None
+                    else None
+                ),
+                "unrealized_pnl": (
+                    {
+                        "amount": canonical_decimal(observation.unrealized_pnl.amount),
+                        "currency": observation.unrealized_pnl.currency,
+                    }
+                    if observation.unrealized_pnl is not None
+                    else None
+                ),
+                "observed_at": _instant_digest(observation.observed_at),
+                "provenance": observation.provenance.value,
+            }
+            for observation in collection.observations
+        ],
+    }
+    canonical_payload = json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+
+
 def _inputs_digest(client_order_id: UUID, inputs: LiveRiskEvaluationInputs) -> str:
     """Canonical digest binding one authorization to the exact inputs it minted."""
     intent = inputs.intent
     context = inputs.context
     snapshot = inputs.snapshot
     financial = context.financial_state
+    position_pnl_digest = _position_pnl_collection_digest(inputs.position_pnl_collection)
     parts = [
         f"client_order_id={client_order_id}",
         f"intent_id={intent.intent_id}",
@@ -365,6 +426,7 @@ def _inputs_digest(client_order_id: UUID, inputs: LiveRiskEvaluationInputs) -> s
         f"snapshot_portfolio_id={snapshot.portfolio_id}",
         f"snapshot_connection={snapshot.broker_connection_id}",
         f"claimed_at={_instant_digest(inputs.claimed_evaluated_at)}",
+        f"position_pnl_collection={position_pnl_digest}",
     ]
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
@@ -549,6 +611,7 @@ class LiveRiskEvidenceAuthority:
             context=context,
             snapshot=stamped,
             claimed_evaluated_at=captured_at,
+            position_pnl_collection=evidence.position_pnl_collection,
         )
         if not _risk_inputs_match_request(request, inputs):
             return RiskResult(RiskDecision.REJECT, _EVIDENCE_REQUEST_REASON)
@@ -562,6 +625,11 @@ class LiveRiskEvidenceAuthority:
     ) -> bool:
         """Prove the authorization was minted by this authority for these inputs."""
         if type(authorization) is not LiveRiskEvidenceAuthorization:
+            return False
+        if (
+            type(inputs) is not LiveRiskEvaluationInputs
+            or type(inputs.position_pnl_collection) is not LiveRiskPositionPnlCollection
+        ):
             return False
         if type(authorization.client_order_id) is not UUID:
             return False

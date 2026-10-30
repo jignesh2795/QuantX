@@ -21,6 +21,7 @@ from typing import Protocol, runtime_checkable
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.risk import RiskContext, RiskLimits, RiskSnapshot
+from quantx.domain.value_objects import InstrumentId, Money
 
 
 class LiveRiskEvidenceField(StrEnum):
@@ -88,6 +89,148 @@ class LiveRiskEvidenceObservation:
             raise ValueError("risk evidence observation instant must be timezone-aware")
 
 
+class LiveRiskPositionPnlProvenance(StrEnum):
+    """Origin of a row-level position P&L value."""
+
+    BROKER_REPORTED = "broker_reported"
+
+
+class LiveRiskPositionPnlUnavailableReason(StrEnum):
+    """Why a position P&L collection cannot be treated as complete."""
+
+    NOT_COLLECTED = "not_collected"
+    POSITION_BOOK_UNAVAILABLE = "position_book_unavailable"
+    POSITION_INSTRUMENT_UNMAPPED = "position_instrument_unmapped"
+    POSITION_QUANTITY_UNAVAILABLE = "position_quantity_unavailable"
+    POSITION_REALIZED_PNL_UNAVAILABLE = "position_realized_pnl_unavailable"
+    POSITION_UNREALIZED_PNL_UNAVAILABLE = "position_unrealized_pnl_unavailable"
+    POSITION_CLIENT_ID_MISMATCH = "position_client_id_mismatch"
+
+
+@dataclass(frozen=True, slots=True)
+class LiveRiskPositionPnlObservation:
+    """One broker-reported position row, not an account-level P&L value.
+
+    source_position_key is unique only within the collected batch. It is an
+    opaque row reference, not a durable position identity. An unmapped row is
+    retained with instrument_id=None so a later consumer cannot mistake a
+    partial mapped set for the complete position book.
+    """
+
+    source_position_key: str
+    broker_client_id: str | None
+    instrument_id: InstrumentId | None
+    net_quantity: Decimal | None
+    product_type: str | None
+    position_type: str | None
+    realized_pnl: Money | None
+    unrealized_pnl: Money | None
+    observed_at: datetime
+    provenance: LiveRiskPositionPnlProvenance = LiveRiskPositionPnlProvenance.BROKER_REPORTED
+
+    def __post_init__(self) -> None:
+        if type(self.source_position_key) is not str or not self.source_position_key.strip():
+            raise ValueError("position P&L source key must not be empty")
+        if self.broker_client_id is not None and (
+            type(self.broker_client_id) is not str or not self.broker_client_id.strip()
+        ):
+            raise ValueError("position P&L broker client id must be non-empty when present")
+        if self.instrument_id is not None and type(self.instrument_id) is not InstrumentId:
+            raise ValueError("position P&L instrument id must be canonical")
+        if self.net_quantity is not None and (
+            type(self.net_quantity) is not Decimal or not self.net_quantity.is_finite()
+        ):
+            raise ValueError("position P&L net quantity must be a finite Decimal")
+        for name in ("product_type", "position_type"):
+            value = getattr(self, name)
+            if value is not None and (type(value) is not str or not value.strip()):
+                raise ValueError(f"position P&L {name} must be non-empty when present")
+        for name in ("realized_pnl", "unrealized_pnl"):
+            value = getattr(self, name)
+            if value is not None and (
+                type(value) is not Money
+                or type(value.amount) is not Decimal
+                or not value.amount.is_finite()
+                or type(value.currency) is not str
+                or not value.currency.strip()
+            ):
+                raise ValueError(f"position P&L {name} must be finite Money")
+        if type(self.observed_at) is not datetime:
+            raise ValueError("position P&L observation instant must be a datetime")
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("position P&L observation instant must be timezone-aware")
+        if type(self.provenance) is not LiveRiskPositionPnlProvenance:
+            raise ValueError("position P&L provenance must be explicit")
+
+
+@dataclass(frozen=True, slots=True)
+class LiveRiskPositionPnlCollection:
+    """Captured rows from one positions endpoint response.
+
+    complete means every row returned by that positions response was retained,
+    canonically mapped, and supplied finite quantity, realized P&L, and
+    unrealized P&L values. It does not mean account/day P&L completeness: the
+    endpoint may not include closed trades, holdings, or a session baseline.
+    An available empty response is a complete collection of zero rows, not a
+    statement that account P&L is zero.
+    """
+
+    observed_at: datetime | None
+    observations: tuple[LiveRiskPositionPnlObservation, ...] = ()
+    unavailable_reasons: tuple[LiveRiskPositionPnlUnavailableReason, ...] = (
+        LiveRiskPositionPnlUnavailableReason.NOT_COLLECTED,
+    )
+
+    def __post_init__(self) -> None:
+        if self.observed_at is not None:
+            if type(self.observed_at) is not datetime:
+                raise ValueError("position P&L collection instant must be a datetime")
+            if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+                raise ValueError("position P&L collection instant must be timezone-aware")
+        if type(self.observations) is not tuple or any(
+            type(value) is not LiveRiskPositionPnlObservation for value in self.observations
+        ):
+            raise ValueError("position P&L observations must be an immutable typed tuple")
+        if type(self.unavailable_reasons) is not tuple or any(
+            type(value) is not LiveRiskPositionPnlUnavailableReason
+            for value in self.unavailable_reasons
+        ):
+            raise ValueError("position P&L unavailable reasons must be typed")
+        if len(set(self.unavailable_reasons)) != len(self.unavailable_reasons):
+            raise ValueError("position P&L unavailable reasons must be unique")
+        source_keys = tuple(value.source_position_key for value in self.observations)
+        if len(set(source_keys)) != len(source_keys):
+            raise ValueError("position P&L source keys must be unique within a batch")
+        if self.observed_at is None and self.observations:
+            raise ValueError("position P&L rows require a collection instant")
+        if self.observed_at is None and not self.unavailable_reasons:
+            raise ValueError("an unavailable position P&L collection requires a reason")
+        if any(value.observed_at != self.observed_at for value in self.observations):
+            raise ValueError("position P&L rows must share the collection instant")
+        if not self.unavailable_reasons and any(
+            value.instrument_id is None
+            or value.net_quantity is None
+            or value.realized_pnl is None
+            or value.unrealized_pnl is None
+            for value in self.observations
+        ):
+            raise ValueError("a complete position P&L collection requires every row field")
+
+    @property
+    def complete(self) -> bool:
+        """Whether this batch is complete for its returned rows only."""
+        return self.observed_at is not None and not self.unavailable_reasons
+
+    @classmethod
+    def not_collected(cls) -> LiveRiskPositionPnlCollection:
+        """Create the explicit default for evidence sources with no P&L batch."""
+        return cls(
+            observed_at=None,
+            observations=(),
+            unavailable_reasons=(LiveRiskPositionPnlUnavailableReason.NOT_COLLECTED,),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class LiveRiskEvidence:
     """One source's evidence candidate before application-owned validation.
@@ -112,6 +255,13 @@ class LiveRiskEvidence:
     unavailable_fields: tuple[LiveRiskEvidenceField, ...] = ()
     contradictions: tuple[str, ...] = ()
     message: str = ""
+    position_pnl_collection: LiveRiskPositionPnlCollection = field(
+        default_factory=LiveRiskPositionPnlCollection.not_collected
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.position_pnl_collection) is not LiveRiskPositionPnlCollection:
+            raise ValueError("position P&L collection must use the neutral evidence contract")
 
 
 @runtime_checkable

@@ -29,6 +29,9 @@ from quantx.application.live_risk_evidence import (
     LiveRiskEvidence,
     LiveRiskEvidenceField,
     LiveRiskEvidenceObservation,
+    LiveRiskPositionPnlCollection,
+    LiveRiskPositionPnlObservation,
+    LiveRiskPositionPnlUnavailableReason,
 )
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.enums import OrderType
@@ -177,6 +180,7 @@ class DhanRiskEvidenceSource:
         contradictions: list[str] = []
 
         financial_state = self._financial_state(funds, observations, unavailable, contradictions)
+        position_pnl_collection = self._position_pnl_collection(positions)
         exposure = self._exposures(
             request,
             instrument,
@@ -231,6 +235,7 @@ class DhanRiskEvidenceSource:
             snapshot=snapshot,
             observations=observations,
             reference_price=_reference_price(request),
+            position_pnl_collection=position_pnl_collection,
             unavailable_fields=tuple(field for field in _ALL_FIELDS if field in unavailable),
             contradictions=tuple(contradictions),
             message="Dhan risk evidence collected",
@@ -392,6 +397,69 @@ class DhanRiskEvidenceSource:
             holding_map[instrument_ref.security_id] = instrument
         return position_map, holding_map
 
+    def _position_pnl_collection(
+        self, positions: DhanPositionsSnapshot | None
+    ) -> LiveRiskPositionPnlCollection:
+        """Preserve each broker-reported P&L row without deriving account semantics."""
+        if positions is None or not positions.available:
+            return LiveRiskPositionPnlCollection(
+                observed_at=None,
+                observations=(),
+                unavailable_reasons=(
+                    LiveRiskPositionPnlUnavailableReason.POSITION_BOOK_UNAVAILABLE,
+                ),
+            )
+
+        position_map, _ = self._reverse_maps()
+        reasons: set[LiveRiskPositionPnlUnavailableReason] = set()
+        observations: list[LiveRiskPositionPnlObservation] = []
+        for index, position in enumerate(positions.positions):
+            instrument = position_map.get((position.security_id, position.exchange_segment))
+            if instrument is None:
+                reasons.add(LiveRiskPositionPnlUnavailableReason.POSITION_INSTRUMENT_UNMAPPED)
+            if position.client_id is not None and position.client_id != self.broker_client_id:
+                reasons.add(LiveRiskPositionPnlUnavailableReason.POSITION_CLIENT_ID_MISMATCH)
+
+            quantity = (
+                position.net_quantity
+                if type(position.net_quantity) is Decimal and position.net_quantity.is_finite()
+                else None
+            )
+            if quantity is None:
+                reasons.add(LiveRiskPositionPnlUnavailableReason.POSITION_QUANTITY_UNAVAILABLE)
+
+            realized_pnl = _pnl_money(position.realized_profit)
+            if realized_pnl is None:
+                reasons.add(LiveRiskPositionPnlUnavailableReason.POSITION_REALIZED_PNL_UNAVAILABLE)
+
+            unrealized_pnl = _pnl_money(position.unrealized_profit)
+            if unrealized_pnl is None:
+                reasons.add(
+                    LiveRiskPositionPnlUnavailableReason.POSITION_UNREALIZED_PNL_UNAVAILABLE
+                )
+
+            observations.append(
+                LiveRiskPositionPnlObservation(
+                    source_position_key=(
+                        f"{index}:{position.exchange_segment}:{position.security_id}"
+                    ),
+                    broker_client_id=_optional_text(position.client_id),
+                    instrument_id=instrument.instrument_id if instrument is not None else None,
+                    net_quantity=quantity,
+                    product_type=_optional_text(position.product_type),
+                    position_type=_optional_text(position.position_type),
+                    realized_pnl=realized_pnl,
+                    unrealized_pnl=unrealized_pnl,
+                    observed_at=positions.observed_at,
+                )
+            )
+
+        return LiveRiskPositionPnlCollection(
+            observed_at=positions.observed_at,
+            observations=tuple(observations),
+            unavailable_reasons=tuple(sorted(reasons, key=lambda reason: reason.value)),
+        )
+
     def _requested_exposure(
         self,
         instrument: Instrument,
@@ -482,6 +550,19 @@ def _reference_price(request: ApprovedExecutionRequest) -> Decimal | None:
     if order.order_type in {OrderType.LIMIT, OrderType.STOP_LIMIT}:
         return order.limit_price
     return None
+
+
+def _pnl_money(value: Decimal | None) -> Money | None:
+    """Preserve a finite broker-reported P&L amount, including negative values."""
+    if type(value) is not Decimal or not value.is_finite():
+        return None
+    return Money(value, "INR")
+
+
+def _optional_text(value: str | None) -> str | None:
+    if type(value) is not str or not value.strip():
+        return None
+    return value.strip()
 
 
 def _usable_money(value: Decimal | None) -> bool:
