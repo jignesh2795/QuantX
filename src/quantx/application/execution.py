@@ -837,7 +837,8 @@ class ExecutionOrchestrator:
                         ExecutionResult(
                             ExecutionDispatchStatus.BLOCKED,
                             reason=(
-                                "LIVE composition broker differs from the evidence-authority adapter"
+                                "LIVE composition broker differs from the "
+                                "evidence-authority adapter"
                             ),
                         ),
                         check_entries,
