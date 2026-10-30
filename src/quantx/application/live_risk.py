@@ -321,9 +321,7 @@ def _position_pnl_collection_digest(collection: LiveRiskPositionPnlCollection) -
     payload = {
         "schema": "quantx.live-risk-position-pnl.v1",
         "observed_at": (
-            _instant_digest(collection.observed_at)
-            if collection.observed_at is not None
-            else None
+            _instant_digest(collection.observed_at) if collection.observed_at is not None else None
         ),
         "complete": collection.complete,
         "unavailable_reasons": [reason.value for reason in collection.unavailable_reasons],
