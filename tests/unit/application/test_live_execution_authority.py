@@ -38,7 +38,7 @@ from quantx.domain.deployment import PortfolioId
 from quantx.domain.enums import OrderSide, OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
-from quantx.domain.instruments import InstrumentId, MarketContext, MarketFamily, MarketRegion
+from quantx.domain.instruments import Instrument, InstrumentId, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.position_effect import PositionEffect
@@ -114,7 +114,9 @@ def _financial() -> AccountFinancialState:
     )
 
 
-def _live_context(**overrides) -> RiskContext:
+def _live_context(
+    *, instrument: Instrument | None = None, **overrides
+) -> RiskContext:
     values: dict = {
         "reference_price": Decimal("100"),
         "product": ProductCode("CNC"),
@@ -125,7 +127,8 @@ def _live_context(**overrides) -> RiskContext:
         "broker_connection_id": CONNECTION,
     }
     values.update(overrides)
-    return RiskContext(_india_instrument(), _financial(), **values)
+    selected_instrument = instrument if instrument is not None else _india_instrument()
+    return RiskContext(selected_instrument, _financial(), **values)
 
 
 def _snapshot(**overrides) -> RiskSnapshot:
