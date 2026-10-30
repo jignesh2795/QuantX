@@ -192,6 +192,9 @@ class LiveRiskPositionPnlCollection:
             raise ValueError("position P&L unavailable reasons must be typed")
         if len(set(self.unavailable_reasons)) != len(self.unavailable_reasons):
             raise ValueError("position P&L unavailable reasons must be unique")
+        source_keys = tuple(value.source_position_key for value in self.observations)
+        if len(set(source_keys)) != len(source_keys):
+            raise ValueError("position P&L source keys must be unique within a batch")
         if self.observed_at is None and self.observations:
             raise ValueError("position P&L rows require a collection instant")
         if self.observed_at is None and not self.unavailable_reasons:
