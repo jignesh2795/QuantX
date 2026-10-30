@@ -119,6 +119,7 @@ class LiveRiskPositionPnlObservation:
     """
 
     source_position_key: str
+    broker_client_id: str | None
     instrument_id: InstrumentId | None
     net_quantity: Decimal | None
     product_type: str | None
@@ -131,6 +132,10 @@ class LiveRiskPositionPnlObservation:
     def __post_init__(self) -> None:
         if type(self.source_position_key) is not str or not self.source_position_key.strip():
             raise ValueError("position P&L source key must not be empty")
+        if self.broker_client_id is not None and (
+            type(self.broker_client_id) is not str or not self.broker_client_id.strip()
+        ):
+            raise ValueError("position P&L broker client id must be non-empty when present")
         if self.instrument_id is not None and type(self.instrument_id) is not InstrumentId:
             raise ValueError("position P&L instrument id must be canonical")
         if self.net_quantity is not None and (
