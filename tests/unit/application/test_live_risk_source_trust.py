@@ -204,15 +204,15 @@ def test_authority_has_no_source_instance_parameter() -> None:
 # The reported bypass cannot get past its own first step.
 
 
-def test_the_published_catalog_bypass_cannot_be_reconstructed(tmp_path) -> None:
-    """A caller-owned catalog with a fabricated ``dhan`` builder cannot exist."""
+def test_published_catalog_bypass_is_closed_at_public_composition_boundary(tmp_path) -> None:
+    """The supported public composition API cannot inject a caller-owned catalog."""
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
         source = _source()
 
-        # 1. No caller can mint a catalog that sanctions a fabricated builder
-        #    labelled with the legitimate broker id.
-        with pytest.raises(TypeError, match="created only by the application"):
+        # 1. The public constructor rejects an untrusted token. This is API
+        #    encapsulation, not protection from arbitrary in-process Python code.
+        with pytest.raises(TypeError, match="application construction token"):
             LiveRiskEvidenceSourceCatalog(
                 builders=(object(),),  # type: ignore[arg-type]
                 token=object(),
