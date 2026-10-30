@@ -317,8 +317,13 @@ def _resolution_digest(value: InstrumentResolution | None) -> str:
 
 def _position_pnl_collection_digest(collection: LiveRiskPositionPnlCollection) -> str:
     """Digest the optional row-level broker P&L evidence without redefining risk fields."""
+    observed_at = (
+        _instant_digest(collection.observed_at)
+        if collection.observed_at is not None
+        else "none"
+    )
     parts = [
-        f"observed_at={_instant_digest(collection.observed_at) if collection.observed_at else 'none'}",
+        f"observed_at={observed_at}",
         f"complete={collection.complete}",
         f"unavailable_reasons={[reason.value for reason in collection.unavailable_reasons]}",
     ]
@@ -362,6 +367,7 @@ def _inputs_digest(client_order_id: UUID, inputs: LiveRiskEvaluationInputs) -> s
     context = inputs.context
     snapshot = inputs.snapshot
     financial = context.financial_state
+    position_pnl_digest = _position_pnl_collection_digest(inputs.position_pnl_collection)
     parts = [
         f"client_order_id={client_order_id}",
         f"intent_id={intent.intent_id}",
@@ -410,7 +416,7 @@ def _inputs_digest(client_order_id: UUID, inputs: LiveRiskEvaluationInputs) -> s
         f"snapshot_portfolio_id={snapshot.portfolio_id}",
         f"snapshot_connection={snapshot.broker_connection_id}",
         f"claimed_at={_instant_digest(inputs.claimed_evaluated_at)}",
-        f"position_pnl_collection={_position_pnl_collection_digest(inputs.position_pnl_collection)}",
+        f"position_pnl_collection={position_pnl_digest}",
     ]
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
