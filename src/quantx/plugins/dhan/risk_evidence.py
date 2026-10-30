@@ -451,6 +451,7 @@ class DhanRiskEvidenceSource:
                     source_position_key=(
                         f"{index}:{position.exchange_segment}:{position.security_id}"
                     ),
+                    broker_client_id=_optional_text(position.client_id),
                     instrument_id=instrument.instrument_id if instrument is not None else None,
                     net_quantity=quantity,
                     product_type=_optional_text(position.product_type),
