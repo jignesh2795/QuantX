@@ -610,6 +610,11 @@ class LiveRiskEvidenceAuthority:
         """Prove the authorization was minted by this authority for these inputs."""
         if type(authorization) is not LiveRiskEvidenceAuthorization:
             return False
+        if (
+            type(inputs) is not LiveRiskEvaluationInputs
+            or type(inputs.position_pnl_collection) is not LiveRiskPositionPnlCollection
+        ):
+            return False
         if type(authorization.client_order_id) is not UUID:
             return False
         if authorization.client_order_id != request.order.client_order_id:
