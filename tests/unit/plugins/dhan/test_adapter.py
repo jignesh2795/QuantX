@@ -8,7 +8,7 @@ from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrche
 from quantx.application.pending_recovery import PendingRecoveryRun
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
-from quantx.domain.clock import FixedClock, SystemClock
+from quantx.domain.clock import Clock, FixedClock, SystemClock
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -213,7 +213,7 @@ def _adapter(
     product_map: dict[str, str] | None = _PRODUCT_MAP,
     credentials_expires_at: datetime | None = None,
     minimum_token_lifetime: timedelta = timedelta(minutes=5),
-    clock=None,
+    clock: Clock | None = None,
 ) -> DhanBrokerAdapter:
     instrument = _instrument()
     connection = BrokerConnectionRef(
@@ -279,7 +279,7 @@ def test_submit_rechecks_token_lifetime_before_transport() -> None:
     assert transport.submitted == ()
 
 
-def test_exact_auth_expiry_response_is_a_definitive_broker_rejection() -> None:
+def test_exact_auth_rejection_response_is_a_definitive_broker_rejection() -> None:
     class AuthenticationExpiredTransport(InMemoryDhanTransport):
         def submit(self, request, *, timeout):
             raise DhanAuthenticationRejectedError("submit")
