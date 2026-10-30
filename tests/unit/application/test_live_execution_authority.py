@@ -689,7 +689,7 @@ def test_authority_rejects_a_market_order_without_a_reference_price(tmp_path) ->
 # Fault injection makes the application-owned intent builder return one
 # contradictory field while keeping the registered fake adapter and complete
 # evidence source legitimate. The authority must reject before reservation.
-
+#
 @pytest.mark.parametrize(
     "mismatch_dimension",
     [
