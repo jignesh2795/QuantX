@@ -4,23 +4,74 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 DhanPayload = Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
 class DhanCredentials:
+    """Dhan access token plus the broker-supplied expiry instant.
+
+    The token is intentionally excluded from repr. Naive Dhan `expiryTime`
+    values are interpreted in Asia/Kolkata as documented by Dhan; all stored
+    instants are normalized to UTC.
+    """
+
     client_id: str
     access_token: str = field(repr=False)
+    expires_at: datetime
 
     def __post_init__(self) -> None:
-        if not self.client_id.strip():
+        if type(self.client_id) is not str or not self.client_id.strip():
             raise ValueError("Dhan client_id must not be empty")
-        if not self.access_token.strip():
+        if type(self.access_token) is not str or not self.access_token.strip():
             raise ValueError("Dhan access_token must not be empty")
+        if not isinstance(self.expires_at, datetime):
+            raise ValueError("Dhan token expires_at must be a datetime")
+        if self.expires_at.tzinfo is None or self.expires_at.utcoffset() is None:
+            raise ValueError("Dhan token expires_at must be timezone-aware")
+        object.__setattr__(self, "expires_at", self.expires_at.astimezone(UTC))
+
+    @classmethod
+    def from_token_response(
+        cls,
+        client_id: str,
+        response: Mapping[str, Any],
+    ) -> DhanCredentials:
+        """Build credentials from Dhan's documented access-token response."""
+        if not isinstance(response, Mapping):
+            raise ValueError("Dhan token response must be a mapping")
+        access_token = response.get("accessToken")
+        if type(access_token) is not str or not access_token.strip():
+            raise ValueError("Dhan token response must contain accessToken")
+        returned_client_id = response.get("dhanClientId")
+        if returned_client_id is not None and str(returned_client_id).strip() != client_id:
+            raise ValueError("Dhan token response client id does not match configured client")
+        expiry = _parse_token_expiry(response.get("expiryTime"))
+        return cls(client_id=client_id, access_token=access_token, expires_at=expiry)
+
+
+def _parse_token_expiry(value: object) -> datetime:
+    """Parse an ISO expiryTime, assigning Asia/Kolkata only when offset is absent."""
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value.strip():
+        raw = value.strip()
+        if raw.endswith("Z"):
+            raw = f"{raw[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError("Dhan expiryTime must be a valid ISO timestamp") from exc
+    else:
+        raise ValueError("Dhan token response must contain expiryTime")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+    return parsed.astimezone(UTC)
 
 
 @dataclass(frozen=True, slots=True)
