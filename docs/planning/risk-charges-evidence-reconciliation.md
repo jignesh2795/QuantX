@@ -288,7 +288,7 @@ Published DhanHQ v2 docs describe these relevant resources:
 | `GET /holdings` | Demat holdings, delivered/T1 quantities, collateral quantity and average cost | Current holding market value, account-wide net liquidation equity, or all liabilities |
 | `POST /marketfeed/ltp` / `ohlc` / `quote` | Batched market observations; up to 1,000 instruments per request and documented 1 request/second limit | Complete valuation unless every held/position instrument is known and a usable current mark is available |
 | `GET /trades/{from-date}/{to-date}/{page}` | Paginated historical trades, exchange trade IDs, quantities, prices, trade timestamps and listed charge fields (SEBI tax, STT, brokerage, service tax, exchange transaction charges, stamp duty) | A complete account cash/equity snapshot or all non-trade capital movements, including non-cash asset transfers |
-| `GET /ledger?from-date=...&to-date=...` | Debit/credit entries, narration, voucher date, voucher number and running balance | An intraday transaction timestamp or a published complete classification taxonomy for external capital flows |
+| `GET /ledger?from-date=...&to-date=...` | Debit/credit entries, narration, voucher date, voucher number and running balance | An intraday transaction timestamp or a published complete classification taxonomy covering cash and non-cash external capital flows |
 | `GET /fundlimit` | Available balance, start-of-day limit/balance, collateral, receivables, utilized amount, blocked payout and withdrawable balance | A documented net-liquidation equity measure or a formal relation that makes these fields equivalent to account equity |
 
 Important Dhan Support distinctions:
@@ -453,7 +453,7 @@ different. No SQLite schema change is approved by this design note.
   path. The current Dhan market-data adapter is snapshot-only and explicitly
   rejects streaming subscription.
 - **Fail closed:** missing baseline, incomplete equity, stale marks, incomplete
-  cash-flow history, unsupported equity basis, or unverified scope means the
+  capital-flow history, unsupported equity basis, or unverified scope means the
   new metric is unavailable and the LIVE check rejects. Never default to zero
   or initialize the baseline from a post-trading first observation.
 
@@ -471,7 +471,7 @@ following together:
 - one authoritative, timestamped trading-account net-liquidation equity
   including cash, all demat/T1 holdings, open derivative positions, collateral,
   MTF/other liabilities and applicable currency conversion;
-- a complete intraday external-cash-flow feed with an effective time that can
+- a complete intraday external-capital-flow feed (including non-cash asset transfers) with an effective time that can
   be aligned to a live equity snapshot (Ledger only documents a voucher date);
 - exact session-level semantics for the Positions API's realized/unrealized
   fields and whether these reconcile with Trader's Diary FIFO/speculation P&L;
@@ -492,7 +492,7 @@ Before implementation can authorize LIVE, the broker-neutral contract and
 the Dhan mapping must demonstrate:
 
 - a baseline captured at the actual session boundary and surviving restart;
-- two same-account equity observations reconciled to cash flows;
+- two same-account equity observations reconciled to external capital flows;
 - deposits/withdrawals and internal transfers do not create artificial P&L;
 - trade charges are reflected exactly once;
 - full holdings and positions coverage, including carry-forward and T1 state;
@@ -511,7 +511,7 @@ the Dhan mapping must demonstrate:
 
 **Current verdict: DESIGN NEEDS MORE EVIDENCE.** The accounting target and the
 smallest reusable broker-neutral seam are now specified; Dhan's documented
-data cannot yet substantiate complete intraday account equity and cash-flow
+data cannot yet substantiate complete intraday account equity and capital-flow
 alignment. Keep #266 open and preserve #267's fail-closed LIVE boundary. The
 next bounded evidence task is to obtain redacted, static Dhan response/statement
 fixtures (no credentials) and reconcile the documented field meanings and
