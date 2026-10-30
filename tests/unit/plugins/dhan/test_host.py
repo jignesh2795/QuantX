@@ -36,6 +36,7 @@ from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
+from quantx.execution.submission_preflight import BrokerPreflightRejected
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.integrations.reconciliation import (
@@ -464,6 +465,33 @@ def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:
     )
     try:
         assert isinstance(host.transport, DhanSDKTransport)
+    finally:
+        host.close()
+
+
+def test_host_adapter_rechecks_token_lifetime_after_composition(tmp_path) -> None:
+    clock = FixedClock(CHECKED_AT)
+    expiry = CHECKED_AT + timedelta(minutes=10)
+    transport = InMemoryDhanTransport()
+    host = build_dhan_host_runtime(
+        _config(
+            tmp_path,
+            transport=transport,
+            credential_expires_at=expiry,
+            minimum_token_lifetime=timedelta(minutes=5),
+            clock=clock,
+        )
+    )
+    try:
+        clock.set(CHECKED_AT + timedelta(minutes=6))
+
+        with pytest.raises(
+            BrokerPreflightRejected,
+            match="insufficient remaining lifetime",
+        ):
+            host.adapter.submit(_approved())
+
+        assert transport.submitted == ()
     finally:
         host.close()
 
