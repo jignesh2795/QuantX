@@ -5,7 +5,7 @@ Only this module may import the third-party DhanHQ SDK.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -14,6 +14,7 @@ from typing import Protocol, runtime_checkable
 from zoneinfo import ZoneInfo
 
 from .mapping import decimal_field, extract_filled_quantity, parse_dhan_timestamp
+from .session import DhanAuthenticationExpiredError
 from .models import (
     DhanCandleSnapshot,
     DhanCredentials,
@@ -563,6 +564,8 @@ class InMemoryDhanTransport:
 def _order_response(response: object) -> DhanOrderResponse:
     envelope_status, remarks, payload = _envelope(response)
     if envelope_status != "success":
+        if _dhan_error_code(response) == DhanAuthenticationExpiredError.code:
+            raise DhanAuthenticationExpiredError("submit")
         return DhanOrderResponse(
             order_id=None,
             order_status="UNKNOWN",
@@ -584,6 +587,8 @@ def _order_response(response: object) -> DhanOrderResponse:
 def _order_detail(response: object) -> DhanOrderDetail:
     status, remarks, payload = _envelope(response)
     if status != "success":
+        if _dhan_error_code(response) == DhanAuthenticationExpiredError.code:
+            raise DhanAuthenticationExpiredError("reconcile")
         return DhanOrderDetail(
             order_id=None,
             correlation_id=None,
@@ -610,13 +615,42 @@ def _order_detail(response: object) -> DhanOrderDetail:
     )
 
 
+def _dhan_error_code(response: object) -> str | None:
+    """Read only structured SDK error-code fields; never infer from free text."""
+    if not isinstance(response, Mapping):
+        return None
+    remarks = response.get("remarks")
+    if not isinstance(remarks, Mapping):
+        return None
+    value = remarks.get("error_code", remarks.get("errorCode"))
+    if type(value) is not str:
+        return None
+    code = value.strip()
+    return code or None
+
+
+def _format_dhan_remarks(response: Mapping[str, object]) -> str:
+    """Preserve the SDK's structured error code when normalizing its envelope."""
+    remarks = response.get("remarks", "")
+    if isinstance(remarks, Mapping):
+        code = _dhan_error_code(response)
+        message_value = remarks.get("error_message") or remarks.get("error_type")
+        message = str(message_value).strip() if message_value is not None else ""
+        if code is not None and message:
+            return f"{code}: {message}"
+        if code is not None:
+            return code
+        return message
+    return str(remarks)
+
+
 def _envelope(response: object) -> tuple[str, str, DhanPayload]:
-    if not isinstance(response, dict):
+    if not isinstance(response, Mapping):
         raise TypeError("Dhan SDK response must be a mapping")
     status = str(response.get("status", "failure"))
-    remarks = str(response.get("remarks", ""))
+    remarks = _format_dhan_remarks(response)
     data = response.get("data")
-    if not isinstance(data, dict):
+    if not isinstance(data, Mapping):
         data = {}
     return status, remarks, data
 
@@ -654,7 +688,7 @@ def _profile_snapshot(response: object) -> DhanProfileSnapshot:
     payload: object = response
     if "status" in response:
         envelope_status = str(response.get("status", "failure"))
-        remarks = str(response.get("remarks", ""))
+        remarks = _format_dhan_remarks(response)
         if envelope_status != "success":
             return DhanProfileSnapshot(
                 observed_at=datetime.now(UTC),
@@ -745,7 +779,7 @@ def _positions_snapshot(response: object) -> DhanPositionsSnapshot:
             message="Dhan positions response must be a mapping",
         )
     envelope_status = str(response.get("status", "failure"))
-    remarks = str(response.get("remarks", ""))
+    remarks = _format_dhan_remarks(response)
     if envelope_status != "success":
         return DhanPositionsSnapshot(
             observed_at=datetime.now(UTC),
