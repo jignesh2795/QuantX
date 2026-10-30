@@ -12,7 +12,7 @@ The active cross-workstream priority order remains in the [master work programme
 - **QX-12 / #200:** the India charges design and evidence notes are recorded under `docs/planning/`; implementation remains gated on unresolved GST/stamp-duty rate applicability.
 - **Global-market comparison and crypto extension:** remain proposals on separate unmerged docs branches; their existence does not establish audit completion, connector support, or LIVE eligibility.
 
-**PR #285 validation at exact feature head `a95d29d88d539632fd9b9792f38e6b9c79ab29ad` (base `ff46a3626e4a40bc890521554bd97a1af259df69`):** default locked configuration 3,250 passed / 2 skipped; Dhan-enabled locked configuration 3,252 passed / 0 skipped; focused Dhan risk-evidence and application authority tests 146 passed. Changed-file Ruff check and format passed for 5 Python files; strict mypy and diff checks passed; both local release gates passed. Validation was performed before squash merge, on the exact feature head; it is not a claim about authenticated runner attestation or production behavior. The four local JSON reports were retained under `%LOCALAPPDATA%\\Temp\\quantx-validation\\pr285-a95d29d\\`.
+**PR #285 validation at exact feature head `a95d29d88d539632fd9b9792f38e6b9c79ab29ad` (base `ff46a3626e4a40bc890521554bd97a1af259df69`):** default locked configuration 3,250 passed / 2 skipped; Dhan-enabled locked configuration 3,252 passed / 0 skipped; focused Dhan risk-evidence and application authority tests 146 passed. Changed-file Ruff check and format passed for 5 Python files; strict mypy and diff checks passed; both local release gates passed. Validation was performed before squash merge, on the exact feature head; it is not a claim about authenticated runner attestation or production behavior. The four local JSON reports were retained under `%LOCALAPPDATA%\Temp\quantx-validation\pr285-a95d29d\`.
 
 This status reconciliation is documentation-only. It did not run tests or CI, call a broker, run a sandbox, or perform a LIVE operation. The PR #285 validation above belongs to its exact feature head and is not attributed to this documentation commit.
 
@@ -414,7 +414,7 @@ passed. Changed-file Ruff check/format, strict mypy, diff checks, both producer
 runs, and both release gates passed. Reports:
 `validation-default.json`, `validation-dhan.json`,
 `release-check-default.json`, and `release-check-dhan.json` under
-`%LOCALAPPDATA%\\Temp\\quantx-validation\\pr285-a95d29d\\`.
+`%LOCALAPPDATA%\Temp\quantx-validation\pr285-a95d29d\`.
 
 Non-claims: local editable evidence, no GitHub Actions or paid CI, no
 authenticated Dhan session or production broker call, no production-broker
