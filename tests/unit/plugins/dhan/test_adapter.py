@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -8,6 +8,7 @@ from quantx.application.execution import ExecutionDispatchStatus, ExecutionOrche
 from quantx.application.pending_recovery import PendingRecoveryRun
 from quantx.application.runtime import ApplicationRuntime
 from quantx.domain.accounts import AccountId, BrokerConnectionId
+from quantx.domain.clock import FixedClock, SystemClock
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -43,7 +44,10 @@ from quantx.execution.receipts.models import (
     ExecutionReceipt,
 )
 from quantx.execution.receipts.quarantine import QuarantineObservationKind
-from quantx.execution.submission_preflight import BrokerPreflightRejected
+from quantx.execution.submission_preflight import (
+    BrokerPreflightRejected,
+    BrokerSubmissionRejected,
+)
 from quantx.execution.trading_gate import DurableTradingGate
 from quantx.india.domain import IndianExchange, IndianSegment
 from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
@@ -61,6 +65,7 @@ from quantx.persistence.sqlite import (
     SqliteUnitOfWork,
 )
 from quantx.plugins.dhan import (
+    DhanAuthenticationExpiredError,
     DhanBrokerAdapter,
     DhanInstrumentRef,
     InMemoryDhanTransport,
@@ -206,6 +211,9 @@ def _adapter(
     transport: InMemoryDhanTransport | None = None,
     *,
     product_map: dict[str, str] | None = _PRODUCT_MAP,
+    credentials_expires_at: datetime | None = None,
+    minimum_token_lifetime: timedelta = timedelta(minutes=5),
+    clock=None,
 ) -> DhanBrokerAdapter:
     instrument = _instrument()
     connection = BrokerConnectionRef(
@@ -231,6 +239,9 @@ def _adapter(
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
         _product_map=product_map,
+        _credentials_expires_at=credentials_expires_at,
+        _minimum_token_lifetime=minimum_token_lifetime,
+        _clock=clock or SystemClock(),
     )
 
 
@@ -250,6 +261,57 @@ def test_submit_translates_to_dhan_and_returns_normalized_receipt() -> None:
     assert transport.submitted[0].exchange_segment == "NSE_EQ"
     assert transport.submitted[0].product_type == "CNC"
     assert transport.submitted[0].correlation_id == dhan_correlation_id(request.correlation_id)
+
+
+def test_submit_rechecks_token_lifetime_before_transport() -> None:
+    now = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
+    clock = FixedClock(now)
+    transport = InMemoryDhanTransport()
+
+    with pytest.raises(BrokerPreflightRejected, match="insufficient remaining lifetime"):
+        _adapter(
+            transport,
+            credentials_expires_at=now + timedelta(minutes=4),
+            minimum_token_lifetime=timedelta(minutes=5),
+            clock=clock,
+        ).submit(_request())
+
+    assert transport.submitted == ()
+
+
+def test_exact_auth_expiry_response_is_a_definitive_broker_rejection() -> None:
+    class AuthenticationExpiredTransport(InMemoryDhanTransport):
+        def submit(self, request, *, timeout):
+            raise DhanAuthenticationExpiredError("submit")
+
+    transport = AuthenticationExpiredTransport()
+
+    with pytest.raises(BrokerSubmissionRejected, match="DH-901"):
+        _adapter(transport).submit(_request())
+
+    assert transport.submitted == ()
+
+
+def test_cancel_and_reconcile_auth_expiry_remain_unknown() -> None:
+    class AuthenticationExpiredTransport(InMemoryDhanTransport):
+        def cancel(self, correlation_id, *, timeout):
+            raise DhanAuthenticationExpiredError("cancel")
+
+        def reconcile(self, correlation_id, *, timeout):
+            raise DhanAuthenticationExpiredError("reconcile")
+
+    adapter = _adapter(AuthenticationExpiredTransport())
+    request = _request()
+
+    cancelled = adapter.cancel(request)
+    reconciled = adapter.reconcile(request)
+
+    assert cancelled.outcome is ExecutionOutcome.UNKNOWN
+    assert cancelled.order_status is OrderStatus.UNKNOWN
+    assert "DH-901" in cancelled.message
+    assert reconciled.outcome is ExecutionOutcome.UNKNOWN
+    assert reconciled.order_status is OrderStatus.UNKNOWN
+    assert "DH-901" in reconciled.message
 
 
 def test_submit_uses_resolved_request_product() -> None:
