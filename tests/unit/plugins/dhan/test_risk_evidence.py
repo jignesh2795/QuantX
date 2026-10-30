@@ -14,6 +14,10 @@ from decimal import Decimal
 import pytest
 
 from quantx.application.live_risk import LiveRiskEvidenceField
+from quantx.application.live_risk_evidence import (
+    LiveRiskPositionPnlProvenance,
+    LiveRiskPositionPnlUnavailableReason,
+)
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.deployment import (
     ExecutionContext,
@@ -140,6 +144,10 @@ def _position(
     average_price: Decimal | None = Decimal("100"),
     client_id: str | None = CLIENT,
     multiplier: Decimal | None = None,
+    product_type: str | None = None,
+    position_type: str | None = None,
+    realized_profit: Decimal | None = None,
+    unrealized_profit: Decimal | None = None,
 ) -> DhanPositionSnapshot:
     return DhanPositionSnapshot(
         security_id=security_id,
@@ -147,8 +155,12 @@ def _position(
         net_quantity=net_quantity,
         average_price=average_price,
         client_id=client_id,
+        product_type=product_type,
+        position_type=position_type,
         buy_quantity=net_quantity if net_quantity >= 0 else Decimal("0"),
         sell_quantity=Decimal("0") if net_quantity >= 0 else -net_quantity,
+        realized_profit=realized_profit,
+        unrealized_profit=unrealized_profit,
         multiplier=multiplier,
     )
 
@@ -875,6 +887,185 @@ def test_collect_uses_the_oldest_observation_as_the_snapshot_instant() -> None:
         funds_at,
         positions_at,
     }
+
+
+def test_collect_preserves_each_broker_reported_position_pnl_row() -> None:
+    infy = _instrument(symbol="INFY")
+    positions = (
+        _position(
+            realized_profit=Decimal("-12.50"),
+            unrealized_profit=Decimal("3.25"),
+            product_type="INTRADAY",
+            position_type="LONG",
+        ),
+        _position(
+            security_id="9999",
+            net_quantity=Decimal("-2"),
+            realized_profit=Decimal("5"),
+            unrealized_profit=Decimal("-2.00"),
+            product_type="CNC",
+            position_type="SHORT",
+        ),
+    )
+    source = _source(
+        _transport(position_snapshots=positions),
+        instruments=((_instrument(), _ref()), (infy, _ref(security_id="9999", symbol="INFY"))),
+    )
+
+    evidence = source.collect(_request())
+
+    collection = evidence.position_pnl_collection
+    assert collection.complete is True
+    assert collection.observed_at == OBSERVED_AT
+    assert len(collection.observations) == 2
+    first, second = collection.observations
+    assert first.instrument_id == _instrument().instrument_id
+    assert first.net_quantity == Decimal("10")
+    assert first.realized_pnl is not None
+    assert first.realized_pnl.amount == Decimal("-12.50")
+    assert first.realized_pnl.currency == "INR"
+    assert first.unrealized_pnl is not None
+    assert first.unrealized_pnl.amount == Decimal("3.25")
+    assert first.provenance is LiveRiskPositionPnlProvenance.BROKER_REPORTED
+    assert second.instrument_id == infy.instrument_id
+    assert second.net_quantity == Decimal("-2")
+    assert second.realized_pnl is not None and second.realized_pnl.amount == Decimal("5")
+    assert second.unrealized_pnl is not None and second.unrealized_pnl.amount == Decimal("-2.00")
+    assert first.source_position_key != second.source_position_key
+    assert evidence.snapshot is not None
+    assert evidence.snapshot.daily_pnl is None
+    assert evidence.snapshot.equity is None
+    assert evidence.snapshot.high_water_mark is None
+    assert {
+        LiveRiskEvidenceField.DAILY_PNL,
+        LiveRiskEvidenceField.EQUITY,
+        LiveRiskEvidenceField.HIGH_WATER_MARK,
+    } <= set(evidence.unavailable_fields)
+
+
+def test_collect_keeps_missing_position_pnl_values_unknown() -> None:
+    source = _source(
+        _transport(
+            position_snapshots=(
+                _position(realized_profit=None, unrealized_profit=Decimal("0")),
+            )
+        )
+    )
+
+    evidence = source.collect(_request())
+
+    collection = evidence.position_pnl_collection
+    assert collection.complete is False
+    assert (
+        LiveRiskPositionPnlUnavailableReason.POSITION_REALIZED_PNL_UNAVAILABLE
+        in collection.unavailable_reasons
+    )
+    assert len(collection.observations) == 1
+    assert collection.observations[0].realized_pnl is None
+    assert collection.observations[0].unrealized_pnl is not None
+    assert collection.observations[0].unrealized_pnl.amount == Decimal("0")
+
+
+def test_collect_retains_but_marks_an_unmapped_position_pnl_row_incomplete() -> None:
+    source = _source(
+        _transport(
+            position_snapshots=(
+                _position(
+                    security_id="9999",
+                    realized_profit=Decimal("-5"),
+                    unrealized_profit=Decimal("-4"),
+                ),
+            )
+        )
+    )
+
+    evidence = source.collect(_request())
+
+    collection = evidence.position_pnl_collection
+    assert collection.complete is False
+    assert (
+        LiveRiskPositionPnlUnavailableReason.POSITION_INSTRUMENT_UNMAPPED
+        in collection.unavailable_reasons
+    )
+    assert len(collection.observations) == 1
+    assert collection.observations[0].instrument_id is None
+    assert collection.observations[0].realized_pnl is not None
+    assert collection.observations[0].realized_pnl.amount == Decimal("-5")
+    assert collection.observations[0].unrealized_pnl is not None
+    assert collection.observations[0].unrealized_pnl.amount == Decimal("-4")
+
+
+def test_collect_marks_non_finite_position_pnl_unavailable() -> None:
+    source = _source(
+        _transport(
+            position_snapshots=(
+                _position(
+                    realized_profit=Decimal("1"),
+                    unrealized_profit=Decimal("NaN"),
+                ),
+            )
+        )
+    )
+
+    evidence = source.collect(_request())
+
+    collection = evidence.position_pnl_collection
+    assert collection.complete is False
+    assert (
+        LiveRiskPositionPnlUnavailableReason.POSITION_UNREALIZED_PNL_UNAVAILABLE
+        in collection.unavailable_reasons
+    )
+    assert collection.observations[0].unrealized_pnl is None
+
+
+def test_collect_marks_a_foreign_position_client_as_incomplete() -> None:
+    source = _source(
+        _transport(
+            position_snapshots=(
+                _position(
+                    client_id="foreign-client",
+                    realized_profit=Decimal("1"),
+                    unrealized_profit=Decimal("2"),
+                ),
+            )
+        )
+    )
+
+    evidence = source.collect(_request())
+
+    collection = evidence.position_pnl_collection
+    assert collection.complete is False
+    assert (
+        LiveRiskPositionPnlUnavailableReason.POSITION_CLIENT_ID_MISMATCH
+        in collection.unavailable_reasons
+    )
+    assert "position client identity mismatch" in evidence.contradictions
+
+
+def test_collect_marks_an_unavailable_positions_book_not_collected() -> None:
+    source = _source(_RecordingTransport(fail="positions"))
+
+    evidence = source.collect(_request())
+
+    collection = evidence.position_pnl_collection
+    assert collection.complete is False
+    assert collection.observed_at is None
+    assert collection.observations == ()
+    assert (
+        LiveRiskPositionPnlUnavailableReason.POSITION_BOOK_UNAVAILABLE
+        in collection.unavailable_reasons
+    )
+
+
+def test_collect_treats_an_available_empty_positions_book_as_an_empty_collection() -> None:
+    source = _source(_transport(position_snapshots=()))
+
+    evidence = source.collect(_request())
+
+    collection = evidence.position_pnl_collection
+    assert collection.complete is True
+    assert collection.observed_at == OBSERVED_AT
+    assert collection.observations == ()
 
 
 def test_collect_preserves_request_identity_and_resolution() -> None:
