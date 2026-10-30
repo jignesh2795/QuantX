@@ -41,6 +41,7 @@ from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instruments import InstrumentId, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import PolicyDecision, PolicyResult
+from quantx.domain.position_effect import PositionEffect
 from quantx.domain.risk import (
     PreTradeRiskEngine,
     RiskContext,
@@ -49,7 +50,6 @@ from quantx.domain.risk import (
     RiskResult,
     RiskSnapshot,
 )
-from quantx.domain.position_effect import PositionEffect
 from quantx.domain.value_objects import Money, ProductCode
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.persistence.sqlite import (
