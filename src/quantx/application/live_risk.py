@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -316,50 +317,60 @@ def _resolution_digest(value: InstrumentResolution | None) -> str:
 
 
 def _position_pnl_collection_digest(collection: LiveRiskPositionPnlCollection) -> str:
-    """Digest the optional row-level broker P&L evidence without redefining risk fields."""
-    observed_at = (
-        _instant_digest(collection.observed_at)
-        if collection.observed_at is not None
-        else "none"
+    """Digest supplemental row evidence with unambiguous structured serialization."""
+    payload = {
+        "schema": "quantx.live-risk-position-pnl.v1",
+        "observed_at": (
+            _instant_digest(collection.observed_at)
+            if collection.observed_at is not None
+            else None
+        ),
+        "complete": collection.complete,
+        "unavailable_reasons": [reason.value for reason in collection.unavailable_reasons],
+        "observations": [
+            {
+                "source_position_key": observation.source_position_key,
+                "broker_client_id": observation.broker_client_id,
+                "instrument_id": (
+                    {
+                        "venue": observation.instrument_id.venue,
+                        "symbol": observation.instrument_id.symbol,
+                    }
+                    if observation.instrument_id is not None
+                    else None
+                ),
+                "net_quantity": _decimal_digest(observation.net_quantity),
+                "product_type": observation.product_type,
+                "position_type": observation.position_type,
+                "realized_pnl": (
+                    {
+                        "amount": canonical_decimal(observation.realized_pnl.amount),
+                        "currency": observation.realized_pnl.currency,
+                    }
+                    if observation.realized_pnl is not None
+                    else None
+                ),
+                "unrealized_pnl": (
+                    {
+                        "amount": canonical_decimal(observation.unrealized_pnl.amount),
+                        "currency": observation.unrealized_pnl.currency,
+                    }
+                    if observation.unrealized_pnl is not None
+                    else None
+                ),
+                "observed_at": _instant_digest(observation.observed_at),
+                "provenance": observation.provenance.value,
+            }
+            for observation in collection.observations
+        ],
+    }
+    canonical_payload = json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
     )
-    parts = [
-        f"observed_at={observed_at}",
-        f"complete={collection.complete}",
-        f"unavailable_reasons={[reason.value for reason in collection.unavailable_reasons]}",
-    ]
-    for index, observation in enumerate(collection.observations):
-        realized = observation.realized_pnl
-        unrealized = observation.unrealized_pnl
-        parts.extend(
-            (
-                f"row={index}",
-                f"source_key={observation.source_position_key}",
-                f"broker_client_id={observation.broker_client_id}",
-                f"instrument={observation.instrument_id}",
-                f"quantity={_decimal_digest(observation.net_quantity)}",
-                f"product_type={observation.product_type}",
-                f"position_type={observation.position_type}",
-                (
-                    "realized="
-                    + (
-                        f"{canonical_decimal(realized.amount)}:{realized.currency}"
-                        if realized is not None
-                        else "none"
-                    )
-                ),
-                (
-                    "unrealized="
-                    + (
-                        f"{canonical_decimal(unrealized.amount)}:{unrealized.currency}"
-                        if unrealized is not None
-                        else "none"
-                    )
-                ),
-                f"observed_at={_instant_digest(observation.observed_at)}",
-                f"provenance={observation.provenance.value}",
-            )
-        )
-    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+    return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
 
 
 def _inputs_digest(client_order_id: UUID, inputs: LiveRiskEvaluationInputs) -> str:
