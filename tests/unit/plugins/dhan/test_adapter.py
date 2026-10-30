@@ -65,7 +65,7 @@ from quantx.persistence.sqlite import (
     SqliteUnitOfWork,
 )
 from quantx.plugins.dhan import (
-    DhanAuthenticationExpiredError,
+    DhanAuthenticationRejectedError,
     DhanBrokerAdapter,
     DhanInstrumentRef,
     InMemoryDhanTransport,
@@ -282,7 +282,7 @@ def test_submit_rechecks_token_lifetime_before_transport() -> None:
 def test_exact_auth_expiry_response_is_a_definitive_broker_rejection() -> None:
     class AuthenticationExpiredTransport(InMemoryDhanTransport):
         def submit(self, request, *, timeout):
-            raise DhanAuthenticationExpiredError("submit")
+            raise DhanAuthenticationRejectedError("submit")
 
     transport = AuthenticationExpiredTransport()
 
@@ -295,10 +295,10 @@ def test_exact_auth_expiry_response_is_a_definitive_broker_rejection() -> None:
 def test_cancel_and_reconcile_auth_expiry_remain_unknown() -> None:
     class AuthenticationExpiredTransport(InMemoryDhanTransport):
         def cancel(self, correlation_id, *, timeout):
-            raise DhanAuthenticationExpiredError("cancel")
+            raise DhanAuthenticationRejectedError("cancel")
 
         def reconcile(self, correlation_id, *, timeout):
-            raise DhanAuthenticationExpiredError("reconcile")
+            raise DhanAuthenticationRejectedError("reconcile")
 
     adapter = _adapter(AuthenticationExpiredTransport())
     request = _request()
