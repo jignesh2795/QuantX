@@ -60,6 +60,7 @@ from .live_risk_evidence import (
     LiveRiskEvidenceField,
     LiveRiskEvidenceObservation,
     LiveRiskEvidenceSource,
+    LiveRiskPositionPnlCollection,
     required_live_risk_evidence_fields,
 )
 from .live_risk_sources import (
@@ -94,6 +95,9 @@ class LiveRiskEvaluationInputs:
     context: RiskContext
     snapshot: RiskSnapshot
     claimed_evaluated_at: datetime
+    position_pnl_collection: LiveRiskPositionPnlCollection = field(
+        default_factory=LiveRiskPositionPnlCollection.not_collected
+    )
 
 
 def _utc_instant(value: object) -> datetime | None:
@@ -311,6 +315,47 @@ def _resolution_digest(value: InstrumentResolution | None) -> str:
     return repr(value.identity_payload())
 
 
+def _position_pnl_collection_digest(collection: LiveRiskPositionPnlCollection) -> str:
+    """Digest the optional row-level broker P&L evidence without redefining risk fields."""
+    parts = [
+        f"observed_at={_instant_digest(collection.observed_at) if collection.observed_at else 'none'}",
+        f"complete={collection.complete}",
+        f"unavailable_reasons={[reason.value for reason in collection.unavailable_reasons]}",
+    ]
+    for index, observation in enumerate(collection.observations):
+        realized = observation.realized_pnl
+        unrealized = observation.unrealized_pnl
+        parts.extend(
+            (
+                f"row={index}",
+                f"source_key={observation.source_position_key}",
+                f"instrument={observation.instrument_id}",
+                f"quantity={_decimal_digest(observation.net_quantity)}",
+                f"product_type={observation.product_type}",
+                f"position_type={observation.position_type}",
+                (
+                    "realized="
+                    + (
+                        f"{canonical_decimal(realized.amount)}:{realized.currency}"
+                        if realized is not None
+                        else "none"
+                    )
+                ),
+                (
+                    "unrealized="
+                    + (
+                        f"{canonical_decimal(unrealized.amount)}:{unrealized.currency}"
+                        if unrealized is not None
+                        else "none"
+                    )
+                ),
+                f"observed_at={_instant_digest(observation.observed_at)}",
+                f"provenance={observation.provenance.value}",
+            )
+        )
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
 def _inputs_digest(client_order_id: UUID, inputs: LiveRiskEvaluationInputs) -> str:
     """Canonical digest binding one authorization to the exact inputs it minted."""
     intent = inputs.intent
@@ -365,6 +410,7 @@ def _inputs_digest(client_order_id: UUID, inputs: LiveRiskEvaluationInputs) -> s
         f"snapshot_portfolio_id={snapshot.portfolio_id}",
         f"snapshot_connection={snapshot.broker_connection_id}",
         f"claimed_at={_instant_digest(inputs.claimed_evaluated_at)}",
+        f"position_pnl_collection={_position_pnl_collection_digest(inputs.position_pnl_collection)}",
     ]
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
@@ -549,6 +595,7 @@ class LiveRiskEvidenceAuthority:
             context=context,
             snapshot=stamped,
             claimed_evaluated_at=captured_at,
+            position_pnl_collection=evidence.position_pnl_collection,
         )
         if not _risk_inputs_match_request(request, inputs):
             return RiskResult(RiskDecision.REJECT, _EVIDENCE_REQUEST_REASON)
