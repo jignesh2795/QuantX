@@ -2650,7 +2650,9 @@ def test_authoritative_broker_rejection_is_typed_not_submitted() -> None:
     class BrokerRejectingBroker(FakeBroker):
         def submit(self, request):
             self.submit_calls += 1
-            raise BrokerSubmissionRejected("Dhan authentication rejected (DH-901): client id or token invalid or expired")
+            raise BrokerSubmissionRejected(
+                "Dhan authentication rejected (DH-901): client id or token invalid or expired"
+            )
 
     request = _live_request()
     broker = BrokerRejectingBroker()
