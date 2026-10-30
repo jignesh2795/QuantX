@@ -416,9 +416,7 @@ class DhanRiskEvidenceSource:
         for index, position in enumerate(positions.positions):
             instrument = position_map.get((position.security_id, position.exchange_segment))
             if instrument is None:
-                reasons.add(
-                    LiveRiskPositionPnlUnavailableReason.POSITION_INSTRUMENT_UNMAPPED
-                )
+                reasons.add(LiveRiskPositionPnlUnavailableReason.POSITION_INSTRUMENT_UNMAPPED)
             if position.client_id is not None and position.client_id != self.broker_client_id:
                 reasons.add(
                     LiveRiskPositionPnlUnavailableReason.POSITION_CLIENT_ID_MISMATCH
