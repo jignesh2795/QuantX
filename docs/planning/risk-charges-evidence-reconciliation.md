@@ -238,7 +238,7 @@ is claimed by this update.
 
 ## Issue #266 follow-up — account-equity accounting basis and Dhan evidence (2026-10-30)
 
-**Reviewed baseline:** \`main\` at \`6871c46202d4b9256b14d6b5945703c68f0f7de5\`.
+**Reviewed baseline:** `main` at `6871c46202d4b9256b14d6b5945703c68f0f7de5`.
 
 This is a current source-and-documentation reconciliation. It is a design proposal,
 not an implementation or LIVE authorization. The accounting definitions below
@@ -247,24 +247,24 @@ that the published DhanHQ v2 documentation and Dhan Support material describe it
 
 ### 1. Current QuantX implementation
 
-- \`RiskSnapshot.daily_pnl\` is the only daily-P&L input consumed by
-  \`PreTradeRiskEngine.evaluate_with_limits\`. Its enabled \`max_daily_loss\`
+- `RiskSnapshot.daily_pnl` is the only daily-P&L input consumed by
+  `PreTradeRiskEngine.evaluate_with_limits`. Its enabled `max_daily_loss`
   check is explicitly realized-only. Missing/invalid values reject.
-- \`RiskSnapshot\` has \`equity\` and \`high_water_mark\` for the separate
-  \`max_drawdown\` check, but no dedicated account-level realized/unrealized
+- `RiskSnapshot` has `equity` and `high_water_mark` for the separate
+  `max_drawdown` check, but no dedicated account-level realized/unrealized
   decomposition or session-start equity baseline.
-- \`PostTradeRiskEngine\` also checks only realized daily P&L. The inspected
-  \`PostTradeRiskEnforcer\` consumer is \`PaperSession\`; this is not evidence of
+- `PostTradeRiskEngine` also checks only realized daily P&L. The inspected
+  `PostTradeRiskEnforcer` consumer is `PaperSession`; this is not evidence of
   a LIVE mark-monitoring or LIVE gate-enforcement path.
-- \`FillAccounting\`, \`CashLedger\`, \`MarkToMarketValuator\`,
-  \`PortfolioValuator\`, and \`HistoricalAccountStateTracker\` already provide
+- `FillAccounting`, `CashLedger`, `MarkToMarketValuator`,
+  `PortfolioValuator`, and `HistoricalAccountStateTracker` already provide
   broker-neutral fill, cash, mark, and simulated account-state building blocks.
-  \`HistoricalAccountStateTracker\` explicitly rejects LIVE capital.
-- \`PortfolioValuator\` reports incomplete coverage but still exposes a
-  \`PortfolioSnapshot\`; any LIVE risk consumer must check completeness before
-  using its aggregate values. \`HistoricalAccountStateTracker\` withholds
+  `HistoricalAccountStateTracker` explicitly rejects LIVE capital.
+- `PortfolioValuator` reports incomplete coverage but still exposes a
+  `PortfolioSnapshot`; any LIVE risk consumer must check completeness before
+  using its aggregate values. `HistoricalAccountStateTracker` withholds
   equity/unrealized values when cash or required position marks are unavailable.
-- \`integrations/reconciliation/account.py::AccountFinancialState\` is the
+- `integrations/reconciliation/account.py::AccountFinancialState` is the
   nearest existing broker-neutral account observation contract. It currently
   has account/connection identity, source, observation time, currency and
   optional equity/cash/margin values, but does not express an equity basis,
@@ -275,7 +275,7 @@ that the published DhanHQ v2 documentation and Dhan Support material describe it
 PR #285 adds HMAC-bound supplemental per-position P&L rows. It does not provide
 account/day P&L, a complete account equity value, baseline state, or an
 application-facing account-P&L read service. The sanctioned Dhan authority
-still declares \`DAILY_PNL\`, \`EQUITY\`, and \`HIGH_WATER_MARK\` unsupported and
+still declares `DAILY_PNL`, `EQUITY`, and `HIGH_WATER_MARK` unsupported and
 returns unavailable before invoking the source collector.
 
 ### 2. Current official Dhan evidence surface
@@ -284,12 +284,12 @@ Published DhanHQ v2 docs describe these relevant resources:
 
 | API | Documented data | What it does not establish by itself |
 |---|---|---|
-| \`GET /positions\` | Open position rows for the day, including F&O carry-forward; realized/unrealized profit; day and carry-forward buy/sell quantities and values | A canonical daily account P&L definition or complete account equity |
-| \`GET /holdings\` | Demat holdings, delivered/T1 quantities, collateral quantity and average cost | Current holding market value, account-wide net liquidation equity, or all liabilities |
-| \`POST /marketfeed/ltp\` / \`ohlc\` / \`quote\` | Batched market observations; up to 1,000 instruments per request and documented 1 request/second limit | Complete valuation unless every held/position instrument is known and a usable current mark is available |
-| \`GET /trades/{from-date}/{to-date}/{page}\` | Paginated historical trades, exchange trade IDs, quantities, prices, trade timestamps and listed charge fields (SEBI tax, STT, brokerage, service tax, exchange transaction charges, stamp duty) | A complete account cash/equity snapshot or all non-trade capital movements |
-| \`GET /ledger?from-date=...&to-date=...\` | Debit/credit entries, narration, voucher date, voucher number and running balance | An intraday transaction timestamp or a published complete classification taxonomy for external capital flows |
-| \`GET /fundlimit\` | Available balance, start-of-day limit/balance, collateral, receivables, utilized amount, blocked payout and withdrawable balance | A documented net-liquidation equity measure or a formal relation that makes these fields equivalent to account equity |
+| `GET /positions` | Open position rows for the day, including F&O carry-forward; realized/unrealized profit; day and carry-forward buy/sell quantities and values | A canonical daily account P&L definition or complete account equity |
+| `GET /holdings` | Demat holdings, delivered/T1 quantities, collateral quantity and average cost | Current holding market value, account-wide net liquidation equity, or all liabilities |
+| `POST /marketfeed/ltp` / `ohlc` / `quote` | Batched market observations; up to 1,000 instruments per request and documented 1 request/second limit | Complete valuation unless every held/position instrument is known and a usable current mark is available |
+| `GET /trades/{from-date}/{to-date}/{page}` | Paginated historical trades, exchange trade IDs, quantities, prices, trade timestamps and listed charge fields (SEBI tax, STT, brokerage, service tax, exchange transaction charges, stamp duty) | A complete account cash/equity snapshot or all non-trade capital movements |
+| `GET /ledger?from-date=...&to-date=...` | Debit/credit entries, narration, voucher date, voucher number and running balance | An intraday transaction timestamp or a published complete classification taxonomy for external capital flows |
+| `GET /fundlimit` | Available balance, start-of-day limit/balance, collateral, receivables, utilized amount, blocked payout and withdrawable balance | A documented net-liquidation equity measure or a formal relation that makes these fields equivalent to account equity |
 
 Important Dhan Support distinctions:
 
@@ -303,16 +303,16 @@ Important Dhan Support distinctions:
   and IPO allotments. A reconstruction from trade fills alone therefore does
   not reproduce the documented Trader's Diary accounting basis.
 
-The v2 Positions schema calls \`realizedProfit\` booked P&L and
-\`unrealizedProfit\` P&L standing on open positions; its row also exposes
+The v2 Positions schema calls `realizedProfit` booked P&L and
+`unrealizedProfit` P&L standing on open positions; its row also exposes
 carry-forward and day quantities/values. The v2 release notes state that these
 position P&L fields were made real-time. Neither the Positions schema nor the
-support articles establish that \`realizedProfit\` is identical to Trader's
-Diary FIFO daily realized P&L, or that \`unrealizedProfit\` is only the current
+support articles establish that `realizedProfit` is identical to Trader's
+Diary FIFO daily realized P&L, or that `unrealizedProfit` is only the current
 session's change rather than the full open-position amount. Do not infer either
 equivalence.
 
-The Ledger response documents \`voucherdate\` as a transaction date and shows
+The Ledger response documents `voucherdate` as a transaction date and shows
 no transaction-time field. That is insufficient to assign same-day deposits
 or withdrawals precisely to an intraday equity observation. The public v2
 Statement API documents Ledger and Trade History; it does not document an API
@@ -331,16 +331,16 @@ that returns the Trader's Diary summary.
 
 ### 3. Gaps in the current QuantX Dhan adapter
 
-The present \`DhanTransport\` exposes profile, fund limits, positions,
+The present `DhanTransport` exposes profile, fund limits, positions,
 holdings, per-instrument quote snapshots and candles. It does not expose the
 documented Ledger or historical Trade History resources, nor the batched
 Market Quote endpoints.
 
-\`DhanPositionSnapshot\` normalizes net quantity, average/cost price, product,
+`DhanPositionSnapshot` normalizes net quantity, average/cost price, product,
 position type, realized P&L and unrealized P&L, but does not preserve the
-documented carry-forward/day quantity and value fields. \`DhanHoldingSnapshot\`
+documented carry-forward/day quantity and value fields. `DhanHoldingSnapshot`
 preserves holdings quantities and average cost but no current mark. The
-\`DhanRiskEvidenceSource\` maps only the deployment's configured instrument
+`DhanRiskEvidenceSource` maps only the deployment's configured instrument
 registry; an unmapped row makes row-level P&L incomplete and unmapped
 holdings/positions prevent complete exposure aggregation.
 
@@ -352,18 +352,18 @@ liquidation equity without a separately established accounting rule.
 
 ### 4. Recommended broker-neutral accounting contract
 
-**Decision proposal:** retain the current realized-only \`daily_pnl\` meaning.
+**Decision proposal:** retain the current realized-only `daily_pnl` meaning.
 Introduce a distinct *session equity P&L* measure only when a complete
 account-level equity observation and an authoritative session baseline exist.
 
 For one account risk scope and one currency:
 
-\`\`\`
+```
 session_equity_pnl(t)
     = current_net_liquidation_equity(t)
     - session_open_net_liquidation_equity
     - net_external_capital_flows(session_open, t]
-\`\`\`
+```
 
 External inflows are positive; withdrawals/outflows are negative. Subtracting
 the signed net flow prevents a deposit from appearing as trading profit and a
@@ -373,12 +373,12 @@ subtracted a second time. If the selected equity basis excludes an expense,
 that exclusion must be explicit and the expense must be included once.
 
 The corresponding loss is the negative signed session P&L. A separately
-configured limit (provisionally \`max_daily_equity_loss\`) compares that loss
-with its own threshold. Do not silently redefine \`daily_pnl\` or add the
+configured limit (provisionally `max_daily_equity_loss`) compares that loss
+with its own threshold. Do not silently redefine `daily_pnl` or add the
 realized and unrealized fields from PR #285.
 
 The smallest reusable contract should reuse/extend the existing
-\`integrations/reconciliation/account.py::AccountFinancialState\` seam rather
+`integrations/reconciliation/account.py::AccountFinancialState` seam rather
 than create a second accounting engine. The evidence contract needs, at
 minimum:
 
@@ -387,9 +387,9 @@ minimum:
    as strategy-portfolio equity.
 2. **Equity semantics:** a typed basis meaning *net liquidation equity* in one
    declared valuation currency—not available cash, buying power, margin limit,
-   \`sodLimit\`, or gross market exposure.
-3. **Two instants:** provider/source \`observed_at\` and trusted host
-   \`captured_at\`. A recent capture time cannot make an old price or balance
+   `sodLimit`, or gross market exposure.
+3. **Two instants:** provider/source `observed_at` and trusted host
+   `captured_at`. A recent capture time cannot make an old price or balance
    current.
 4. **Coverage and completeness:** explicit evidence that the complete
    in-scope asset/liability universe is included. Missing/unmapped holdings,
@@ -428,7 +428,7 @@ different. No SQLite schema change is approved by this design note.
 - **High-water mark / drawdown:** keep separate. A durable drawdown basis must
   define how external deposits/withdrawals adjust the high-water mark; do not
   treat raw account contributions as investment profit or loss. This issue
-  does not redefine current \`max_drawdown\`.
+  does not redefine current `max_drawdown`.
 - **Session calendar:** use an explicit market calendar/session identity, not
   wall-clock midnight. A baseline must correspond to the actual session
   boundary and selected account risk scope.
@@ -471,8 +471,8 @@ following together:
 
 A computed total could be explored only after the cash/margin/holdings/position
 accounting identity is documented and reconciled with real sample statements.
-Do not assume \`sodLimit + availableBalance\`, \`availableBalance +
-utilizedAmount\`, or any combination of collateral/receivables is account
+Do not assume `sodLimit + availableBalance`, `availableBalance +
+utilizedAmount`, or any combination of collateral/receivables is account
 equity. Do not combine position unrealized P&L with position market value or
 trade/ledger charges without a written reconciliation equation.
 
@@ -494,7 +494,7 @@ the Dhan mapping must demonstrate:
   by the new limit;
 - overnight unrealized loss is not attributed to the current session;
 - mark-to-market reversal changes the calculated metric deterministically;
-- existing realized-only \`max_daily_loss\` and \`max_drawdown\` semantics remain
+- existing realized-only `max_daily_loss` and `max_drawdown` semantics remain
   unchanged until separately approved;
 - no request/account/connection/portfolio mismatch can reach reservation or
   broker submission.
