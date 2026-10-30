@@ -20,9 +20,8 @@ from typing import Protocol, runtime_checkable
 
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.instruments import InstrumentId
 from quantx.domain.risk import RiskContext, RiskLimits, RiskSnapshot
-from quantx.domain.value_objects import Money
+from quantx.domain.value_objects import InstrumentId, Money
 
 
 class LiveRiskEvidenceField(StrEnum):
