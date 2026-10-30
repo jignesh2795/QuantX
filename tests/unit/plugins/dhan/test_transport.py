@@ -108,6 +108,20 @@ def test_transport_helpers_unwrap_success_and_failure_envelopes() -> None:
     text_only_failure = _order_response(text_only_auth_hint)
     assert text_only_failure.order_status == "UNKNOWN"
 
+    # DH-904 is a rate-limit outcome, not an authentication failure.
+    rate_limit_failure = {
+        "status": "failure",
+        "remarks": {
+            "error_code": "DH-904",
+            "error_type": "Rate Limit Exceeded",
+            "error_message": "rate limit exceeded",
+        },
+        "data": "",
+    }
+    rate_limited = _order_response(rate_limit_failure)
+    assert rate_limited.order_status == "UNKNOWN"
+    assert "DH-904" in rate_limited.message
+
     assert order.order_id == "123"
     assert order.order_status == "PENDING"
     assert failed.order_status == "UNKNOWN"
