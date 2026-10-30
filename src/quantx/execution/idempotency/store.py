@@ -436,12 +436,12 @@ class NotSubmittedResolution:
     """Durable closure of a PENDING reservation as definitively not submitted.
 
     Unlike :class:`OperatorResolution`, this is not a human decision and no
-    human identity is recorded or implied. It records a definite local
-    outcome proven without transport I/O: the trusted adapter raised the
-    typed preflight rejection from local validation, so no transport
-    submission was entered and no ExecutionReceipt may ever exist for this
-    reservation. It is never a broker execution outcome and must never be
-    presented as an operator closure.
+    human identity is recorded or implied. It records a definite pre-acceptance
+    outcome for which no execution receipt may exist: either the trusted
+    adapter rejected locally before transport I/O, or an exact broker protocol
+    response proved that the broker did not accept the order. The typed
+    ``source`` preserves which proof was used. It is never presented as an
+    operator closure.
     """
 
     client_order_id: UUID
