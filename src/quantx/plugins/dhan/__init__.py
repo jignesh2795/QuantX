@@ -31,6 +31,7 @@ from .models import (
     DhanProfileSnapshot,
 )
 from .recovery import DhanRecoveryEvidenceProvider, build_dhan_recovery_provider
+from .session import DhanAuthenticationExpiredError, DhanTokenLifetimeError
 from .risk_evidence import (
     DHAN_BROKER_ID,
     DhanRiskEvidenceSource,
@@ -55,8 +56,10 @@ def register_dhan_broker(
 
 
 __all__ = [
+    "DhanAuthenticationExpiredError",
     "DhanBrokerAdapter",
     "DhanCredentials",
+    "DhanTokenLifetimeError",
     "DhanFundsSnapshot",
     "DhanHoldingSnapshot",
     "DhanHoldingsSnapshot",
