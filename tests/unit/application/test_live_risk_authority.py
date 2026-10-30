@@ -1018,7 +1018,6 @@ def test_verify_binds_supplemental_position_pnl_collection() -> None:
     assert authority.verify(authorization, request, malformed_inputs) is False
 
 
-
 def test_verify_rejects_position_pnl_newline_delimiter_collision() -> None:
     row = LiveRiskPositionPnlObservation(
         source_position_key="0:NSE_EQ:1333",
