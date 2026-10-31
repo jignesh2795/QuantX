@@ -79,16 +79,27 @@ For the complete candidate gate, use both locked dependency configurations, in o
 3. Dhan-enabled configuration: `uv sync --dev --extra dhan --locked`.
 4. Run the validation producer immediately after that sync.
 
-The exact producer invocation (replace the placeholders with the immutable candidate and base SHAs) is:
+Use a distinct evidence file for each configuration. Run the first producer immediately after the default sync, then run the second immediately after the Dhan-extra sync. Replace the placeholders with the immutable candidate and base SHAs:
+
+**Default configuration:**
 
 ```powershell
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py `
   --expected-head <candidate-sha> `
   --base <base-sha> `
-  --output "$env:TEMP\quantx-validation\<task>\validation.json"
+  --output "$env:TEMP\quantx-validation\<task>\validation-default.json"
 ```
 
-Each producer run checks the full pytest suite, Ruff lint and format for changed Python files, strict mypy over the `quantx` package, `git diff --check`, and tracked-worktree cleanliness. For the full two-configuration gate, inspect each evidence record and run the corresponding release checker as documented in the [local release-validation playbook](docs/implementation/local-release-validation-playbook.md). That playbook also defines the skill-integrity/self-tests, evidence retention, and PASS/FAIL/UNKNOWN rules. Do not treat a diagnostic focused run as a release candidate.
+**Dhan-extra configuration:**
+
+```powershell
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py `
+  --expected-head <candidate-sha> `
+  --base <base-sha> `
+  --output "$env:TEMP\quantx-validation\<task>\validation-dhan.json"
+```
+
+Keep both evidence files. Do not reuse one output path: the producer overwrites an existing file at that path. Each producer run checks the full pytest suite, Ruff lint and format for changed Python files, strict mypy over the `quantx` package, `git diff --check`, and tracked-worktree cleanliness. Inspect each evidence record and run the corresponding release checker as documented in the [local release-validation playbook](docs/implementation/local-release-validation-playbook.md). That playbook also defines the skill-integrity/self-tests, evidence retention, and PASS/FAIL/UNKNOWN rules. Do not treat a diagnostic focused run as a release candidate.
 
 The underlying checks can also be run individually:
 
