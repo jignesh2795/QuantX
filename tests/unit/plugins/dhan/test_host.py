@@ -479,13 +479,14 @@ def test_host_rejects_invalid_reconcile_timeout(tmp_path) -> None:
 
 def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:
     pytest.importorskip("dhanhq", reason="optional dhan extra is not installed")
+    credentials = DhanCredentials(
+        "client-id", "access-token", datetime(2099, 1, 1, tzinfo=UTC)
+    )
     host = build_dhan_host_runtime(
         _config(
             tmp_path,
             transport=None,
-            credentials=DhanCredentials(
-                "client-id", "access-token", datetime(2099, 1, 1, tzinfo=UTC)
-            ),
+            credentials=credentials,
             submit_timeout_seconds=5.0,
             cancel_timeout_seconds=5.0,
             reconcile_timeout_seconds=5.0,
@@ -493,8 +494,25 @@ def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:
     )
     try:
         assert isinstance(host.transport, DhanSDKTransport)
+        assert host.adapter._credentials_expires_at == credentials.expires_at
     finally:
         host.close()
+
+
+def test_host_enforces_expiry_for_explicit_sdk_transport(tmp_path) -> None:
+    pytest.importorskip("dhanhq", reason="optional dhan extra is not installed")
+    credentials = DhanCredentials(
+        "client-id", "access-token", CHECKED_AT + timedelta(minutes=4, seconds=59)
+    )
+    sdk_transport = DhanSDKTransport(credentials)
+
+    with pytest.raises(ValueError, match="insufficient remaining lifetime"):
+        _config(
+            tmp_path,
+            transport=sdk_transport,
+            clock=FixedClock(CHECKED_AT),
+            minimum_token_lifetime=timedelta(minutes=5),
+        )
 
 
 def test_host_adapter_rechecks_token_lifetime_after_composition(tmp_path) -> None:

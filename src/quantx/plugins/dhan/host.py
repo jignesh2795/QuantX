@@ -113,11 +113,18 @@ class DhanHostConfig:
             raise ValueError("minimum_token_lifetime must be positive")
         if self.credentials is not None and self.credential_expires_at is not None:
             raise ValueError("credential_expires_at is supplied by DhanCredentials")
-        token_expires_at = (
-            self.credentials.expires_at
-            if self.credentials is not None
-            else self.credential_expires_at
-        )
+        if (
+            self.credentials is None
+            and isinstance(self.transport, DhanSDKTransport)
+            and self.credential_expires_at is not None
+        ):
+            raise ValueError("credential_expires_at is supplied by DhanSDKTransport")
+        if self.credentials is not None:
+            token_expires_at = self.credentials.expires_at
+        elif isinstance(self.transport, DhanSDKTransport):
+            token_expires_at = self.transport.credentials.expires_at
+        else:
+            token_expires_at = self.credential_expires_at
         if self.broker_client_id is not None:
             if type(self.broker_client_id) is not str or not self.broker_client_id.strip():
                 raise ValueError("broker client id must be a non-empty string")
