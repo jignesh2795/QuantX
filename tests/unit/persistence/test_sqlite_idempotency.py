@@ -443,8 +443,7 @@ def test_broker_rejection_not_submitted_source_survives_close_and_reopen(tmp_pat
 
         assert decision.not_submitted_resolution is not None
         assert (
-            decision.not_submitted_resolution.source
-            is NotSubmittedSource.ADAPTER_BROKER_REJECTION
+            decision.not_submitted_resolution.source is NotSubmittedSource.ADAPTER_BROKER_REJECTION
         )
         assert decision.reservation_pending is False
         assert decision.operator_resolved is False

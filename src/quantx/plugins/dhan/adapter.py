@@ -88,9 +88,7 @@ class DhanBrokerAdapter:
         ):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise ValueError(f"{name} must be a positive number")
-        if self._credentials_expires_at is None and isinstance(
-            self._transport, DhanSDKTransport
-        ):
+        if self._credentials_expires_at is None and isinstance(self._transport, DhanSDKTransport):
             # Direct adapter composition must not bypass the host's token
             # lifetime guard when the official SDK transport is supplied.
             self._credentials_expires_at = self._transport.credentials.expires_at
@@ -98,9 +96,7 @@ class DhanBrokerAdapter:
             if not isinstance(self._credentials_expires_at, datetime):
                 raise ValueError("_credentials_expires_at must be a datetime")
         if self._product_map is not None:
-            object.__setattr__(
-                self, "_product_map", normalize_dhan_product_map(self._product_map)
-            )
+            object.__setattr__(self, "_product_map", normalize_dhan_product_map(self._product_map))
         if self._risk_evidence_client_id is not None:
             if type(self._risk_evidence_client_id) is not str or not (
                 self._risk_evidence_client_id.strip()
@@ -111,10 +107,9 @@ class DhanBrokerAdapter:
             )
         if not isinstance(self._clock, Clock):
             raise ValueError("_clock must be a Clock")
-        if (
-            not isinstance(self._minimum_token_lifetime, timedelta)
-            or self._minimum_token_lifetime <= timedelta(0)
-        ):
+        if not isinstance(
+            self._minimum_token_lifetime, timedelta
+        ) or self._minimum_token_lifetime <= timedelta(0):
             raise ValueError("_minimum_token_lifetime must be positive")
         if self._credentials_expires_at is not None:
             if (

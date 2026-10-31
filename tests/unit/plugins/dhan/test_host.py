@@ -96,9 +96,7 @@ def _config(tmp_path, **overrides) -> DhanHostConfig:
         transport=transport,
         credentials=credentials,
         credential_expires_at=credential_expires_at,
-        minimum_token_lifetime=overrides.pop(
-            "minimum_token_lifetime", timedelta(minutes=5)
-        ),
+        minimum_token_lifetime=overrides.pop("minimum_token_lifetime", timedelta(minutes=5)),
         clock=overrides.pop("clock", FixedClock(CHECKED_AT)),
         submit_timeout_seconds=overrides.pop("submit_timeout_seconds", 5.0),
         cancel_timeout_seconds=overrides.pop("cancel_timeout_seconds", 5.0),
@@ -479,9 +477,7 @@ def test_host_rejects_invalid_reconcile_timeout(tmp_path) -> None:
 
 def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:
     pytest.importorskip("dhanhq", reason="optional dhan extra is not installed")
-    credentials = DhanCredentials(
-        "client-id", "access-token", datetime(2099, 1, 1, tzinfo=UTC)
-    )
+    credentials = DhanCredentials("client-id", "access-token", datetime(2099, 1, 1, tzinfo=UTC))
     host = build_dhan_host_runtime(
         _config(
             tmp_path,

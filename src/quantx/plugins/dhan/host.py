@@ -106,10 +106,9 @@ class DhanHostConfig:
             raise ValueError("host requires exactly one of credentials or transport")
         if not isinstance(self.clock, Clock):
             raise ValueError("clock must be a Clock")
-        if (
-            not isinstance(self.minimum_token_lifetime, timedelta)
-            or self.minimum_token_lifetime <= timedelta(0)
-        ):
+        if not isinstance(
+            self.minimum_token_lifetime, timedelta
+        ) or self.minimum_token_lifetime <= timedelta(0):
             raise ValueError("minimum_token_lifetime must be positive")
         if self.credentials is not None and self.credential_expires_at is not None:
             raise ValueError("credential_expires_at is supplied by DhanCredentials")

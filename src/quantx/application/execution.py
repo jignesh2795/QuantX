@@ -1445,9 +1445,7 @@ class ExecutionOrchestrator:
         except BrokerPreflightRejected as exc:
             return self._handle_preflight_rejection(request, unit_of_work, fingerprint, exc)
         except BrokerSubmissionRejected as exc:
-            return self._handle_broker_submission_rejection(
-                request, unit_of_work, fingerprint, exc
-            )
+            return self._handle_broker_submission_rejection(request, unit_of_work, fingerprint, exc)
         except Exception as exc:
             return self._fail_closed_unknown(
                 request,

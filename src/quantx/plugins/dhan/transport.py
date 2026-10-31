@@ -561,9 +561,7 @@ class InMemoryDhanTransport:
         )
 
 
-def _order_response(
-    response: object, *, operation: str = "submit"
-) -> DhanOrderResponse:
+def _order_response(response: object, *, operation: str = "submit") -> DhanOrderResponse:
     envelope_status, remarks, payload = _envelope(response)
     if envelope_status != "success":
         if _dhan_error_code(response) == DhanAuthenticationRejectedError.code:

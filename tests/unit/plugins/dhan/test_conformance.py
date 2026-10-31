@@ -175,9 +175,7 @@ def test_dhan_registration_hook() -> None:
 def test_dhan_credentials_do_not_expose_access_token_in_repr() -> None:
     from quantx.plugins.dhan import DhanCredentials
 
-    credentials = DhanCredentials(
-        "1000000001", "secret-token", datetime(2099, 1, 1, tzinfo=UTC)
-    )
+    credentials = DhanCredentials("1000000001", "secret-token", datetime(2099, 1, 1, tzinfo=UTC))
     rendered = repr(credentials)
 
     assert "1000000001" in rendered

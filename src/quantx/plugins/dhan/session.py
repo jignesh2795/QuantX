@@ -41,9 +41,7 @@ def require_minimum_token_lifetime(
     if remaining <= timedelta(0):
         raise DhanTokenLifetimeError("Dhan access token has expired")
     if remaining < minimum_remaining:
-        raise DhanTokenLifetimeError(
-            "Dhan access token has insufficient remaining lifetime"
-        )
+        raise DhanTokenLifetimeError("Dhan access token has insufficient remaining lifetime")
 
 
 __all__ = [
