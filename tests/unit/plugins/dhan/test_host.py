@@ -472,7 +472,9 @@ def test_host_builds_sdk_transport_from_credentials(tmp_path) -> None:
         _config(
             tmp_path,
             transport=None,
-            credentials=DhanCredentials("client-id", "access-token", datetime(2099, 1, 1, tzinfo=UTC)),
+            credentials=DhanCredentials(
+                "client-id", "access-token", datetime(2099, 1, 1, tzinfo=UTC)
+            ),
             submit_timeout_seconds=5.0,
             cancel_timeout_seconds=5.0,
             reconcile_timeout_seconds=5.0,
@@ -738,7 +740,9 @@ def test_risk_evidence_source_builder_derives_the_client_id_from_credentials(
         _config(
             tmp_path,
             transport=None,
-            credentials=DhanCredentials("credential-client", "access-token", datetime(2099, 1, 1, tzinfo=UTC)),
+            credentials=DhanCredentials(
+                "credential-client", "access-token", datetime(2099, 1, 1, tzinfo=UTC)
+            ),
         )
     )
     try:
