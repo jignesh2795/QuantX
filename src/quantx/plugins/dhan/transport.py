@@ -206,7 +206,7 @@ class DhanSDKTransport:
             operation="submit",
             executor=self._submit_executor,
         )
-        return _order_response(response)
+        return _order_response(response, operation="submit")
 
     def cancel(self, correlation_id: str, *, timeout: float) -> DhanOrderResponse:
         """Cancel bounded by up to two sequential timeout windows.
@@ -234,7 +234,7 @@ class DhanSDKTransport:
             operation="cancel",
             executor=self._submit_executor,
         )
-        return _order_response(response)
+        return _order_response(response, operation="cancel")
 
     def reconcile(self, correlation_id: str, *, timeout: float) -> DhanOrderDetail:
         response = self._call_with_timeout(
@@ -561,11 +561,13 @@ class InMemoryDhanTransport:
         )
 
 
-def _order_response(response: object) -> DhanOrderResponse:
+def _order_response(
+    response: object, *, operation: str = "submit"
+) -> DhanOrderResponse:
     envelope_status, remarks, payload = _envelope(response)
     if envelope_status != "success":
         if _dhan_error_code(response) == DhanAuthenticationRejectedError.code:
-            raise DhanAuthenticationRejectedError("submit")
+            raise DhanAuthenticationRejectedError(operation)
         return DhanOrderResponse(
             order_id=None,
             order_status="UNKNOWN",
