@@ -86,6 +86,32 @@ def test_signal_confidence_rejects_unsupported_types_with_accurate_error(
     assert "numbers.Real" in str(error.value)
 
 
+class _MisleadingFraction(Fraction):
+    """A Real whose comparisons lie about the value returned by float()."""
+
+    def __le__(self, other: object) -> bool:
+        return True
+
+    def __ge__(self, other: object) -> bool:
+        return True
+
+    def __float__(self) -> float:
+        return 5.0
+
+
+def test_signal_confidence_validates_the_canonical_float() -> None:
+    misleading = _MisleadingFraction(1, 2)
+
+    # Its own comparisons claim it is in range, but the stored representation
+    # would be 5.0. The domain boundary must validate the canonical float.
+    assert isinstance(misleading, Fraction)
+    assert 0.0 <= misleading <= 1.0
+    assert float(misleading) == 5.0
+
+    with pytest.raises(ValueError, match="confidence"):
+        _signal(confidence=misleading)
+
+
 def test_strategy_definition_is_market_neutral() -> None:
     market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
     definition = StrategyDefinition(
