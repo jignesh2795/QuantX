@@ -266,7 +266,6 @@ class DhanBrokerAdapter:
             self._validate_contract(request, broker_instrument[0])
             self._validate_market(broker_instrument[0], broker_instrument[1])
             self._validate_product(request)
-            self._validate_token_lifetime()
             wire = build_order_request(
                 instrument_ref=broker_instrument[1],
                 side=request.order.side,
@@ -279,6 +278,7 @@ class DhanBrokerAdapter:
                 product_code=request.product,
                 product_map=self._product_map,
             )
+            self._validate_token_lifetime()
         except BrokerPreflightRejected:
             raise
         except Exception as exc:
