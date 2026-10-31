@@ -87,9 +87,7 @@ class StrategySignal:
         try:
             normalized_confidence = float(confidence)
         except OverflowError as exc:
-            raise ValueError(
-                "signal confidence must be between 0.0 and 1.0 inclusive"
-            ) from exc
+            raise ValueError("signal confidence must be between 0.0 and 1.0 inclusive") from exc
         if not 0.0 <= normalized_confidence <= 1.0:
             raise ValueError("signal confidence must be between 0.0 and 1.0 inclusive")
         object.__setattr__(self, "confidence", normalized_confidence)
