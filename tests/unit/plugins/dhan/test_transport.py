@@ -98,6 +98,10 @@ def test_transport_helpers_unwrap_success_and_failure_envelopes() -> None:
         _order_response(auth_failure)
     with pytest.raises(DhanAuthenticationRejectedError, match="DH-901"):
         _order_detail(auth_failure)
+    with pytest.raises(DhanAuthenticationRejectedError) as cancel_error:
+        _order_response(auth_failure, operation="cancel")
+    assert cancel_error.value.operation == "cancel"
+    assert "during cancel" in str(cancel_error.value)
 
     # Free text is never promoted to typed authentication evidence.
     text_only_auth_hint = {
