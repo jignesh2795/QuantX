@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
@@ -13,6 +14,7 @@ from quantx.domain.deployment import (
     StrategyDeploymentId,
 )
 from quantx.domain.enums import AssetClass, OrderSide, PositionEffect
+from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.finance import AccountFinancialState, CapitalSourceType
 from quantx.domain.instrument_registry import InMemoryInstrumentRegistry
 from quantx.domain.instruments import (
@@ -95,6 +97,7 @@ def _decision(
     product: ProductCode | None = None,
     position_effect: PositionEffect | None = None,
     context: ExecutionContext | None = None,
+    confidence: float = 1.0,
 ) -> StrategyExecutionDecision:
     event = _event()
     signal = StrategySignal(
@@ -102,7 +105,7 @@ def _decision(
         strategy_version="1",
         instrument=event.instrument,
         action=SignalAction.BUY if side is OrderSide.BUY else SignalAction.SELL,
-        confidence=1.0,
+        confidence=confidence,
         generated_at=event.timestamp,
     )
     intent = TradeIntent(
@@ -157,6 +160,50 @@ def _preparer(
         product_selection=product_selection,
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
     )
+
+
+def _semantic_request(request: ApprovedExecutionRequest) -> ApprovedExecutionRequest:
+    """Return the request without per-call order identity.
+
+    `StrategyExecutionPreparer.prepare` builds a fresh order for each call, so
+    the generated `client_order_id` and `created_at` are per-call identity
+    rather than preparation semantics. Normalizing only those two generated
+    fields lets the remaining request fields be compared exactly.
+    """
+    return replace(
+        request,
+        order=replace(
+            request.order,
+            client_order_id=UUID(int=0),
+            created_at=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+        ),
+    )
+
+
+def test_preparer_confidence_does_not_change_risk_policy_or_execution_request() -> None:
+    event = _event()
+    financial_state = _financial_state()
+    preparer = _preparer(product_selection=INDIA_EQUITY_PRODUCT_SELECTION)
+    low_decision = _decision(confidence=0.0, product=ProductCode("CNC"))
+    high_decision = replace(
+        low_decision,
+        result=replace(
+            low_decision.result,
+            signal=replace(low_decision.result.signal, confidence=1.0),
+        ),
+    )
+
+    low = preparer.prepare(low_decision, event, financial_state)
+    high = preparer.prepare(high_decision, event, financial_state)
+
+    assert low_decision.result.signal.confidence == 0.0
+    assert high_decision.result.signal.confidence == 1.0
+    assert low.risk_result is not None
+    assert low.policy_result is not None
+    assert low.request is not None
+    assert low.risk_result == high.risk_result
+    assert low.policy_result == high.policy_result
+    assert _semantic_request(low.request) == _semantic_request(high.request)
 
 
 def test_preparer_rejects_disabled_deployment() -> None:
