@@ -38,6 +38,7 @@ class BrokerPreflightRejected(ValueError):
     The adapter entered no external transport call for the request.
     """
 
+
 class BrokerSubmissionRejected(ValueError):
     """An authoritative broker response proves that the order was not accepted.
 
