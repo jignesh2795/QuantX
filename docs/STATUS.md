@@ -1,6 +1,45 @@
 # QuantX Status
 
 
+## Issue #182 — package coverage floors (2026-10-31)
+
+Implemented on branch `fix/issue-182-package-coverage-floors-v1` from base
+`fe3b0342a5ef9a6bd38d9a7ffb3e078e65989edd`. `quantx.domain`, `quantx.execution`
+and `quantx.persistence` are now measured and enforced independently for line
+and branch coverage; an aggregate suite percentage is not accepted as a package
+guarantee.
+
+Baseline measured at the base SHA with the locked Python 3.12 environment and
+the full suite under branch measurement:
+
+| Package | Line | Branch | Required line | Required branch |
+|---|---:|---:|---:|---:|
+| `quantx.domain` | 88.71% | 74.56% | 87% | 73% |
+| `quantx.execution` | 89.30% | 75.41% | 88% | 74% |
+| `quantx.persistence` | 93.16% | 81.48% | 92% | 80% |
+
+Each floor is the truncated measured percentage minus one full point
+(`floor(measured) - 1`), applied uniformly to line and branch coverage. The
+measurement includes every module under each package, whether or not a test
+imports it, so untested new modules lower the package result.
+
+Standalone gate:
+
+```powershell
+uv run python .opencode/skills/quantx-validation-gate/scripts/package_coverage.py
+```
+
+The documented local validation producer runs the same gate as its
+`package-coverage` mandatory check; the release gate requires that record exactly
+once, validates its canonical invocation, and pins the package order and
+reviewed floors. Skipping the check records UNKNOWN, never PASS. Baseline
+figures, command details, new-module policy, revision policy and the separate
+issue #202 relationship are recorded in
+[`docs/implementation/package-coverage-floors.md`](implementation/package-coverage-floors.md).
+
+The floors are a regression alarm, not a mutation score, correctness proof,
+production-broker claim, or LIVE-readiness claim.
+
 ## Current work-program reconciliation — 2026-10-30
 
 The active cross-workstream priority order remains in the [master work programme](planning/quantx-work-program-2026-10.md). This status file records the implemented state and exact-SHA evidence.

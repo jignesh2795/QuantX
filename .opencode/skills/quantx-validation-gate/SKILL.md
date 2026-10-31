@@ -58,7 +58,8 @@ python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expec
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --skip-pytest  # degrades to UNKNOWN, never PASS
 ```
 
-- Runs: full `uv run pytest` (pyproject `addopts` supplies `-q`; an extra `-q` would suppress the summary line and fail-closed to UNKNOWN), changed-file `uv run ruff check` + `ruff format --check`, `uv run mypy`, `git diff --check`, `git status --porcelain`.
+- Runs: full `uv run pytest` (pyproject `addopts` supplies `-q`; an extra `-q` would suppress the summary line and fail-closed to UNKNOWN), the package coverage gate, changed-file `uv run ruff check` + `ruff format --check`, `uv run mypy`, `git diff --check`, `git status --porcelain`.
+- `package-coverage` runs `package_coverage.py`, which measures full-suite line and branch coverage independently for `quantx.domain`, `quantx.execution` and `quantx.persistence`. Each package has a reviewed line and branch floor; any breach fails the producer. The evidence summary records every package's measured and required percentages. Missing branch proof, a missing package, malformed coverage data, a missing tool, a timeout, or a skipped check is UNKNOWN, never PASS. `--skip-coverage` degrades the check to UNKNOWN. Policy and measured baseline: `docs/implementation/package-coverage-floors.md`.
 - Every check record stores the **actual argument vector** it ran in `argv` (e.g. pytest as
   `["uv", "run", "pytest", *--pytest-target…]`), and the evidence stores `base_rev` — the rev
   the changed-file Ruff scope was computed against. The release gate independently validates
