@@ -49,10 +49,20 @@ class StrategyDefinition:
 
 @dataclass(frozen=True, slots=True)
 class StrategySignal:
+    """One strategy decision with a bounded, producer-declared score.
+
+    ``confidence`` is a producer-local conviction score normalized to the
+    inclusive range ``[0.0, 1.0]``. It is not a calibrated probability and has
+    no cross-strategy or cross-version scale. It is not money, a risk limit, or
+    execution authorization; no core consumer selects, sizes, or approves
+    execution from it.
+    """
+
     strategy_id: StrategyId
     strategy_version: str
     instrument: InstrumentId
     action: SignalAction
+    # Producer-local heuristic score in [0, 1], never a calibrated probability.
     confidence: float
     # Wall-clock default for interactive construction only. Replay callers
     # must bind the market-event time explicitly: the deterministic backtest
@@ -64,6 +74,8 @@ class StrategySignal:
     def __post_init__(self) -> None:
         if not self.strategy_version.strip():
             raise ValueError("strategy version must not be empty")
+        if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)):
+            raise TypeError("signal confidence must be a real number")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("signal confidence must be between 0 and 1")
         if self.generated_at.tzinfo is None or self.generated_at.utcoffset() is None:
