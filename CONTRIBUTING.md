@@ -55,17 +55,19 @@ The [implementation guide](docs/implementation/README.md) is the canonical refer
 Use the locked environment and validate the exact candidate commit in a clean, isolated worktree. The canonical full-suite command is:
 
 ```powershell
-uv run pytest -q
+uv run pytest
 ```
+
+`pyproject.toml` already configures `addopts = "-q"`. Do not append another `-q` to full-suite or focused pytest commands: double-quiet mode suppresses the normal summary counts needed for validation evidence.
 
 Useful focused commands during development include:
 
 ```powershell
-uv run pytest tests/unit -q
-uv run pytest tests/unit/execution -q
-uv run pytest tests/unit/execution/paper -q
-uv run pytest tests/unit/plugins/dhan -q
-uv run pytest path/to/test_file.py::test_name -q
+uv run pytest tests/unit
+uv run pytest tests/unit/execution
+uv run pytest tests/unit/execution/paper
+uv run pytest tests/unit/plugins/dhan
+uv run pytest path/to/test_file.py::test_name
 ```
 
 Focused runs help diagnose a change; they do **not** replace the full suite for candidate evidence.
@@ -98,7 +100,7 @@ git diff --check
 git status --porcelain
 ```
 
-Ruff’s candidate gate is scoped to changed Python files against the stated base; it is not a claim that every historical repository file is lint-clean. Mypy uses the project’s strict configuration. The Dhan-disabled configuration may report an optional SDK-dependent test as skipped; report that skip explicitly. A missing, skipped, timed-out, or SHA-mismatched mandatory check is not a PASS.
+Ruff’s candidate gate is scoped to changed Python files against the stated base; it is not a claim that every historical repository file is lint-clean. Mypy uses the project’s strict configuration. The Dhan-disabled configuration may report optional SDK-dependent tests as skipped; report the exact count and reasons explicitly. A missing, skipped, timed-out, or SHA-mismatched mandatory check is not a PASS.
 
 For a documentation-only contribution, still run the full suite and the documentation-relevant checks from the playbook where the environment is available. Report what was actually run; never infer that tests or static checks passed because no production code changed.
 
