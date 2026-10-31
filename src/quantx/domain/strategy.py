@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from numbers import Real
 from uuid import UUID, uuid4
 
 from .instruments import MarketContext
@@ -52,10 +53,12 @@ class StrategySignal:
     """One strategy decision with a bounded, producer-declared score.
 
     ``confidence`` is a producer-local conviction score normalized to the
-    inclusive range ``[0.0, 1.0]``. It is not a calibrated probability and has
-    no cross-strategy or cross-version scale. It is not money, a risk limit, or
-    execution authorization; no core consumer selects, sizes, or approves
-    execution from it.
+    inclusive range ``[0.0, 1.0]``. Accepted ``numbers.Real`` inputs are stored
+    canonically as a Python ``float``; ``bool`` is rejected and ``Decimal`` is
+    unsupported. It is not a calibrated probability and has no cross-strategy
+    or cross-version scale. It is not money, a risk limit, or execution
+    authorization; no core consumer selects, sizes, or approves execution from
+    it.
     """
 
     strategy_id: StrategyId
@@ -74,10 +77,16 @@ class StrategySignal:
     def __post_init__(self) -> None:
         if not self.strategy_version.strip():
             raise ValueError("strategy version must not be empty")
-        if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)):
-            raise TypeError("signal confidence must be a real number")
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError("signal confidence must be between 0 and 1")
+        confidence = self.confidence
+        if isinstance(confidence, bool):
+            raise TypeError("signal confidence must not be bool")
+        if not isinstance(confidence, Real):
+            raise TypeError(
+                f"signal confidence must be a numbers.Real, got {type(confidence).__name__}"
+            )
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError("signal confidence must be between 0.0 and 1.0 inclusive")
+        object.__setattr__(self, "confidence", float(confidence))
         if self.generated_at.tzinfo is None or self.generated_at.utcoffset() is None:
             raise ValueError("generated_at must be timezone-aware")
 

@@ -1,6 +1,7 @@
 import math
 from datetime import UTC, datetime
 from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 
@@ -32,25 +33,57 @@ def test_signal_confidence_is_bounded() -> None:
 
 @pytest.mark.parametrize("confidence", [0, 0.0, 0.5, 1, 1.0])
 def test_signal_confidence_accepts_inclusive_range(confidence: float | int) -> None:
-    assert _signal(confidence=confidence).confidence == confidence
+    signal = _signal(confidence=confidence)
+
+    assert signal.confidence == confidence
+    assert type(signal.confidence) is float
 
 
-@pytest.mark.parametrize("confidence", [-0.0001, 1.0001, math.nan, math.inf, -math.inf])
-def test_signal_confidence_rejects_out_of_range_and_non_finite(confidence: float) -> None:
+@pytest.mark.parametrize(
+    "confidence",
+    [Fraction(0, 1), Fraction(1, 2), Fraction(1, 1)],
+)
+def test_signal_confidence_normalizes_fraction_to_float(confidence: Fraction) -> None:
+    signal = _signal(confidence=confidence)
+
+    assert signal.confidence == float(confidence)
+    assert type(signal.confidence) is float
+
+
+@pytest.mark.parametrize(
+    "confidence",
+    [-0.0001, 1.0001, math.nan, math.inf, -math.inf, Fraction(3, 2), Fraction(10**400, 1)],
+)
+def test_signal_confidence_rejects_out_of_range_and_non_finite(confidence: object) -> None:
     with pytest.raises(ValueError, match="confidence"):
         _signal(confidence=confidence)
 
 
 @pytest.mark.parametrize("confidence", [True, False])
 def test_signal_confidence_rejects_bool(confidence: bool) -> None:
-    with pytest.raises(TypeError, match="confidence"):
+    with pytest.raises(TypeError, match="bool"):
         _signal(confidence=confidence)
 
 
-@pytest.mark.parametrize("confidence", ["0.5", None, Decimal("0.5")])
-def test_signal_confidence_rejects_unsupported_types(confidence: object) -> None:
-    with pytest.raises(TypeError, match="confidence"):
+def test_signal_confidence_rejects_decimal_with_accurate_type_error() -> None:
+    with pytest.raises(TypeError, match="Decimal") as error:
+        _signal(confidence=Decimal("0.5"))
+
+    assert "numbers.Real" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("confidence", "type_name"),
+    [("0.5", "str"), (None, "NoneType"), (1 + 2j, "complex")],
+)
+def test_signal_confidence_rejects_unsupported_types_with_accurate_error(
+    confidence: object,
+    type_name: str,
+) -> None:
+    with pytest.raises(TypeError, match=type_name) as error:
         _signal(confidence=confidence)
+
+    assert "numbers.Real" in str(error.value)
 
 
 def test_strategy_definition_is_market_neutral() -> None:
