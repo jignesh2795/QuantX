@@ -118,6 +118,7 @@ class DhanHostConfig:
             and self.credential_expires_at is not None
         ):
             raise ValueError("credential_expires_at is supplied by DhanSDKTransport")
+        token_expires_at: datetime | None
         if self.credentials is not None:
             token_expires_at = self.credentials.expires_at
         elif isinstance(self.transport, DhanSDKTransport):
