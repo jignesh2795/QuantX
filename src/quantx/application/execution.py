@@ -44,7 +44,10 @@ from quantx.execution.receipts.quarantine import (
     QuarantineObservationKind,
 )
 from quantx.execution.session_guard import SessionExecutionGuard, SessionGuardResult
-from quantx.execution.submission_preflight import BrokerPreflightRejected
+from quantx.execution.submission_preflight import (
+    BrokerPreflightRejected,
+    BrokerSubmissionRejected,
+)
 from quantx.execution.trading_gate import TradingGate
 from quantx.persistence import UnitOfWork
 from quantx.ports.market_checks import (
@@ -1432,15 +1435,17 @@ class ExecutionOrchestrator:
             )
 
         # Broker call happens OUTSIDE the trading-gate lock.
-        # Timeout is enforced by the broker adapter; any timeout/exception
-        # produces UNKNOWN outcome, never REJECTED, and no automatic retry.
-        # A typed preflight rejection proves the trusted adapter entered no
-        # transport I/O (NOT_SUBMITTED); every other failure after admission
-        # stays SUBMISSION_UNKNOWN and is never retried automatically.
+        # A typed preflight rejection proves no transport I/O occurred; an
+        # exact typed broker rejection proves a documented pre-acceptance
+        # response after transport I/O. Both close as typed NOT_SUBMITTED.
+        # Every other post-admission failure remains SUBMISSION_UNKNOWN and
+        # is never retried automatically.
         try:
             receipt = broker.submit(request)
         except BrokerPreflightRejected as exc:
             return self._handle_preflight_rejection(request, unit_of_work, fingerprint, exc)
+        except BrokerSubmissionRejected as exc:
+            return self._handle_broker_submission_rejection(request, unit_of_work, fingerprint, exc)
         except Exception as exc:
             return self._fail_closed_unknown(
                 request,
@@ -1610,6 +1615,53 @@ class ExecutionOrchestrator:
             ExecutionDispatchStatus.BLOCKED,
             reason=f"submission was not sent: {reason}",
         )
+
+    def _handle_broker_submission_rejection(
+        self,
+        request: ApprovedExecutionRequest,
+        unit_of_work: UnitOfWork,
+        fingerprint: str,
+        exc: BrokerSubmissionRejected,
+    ) -> ExecutionResult:
+        """Close a request only when a broker protocol proves it was not accepted.
+
+        Unlike local preflight, transport I/O did occur. This path is reserved
+        for an exact broker response contract that proves no order was
+        accepted; unknown errors and timeouts must continue to quarantine as
+        UNKNOWN. A separate provenance value prevents this from being
+        misreported as a local preflight rejection.
+        """
+        reason = self._bounded_broker_rejection_reason(exc)
+        try:
+            unit_of_work.idempotency.record_not_submitted(
+                request.order.client_order_id,
+                fingerprint,
+                source=NotSubmittedSource.ADAPTER_BROKER_REJECTION,
+                reason=reason,
+                recorded_at=datetime.now(UTC),
+            )
+        except Exception:
+            return ExecutionResult(
+                ExecutionDispatchStatus.UNKNOWN,
+                reason=(
+                    "broker rejected the request before acceptance, but the durable "
+                    "not-submitted closure failed; reconciliation is required"
+                ),
+            )
+        return ExecutionResult(
+            ExecutionDispatchStatus.BLOCKED,
+            reason=f"broker definitively did not accept the submission: {reason}",
+        )
+
+    @staticmethod
+    def _bounded_broker_rejection_reason(exc: BrokerSubmissionRejected) -> str:
+        try:
+            text = " ".join(str(exc).split())
+        except Exception:
+            text = ""
+        if not text:
+            return "broker returned an authoritative pre-acceptance rejection"
+        return text[:300]
 
     @staticmethod
     def _bounded_preflight_reason(exc: BrokerPreflightRejected) -> str:

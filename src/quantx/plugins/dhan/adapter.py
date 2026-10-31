@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from quantx.application.live_risk_sources import TrustedLiveRiskEvidenceBinding
+from quantx.domain.clock import Clock, SystemClock
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import DERIVATIVE_ASSET_CLASSES, Instrument
@@ -17,7 +18,10 @@ from quantx.execution.receipts.models import (
     ExecutionOutcome,
     ExecutionReceipt,
 )
-from quantx.execution.submission_preflight import BrokerPreflightRejected
+from quantx.execution.submission_preflight import (
+    BrokerPreflightRejected,
+    BrokerSubmissionRejected,
+)
 from quantx.integrations.account_registry import RegisteredConnection
 from quantx.integrations.brokers import (
     BrokerConnectionRef,
@@ -41,7 +45,17 @@ from .mapping import (
 )
 from .models import DhanInstrumentRef, DhanOrderDetail, DhanPositionSnapshot
 from .risk_evidence import DhanRiskEvidenceSource
-from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanTimeoutError, DhanTransport
+from .session import (
+    DhanAuthenticationRejectedError,
+    DhanTokenLifetimeError,
+    require_minimum_token_lifetime,
+)
+from .transport import (
+    DEFAULT_READ_TIMEOUT_SECONDS,
+    DhanSDKTransport,
+    DhanTimeoutError,
+    DhanTransport,
+)
 
 
 @dataclass(slots=True)
@@ -59,6 +73,9 @@ class DhanBrokerAdapter:
     _adapter_version: str = "dhan-0.1"
     _product_map: Mapping[str, str] | None = None
     _risk_evidence_client_id: str | None = None
+    _credentials_expires_at: datetime | None = None
+    _minimum_token_lifetime: timedelta = timedelta(minutes=5)
+    _clock: Clock = field(default_factory=SystemClock, repr=False)
 
     def __post_init__(self) -> None:
         if self._connection.broker_id != "dhan":
@@ -71,6 +88,13 @@ class DhanBrokerAdapter:
         ):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise ValueError(f"{name} must be a positive number")
+        if self._credentials_expires_at is None and isinstance(self._transport, DhanSDKTransport):
+            # Direct adapter composition must not bypass the host's token
+            # lifetime guard when the official SDK transport is supplied.
+            self._credentials_expires_at = self._transport.credentials.expires_at
+        if self._credentials_expires_at is not None:
+            if not isinstance(self._credentials_expires_at, datetime):
+                raise ValueError("_credentials_expires_at must be a datetime")
         if self._product_map is not None:
             object.__setattr__(self, "_product_map", normalize_dhan_product_map(self._product_map))
         if self._risk_evidence_client_id is not None:
@@ -80,6 +104,23 @@ class DhanBrokerAdapter:
                 raise ValueError("risk evidence client id must be a non-empty string")
             object.__setattr__(
                 self, "_risk_evidence_client_id", self._risk_evidence_client_id.strip()
+            )
+        if not isinstance(self._clock, Clock):
+            raise ValueError("_clock must be a Clock")
+        if not isinstance(
+            self._minimum_token_lifetime, timedelta
+        ) or self._minimum_token_lifetime <= timedelta(0):
+            raise ValueError("_minimum_token_lifetime must be positive")
+        if self._credentials_expires_at is not None:
+            if (
+                self._credentials_expires_at.tzinfo is None
+                or self._credentials_expires_at.utcoffset() is None
+            ):
+                raise ValueError("_credentials_expires_at must be timezone-aware")
+            object.__setattr__(
+                self,
+                "_credentials_expires_at",
+                self._credentials_expires_at.astimezone(UTC),
             )
 
     @property
@@ -94,6 +135,23 @@ class DhanBrokerAdapter:
     @property
     def connection(self) -> BrokerConnectionRef:
         return self._connection
+
+    def _validate_token_lifetime(self) -> None:
+        """Re-check the session margin immediately before any order transport call."""
+        if self._credentials_expires_at is None:
+            # Custom transports may not represent an SDK-managed expiring token.
+            # Official SDK composition always populates this from credentials.
+            return
+        try:
+            require_minimum_token_lifetime(
+                self._credentials_expires_at,
+                now=self._clock.now(),
+                minimum_remaining=self._minimum_token_lifetime,
+            )
+        except DhanTokenLifetimeError as exc:
+            raise BrokerPreflightRejected(
+                f"Dhan access token is not valid for the configured submission margin: {exc}"
+            ) from exc
 
     def _validate_connection(self, request: ApprovedExecutionRequest) -> None:
         context = request.execution_context
@@ -220,6 +278,7 @@ class DhanBrokerAdapter:
                 product_code=request.product,
                 product_map=self._product_map,
             )
+            self._validate_token_lifetime()
         except BrokerPreflightRejected:
             raise
         except Exception as exc:
@@ -228,6 +287,8 @@ class DhanBrokerAdapter:
             ) from exc
         try:
             response = self._transport.submit(wire, timeout=self._submit_timeout)
+        except DhanAuthenticationRejectedError as exc:
+            raise BrokerSubmissionRejected(str(exc)) from exc
         except DhanTimeoutError as exc:
             return self._unknown_receipt(request, f"Dhan submit timed out after {exc.timeout}s")
         except Exception as exc:
@@ -256,6 +317,11 @@ class DhanBrokerAdapter:
             response = self._transport.cancel(
                 dhan_correlation_id(request.correlation_id), timeout=self._cancel_timeout
             )
+        except DhanAuthenticationRejectedError as exc:
+            return self._unknown_receipt(
+                request,
+                f"authentication expired ({exc.code}); cancel outcome remains UNKNOWN",
+            )
         except DhanTimeoutError as exc:
             return self._unknown_receipt(request, f"Dhan cancel timed out after {exc.timeout}s")
         except Exception as exc:
@@ -283,6 +349,11 @@ class DhanBrokerAdapter:
         try:
             detail = self._transport.reconcile(
                 dhan_correlation_id(request.correlation_id), timeout=self._reconcile_timeout
+            )
+        except DhanAuthenticationRejectedError as exc:
+            return self._unknown_receipt(
+                request,
+                f"authentication expired ({exc.code}); reconciliation unavailable",
             )
         except DhanTimeoutError as exc:
             return self._unknown_receipt(request, f"Dhan reconcile timed out after {exc.timeout}s")

@@ -14,8 +14,8 @@ domain or application packages.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import TracebackType
 
@@ -32,6 +32,7 @@ from quantx.application.production import (
     build_production_runtime,
 )
 from quantx.application.runtime import ApplicationStartupResult
+from quantx.domain.clock import Clock, SystemClock
 from quantx.domain.instruments import Instrument
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
@@ -45,6 +46,7 @@ from .models import DhanCredentials, DhanInstrumentRef
 from .recovery import build_dhan_recovery_provider
 from .risk_evidence import DhanRiskEvidenceSource
 from .risk_evidence import build_dhan_risk_evidence_source as _build_dhan_risk_evidence_source
+from .session import DhanTokenLifetimeError, require_minimum_token_lifetime
 from .transport import DEFAULT_READ_TIMEOUT_SECONDS, DhanSDKTransport, DhanTransport
 
 _DHAN_BROKER_ID = "dhan"
@@ -86,6 +88,9 @@ class DhanHostConfig:
     fill_provider: FillProvider | None = None
     evidence_policy: DefinitiveEvidencePolicy | None = None
     refresh_policy: RefreshPolicy | None = None
+    credential_expires_at: datetime | None = None
+    minimum_token_lifetime: timedelta = timedelta(minutes=5)
+    clock: Clock = field(default_factory=SystemClock, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if isinstance(self.database_path, str) and not self.database_path.strip():
@@ -99,6 +104,27 @@ class DhanHostConfig:
             raise ValueError("host instruments contain a duplicate instrument id")
         if (self.credentials is None) == (self.transport is None):
             raise ValueError("host requires exactly one of credentials or transport")
+        if not isinstance(self.clock, Clock):
+            raise ValueError("clock must be a Clock")
+        if not isinstance(
+            self.minimum_token_lifetime, timedelta
+        ) or self.minimum_token_lifetime <= timedelta(0):
+            raise ValueError("minimum_token_lifetime must be positive")
+        if self.credentials is not None and self.credential_expires_at is not None:
+            raise ValueError("credential_expires_at is supplied by DhanCredentials")
+        if (
+            self.credentials is None
+            and isinstance(self.transport, DhanSDKTransport)
+            and self.credential_expires_at is not None
+        ):
+            raise ValueError("credential_expires_at is supplied by DhanSDKTransport")
+        token_expires_at: datetime | None
+        if self.credentials is not None:
+            token_expires_at = self.credentials.expires_at
+        elif isinstance(self.transport, DhanSDKTransport):
+            token_expires_at = self.transport.credentials.expires_at
+        else:
+            token_expires_at = self.credential_expires_at
         if self.broker_client_id is not None:
             if type(self.broker_client_id) is not str or not self.broker_client_id.strip():
                 raise ValueError("broker client id must be a non-empty string")
@@ -115,6 +141,18 @@ class DhanHostConfig:
             ("read_timeout_seconds", self.read_timeout_seconds),
         ):
             _validate_timeout_seconds(name, value)
+        # A supplied credential lifetime is always enforced. Credentials for
+        # the official SDK path always carry expiryTime; custom transports may
+        # omit it when they do not own an SDK-managed access token.
+        if token_expires_at is not None:
+            try:
+                require_minimum_token_lifetime(
+                    token_expires_at,
+                    now=self.clock.now(),
+                    minimum_remaining=self.minimum_token_lifetime,
+                )
+            except DhanTokenLifetimeError as exc:
+                raise ValueError(str(exc)) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +237,13 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         _read_timeout=config.read_timeout_seconds,
         _product_map=config.product_map,
         _risk_evidence_client_id=_dhan_evidence_client_id(config),
+        _credentials_expires_at=(
+            config.credentials.expires_at
+            if config.credentials is not None
+            else config.credential_expires_at
+        ),
+        _minimum_token_lifetime=config.minimum_token_lifetime,
+        _clock=config.clock,
     )
     market_data = DhanMarketDataAdapter(_instruments=instrument_map, _transport=transport)
 
