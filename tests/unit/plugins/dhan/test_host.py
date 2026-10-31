@@ -86,10 +86,7 @@ def _instrument_ref() -> DhanInstrumentRef:
 def _config(tmp_path, **overrides) -> DhanHostConfig:
     credentials = overrides.pop("credentials", None)
     transport = overrides.pop("transport", InMemoryDhanTransport())
-    credential_expires_at = overrides.pop(
-        "credential_expires_at",
-        None if credentials is not None else datetime(2099, 1, 1, tzinfo=UTC),
-    )
+    credential_expires_at = overrides.pop("credential_expires_at", None)
     return DhanHostConfig(
         database_path=overrides.pop("database_path", tmp_path / "quantx.db"),
         account_id=overrides.pop("account_id", AccountId("acct-1")),
@@ -380,9 +377,23 @@ def test_host_rejects_expired_or_near_expiry_credentials(tmp_path) -> None:
             )
 
 
-def test_host_rejects_custom_transport_without_explicit_token_expiry(tmp_path) -> None:
-    with pytest.raises(ValueError, match="requires broker-supplied credential expiryTime"):
-        _config(tmp_path, credential_expires_at=None)
+def test_host_allows_custom_transport_without_token_expiry(tmp_path) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path, credential_expires_at=None))
+    try:
+        assert host.config.credential_expires_at is None
+        assert host.adapter._credentials_expires_at is None
+    finally:
+        host.close()
+
+
+def test_host_enforces_explicit_custom_transport_token_expiry(tmp_path) -> None:
+    with pytest.raises(ValueError, match="insufficient remaining lifetime"):
+        _config(
+            tmp_path,
+            credential_expires_at=CHECKED_AT + timedelta(minutes=4, seconds=59),
+            clock=FixedClock(CHECKED_AT),
+            minimum_token_lifetime=timedelta(minutes=5),
+        )
 
 
 def test_credentials_factory_parses_naive_expiry_as_ist_and_hides_token() -> None:

@@ -126,6 +126,20 @@ def test_transport_helpers_unwrap_success_and_failure_envelopes() -> None:
     assert rate_limited.order_status == "UNKNOWN"
     assert "DH-904" in rate_limited.message
 
+    # DH-902 is an unrecognized authentication code and must stay UNKNOWN.
+    unrecognized_auth_failure = {
+        "status": "failure",
+        "remarks": {
+            "error_code": "DH-902",
+            "error_type": "Authentication Error",
+            "error_message": "unrecognized authentication failure",
+        },
+        "data": "",
+    }
+    unrecognized_auth = _order_response(unrecognized_auth_failure)
+    assert unrecognized_auth.order_status == "UNKNOWN"
+    assert "DH-902" in unrecognized_auth.message
+
     assert order.order_id == "123"
     assert order.order_status == "PENDING"
     assert failed.order_status == "UNKNOWN"

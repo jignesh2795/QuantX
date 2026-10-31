@@ -118,16 +118,6 @@ class DhanHostConfig:
             if self.credentials is not None
             else self.credential_expires_at
         )
-        if token_expires_at is None:
-            raise ValueError("Dhan host requires broker-supplied credential expiryTime")
-        try:
-            require_minimum_token_lifetime(
-                token_expires_at,
-                now=self.clock.now(),
-                minimum_remaining=self.minimum_token_lifetime,
-            )
-        except DhanTokenLifetimeError as exc:
-            raise ValueError(str(exc)) from exc
         if self.broker_client_id is not None:
             if type(self.broker_client_id) is not str or not self.broker_client_id.strip():
                 raise ValueError("broker client id must be a non-empty string")
@@ -144,6 +134,18 @@ class DhanHostConfig:
             ("read_timeout_seconds", self.read_timeout_seconds),
         ):
             _validate_timeout_seconds(name, value)
+        # A supplied credential lifetime is always enforced. Credentials for
+        # the official SDK path always carry expiryTime; custom transports may
+        # omit it when they do not own an SDK-managed access token.
+        if token_expires_at is not None:
+            try:
+                require_minimum_token_lifetime(
+                    token_expires_at,
+                    now=self.clock.now(),
+                    minimum_remaining=self.minimum_token_lifetime,
+                )
+            except DhanTokenLifetimeError as exc:
+                raise ValueError(str(exc)) from exc
 
 
 @dataclass(frozen=True, slots=True)

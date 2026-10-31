@@ -211,7 +211,7 @@ def _adapter(
     transport: InMemoryDhanTransport | None = None,
     *,
     product_map: dict[str, str] | None = _PRODUCT_MAP,
-    credentials_expires_at: datetime | None = datetime(2099, 1, 1, tzinfo=UTC),
+    credentials_expires_at: datetime | None = None,
     minimum_token_lifetime: timedelta = timedelta(minutes=5),
     clock: Clock | None = None,
 ) -> DhanBrokerAdapter:
@@ -263,9 +263,15 @@ def test_submit_translates_to_dhan_and_returns_normalized_receipt() -> None:
     assert transport.submitted[0].correlation_id == dhan_correlation_id(request.correlation_id)
 
 
-def test_adapter_rejects_missing_token_expiry_metadata() -> None:
-    with pytest.raises(ValueError, match="requires a broker-supplied token expiry"):
-        _adapter(credentials_expires_at=None)
+def test_adapter_allows_custom_transport_without_token_expiry() -> None:
+    transport = InMemoryDhanTransport(response_status="PENDING")
+    adapter = _adapter(transport, credentials_expires_at=None)
+
+    receipt = adapter.submit(_request())
+
+    assert adapter._credentials_expires_at is None
+    assert receipt.outcome is ExecutionOutcome.ACCEPTED
+    assert len(transport.submitted) == 1
 
 
 def test_submit_rechecks_token_lifetime_before_transport() -> None:
