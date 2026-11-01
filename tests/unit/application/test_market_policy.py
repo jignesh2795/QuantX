@@ -3131,6 +3131,6 @@ def test_exception_with_raising_stringification_fails_closed() -> None:
 
 @pytest.fixture(autouse=True)
 def _register_india_trusted_checks() -> None:
-    from quantx.application.trusted_check_bootstrap import ensure_india_trusted_checks_registered
+    from quantx.markets.trusted_checks import ensure_india_trusted_checks_registered
 
     ensure_india_trusted_checks_registered()
