@@ -63,6 +63,13 @@ from .strategy_rehearsal import (
 )
 from .uncertain_submission import UncertainSubmissionReceiptRecovery
 
+from .trusted_check_bootstrap import ensure_india_trusted_checks_registered
+
+# Importing the application composition root installs only the canonical
+# trusted India checks. Repeated calls are intentionally idempotent.
+ensure_india_trusted_checks_registered()
+
+
 __all__ = [
     "BacktestDisposition",
     "BacktestResult",
