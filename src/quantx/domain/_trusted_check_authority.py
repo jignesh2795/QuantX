@@ -33,14 +33,9 @@ def _is_core_trusted_check_registrar(candidate: object) -> bool:
     return candidate is _CORE_REGISTRAR
 
 
-def _is_approved_trusted_check_implementation(
-    check_id: object, implementation: object
-) -> bool:
+def _is_approved_trusted_check_implementation(check_id: object, implementation: object) -> bool:
     """Return whether the exact class object was approved by core bootstrap."""
-    return (
-        isinstance(check_id, str)
-        and _APPROVED_IMPLEMENTATIONS.get(check_id) is implementation
-    )
+    return isinstance(check_id, str) and _APPROVED_IMPLEMENTATIONS.get(check_id) is implementation
 
 
 def _approve_trusted_check_implementations(
