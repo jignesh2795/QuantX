@@ -20,7 +20,6 @@ from quantx.domain._trusted_check_authority import (
 from quantx.markets.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
 from quantx.ports.market_checks import _register_trusted_check
 
-
 # Resolve the canonical implementation path, never the legacy quantx.india
 # compatibility shim. Capture class objects once so later module rebinding
 # cannot replace the approved identities.
