@@ -8,10 +8,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from quantx.application.trusted_check_bootstrap import ensure_india_trusted_checks_registered
-from quantx.domain._trusted_check_authority import _CORE_REGISTRAR, _is_core_trusted_check_registrar
+from quantx.domain._trusted_check_authority import (
+    _CORE_REGISTRAR,
+    _is_core_trusted_check_registrar,
+)
 from quantx.domain.instruments import MarketRegion
 from quantx.markets.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
+from quantx.markets.trusted_checks import ensure_india_trusted_checks_registered
 from quantx.ports import market_checks as core
 from quantx.ports.market_checks import MarketCheckStage, is_trusted_check
 
@@ -43,7 +46,9 @@ def _is_session_trusted(check: object) -> bool:
 
 def test_registration_without_capability_fails_closed() -> None:
     with pytest.raises(PermissionError):
-        core._register_trusted_check("india.session-calendar", IndiaSessionCheck, object())
+        core._register_trusted_check(
+            "india.session-calendar", IndiaSessionCheck, object()
+        )
 
 
 def test_registration_with_incorrect_capability_fails_closed() -> None:
