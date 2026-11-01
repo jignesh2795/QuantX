@@ -166,8 +166,7 @@ Issue #182 remains about package regression detection; it does not close #202.
 
 ## Package inventory and exclusion rationale
 
-The gate discovers every importable package under `src/quantx/` in the
-coverage JSON and checks it against the explicit inventory below. A package
+The gate discovers every top-level package under `src/quantx/` and checks it against the explicit inventory below. Coverage JSON discovery is retained as a secondary consistency check. A package
 must be listed as either ``measured`` (with an enforced floor) or ``excluded``
 (with a documented reason). Any discovered package absent from this inventory
 fails closed so a new package cannot silently bypass the gate.
@@ -178,6 +177,7 @@ fails closed so a new package cannot silently bypass the gate.
 | `quantx.execution` | measured | safety-critical execution control path |
 | `quantx.persistence` | measured | safety-critical durable execution and recovery state |
 | `quantx.application` | excluded | application-layer orchestration; correctness verified by integration tests |
+| `quantx.integrations` | excluded | boundary adapters and reconciliation evidence; coverage tracked by integration tests |
 | `quantx.india` | excluded | India-market data adapter; coverage tracked by separate market-pack checks |
 | `quantx.plugins` | excluded | broker plugin boundary; Dhan transport coverage tracked in issue #202 |
 | `quantx.ports` | excluded | interface definitions without direct business logic |

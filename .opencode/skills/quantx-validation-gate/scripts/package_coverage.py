@@ -98,6 +98,10 @@ PACKAGE_INVENTORY: dict[str, tuple[str, str]] = {
         "excluded",
         "application-layer orchestration; correctness verified by integration tests",
     ),
+    "integrations": (
+        "excluded",
+        "boundary adapters and reconciliation evidence; coverage tracked by integration tests",
+    ),
     "india": (
         "excluded",
         "India-market data adapter; coverage tracked by separate market-pack checks",
@@ -235,16 +239,47 @@ def _discover_packages(files: dict[str, object]) -> set[str]:
     return discovered
 
 
-def _check_inventory(discovered: set[str]) -> list[str]:
-    """Validate discovered packages against the explicit inventory."""
+def _discover_source_packages(repo: Path) -> set[str]:
+    """Return top-level package names under ``src/quantx``.
+
+    Source-tree discovery is authoritative: every directory is a package
+    candidate even when no test imports it, including namespace packages
+    without ``__init__.py``. Hidden and cache directories are ignored.
+    """
+    package_root = repo / "src" / "quantx"
+    if not package_root.is_dir():
+        return set()
+    return {
+        child.name
+        for child in package_root.iterdir()
+        if child.is_dir() and not child.name.startswith(".") and child.name != "__pycache__"
+    }
+
+
+def _check_inventory(
+    discovered: set[str],
+    *,
+    source_packages: set[str] | None = None,
+    inventory: dict[str, tuple[str, str]] | None = None,
+) -> list[str]:
+    """Validate discovered and source packages against the explicit inventory."""
+    resolved_inventory = PACKAGE_INVENTORY if inventory is None else inventory
     problems: list[str] = []
-    unknown = discovered - set(PACKAGE_INVENTORY.keys())
+
+    unknown = discovered - set(resolved_inventory.keys())
     if unknown:
         problems.append(
             "unknown quantx package(s) discovered in coverage JSON but absent "
             f"from the explicit inventory: {', '.join(sorted(unknown))}"
         )
-    for package, (status, reason) in sorted(PACKAGE_INVENTORY.items()):
+
+    for package, entry in sorted(resolved_inventory.items()):
+        if not isinstance(entry, tuple) or len(entry) != 2:
+            problems.append(
+                f"package inventory entry for quantx.{package} is not a (status, reason) pair"
+            )
+            continue
+        status, reason = entry
         if status not in ("measured", "excluded"):
             problems.append(
                 f"package inventory entry for quantx.{package} has unsupported status {status!r}"
@@ -254,17 +289,41 @@ def _check_inventory(discovered: set[str]) -> list[str]:
                 f"package inventory entry for quantx.{package} is excluded "
                 f"without a documented reason"
             )
+
+    if source_packages is not None:
+        missing = source_packages - set(resolved_inventory.keys())
+        if missing:
+            problems.append(
+                "source package(s) under src/quantx are absent from the explicit "
+                f"inventory: {', '.join(sorted(missing))}"
+            )
+        stale = set(resolved_inventory.keys()) - source_packages
+        if stale:
+            problems.append(
+                "PACKAGE_INVENTORY contains stale package(s) absent from src/quantx: "
+                f"{', '.join(sorted(stale))}"
+            )
+
     return problems
 
 
 def _aggregate(
     files: dict[str, object],
+    *,
+    source_packages: set[str] | None = None,
+    inventory: dict[str, tuple[str, str]] | None = None,
 ) -> tuple[list[PackageMeasurement], list[str]]:
     measurements: list[PackageMeasurement] = []
     problems: list[str] = []
 
     discovered = _discover_packages(files)
-    problems.extend(_check_inventory(discovered))
+    problems.extend(
+        _check_inventory(
+            discovered,
+            source_packages=source_packages,
+            inventory=inventory,
+        )
+    )
 
     for package in MEASURED_PACKAGES:
         rows = [
@@ -423,13 +482,16 @@ def _report(measurements: list[PackageMeasurement], status: str) -> int:
     return 0 if status == PASS else (1 if status == FAIL else 2)
 
 
-def _analyze(path: Path) -> int:
+def _analyze(path: Path, repo: Path = Path(".")) -> int:
     files, problem = _read_coverage(path)
     if files is None:
         print(f"[{UNKNOWN}] {problem}")
         print("OVERALL: UNKNOWN")
         return 2
-    measurements, problems = _aggregate(files)
+    measurements, problems = _aggregate(
+        files,
+        source_packages=_discover_source_packages(repo),
+    )
     if problems:
         for problem in problems:
             print(f"[{UNKNOWN}] {problem}")
@@ -584,6 +646,91 @@ def self_test() -> int:
         bool(problems) and _overall(measurements, problems) == UNKNOWN,
     )
 
+    # ---- source-tree inventory: unimported new package ---------------------
+    temp_repo = Path(tempfile.mkdtemp(prefix="qx-coverage-source-"))
+    try:
+        source_root = temp_repo / "src" / "quantx"
+        for package in ("domain", "execution", "persistence", "newpkg"):
+            (source_root / package).mkdir(parents=True, exist_ok=True)
+        source_packages = _discover_source_packages(temp_repo)
+        check_case(
+            "source discovery finds unimported package",
+            "newpkg" in source_packages,
+        )
+        measurements, problems = _aggregate(payload(), source_packages=source_packages)
+        check_case(
+            "unimported source package fails closed",
+            any("newpkg" in problem for problem in problems)
+            and _overall(measurements, problems) == UNKNOWN,
+        )
+    finally:
+        for child in sorted(temp_repo.rglob("*"), reverse=True):
+            if child.is_file() or child.is_symlink():
+                child.unlink()
+            elif child.is_dir():
+                child.rmdir()
+
+    # ---- missing inventory entry -----------------------------------------
+    problems = _check_inventory(
+        set(),
+        source_packages={"domain", "ghostpkg"},
+        inventory={"domain": ("measured", "reason")},
+    )
+    check_case(
+        "missing inventory entry fails closed",
+        any(
+            "ghostpkg" in problem and "absent from the explicit inventory" in problem
+            for problem in problems
+        ),
+    )
+
+    # ---- stale inventory entry -------------------------------------------
+    problems = _check_inventory(
+        set(),
+        source_packages={"domain"},
+        inventory={"domain": ("measured", "reason"), "stalepkg": ("excluded", "reason")},
+    )
+    check_case(
+        "stale inventory entry fails closed",
+        any("stalepkg" in problem and "absent from src/quantx" in problem for problem in problems),
+    )
+
+    # ---- malformed inventory entry ---------------------------------------
+    problems = _check_inventory(
+        set(),
+        source_packages=set(),
+        inventory={"badpkg": ("unsupported", "reason")},
+    )
+    check_case(
+        "malformed inventory status fails closed",
+        any("badpkg" in problem and "unsupported status" in problem for problem in problems),
+    )
+    problems = _check_inventory(
+        set(),
+        source_packages=set(),
+        inventory={"badpkg": "not-a-pair"},
+    )
+    check_case(
+        "malformed inventory shape fails closed",
+        any(
+            "badpkg" in problem and "not a" in problem and "pair" in problem for problem in problems
+        ),
+    )
+
+    # ---- existing unknown coverage package -------------------------------
+    measurements, problems = analyze(
+        payload(
+            extra_files={
+                "src/quantx/newpkg/a.py": summary(100, 0, 50, 0),
+            }
+        )
+    )
+    check_case(
+        "unknown quantx.newpkg fails closed",
+        any("newpkg" in problem for problem in problems)
+        and _overall(measurements, problems) == UNKNOWN,
+    )
+
     temp = Path(tempfile.mkdtemp(prefix="qx-coverage-selftest-"))
     try:
         path = temp / "coverage.json"
@@ -634,7 +781,7 @@ def main(argv: list[str] | None = None) -> int:
         return self_test()
     try:
         if args.analyze:
-            return _analyze(Path(args.analyze))
+            return _analyze(Path(args.analyze), Path(args.repo).resolve())
         repo = Path(args.repo).resolve()
         output = _coverage_path(args.output)
         kind, exit_code, text = _run_pytest(repo, output, args.timeout)
@@ -654,7 +801,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[{UNKNOWN}] {problem}")
             print("OVERALL: UNKNOWN")
             return 2
-        measurements, problems = _aggregate(files)
+        measurements, problems = _aggregate(
+            files,
+            source_packages=_discover_source_packages(repo),
+        )
         if problems:
             for problem in problems:
                 print(f"[{UNKNOWN}] {problem}")
