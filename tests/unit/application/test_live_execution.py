@@ -1065,6 +1065,10 @@ class _ProbeOverrideBroker(FakeBroker):
         ),
         ("instrument-error", "broker instrument probe returned an invalid result"),
         ("capabilities-shape", "broker capability probe returned an invalid result"),
+        (
+            "capabilities-shape-no-required",
+            "broker capability probe returned an invalid result",
+        ),
         ("capabilities-members", "broker capability probe returned an invalid result"),
         ("capabilities-error", "broker capability probe returned an invalid result"),
         (
@@ -1109,7 +1113,7 @@ def test_live_malformed_broker_probes_fail_closed_before_reservation(
             broker.instrument_result = _north_america_instrument()
         elif probe == "instrument-error":
             broker.instrument_error = RuntimeError("private instrument probe detail")
-        elif probe == "capabilities-shape":
+        elif probe in {"capabilities-shape", "capabilities-shape-no-required"}:
             broker.capabilities_result = object()
         elif probe == "capabilities-members":
             broker.capabilities_result = CapabilitySet(
@@ -1141,7 +1145,10 @@ def test_live_malformed_broker_probes_fail_closed_before_reservation(
                 "1",
             )
 
-        if probe.startswith("capabilities") or probe.startswith("descriptor"):
+        if (
+            (probe.startswith("capabilities") and probe != "capabilities-shape-no-required")
+            or probe.startswith("descriptor")
+        ):
             request = replace(
                 request,
                 order=replace(
