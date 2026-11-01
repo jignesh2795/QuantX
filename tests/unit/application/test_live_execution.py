@@ -1014,7 +1014,6 @@ def test_provider_claim_cannot_enable_live_without_authoritative_evidence(tmp_pa
         database.close()
 
 
-
 class _ProbeOverrideBroker(FakeBroker):
     """Deterministic broker double with individually replaceable probe results."""
 
