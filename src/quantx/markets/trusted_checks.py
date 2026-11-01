@@ -12,8 +12,10 @@ from collections.abc import Callable, Mapping
 from types import MappingProxyType
 
 from quantx.domain._trusted_check_authority import (
-    _CORE_REGISTRAR as _REGISTRAR,
     _approve_trusted_check_implementations,
+)
+from quantx.domain._trusted_check_authority import (
+    _CORE_REGISTRAR as _REGISTRAR,
 )
 from quantx.markets.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
 from quantx.ports.market_checks import _register_trusted_check
