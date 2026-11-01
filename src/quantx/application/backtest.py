@@ -705,6 +705,7 @@ class DeterministicBacktestService:
                 clock=simulation_clock,
                 profile=effective_profile,
                 fill_model=DataAdaptiveFillModel(candle_model=candle_model),
+                market_registry=market_registry,
             )
 
         effective_policy = policy_context or PolicyContext()
