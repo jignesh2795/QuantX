@@ -15,9 +15,9 @@ from weakref import WeakKeyDictionary
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
-from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
 from quantx.execution.idempotency import (
     IdempotencyDecisionValidationError,
     NotSubmittedSource,
@@ -974,11 +974,6 @@ class ExecutionOrchestrator:
         try:
             broker_instrument = broker.instrument(request.order.instrument)
         except Exception:
-            broker_instrument = None
-            instrument_probe_failed = True
-        else:
-            instrument_probe_failed = False
-        if instrument_probe_failed:
             return self._with_evidence_prefix(
                 ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
