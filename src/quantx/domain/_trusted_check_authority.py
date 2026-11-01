@@ -51,7 +51,7 @@ def _approve_trusted_check_implementations(
         raise PermissionError("invalid trusted-check registrar")
     if set(implementations) != set(_APPROVED_METADATA):
         raise ValueError(
-            "trusted-check bootstrap must provide the complete approved set"
+            "trusted-check bootstrap must provide the complete approved set",
         )
 
     pending: dict[str, type] = {}
