@@ -14,7 +14,8 @@ src/quantx/
 ├── integrations/
 ├── research/
 ├── persistence/
-├── india/
+├── markets/
+├── india/  # deprecated compatibility shim
 ├── plugins/
 ├── ports/
 └── strategy/
@@ -96,7 +97,7 @@ Subpackages should be introduced when a responsibility has an independent invari
 3. Execution owns normalized execution semantics and safety boundaries.
 4. Broker adapters remain under integrations/plugins and must not leak vendor SDK types into the core.
 5. Research owns historical-data provenance and replay; it cannot silently modify source evidence.
-6. India/global/crypto rules live behind their respective market/plugin boundaries as those implementations mature.
+6. India rules live behind quantx.markets.india; other markets remain unimplemented. as those implementations mature.
 7. Infrastructure implements persistence, messaging, config, and observability behind stable boundaries.
 8. A new module should get its own subpackage when it has independent invariants, tests, or a likely plugin boundary.
 9. Do not create one giant `utils.py`, `services.py`, or `models.py` for unrelated concerns.

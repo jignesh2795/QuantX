@@ -178,6 +178,7 @@ fails closed so a new package cannot silently bypass the gate.
 | `quantx.persistence` | measured | safety-critical durable execution and recovery state |
 | `quantx.application` | excluded | application-layer orchestration; correctness verified by integration tests |
 | `quantx.integrations` | excluded | boundary adapters and reconciliation evidence; coverage tracked by integration tests |
+| `quantx.markets` | excluded | market-module boundary; coverage tracked by migration and contract tests |
 | `quantx.india` | excluded | India-market data adapter; coverage tracked by separate market-pack checks |
 | `quantx.plugins` | excluded | broker plugin boundary; Dhan transport coverage tracked in issue #202 |
 | `quantx.ports` | excluded | interface definitions without direct business logic |

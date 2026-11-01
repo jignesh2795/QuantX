@@ -29,15 +29,15 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import ProductCode
 from quantx.execution.ports import BrokerPort, ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
-from quantx.india.domain import IndianExchange, IndianSegment
-from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
-from quantx.india.market_checks import india_market_policy
-from quantx.india.session_calendar import (
+from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
+from quantx.markets.india.domain import IndianExchange, IndianSegment
+from quantx.markets.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.markets.india.market_checks import india_market_policy
+from quantx.markets.india.session_calendar import (
     IndiaSessionDecision,
     IndiaSessionPermission,
     IndiaSessionResult,
 )
-from quantx.integrations.brokers import BrokerCapability, BrokerConnectionRef
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteSubmissionQuarantineRepository,

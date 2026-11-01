@@ -107,6 +107,7 @@ __all__ = [
     "recover_pending_live_executions",
     "build_production_runtime",
     "build_live_execution",
+    "ensure_india_trusted_checks_registered",
     "reconcile_pending_execution",
     "ReconciliationEvidenceProvider",
     "ReconciliationEvidenceRefresher",

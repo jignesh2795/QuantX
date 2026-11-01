@@ -74,7 +74,7 @@ from quantx.execution.historical_account_state import HistoricalAccountStateSnap
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.paper_session import PaperSession
-from quantx.india.market_pack import (
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )

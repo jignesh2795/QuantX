@@ -4,7 +4,7 @@ from decimal import Decimal
 from quantx.domain.enums import AssetClass
 from quantx.domain.market_data import Candle, Quote
 from quantx.domain.value_objects import InstrumentId
-from quantx.india.domain import IndianExchange, IndianInstrumentSpec, IndianSegment
+from quantx.markets.india.domain import IndianExchange, IndianInstrumentSpec, IndianSegment
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from tests.unit._execution_request_proofs import policy_verifier
 

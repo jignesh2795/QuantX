@@ -102,6 +102,10 @@ PACKAGE_INVENTORY: dict[str, tuple[str, str]] = {
         "excluded",
         "boundary adapters and reconciliation evidence; coverage tracked by integration tests",
     ),
+    "markets": (
+        "excluded",
+        "market-module boundary; coverage tracked by migration and contract tests",
+    ),
     "india": (
         "excluded",
         "India-market data adapter; coverage tracked by separate market-pack checks",

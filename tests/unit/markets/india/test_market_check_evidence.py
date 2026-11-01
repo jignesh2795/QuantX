@@ -33,18 +33,18 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Order
 from quantx.domain.policy import PolicyDecision, PolicyResult
 from quantx.domain.risk import RiskDecision, RiskResult
-from quantx.india.domain import (
+from quantx.markets.india.domain import (
     IndianExchange,
     IndianInstrumentSpec,
     IndianSegment,
 )
-from quantx.india.execution_rules import (
+from quantx.markets.india.execution_rules import (
     IndiaExecutionRuleEngine,
     IndiaRuleCheck,
     IndiaRuleDecision,
     IndiaRuleResult,
 )
-from quantx.india.market_checks import (
+from quantx.markets.india.market_checks import (
     IndiaCompatCheck,
     IndiaSessionCheck,
     approved_provenance,
@@ -52,7 +52,7 @@ from quantx.india.market_checks import (
     sanitize_rule_reason,
     sanitize_session_rejection,
 )
-from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+from quantx.markets.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
 from quantx.ports.market_checks import (
     RULE_CHECK_PASSED_REASON,
     RULE_CHECK_WITHHELD_REASON,
