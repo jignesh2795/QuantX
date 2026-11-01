@@ -1130,7 +1130,7 @@ def test_live_malformed_broker_probes_fail_closed_before_reservation(
             broker.descriptor = BrokerDescriptor(
                 "another-broker",
                 "Fake",
-                self_capabilities := broker._capabilities,
+                CapabilitySet(frozenset({BrokerCapability.ORDER_SUBMISSION})),
                 "1",
             )
         elif probe == "descriptor-capabilities-mismatch":
