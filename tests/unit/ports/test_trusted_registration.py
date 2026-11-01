@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from quantx.domain._trusted_check_authority import _CORE_REGISTRAR, _is_core_trusted_check_registrar
 from quantx.application.trusted_check_bootstrap import ensure_india_trusted_checks_registered
+from quantx.domain._trusted_check_authority import _CORE_REGISTRAR, _is_core_trusted_check_registrar
 from quantx.domain.instruments import MarketRegion
 from quantx.markets.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
 from quantx.ports import market_checks as core
