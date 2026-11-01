@@ -61,9 +61,8 @@ from .strategy_rehearsal import (
     StrategyRehearsalSession,
     StrategyRehearsalStep,
 )
-from .uncertain_submission import UncertainSubmissionReceiptRecovery
-
 from .trusted_check_bootstrap import ensure_india_trusted_checks_registered
+from .uncertain_submission import UncertainSubmissionReceiptRecovery
 
 # Importing the application composition root installs only the canonical
 # trusted India checks. Repeated calls are intentionally idempotent.
