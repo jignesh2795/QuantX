@@ -1,7 +1,7 @@
 """Private domain-owned authority for trusted market-check identities.
 
 This module has no application, ports, or market imports. The opaque
-registrar and exact approved class-object map are shared only by the core
+registrar and exact approved class-object map are shared only by the
 markets composition bootstrap and the ports contract.
 """
 
