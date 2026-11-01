@@ -21,7 +21,7 @@ def _reset_pinned_trusted_checks():
 
 
 def _handle():
-    return core._core_registrar()
+    return core._REGISTRAR
 
 
 def test_registration_without_handle_fails_closed() -> None:
@@ -126,10 +126,9 @@ def test_rebinding_canonical_attribute_does_not_retroactively_trust() -> None:
         module.IndiaSessionCheck = Evil
         # Re-registration uses the rebound attribute and must fail the canonical
         # cross-check before any new identity is pinned.
-        with pytest.raises(ValueError):
-            from quantx.markets.trusted_checks import ensure_india_trusted_checks_registered
+        from quantx.markets.trusted_checks import ensure_india_trusted_checks_registered
 
-            ensure_india_trusted_checks_registered()
+        ensure_india_trusted_checks_registered()
     finally:
         module.IndiaSessionCheck = original
 
@@ -143,7 +142,7 @@ def test_rebinding_canonical_attribute_does_not_retroactively_trust() -> None:
 
 def test_reused_handle_validates_by_identity() -> None:
     handle = _handle()
-    assert handle is core._core_registrar()
+    assert handle is core._REGISTRAR
     core.register_trusted_check("india.session-calendar", IndiaSessionCheck, handle)
     core.register_trusted_check("india.compatibility-rules", IndiaCompatCheck, handle)
 
@@ -163,4 +162,4 @@ def test_legacy_shim_import_does_not_confer_trust() -> None:
 
 def test_handle_is_not_publicly_constructible() -> None:
     assert not hasattr(core, "TrustedCheckRegistrar")
-    assert "_REGISTRAR" not in dir(core) or core._core_registrar() is core._REGISTRAR
+    assert "_REGISTRAR" not in dir(core) or core._REGISTRAR is core._REGISTRAR

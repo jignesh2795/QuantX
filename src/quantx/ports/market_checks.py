@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 import types
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -145,12 +145,23 @@ class TrustedCheckImplementation:
 
 _REGISTRAR = object()
 
-
-def _core_registrar() -> object:
-    return _REGISTRAR
-
-
 _PINNED_TRUSTED_CHECKS: dict[str, type | None] = {}
+_TRUSTED_CHECK_BOOTSTRAPPERS: list[Callable[[object], None]] = []
+
+
+def register_trusted_check_bootstrap(bootstrap: Callable[[object], None]) -> None:
+    """Register a core-controlled bootstrap callback.
+
+    The callback receives the private registrar capability only when
+    :func:`bootstrap_trusted_checks` runs. It is not a public handle getter.
+    """
+    _TRUSTED_CHECK_BOOTSTRAPPERS.append(bootstrap)
+
+
+def bootstrap_trusted_checks() -> None:
+    """Run registered core-controlled trusted-check bootstraps."""
+    for bootstrap in tuple(_TRUSTED_CHECK_BOOTSTRAPPERS):
+        bootstrap(_REGISTRAR)
 
 
 def register_trusted_check(check_id: object, implementation: object, registrar: object) -> None:
@@ -163,6 +174,9 @@ def register_trusted_check(check_id: object, implementation: object, registrar: 
         raise ValueError("unknown trusted check identity")
     if not isinstance(implementation, type):
         raise ValueError("implementation must be a class")
+    binding = _TRUSTED_CHECK_BINDINGS.get(check_id)
+    if binding is None:
+        raise ValueError("unknown trusted check identity")
     if (
         implementation.__module__ != binding.implementation.module
         or implementation.__qualname__ != binding.implementation.attribute
@@ -286,6 +300,8 @@ def is_trusted_check(
     """
     binding = _TRUSTED_CHECK_BINDINGS.get(check_id) if isinstance(check_id, str) else None
     if binding is None or region not in binding.regions or stage is not binding.stage:
+        return False
+    if not isinstance(check_id, str):
         return False
     if not isinstance(check_id, str):
         return False
@@ -859,7 +875,9 @@ __all__ = [
     "is_valid_rule_set_version",
     "market_evidence_to_mapping",
     "normalize_market_context",
+    "bootstrap_trusted_checks",
     "register_trusted_check",
+    "register_trusted_check_bootstrap",
     "sanitize_public_reason",
     "select_market_policy",
     "sequence_to_mapping",
