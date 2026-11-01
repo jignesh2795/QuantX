@@ -1057,56 +1057,55 @@ class ExecutionOrchestrator:
                     return self._blocked_with_evidence(blocked, check_entries)
 
         required_capabilities = request.order.required_capabilities
-        if required_capabilities:
-            try:
-                capabilities = broker.capabilities()
-            except Exception:
-                capabilities = None
-            if not _is_valid_capability_set(capabilities):
-                return self._with_evidence_prefix(
-                    ExecutionResult(
-                        ExecutionDispatchStatus.BLOCKED,
-                        reason="broker capability probe returned an invalid result",
-                    ),
-                    check_entries,
-                )
+        try:
+            capabilities = broker.capabilities()
+        except Exception:
+            capabilities = None
+        if not _is_valid_capability_set(capabilities):
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker capability probe returned an invalid result",
+                ),
+                check_entries,
+            )
 
-            try:
-                descriptor = broker.descriptor
-            except Exception:
-                descriptor = None
-            if not _is_valid_broker_descriptor(descriptor):
-                return self._with_evidence_prefix(
-                    ExecutionResult(
-                        ExecutionDispatchStatus.BLOCKED,
-                        reason="broker capability descriptor returned an invalid result",
-                    ),
-                    check_entries,
-                )
-            if descriptor.broker_id != connection.broker_id:
-                return self._with_evidence_prefix(
-                    ExecutionResult(
-                        ExecutionDispatchStatus.BLOCKED,
-                        reason="broker capability descriptor does not match the connection",
-                    ),
-                    check_entries,
-                )
-            if descriptor.capabilities.values != capabilities.values:
-                return self._with_evidence_prefix(
-                    ExecutionResult(
-                        ExecutionDispatchStatus.BLOCKED,
-                        reason="broker capability descriptor does not match reported capabilities",
-                    ),
-                    check_entries,
-                )
-            if not capabilities.require(required_capabilities):
-                return self._with_evidence_prefix(
-                    ExecutionResult(
-                        ExecutionDispatchStatus.BLOCKED,
-                        reason="broker does not support all required execution capabilities",
-                    ),
-                    check_entries,
-                )
+        try:
+            descriptor = broker.descriptor
+        except Exception:
+            descriptor = None
+        if not _is_valid_broker_descriptor(descriptor):
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker capability descriptor returned an invalid result",
+                ),
+                check_entries,
+            )
+        if descriptor.broker_id != connection.broker_id:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker capability descriptor does not match the connection",
+                ),
+                check_entries,
+            )
+        if descriptor.capabilities.values != capabilities.values:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker capability descriptor does not match reported capabilities",
+                ),
+                check_entries,
+            )
+        if required_capabilities and not capabilities.require(required_capabilities):
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker does not support all required execution capabilities",
+                ),
+                check_entries,
+            )
 
         unit_of_work = self._unit_of_work
         if unit_of_work is None:
