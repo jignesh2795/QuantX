@@ -4,7 +4,7 @@
 ## Issue #182 — package coverage floors (2026-10-31)
 
 Implemented on branch `fix/issue-182-package-coverage-floors-v1` from base
-`fe3b0342a5ef9a6bd38d9a7ffb3e078e65989edd`. `quantx.domain`, `quantx.execution`
+`9841ae361e3612341cdc728c66ccf47d6ebcbd79`. `quantx.domain`, `quantx.execution`
 and `quantx.persistence` are now measured and enforced independently for line
 and branch coverage; an aggregate suite percentage is not accepted as a package
 guarantee.
@@ -14,7 +14,7 @@ the full suite under branch measurement:
 
 | Package | Line | Branch | Required line | Required branch |
 |---|---:|---:|---:|---:|
-| `quantx.domain` | 88.71% | 74.56% | 87% | 73% |
+| `quantx.domain` | 88.77% | 74.66% | 87% | 73% |
 | `quantx.execution` | 89.30% | 75.41% | 88% | 74% |
 | `quantx.persistence` | 93.16% | 81.48% | 92% | 80% |
 

@@ -3,8 +3,14 @@
 
 The aggregate suite percentage is not a package guarantee. This gate measures
 `quantx.domain`, `quantx.execution` and `quantx.persistence` independently and
-fails when either the line or the branch coverage of any package falls below
-its reviewed floor.
+fails when either the line or the branch coverage of any measured package falls
+below its reviewed floor.
+
+A new package cannot silently bypass the gate: every importable package under
+`src/quantx/` discovered in the coverage JSON must appear in the explicit
+package inventory below as either ``measured`` (with an enforced floor) or
+``excluded`` (with a documented reason). Any discovered package absent from the
+inventory fails closed.
 
 Measurement rules:
 
@@ -20,7 +26,7 @@ Measurement rules:
   2 = UNKNOWN, 3 = usage/internal error.
 
 The floors are derived from the measured baseline at base SHA
-`fe3b0342a5ef9a6bd38d9a7ffb3e078e65989edd`: each floor is at least one full
+`9841ae361e3612341cdc728c66ccf47d6ebcbd79`: each floor is at least one full
 percentage point below the truncated measured value. The canonical policy and
 evidence are recorded in `docs/implementation/package-coverage-floors.md`.
 
@@ -60,26 +66,79 @@ COVERAGE_JSON_NAME = "package-coverage.json"
 
 @dataclass(frozen=True)
 class PackageFloor:
-    """Reviewed minimum percentages for one package."""
+    """Reviewed minimum percentages for one measured package."""
 
     line: int
     branch: int
 
 
-# Baseline at fe3b0342a5ef9a6bd38d9a7ffb3e078e65989edd, full suite, locked
+# Explicit package inventory. Every importable package discovered in the
+# coverage JSON must be present here. Measured packages are checked against
+# floors. Excluded packages are accepted only with a documented reason. Any
+# discovered package absent from this mapping fails closed so a new package
+# cannot silently bypass the gate.
+#
+# Status values:
+#   "measured" -> floor is enforced
+#   "excluded" -> reason is recorded; coverage is not enforced
+PACKAGE_INVENTORY: dict[str, tuple[str, str]] = {
+    "domain": (
+        "measured",
+        "safety-critical domain money/risk contracts",
+    ),
+    "execution": (
+        "measured",
+        "safety-critical execution control path",
+    ),
+    "persistence": (
+        "measured",
+        "safety-critical durable execution and recovery state",
+    ),
+    "application": (
+        "excluded",
+        "application-layer orchestration; correctness verified by integration tests",
+    ),
+    "india": (
+        "excluded",
+        "India-market data adapter; coverage tracked by separate market-pack checks",
+    ),
+    "plugins": (
+        "excluded",
+        "broker plugin boundary; Dhan transport coverage tracked in issue #202",
+    ),
+    "ports": (
+        "excluded",
+        "interface definitions without direct business logic",
+    ),
+    "research": (
+        "excluded",
+        "research utilities; not safety-critical for coverage floors",
+    ),
+    "strategy": (
+        "excluded",
+        "strategy implementations; correctness covered by confidence-contract tests",
+    ),
+}
+
+# Baseline at 9841ae361e3612341cdc728c66ccf47d6ebcbd79, full suite, locked
 # Python 3.12 environment, branch measurement enabled:
-#   domain       line 88.71% (2067/2330)  branch 74.56% (771/1034)
+#   domain       line 88.77% (2078/2341)  branch 74.66% (775/1038)
 #   execution    line 89.30% (3062/3429)  branch 75.41% (1003/1330)
 #   persistence  line 93.16% (872/936)    branch 81.48% (220/270)
 # Each floor is floor(measured) - 1, i.e. at least one full percentage point
-# below the measured baseline. The same rule is applied to every package, so
-# the floors are measured and reproducible rather than aspirational targets.
+# below the measured baseline. The same rule is applied to every measured
+# package, so the floors are measured and reproducible rather than aspirational
+# targets.
 PACKAGE_FLOORS: dict[str, PackageFloor] = {
     "domain": PackageFloor(line=87, branch=73),
     "execution": PackageFloor(line=88, branch=74),
     "persistence": PackageFloor(line=92, branch=80),
 }
-PACKAGES: tuple[str, ...] = ("domain", "execution", "persistence")
+MEASURED_PACKAGES: tuple[str, ...] = (
+    "domain",
+    "execution",
+    "persistence",
+)
 
 _SUMMARY_FIELDS = (
     "num_statements",
@@ -91,7 +150,7 @@ _SUMMARY_FIELDS = (
 
 @dataclass(frozen=True)
 class PackageMeasurement:
-    """Aggregated line and branch coverage for one package."""
+    """Aggregated line and branch coverage for one measured package."""
 
     package: str
     line_covered: int
@@ -127,6 +186,17 @@ def _belongs(path: str, package: str) -> bool:
     return False
 
 
+def _package_from_path(path: str) -> str | None:
+    """Extract the ``quantx.<package>`` name from a coverage file path."""
+    parts = [part for part in path.replace("\\", "/").split("/") if part]
+    for index, part in enumerate(parts[:-1]):
+        if part == "quantx" and index + 1 < len(parts):
+            candidate = parts[index + 1]
+            if candidate:
+                return candidate
+    return None
+
+
 def _read_coverage(path: Path) -> tuple[dict[str, object] | None, str]:
     """Load and validate the coverage JSON envelope."""
     try:
@@ -153,10 +223,50 @@ def _summary_value(summary: object, field: str) -> tuple[int | None, str]:
     return value, ""
 
 
-def _aggregate(files: dict[str, object]) -> tuple[list[PackageMeasurement], list[str]]:
+def _discover_packages(files: dict[str, object]) -> set[str]:
+    """Return the set of ``quantx.<package>`` names present in the coverage JSON."""
+    discovered: set[str] = set()
+    for key in files:
+        if not isinstance(key, str):
+            continue
+        package = _package_from_path(key)
+        if package is not None:
+            discovered.add(package)
+    return discovered
+
+
+def _check_inventory(discovered: set[str]) -> list[str]:
+    """Validate discovered packages against the explicit inventory."""
+    problems: list[str] = []
+    unknown = discovered - set(PACKAGE_INVENTORY.keys())
+    if unknown:
+        problems.append(
+            "unknown quantx package(s) discovered in coverage JSON but absent "
+            f"from the explicit inventory: {', '.join(sorted(unknown))}"
+        )
+    for package, (status, reason) in sorted(PACKAGE_INVENTORY.items()):
+        if status not in ("measured", "excluded"):
+            problems.append(
+                f"package inventory entry for quantx.{package} has unsupported status {status!r}"
+            )
+        if status == "excluded" and not reason:
+            problems.append(
+                f"package inventory entry for quantx.{package} is excluded "
+                f"without a documented reason"
+            )
+    return problems
+
+
+def _aggregate(
+    files: dict[str, object],
+) -> tuple[list[PackageMeasurement], list[str]]:
     measurements: list[PackageMeasurement] = []
     problems: list[str] = []
-    for package in PACKAGES:
+
+    discovered = _discover_packages(files)
+    problems.extend(_check_inventory(discovered))
+
+    for package in MEASURED_PACKAGES:
         rows = [
             value for key, value in files.items() if isinstance(key, str) and _belongs(key, package)
         ]
@@ -214,8 +324,10 @@ def _statuses(measurement: PackageMeasurement) -> tuple[str, str]:
     return line_status, branch_status
 
 
-def _overall(measurements: list[PackageMeasurement]) -> str:
-    if len(measurements) != len(PACKAGES):
+def _overall(measurements: list[PackageMeasurement], problems: list[str]) -> str:
+    if problems:
+        return UNKNOWN
+    if len(measurements) != len(MEASURED_PACKAGES):
         return UNKNOWN
     for measurement in measurements:
         if FAIL in _statuses(measurement):
@@ -323,7 +435,7 @@ def _analyze(path: Path) -> int:
             print(f"[{UNKNOWN}] {problem}")
         print("OVERALL: UNKNOWN")
         return 2
-    status = _overall(measurements)
+    status = _overall(measurements, problems)
     return _report(measurements, status)
 
 
@@ -356,11 +468,12 @@ def self_test() -> int:
         execution: object = unset,
         persistence: object = unset,
         branch_coverage: bool = True,
+        extra_files: dict[str, object] | None = None,
     ) -> dict[str, object]:
         entries = {
-            "domain": (domain, summary(1000, 900, 100, 80)),
-            "execution": (execution, summary(1000, 900, 100, 80)),
-            "persistence": (persistence, summary(1000, 950, 100, 85)),
+            "domain": (domain, summary(2341, 2078, 1038, 775)),
+            "execution": (execution, summary(3429, 3062, 1330, 1003)),
+            "persistence": (persistence, summary(936, 872, 270, 220)),
         }
         files: dict[str, object] = {}
         for package, (value, default) in entries.items():
@@ -368,6 +481,8 @@ def self_test() -> int:
                 files[f"src/quantx/{package}/a.py"] = default
             elif value is not None:
                 files[f"src/quantx/{package}/a.py"] = value
+        if extra_files is not None:
+            files.update(extra_files)
         return {"meta": {"branch_coverage": branch_coverage}, "files": files}
 
     def analyze(data: dict[str, object]) -> tuple[list[PackageMeasurement], list[str]]:
@@ -385,26 +500,89 @@ def self_test() -> int:
 
     measurements, problems = analyze(payload())
     check_case("valid fixture aggregates three packages", len(measurements) == 3 and not problems)
-    check_case("valid fixture passes", _overall(measurements) == PASS)
+    check_case("valid fixture passes", _overall(measurements, problems) == PASS)
 
-    measurements, problems = analyze(payload(domain=summary(1000, 800, 100, 80)))
-    check_case("line floor breach fails", not problems and _overall(measurements) == FAIL)
+    measurements, problems = analyze(payload(domain=summary(2341, 2000, 1038, 775)))
+    check_case("line floor breach fails", not problems and _overall(measurements, problems) == FAIL)
 
-    measurements, problems = analyze(payload(execution=summary(1000, 900, 100, 50)))
-    check_case("branch floor breach fails", not problems and _overall(measurements) == FAIL)
+    measurements, problems = analyze(payload(execution=summary(3429, 3062, 1330, 500)))
+    check_case(
+        "branch floor breach fails",
+        not problems and _overall(measurements, problems) == FAIL,
+    )
 
     measurements, problems = analyze(payload(persistence=None))
-    check_case("missing package is unknown", bool(problems) and _overall(measurements) == UNKNOWN)
+    check_case(
+        "missing package is unknown",
+        bool(problems) and _overall(measurements, problems) == UNKNOWN,
+    )
 
-    measurements, problems = analyze(payload(domain=summary(1000, 2000, 100, 80)))
+    measurements, problems = analyze(payload(domain=summary(2341, 3000, 1038, 775)))
     check_case("covered lines above statements is unknown", bool(problems))
-    check_case("invalid totals do not report pass", _overall(measurements) == UNKNOWN)
+    check_case("invalid totals do not report pass", _overall(measurements, problems) == UNKNOWN)
 
-    measurements, problems = analyze(payload(domain=summary(0, 0, 100, 80)))
+    measurements, problems = analyze(payload(domain=summary(0, 0, 1038, 775)))
     check_case("zero statements is unknown", bool(problems))
 
-    measurements, problems = analyze(payload(domain=summary(1000, 900, 0, 0)))
+    measurements, problems = analyze(payload(domain=summary(2341, 2078, 0, 0)))
     check_case("zero branches is unknown", bool(problems))
+
+    # ---- new-package bypass regression ------------------------------------
+    measurements, problems = analyze(
+        payload(
+            extra_files={
+                "src/quantx/newpkg/a.py": summary(100, 0, 50, 0),
+            }
+        )
+    )
+    check_case(
+        "unknown quantx.newpkg fails closed",
+        any("newpkg" in problem for problem in problems)
+        and _overall(measurements, problems) == UNKNOWN,
+    )
+
+    # ---- missing measured package -----------------------------------------
+    measurements, problems = analyze(
+        {
+            "meta": {"branch_coverage": True},
+            "files": {
+                "src/quantx/domain/a.py": summary(2341, 2078, 1038, 775),
+                "src/quantx/execution/a.py": summary(3429, 3062, 1330, 1003),
+            },
+        }
+    )
+    check_case(
+        "omitted persistence package is unknown",
+        bool(problems) and _overall(measurements, problems) == UNKNOWN,
+    )
+
+    # ---- malformed coverage data ------------------------------------------
+    measurements, problems = analyze(
+        {
+            "meta": {"branch_coverage": True},
+            "files": {
+                "src/quantx/domain/a.py": {"summary": "not-a-dict"},
+            },
+        }
+    )
+    check_case(
+        "malformed summary is unknown",
+        bool(problems) and _overall(measurements, problems) == UNKNOWN,
+    )
+
+    # ---- changed coverage scope (only 1 of 3 measured packages) -----------
+    measurements, problems = analyze(
+        {
+            "meta": {"branch_coverage": True},
+            "files": {
+                "src/quantx/domain/a.py": summary(2341, 2078, 1038, 775),
+            },
+        }
+    )
+    check_case(
+        "partial measured scope is unknown",
+        bool(problems) and _overall(measurements, problems) == UNKNOWN,
+    )
 
     temp = Path(tempfile.mkdtemp(prefix="qx-coverage-selftest-"))
     try:
@@ -414,7 +592,10 @@ def self_test() -> int:
         check_case("valid coverage JSON loads", files is not None and not problem)
         assert files is not None
         measurements, problems = _aggregate(files)
-        check_case("loaded fixture passes", not problems and _overall(measurements) == PASS)
+        check_case(
+            "loaded fixture passes",
+            not problems and _overall(measurements, problems) == PASS,
+        )
 
         path.write_text(json.dumps(payload(branch_coverage=False)), encoding="utf-8")
         files, problem = _read_coverage(path)
@@ -479,7 +660,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[{UNKNOWN}] {problem}")
             print("OVERALL: UNKNOWN")
             return 2
-        return _report(measurements, _overall(measurements))
+        return _report(measurements, _overall(measurements, problems))
     except Exception as exc:
         print(f"internal error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 3

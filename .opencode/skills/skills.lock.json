@@ -1,6 +1,6 @@
 {
   "schema": "quantx.skills-manifest.v1",
-  "generated_at": "2026-10-31T05:52:02+00:00",
+  "generated_at": "2026-11-01T04:45:09+00:00",
   "files": {
     "quantx-adversarial-review/SKILL.md": "54fa7fcd8090095a179ab837f7d9b79110c6f08b13a9eb7e68abc79728585325",
     "quantx-architecture/SKILL.md": "60867bdb6982eb1fa5c2b97a9c0eab4cd4a70972fd1c0c7d644dcdf3d36553ed",
@@ -22,7 +22,7 @@
     "quantx-migration-consolidation/SKILL.md": "7c353f0cf397054cd8d0da1bb10b6b7d8ecab400aeda2b42cdf64eb2c580ca7a",
     "quantx-operating-model/SKILL.md": "c5fbd5a69b3a65f8025374eea9b66bc33f1523fa094622138d019b5b5bf82d6c",
     "quantx-release-gate/SKILL.md": "81603802183e3619e629edf11e621216e9f0fb1dc5847fb5aca5b5116853ea9a",
-    "quantx-release-gate/scripts/release_check.py": "91cc6aa0c36145bc016b0df7ee72620371aea61fcaa882563049afb1e2f23511",
+    "quantx-release-gate/scripts/release_check.py": "4b1e122a9506323b8708eafda7c12a4180b1d4a1e3e60571bc2a24581132314f",
     "quantx-repo-auditor/SKILL.md": "2810bfc0b09e4b16c10438f6643f4be558b2536deed95d66e1f3e9feec7e5110",
     "quantx-research-data/SKILL.md": "d4aca41bce336fdf409d913acecd064c38635bad5fbe9c22968fbdd15851f0b7",
     "quantx-risk-policy/SKILL.md": "30088b04ebbb32dad041f5928f27e122e5c9055d567571b90e9db5978c5463e5",
@@ -35,7 +35,7 @@
     "quantx-strategy-plugins/SKILL.md": "65e8eaec68c8c8ba2091d9f52b26d27390c6dcd380b97bba14fb4d84a21109fc",
     "quantx-testing/SKILL.md": "f59049fc14adc0e4f4b438b72b1a1117e8b182a3027560bde3bd225778a986b4",
     "quantx-validation-gate/SKILL.md": "f51126e071216818cb59261765bca1f34bd6d5174f73e4a1dd6b61def0384500",
-    "quantx-validation-gate/scripts/package_coverage.py": "9c3733372cc017b56c2b92e12cf66496ce2647fdd086b6efeaa3367cbc3d2915",
-    "quantx-validation-gate/scripts/run_validation.py": "cfd266ca28948defa614e37cc4bce2c2c044ba421126904e685a2c5c8aa8c56c"
+    "quantx-validation-gate/scripts/package_coverage.py": "259c1be7f0e49878efcfdbe5e6d0e6749e889a8cd9986b8dafc4fd688ee9f3cd",
+    "quantx-validation-gate/scripts/run_validation.py": "78e645a3eaf0ac021b7aaadcb7ae4bb7a8b372537a586db7c0a60e68926ca5d1"
   }
 }

@@ -20,7 +20,7 @@ issue [#202](https://github.com/jignesh2795/QuantX/issues/202); see
 ## Baseline measurement
 
 Measured at base SHA
-`fe3b0342a5ef9a6bd38d9a7ffb3e078e65989edd` on 2026-10-31 with the locked
+`9841ae361e3612341cdc728c66ccf47d6ebcbd79` on 2026-10-31 with the locked
 Python 3.12 environment (`uv sync --dev --locked`; Python 3.12.12, coverage
 7.16.1, pytest-cov 7.1.0), full suite, branch measurement enabled.
 
@@ -29,7 +29,7 @@ at that SHA.
 
 | Package | Line covered / statements | Line | Branch covered / branches | Branch |
 |---|---:|---:|---:|---:|
-| `quantx.domain` | 2067 / 2330 | 88.71% | 771 / 1034 | 74.56% |
+| `quantx.domain` | 2078 / 2341 | 88.77% | 775 / 1038 | 74.66% |
 | `quantx.execution` | 3062 / 3429 | 89.30% | 1003 / 1330 | 75.41% |
 | `quantx.persistence` | 872 / 936 | 93.16% | 220 / 270 | 81.48% |
 
@@ -48,7 +48,7 @@ are not interchangeable, and neither is a mutation score.
 
 | Package | Required line | Required branch | Line headroom vs baseline | Branch headroom vs baseline |
 |---|---:|---:|---:|---:|
-| `quantx.domain` | 87% | 73% | 1.71 points | 1.56 points |
+| `quantx.domain` | 87% | 73% | 1.77 points | 1.66 points |
 | `quantx.execution` | 88% | 74% | 1.30 points | 1.41 points |
 | `quantx.persistence` | 92% | 80% | 1.16 points | 1.48 points |
 
@@ -102,14 +102,14 @@ Before the candidate commit, a temporary untested module
 branch each) was added and left unimported. The gate measured:
 
 ```text
-domain: line 2067/2390 = 86.49% (required 87%) FAIL; branch 771/1064 = 72.46% (required 73%) FAIL
+domain: line 2078/2390 = 86.49% (required 87%) FAIL; branch 775/1064 = 72.46% (required 73%) FAIL
 OVERALL: FAIL
 ```
 
 The module was removed, and the same command returned:
 
 ```text
-domain: line 2067/2330 = 88.71% (required 87%) PASS; branch 771/1034 = 74.56% (required 73%) PASS
+domain: line 2078/2341 = 88.77% (required 87%) PASS; branch 775/1038 = 74.66% (required 73%) PASS
 OVERALL: PASS
 ```
 
@@ -163,6 +163,38 @@ measured here, so these floors neither mask nor resolve that work:
   package floors.
 
 Issue #182 remains about package regression detection; it does not close #202.
+
+## Package inventory and exclusion rationale
+
+The gate discovers every importable package under `src/quantx/` in the
+coverage JSON and checks it against the explicit inventory below. A package
+must be listed as either ``measured`` (with an enforced floor) or ``excluded``
+(with a documented reason). Any discovered package absent from this inventory
+fails closed so a new package cannot silently bypass the gate.
+
+| Package | Status | Reason |
+|---|---|---|
+| `quantx.domain` | measured | safety-critical domain money/risk contracts |
+| `quantx.execution` | measured | safety-critical execution control path |
+| `quantx.persistence` | measured | safety-critical durable execution and recovery state |
+| `quantx.application` | excluded | application-layer orchestration; correctness verified by integration tests |
+| `quantx.india` | excluded | India-market data adapter; coverage tracked by separate market-pack checks |
+| `quantx.plugins` | excluded | broker plugin boundary; Dhan transport coverage tracked in issue #202 |
+| `quantx.ports` | excluded | interface definitions without direct business logic |
+| `quantx.research` | excluded | research utilities; not safety-critical for coverage floors |
+| `quantx.strategy` | excluded | strategy implementations; correctness covered by confidence-contract tests |
+
+To add a newly measured package, the change must:
+1. add the package name and floor to `PACKAGE_FLOORS` in `package_coverage.py`,
+2. add the package to `MEASURED_PACKAGES`,
+3. record the measured baseline, floor rationale, and coverage command in this
+   document, and
+4. update the mirrored requirements and self-tests in `run_validation.py` and
+   `release_check.py`.
+
+To add an excluded package, the change must record the documented reason in
+the inventory above and in `package_coverage.py`. Silently extending the
+exclusion list is not permitted.
 
 ## Non-claims
 

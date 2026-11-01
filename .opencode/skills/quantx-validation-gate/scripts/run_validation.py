@@ -603,12 +603,12 @@ def self_test() -> int:
     check("pytest missing summary", classify_pytest(0, "collected something")[0] == UNKNOWN)
 
     coverage_pass = (
-        "SUMMARY: domain line=88.71% req=87% PASS branch=74.56% req=73% PASS; "
+        "SUMMARY: domain line=88.77% req=87% PASS branch=74.66% req=73% PASS; "
         "execution line=89.30% req=88% PASS branch=75.41% req=74% PASS; "
         "persistence line=93.16% req=92% PASS branch=81.48% req=80% PASS"
     )
     coverage_fail = coverage_pass.replace(
-        "domain line=88.71% req=87% PASS", "domain line=80.00% req=87% FAIL"
+        "domain line=88.77% req=87% PASS", "domain line=80.00% req=87% FAIL"
     )
     check("coverage pass", classify_package_coverage(0, coverage_pass)[0] == PASS)
     check(

@@ -150,12 +150,12 @@ _COVERAGE_PART_RE = re.compile(
     r"branch=(?P<branch>\d+\.\d{2})% req=(?P<branch_req>\d+)% (?P<branch_status>PASS|FAIL)"
 )
 _COVERAGE_PASS_SUMMARY = (
-    "domain line=88.71% req=87% PASS branch=74.56% req=73% PASS; "
+    "domain line=88.77% req=87% PASS branch=74.66% req=73% PASS; "
     "execution line=89.30% req=88% PASS branch=75.41% req=74% PASS; "
     "persistence line=93.16% req=92% PASS branch=81.48% req=80% PASS"
 )
 _COVERAGE_FAIL_SUMMARY = _COVERAGE_PASS_SUMMARY.replace(
-    "domain line=88.71% req=87% PASS", "domain line=80.00% req=87% FAIL"
+    "domain line=88.77% req=87% PASS", "domain line=80.00% req=87% FAIL"
 )
 _COVERAGE_FLOOR_NOTE = "package coverage floor not met"
 _COVERAGE_GATE_FAIL_NOTE = "coverage gate failed"
