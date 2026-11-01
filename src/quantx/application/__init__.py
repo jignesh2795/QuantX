@@ -1,5 +1,7 @@
 """Application services built on stable domain and port contracts."""
 
+from quantx.markets.trusted_checks import ensure_india_trusted_checks_registered
+
 from .backtest import (
     BacktestDisposition,
     BacktestResult,
@@ -61,7 +63,6 @@ from .strategy_rehearsal import (
     StrategyRehearsalSession,
     StrategyRehearsalStep,
 )
-from .trusted_check_bootstrap import ensure_india_trusted_checks_registered
 from .uncertain_submission import UncertainSubmissionReceiptRecovery
 
 # Importing the application composition root installs only the canonical
