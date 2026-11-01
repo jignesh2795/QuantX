@@ -67,6 +67,7 @@ from quantx.execution.models import (
 )
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.ports import ExecutionReceipt
+from quantx.markets import MarketRegistry, UnsupportedMarketError
 from quantx.research.data import HistoricalDataSeries, HistoricalSnapshot
 from quantx.research.provenance import (
     BrokerConstraintConfiguration,
@@ -637,6 +638,7 @@ class DeterministicBacktestService:
         provenance: ResearchProvenance | None = None,
         position_evidence: PositionEvidence | None = None,
         position_evidence_max_age: timedelta | None = None,
+        market_registry: MarketRegistry | None = None,
     ) -> BacktestResult:
         """Run replay; bind the explicit context only to bare QX-08 strategy intents.
 
@@ -644,6 +646,25 @@ class DeterministicBacktestService:
         intent contexts remain unchanged, and the legacy callable strategy path is
         unaffected.
         """
+        if market_registry is None:
+            from quantx.markets import default_market_registry
+
+            market_registry = default_market_registry()
+        series_items = (series,) if hasattr(series, "instrument") else tuple(series)
+        for item in series_items:
+            instrument_id = getattr(item, "instrument", None)
+            instrument = (
+                self._instrument_registry.resolve(instrument_id)
+                if instrument_id is not None
+                else None
+            )
+            if (
+                instrument is not None
+                and market_registry.get_for_context(instrument.market) is None
+            ):
+                raise UnsupportedMarketError(
+                    f"unsupported market for backtest: {instrument.market!r}"
+                )
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
         if provenance is not None:

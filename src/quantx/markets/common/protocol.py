@@ -14,7 +14,14 @@ class MarketModule(Protocol):
     supplied through ``MarketModuleBase`` or future, concrete protocols.
     """
 
-    region: MarketRegion
-    market_contexts: frozenset[MarketContext]
-    market_pack_id: str
-    rule_version: str
+    @property
+    def region(self) -> MarketRegion: ...
+
+    @property
+    def market_contexts(self) -> frozenset[MarketContext]: ...
+
+    @property
+    def market_pack_id(self) -> str: ...
+
+    @property
+    def rule_version(self) -> str: ...
