@@ -56,10 +56,7 @@ def _approve_trusted_check_implementations(
             raise ValueError("approved trusted-check implementation is unavailable")
         # Metadata is a secondary integrity check. Trust is subsequently
         # determined by identity against this captured class object.
-        if (
-            implementation.__module__ != expected[0]
-            or implementation.__qualname__ != expected[1]
-        ):
+        if implementation.__module__ != expected[0] or implementation.__qualname__ != expected[1]:
             raise ValueError("trusted-check implementation metadata is inconsistent")
         existing = _APPROVED_IMPLEMENTATIONS.get(check_id)
         if existing is not None and existing is not implementation:
