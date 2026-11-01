@@ -261,9 +261,13 @@ def _check_inventory(
     *,
     source_packages: set[str] | None = None,
     inventory: dict[str, tuple[str, str]] | None = None,
+    measured_packages: tuple[str, ...] | None = None,
+    package_floors: dict[str, PackageFloor] | None = None,
 ) -> list[str]:
     """Validate discovered and source packages against the explicit inventory."""
     resolved_inventory = PACKAGE_INVENTORY if inventory is None else inventory
+    resolved_measured = MEASURED_PACKAGES if measured_packages is None else measured_packages
+    resolved_floors = PACKAGE_FLOORS if package_floors is None else package_floors
     problems: list[str] = []
 
     unknown = discovered - set(resolved_inventory.keys())
@@ -273,7 +277,11 @@ def _check_inventory(
             f"from the explicit inventory: {', '.join(sorted(unknown))}"
         )
 
+    measured_inventory = set()
     for package, entry in sorted(resolved_inventory.items()):
+        if not isinstance(package, str) or not package.strip():
+            problems.append("package inventory contains an empty or non-string package name")
+            continue
         if not isinstance(entry, tuple) or len(entry) != 2:
             problems.append(
                 f"package inventory entry for quantx.{package} is not a (status, reason) pair"
@@ -284,11 +292,41 @@ def _check_inventory(
             problems.append(
                 f"package inventory entry for quantx.{package} has unsupported status {status!r}"
             )
-        if status == "excluded" and not reason:
+        if not isinstance(reason, str) or not reason.strip():
             problems.append(
-                f"package inventory entry for quantx.{package} is excluded "
-                f"without a documented reason"
+                f"package inventory entry for quantx.{package} has an empty or non-string reason"
             )
+        if status == "measured":
+            measured_inventory.add(package)
+
+    measured_set = set(resolved_measured)
+    floor_set = set(resolved_floors)
+    if measured_set != measured_inventory:
+        problems.append(
+            "measured package set does not match the inventory: "
+            f"inventory={sorted(measured_inventory)}, "
+            f"MEASURED_PACKAGES={sorted(measured_set)}"
+        )
+    if floor_set != measured_inventory:
+        problems.append(
+            "PACKAGE_FLOORS keys do not match the measured inventory: "
+            f"inventory={sorted(measured_inventory)}, "
+            f"PACKAGE_FLOORS={sorted(floor_set)}"
+        )
+    for package in resolved_measured:
+        if not isinstance(package, str) or not package.strip():
+            problems.append("MEASURED_PACKAGES contains an empty or non-string package name")
+            continue
+        entry = resolved_inventory.get(package)
+        if not isinstance(entry, tuple) or len(entry) != 2 or entry[0] != "measured":
+            problems.append(f"excluded or unknown package present in MEASURED_PACKAGES: {package}")
+    for package in resolved_floors:
+        if not isinstance(package, str) or not package.strip():
+            problems.append("PACKAGE_FLOORS contains an empty or non-string package name")
+            continue
+        entry = resolved_inventory.get(package)
+        if not isinstance(entry, tuple) or len(entry) != 2 or entry[0] != "measured":
+            problems.append(f"excluded or unknown package present in PACKAGE_FLOORS: {package}")
 
     if source_packages is not None:
         missing = source_packages - set(resolved_inventory.keys())
@@ -729,6 +767,127 @@ def self_test() -> int:
         "unknown quantx.newpkg fails closed",
         any("newpkg" in problem for problem in problems)
         and _overall(measurements, problems) == UNKNOWN,
+    )
+
+    # ---- inventory consistency: measured package without floor ------------
+    problems = _check_inventory(
+        set(),
+        source_packages={"domain", "execution", "persistence"},
+        inventory={
+            "domain": ("measured", "reason"),
+            "execution": ("measured", "reason"),
+            "persistence": ("measured", "reason"),
+        },
+        measured_packages=("domain", "execution", "persistence", "ghost"),
+        package_floors={
+            "domain": PackageFloor(87, 73),
+            "execution": PackageFloor(88, 74),
+            "persistence": PackageFloor(92, 80),
+        },
+    )
+    check_case(
+        "measured package without floor fails closed",
+        any("MEASURED_PACKAGES" in problem and "ghost" in problem for problem in problems),
+    )
+
+    # ---- inventory consistency: floor without measured entry --------------
+    problems = _check_inventory(
+        set(),
+        source_packages={"domain", "execution", "persistence"},
+        inventory={
+            "domain": ("measured", "reason"),
+            "execution": ("measured", "reason"),
+            "persistence": ("measured", "reason"),
+        },
+        measured_packages=("domain", "execution"),
+        package_floors={
+            "domain": PackageFloor(87, 73),
+            "execution": PackageFloor(88, 74),
+            "ghost": PackageFloor(92, 80),
+        },
+    )
+    check_case(
+        "floor without measured entry fails closed",
+        any("PACKAGE_FLOORS" in problem and "ghost" in problem for problem in problems),
+    )
+
+    # ---- inventory consistency: excluded package in measured list ---------
+    problems = _check_inventory(
+        set(),
+        source_packages={"domain", "execution", "persistence", "application"},
+        inventory={
+            "domain": ("measured", "reason"),
+            "execution": ("measured", "reason"),
+            "persistence": ("measured", "reason"),
+            "application": ("excluded", "reason"),
+        },
+        measured_packages=("application",),
+        package_floors={},
+    )
+    check_case(
+        "excluded package in MEASURED_PACKAGES fails closed",
+        any("MEASURED_PACKAGES" in problem and "application" in problem for problem in problems),
+    )
+
+    # ---- inventory consistency: excluded package in floors ----------------
+    problems = _check_inventory(
+        set(),
+        source_packages={"domain", "execution", "persistence", "application"},
+        inventory={
+            "domain": ("measured", "reason"),
+            "execution": ("measured", "reason"),
+            "persistence": ("measured", "reason"),
+            "application": ("excluded", "reason"),
+        },
+        measured_packages=(),
+        package_floors={"application": PackageFloor(1, 1)},
+    )
+    check_case(
+        "excluded package in PACKAGE_FLOORS fails closed",
+        any("PACKAGE_FLOORS" in problem and "application" in problem for problem in problems),
+    )
+
+    # ---- inventory consistency: non-string rationale ----------------------
+    problems = _check_inventory(
+        set(),
+        source_packages={"domain"},
+        inventory={"domain": ("measured", 123)},
+    )
+    check_case(
+        "non-string rationale fails closed",
+        any("empty or non-string reason" in problem for problem in problems),
+    )
+
+    # ---- inventory consistency: whitespace-only rationale -----------------
+    problems = _check_inventory(
+        set(),
+        source_packages={"domain"},
+        inventory={"domain": ("excluded", "   ")},
+    )
+    check_case(
+        "whitespace-only rationale fails closed",
+        any("empty or non-string reason" in problem for problem in problems),
+    )
+
+    # ---- inventory consistency: valid synchronized inventory passes -------
+    problems = _check_inventory(
+        set(),
+        source_packages={"domain", "execution", "persistence"},
+        inventory={
+            "domain": ("measured", "reason"),
+            "execution": ("measured", "reason"),
+            "persistence": ("measured", "reason"),
+        },
+        measured_packages=("domain", "execution", "persistence"),
+        package_floors={
+            "domain": PackageFloor(87, 73),
+            "execution": PackageFloor(88, 74),
+            "persistence": PackageFloor(92, 80),
+        },
+    )
+    check_case(
+        "valid synchronized inventory passes",
+        not problems,
     )
 
     temp = Path(tempfile.mkdtemp(prefix="qx-coverage-selftest-"))
