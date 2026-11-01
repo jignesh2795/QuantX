@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
 from threading import RLock
+from typing import TypeGuard
 from uuid import NAMESPACE_URL, UUID, uuid5
 from weakref import WeakKeyDictionary
 
@@ -120,7 +121,7 @@ class ExecutionResult:
         return self.status is ExecutionDispatchStatus.EXECUTED
 
 
-def _is_valid_broker_connection(value: object) -> bool:
+def _is_valid_broker_connection(value: object) -> TypeGuard[BrokerConnectionRef]:
     """Accept only the exact connection reference and canonical field types."""
     return (
         type(value) is BrokerConnectionRef
@@ -133,7 +134,7 @@ def _is_valid_broker_connection(value: object) -> bool:
     )
 
 
-def _is_valid_broker_instrument(value: object) -> bool:
+def _is_valid_broker_instrument(value: object) -> TypeGuard[Instrument]:
     """Accept only a canonical Instrument with canonical identity fields."""
     return (
         type(value) is Instrument
@@ -142,7 +143,7 @@ def _is_valid_broker_instrument(value: object) -> bool:
     )
 
 
-def _is_valid_capability_set(value: object) -> bool:
+def _is_valid_capability_set(value: object) -> TypeGuard[CapabilitySet]:
     """Reject duck-typed, subclassed, or malformed broker capability sets."""
     return (
         type(value) is CapabilitySet
@@ -151,7 +152,7 @@ def _is_valid_capability_set(value: object) -> bool:
     )
 
 
-def _is_valid_broker_descriptor(value: object) -> bool:
+def _is_valid_broker_descriptor(value: object) -> TypeGuard[BrokerDescriptor]:
     """Validate the descriptor and its nested capability declaration exactly."""
     return (
         type(value) is BrokerDescriptor
