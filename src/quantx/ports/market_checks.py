@@ -17,14 +17,13 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
-from quantx.domain.deployment import ExecutionMode
-from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
-
 from quantx.domain._trusted_check_authority import (
     _is_approved_trusted_check_implementation,
     _is_core_trusted_check_registrar,
 )
+from quantx.domain.deployment import ExecutionMode
+from quantx.domain.execution_request import ApprovedExecutionRequest
+from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 
 
 class MarketCheckOutcome(StrEnum):
@@ -294,7 +293,9 @@ def is_trusted_check(
     comparison, so no caller metadata can impersonate it), and the
     placement region and stage both match. Anything else is untrusted.
     """
-    binding = _TRUSTED_CHECK_BINDINGS.get(check_id) if isinstance(check_id, str) else None
+    if not isinstance(check_id, str):
+        return False
+    binding = _TRUSTED_CHECK_BINDINGS.get(check_id)
     if binding is None or region not in binding.regions or stage is not binding.stage:
         return False
     approved = _PINNED_TRUSTED_CHECKS.get(check_id)
