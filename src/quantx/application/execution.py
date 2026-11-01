@@ -49,7 +49,6 @@ from quantx.execution.submission_preflight import (
     BrokerSubmissionRejected,
 )
 from quantx.execution.trading_gate import TradingGate
-from quantx.markets.trusted_checks import ensure_india_trusted_checks_registered
 from quantx.persistence import UnitOfWork
 from quantx.ports.market_checks import (
     SKIPPED_STAGE_STATUS_CODE,
@@ -84,6 +83,7 @@ from .live_submission_capability import (
     LiveSubmissionAuthorizer,
 )
 from .runtime import ApplicationRuntime
+from .trusted_check_bootstrap import ensure_india_trusted_checks_registered
 
 # The issuer is deliberately not stored on an ExecutionOrchestrator instance.
 # Supported call paths can issue/verify a token only through this module's
