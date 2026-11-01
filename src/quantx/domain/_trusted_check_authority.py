@@ -2,7 +2,7 @@
 
 This module has no application, ports, or market imports. The opaque
 registrar and exact approved class-object map are shared only by the core
-application bootstrap and the ports contract.
+markets composition bootstrap and the ports contract.
 """
 
 from __future__ import annotations
