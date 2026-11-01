@@ -20,10 +20,12 @@ from quantx.application.execution import ExecutionDispatchStatus
 from quantx.application.live_execution import (
     LiveExecutionCompositionError,
     LiveExecutionConfig,
+    LiveExecutionStack,
     _india_only_market_policy,
     build_live_execution,
 )
 from quantx.application.live_risk import LiveRiskEvaluationInputs
+from quantx.application.live_risk_evidence import LiveRiskEvidence, LiveRiskEvidenceField
 from quantx.application.pending_recovery import PendingRecoveryRun
 from quantx.application.production import ProductionRuntime
 from quantx.application.runtime import ApplicationRuntime
@@ -66,7 +68,7 @@ from quantx.india.session_calendar import (
     IndiaSessionPermission,
     IndiaSessionResult,
 )
-from quantx.integrations.account_registry import AccountConnectionRegistry
+from quantx.integrations.account_registry import AccountConnectionRegistry, RegisteredConnection
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteSubmissionQuarantineRepository,
@@ -86,6 +88,7 @@ from quantx.ports.market_checks import (
     PlacedCheck,
 )
 from tests.unit._execution_request_proofs import approved_request, policy_verifier
+from tests.unit.application._live_risk_trust import EvidenceAdapter, registry_with
 from tests.unit.application.test_execution import FakeBroker
 
 EVALUATED_AT = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
@@ -1014,18 +1017,38 @@ def test_provider_claim_cannot_enable_live_without_authoritative_evidence(tmp_pa
         database.close()
 
 
-class _ProbeOverrideBroker(FakeBroker):
-    """Deterministic broker double with individually replaceable probe results."""
+class _AvailableRiskSource:
+    """Evidence source that declares every field; collection must never run.
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.connection_result: object = self._connection
+    The preliminary LIVE authority checks read only ``supported_fields``. Every
+    probe regression below fails before risk evaluation, so reaching ``collect``
+    would mean the ordering under test regressed.
+    """
+
+    source_id = "test-available-source"
+
+    @property
+    def supported_fields(self) -> frozenset[LiveRiskEvidenceField]:
+        return frozenset(LiveRiskEvidenceField)
+
+    def collect(self, request: ApprovedExecutionRequest) -> LiveRiskEvidence:
+        raise AssertionError("broker probe failures must precede evidence collection")
+
+
+class _ProbeOverrideAdapter(EvidenceAdapter):
+    """Registered adapter with individually replaceable broker probe results."""
+
+    def __init__(self, connection: BrokerConnectionRef) -> None:
+        super().__init__(connection, source=_AvailableRiskSource())
+        self.connection_result: object = connection
         self.connection_error: Exception | None = None
         self.health_result: object = True
         self.health_error: Exception | None = None
-        self.instrument_result: object = self._instrument
+        self.instrument_result: object = _india_instrument()
         self.instrument_error: Exception | None = None
-        self.capabilities_result: object = self._capabilities
+        self.capabilities_result: object = CapabilitySet(
+            frozenset({BrokerCapability.ORDER_SUBMISSION})
+        )
         self.capabilities_error: Exception | None = None
 
     @property
@@ -1048,6 +1071,89 @@ class _ProbeOverrideBroker(FakeBroker):
         if self.capabilities_error is not None:
             raise self.capabilities_error
         return cast(CapabilitySet, self.capabilities_result)
+
+
+class _CapabilityProbeSpy:
+    """Valid broker whose capability/descriptor probes must not be reached."""
+
+    def __init__(self) -> None:
+        self.connection = BrokerConnectionRef(
+            AccountId("acct-1"), BrokerConnectionId("conn-1"), "fake", "NSE"
+        )
+        self.instrument_calls = 0
+        self.capability_probe_calls = 0
+        self.descriptor_reads = 0
+        self.submit_calls = 0
+
+    def health(self) -> bool:
+        return True
+
+    def instrument(self, instrument_id: InstrumentId) -> Instrument | None:
+        self.instrument_calls += 1
+        instrument = _india_instrument()
+        return instrument if instrument_id == instrument.instrument_id else None
+
+    def capabilities(self) -> CapabilitySet:
+        self.capability_probe_calls += 1
+        raise AssertionError("capabilities must not be probed without LIVE authority")
+
+    @property
+    def descriptor(self) -> BrokerDescriptor:
+        self.descriptor_reads += 1
+        raise AssertionError("descriptor must not be probed without LIVE authority")
+
+    def submit(self, request: ApprovedExecutionRequest):
+        self.submit_calls += 1
+        raise AssertionError("submission must not happen without LIVE authority")
+
+
+def _authority_probe_stack(
+    database: SqliteDatabase,
+) -> tuple[LiveExecutionStack, _ProbeOverrideAdapter]:
+    """Build an authority-available stack around a probe-overridable adapter.
+
+    Capability and descriptor validation is only reachable once LIVE risk
+    authority exists, so these regressions compose a real authority-mode stack
+    instead of the callback-mode stack used by the admission tests.
+    """
+    account_id = AccountId("acct-1")
+    connection_id = BrokerConnectionId("conn-1")
+    connection = BrokerConnectionRef(account_id, connection_id, "fake", "NSE")
+    adapter = _ProbeOverrideAdapter(connection)
+    runtime = ProductionRuntime(
+        database=database,
+        unit_of_work=SqliteUnitOfWork(database),
+        registry=registry_with(RegisteredConnection(connection, adapter, enabled=True)),
+        application=_started_application(),
+    )
+    stack = build_live_execution(
+        runtime,
+        _config(
+            risk_inputs_for_request=None,
+            expected_account_id=account_id,
+            expected_broker_connection_id=connection_id,
+        ),
+    )
+    return stack, adapter
+
+
+def test_unavailable_live_authority_is_rejected_before_capability_probes(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        stack = build_live_execution(_runtime(database), _config())
+        stack.gate.enable()
+        broker = _CapabilityProbeSpy()
+
+        result = stack.orchestrator.execute(_live_request(), broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert result.reason == "authoritative LIVE risk evidence source is unavailable"
+        assert broker.instrument_calls == 1
+        assert broker.capability_probe_calls == 0
+        assert broker.descriptor_reads == 0
+        assert broker.submit_calls == 0
+    finally:
+        database.close()
 
 
 @pytest.mark.parametrize(
@@ -1093,9 +1199,8 @@ def test_live_malformed_broker_probes_fail_closed_before_reservation(
 ) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        stack = build_live_execution(_runtime(database), _config())
+        stack, broker = _authority_probe_stack(database)
         stack.gate.enable()
-        broker = _ProbeOverrideBroker()
         request = _live_request()
 
         if probe == "connection-shape":
@@ -1145,9 +1250,8 @@ def test_live_malformed_broker_probes_fail_closed_before_reservation(
             )
 
         if (
-            (probe.startswith("capabilities") and probe != "capabilities-shape-no-required")
-            or probe.startswith("descriptor")
-        ):
+            probe.startswith("capabilities") and probe != "capabilities-shape-no-required"
+        ) or probe.startswith("descriptor"):
             request = replace(
                 request,
                 order=replace(
@@ -1181,9 +1285,8 @@ def test_live_malformed_broker_probes_fail_closed_before_reservation(
 def test_live_exact_false_health_preserves_existing_block_reason(tmp_path) -> None:
     database = SqliteDatabase(tmp_path / "quantx.db")
     try:
-        stack = build_live_execution(_runtime(database), _config())
+        stack, broker = _authority_probe_stack(database)
         stack.gate.enable()
-        broker = _ProbeOverrideBroker()
         broker.health_result = False
         request = _live_request()
 
@@ -1192,6 +1295,46 @@ def test_live_exact_false_health_preserves_existing_block_reason(tmp_path) -> No
         assert result.status is ExecutionDispatchStatus.BLOCKED
         assert result.reason == "broker connection is not healthy"
         assert broker.instrument_error is None
+        assert broker.submit_calls == 0
+        decision = SqliteUnitOfWork(database).idempotency.check(
+            request.order.client_order_id,
+            request_fingerprint(request),
+        )
+        assert decision.reservation_pending is False
+        assert decision.existing_receipt_id is None
+    finally:
+        database.close()
+
+
+def test_live_blocks_missing_required_capability(tmp_path) -> None:
+    """A valid capability set that lacks a required flag still blocks.
+
+    Capability enforcement is only reachable once LIVE risk authority exists,
+    so this regression lives with the authority-mode probe stack rather than
+    the orchestrator suite's callback-mode composition.
+    """
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        stack, broker = _authority_probe_stack(database)
+        stack.gate.enable()
+        request = _live_request()
+        request = replace(
+            request,
+            order=replace(
+                request.order,
+                required_capabilities=frozenset(
+                    {
+                        BrokerCapability.ORDER_SUBMISSION,
+                        BrokerCapability.ORDER_CANCELLATION,
+                    }
+                ),
+            ),
+        )
+
+        result = stack.orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert result.reason == "broker does not support all required execution capabilities"
         assert broker.submit_calls == 0
         decision = SqliteUnitOfWork(database).idempotency.check(
             request.order.client_order_id,
