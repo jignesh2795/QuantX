@@ -9,7 +9,7 @@ result.
 from __future__ import annotations
 
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import cast
@@ -72,6 +72,12 @@ from quantx.persistence.sqlite import (
     SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
     SqliteUnitOfWork,
+)
+from quantx.ports.broker import (
+    BrokerCapability,
+    BrokerConnectionRef,
+    BrokerDescriptor,
+    CapabilitySet,
 )
 from quantx.ports.market_checks import (
     MarketCheckResult,
@@ -1004,5 +1010,188 @@ def test_provider_claim_cannot_enable_live_without_authoritative_evidence(tmp_pa
         frozen = _config()
         with pytest.raises(FrozenInstanceError):
             frozen.clock = FixedClock(EVALUATED_AT + timedelta(hours=1))
+    finally:
+        database.close()
+
+
+
+class _ProbeOverrideBroker(FakeBroker):
+    """Deterministic broker double with individually replaceable probe results."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.connection_result: object = self._connection
+        self.connection_error: Exception | None = None
+        self.health_result: object = True
+        self.health_error: Exception | None = None
+        self.instrument_result: object = self._instrument
+        self.instrument_error: Exception | None = None
+        self.capabilities_result: object = self._capabilities
+        self.capabilities_error: Exception | None = None
+
+    @property
+    def connection(self) -> BrokerConnectionRef:
+        if self.connection_error is not None:
+            raise self.connection_error
+        return cast(BrokerConnectionRef, self.connection_result)
+
+    def health(self) -> bool:
+        if self.health_error is not None:
+            raise self.health_error
+        return cast(bool, self.health_result)
+
+    def instrument(self, instrument_id: InstrumentId) -> Instrument | None:
+        if self.instrument_error is not None:
+            raise self.instrument_error
+        return cast(Instrument | None, self.instrument_result)
+
+    def capabilities(self) -> CapabilitySet:
+        if self.capabilities_error is not None:
+            raise self.capabilities_error
+        return cast(CapabilitySet, self.capabilities_result)
+
+
+@pytest.mark.parametrize(
+    ("probe", "expected_reason"),
+    [
+        ("connection-shape", "broker connection probe returned an invalid result"),
+        ("connection-error", "broker connection probe returned an invalid result"),
+        ("health-truthy-string", "broker health probe returned an invalid result"),
+        ("health-error", "broker health probe returned an invalid result"),
+        ("instrument-shape", "broker instrument probe returned an invalid result"),
+        (
+            "instrument-identity",
+            "broker instrument does not match the requested canonical instrument",
+        ),
+        ("instrument-error", "broker instrument probe returned an invalid result"),
+        ("capabilities-shape", "broker capability probe returned an invalid result"),
+        ("capabilities-members", "broker capability probe returned an invalid result"),
+        ("capabilities-error", "broker capability probe returned an invalid result"),
+        (
+            "descriptor-shape",
+            "broker capability descriptor returned an invalid result",
+        ),
+        (
+            "descriptor-capabilities",
+            "broker capability descriptor returned an invalid result",
+        ),
+        (
+            "descriptor-connection",
+            "broker capability descriptor does not match the connection",
+        ),
+        (
+            "descriptor-capabilities-mismatch",
+            "broker capability descriptor does not match reported capabilities",
+        ),
+    ],
+)
+def test_live_malformed_broker_probes_fail_closed_before_reservation(
+    tmp_path, probe: str, expected_reason: str
+) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        stack = build_live_execution(_runtime(database), _config())
+        stack.gate.enable()
+        broker = _ProbeOverrideBroker()
+        request = _live_request()
+
+        if probe == "connection-shape":
+            broker.connection_result = object()
+        elif probe == "connection-error":
+            broker.connection_error = RuntimeError("private connection probe detail")
+        elif probe == "health-truthy-string":
+            broker.health_result = "false"
+        elif probe == "health-error":
+            broker.health_error = RuntimeError("private health probe detail")
+        elif probe == "instrument-shape":
+            broker.instrument_result = object()
+        elif probe == "instrument-identity":
+            broker.instrument_result = _north_america_instrument()
+        elif probe == "instrument-error":
+            broker.instrument_error = RuntimeError("private instrument probe detail")
+        elif probe == "capabilities-shape":
+            broker.capabilities_result = object()
+        elif probe == "capabilities-members":
+            broker.capabilities_result = CapabilitySet(
+                cast(frozenset[BrokerCapability], frozenset({"ORDER_SUBMISSION"}))
+            )
+        elif probe == "capabilities-error":
+            broker.capabilities_error = RuntimeError("private capability probe detail")
+        elif probe == "descriptor-shape":
+            broker.descriptor = cast(BrokerDescriptor, object())
+        elif probe == "descriptor-capabilities":
+            broker.descriptor = BrokerDescriptor(
+                "fake",
+                "Fake",
+                cast(CapabilitySet, object()),
+                "1",
+            )
+        elif probe == "descriptor-connection":
+            broker.descriptor = BrokerDescriptor(
+                "another-broker",
+                "Fake",
+                self_capabilities := broker._capabilities,
+                "1",
+            )
+        elif probe == "descriptor-capabilities-mismatch":
+            broker.descriptor = BrokerDescriptor(
+                "fake",
+                "Fake",
+                CapabilitySet(),
+                "1",
+            )
+
+        if probe.startswith("capabilities") or probe.startswith("descriptor"):
+            request = replace(
+                request,
+                order=replace(
+                    request.order,
+                    required_capabilities=frozenset({BrokerCapability.ORDER_SUBMISSION}),
+                ),
+            )
+
+        result = stack.orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert result.reason == expected_reason
+        assert "private " not in result.reason
+        assert broker.submit_calls == 0
+        decision = SqliteUnitOfWork(database).idempotency.check(
+            request.order.client_order_id,
+            request_fingerprint(request),
+        )
+        assert decision.reservation_pending is False
+        assert decision.existing_receipt_id is None
+        assert (
+            SqliteSubmissionQuarantineRepository(database).list_by_client_order(
+                request.order.client_order_id
+            )
+            == ()
+        )
+    finally:
+        database.close()
+
+
+def test_live_exact_false_health_preserves_existing_block_reason(tmp_path) -> None:
+    database = SqliteDatabase(tmp_path / "quantx.db")
+    try:
+        stack = build_live_execution(_runtime(database), _config())
+        stack.gate.enable()
+        broker = _ProbeOverrideBroker()
+        broker.health_result = False
+        request = _live_request()
+
+        result = stack.orchestrator.execute(request, broker=broker)
+
+        assert result.status is ExecutionDispatchStatus.BLOCKED
+        assert result.reason == "broker connection is not healthy"
+        assert broker.instrument_error is None
+        assert broker.submit_calls == 0
+        decision = SqliteUnitOfWork(database).idempotency.check(
+            request.order.client_order_id,
+            request_fingerprint(request),
+        )
+        assert decision.reservation_pending is False
+        assert decision.existing_receipt_id is None
     finally:
         database.close()
