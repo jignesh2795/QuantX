@@ -1056,6 +1056,41 @@ class ExecutionOrchestrator:
                 if blocked is not None:
                     return self._blocked_with_evidence(blocked, check_entries)
 
+        # The preliminary LIVE authority checks run before the broker
+        # capability and descriptor probes. An unavailable authority is a
+        # property of this execution context, not of the broker, so it must be
+        # reported as such instead of being masked by a later probe outcome.
+        # Capability and descriptor validation remains mandatory below.
+        unit_of_work = self._unit_of_work
+        if unit_of_work is None:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="live execution requires a durable UnitOfWork",
+                ),
+                check_entries,
+            )
+        # An arbitrary callable returning a RiskResult is not LIVE risk
+        # authority. The only accepted evaluator is the application-owned
+        # evaluator, and it still cannot authorize LIVE until a trusted,
+        # account/connection-bound evidence source is implemented.
+        if type(self._live_risk_evaluator) is not LivePreTradeRiskEvaluator:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="LIVE execution requires the application-owned risk evaluator",
+                ),
+                check_entries,
+            )
+        if self._live_risk_evaluator.authoritative_evidence_available is not True:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="authoritative LIVE risk evidence source is unavailable",
+                ),
+                check_entries,
+            )
+
         required_capabilities = request.order.required_capabilities
         try:
             capabilities = broker.capabilities()
@@ -1107,35 +1142,6 @@ class ExecutionOrchestrator:
                 check_entries,
             )
 
-        unit_of_work = self._unit_of_work
-        if unit_of_work is None:
-            return self._with_evidence_prefix(
-                ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason="live execution requires a durable UnitOfWork",
-                ),
-                check_entries,
-            )
-        # An arbitrary callable returning a RiskResult is not LIVE risk
-        # authority. The only accepted evaluator is the application-owned
-        # evaluator, and it still cannot authorize LIVE until a trusted,
-        # account/connection-bound evidence source is implemented.
-        if type(self._live_risk_evaluator) is not LivePreTradeRiskEvaluator:
-            return self._with_evidence_prefix(
-                ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason="LIVE execution requires the application-owned risk evaluator",
-                ),
-                check_entries,
-            )
-        if self._live_risk_evaluator.authoritative_evidence_available is not True:
-            return self._with_evidence_prefix(
-                ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason="authoritative LIVE risk evidence source is unavailable",
-                ),
-                check_entries,
-            )
         if self._live_risk_evaluator is not None:
             try:
                 live_risk = self._live_risk_evaluator(request)
