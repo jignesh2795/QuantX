@@ -47,14 +47,18 @@ def _is_session_trusted(check: object) -> bool:
 def test_registration_without_capability_fails_closed() -> None:
     with pytest.raises(PermissionError):
         core._register_trusted_check(
-            "india.session-calendar", IndiaSessionCheck, object(),
+            "india.session-calendar",
+            IndiaSessionCheck,
+            object(),
         )
 
 
 def test_registration_with_incorrect_capability_fails_closed() -> None:
     with pytest.raises(PermissionError):
         core._register_trusted_check(
-            "india.session-calendar", IndiaSessionCheck, SimpleNamespace(),
+            "india.session-calendar",
+            IndiaSessionCheck,
+            SimpleNamespace(),
         )
 
 
@@ -84,7 +88,8 @@ def test_bootstrap_is_idempotent() -> None:
     ],
 )
 def test_spoofed_metadata_never_authorizes_replacement_class(
-    module: str, qualname: str
+    module: str,
+    qualname: str,
 ) -> None:
     evil = _spoofed_class(module, qualname)
 
@@ -119,7 +124,9 @@ def test_conflicting_pinned_registration_fails_closed() -> None:
 
     with pytest.raises(ValueError, match="conflicting trusted implementation"):
         core._register_trusted_check(
-            "india.session-calendar", IndiaSessionCheck, _CORE_REGISTRAR,
+            "india.session-calendar",
+            IndiaSessionCheck,
+            _CORE_REGISTRAR,
         )
 
 
