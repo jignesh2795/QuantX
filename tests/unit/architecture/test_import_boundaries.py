@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tests.unit.architecture._import_graph import (
+    ImportEdge,
     build_import_graph,
     extract_imports,
     find_package_cycles,
@@ -68,7 +69,7 @@ _ALLOWED_RUNTIME_EXCEPTIONS: frozenset[tuple[str, str, str]] = frozenset(
 )
 
 
-def _runtime_edge_is_allowed(edge) -> bool:
+def _runtime_edge_is_allowed(edge: ImportEdge) -> bool:
     return (
         edge.target_package in _ALLOWED_RUNTIME.get(edge.source_package, frozenset())
         or (edge.source_package, edge.target_package, edge.source_module)

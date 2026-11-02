@@ -830,6 +830,7 @@ def _rate_field(component: str) -> str:
 
 
 __all__ = [
+    "IndiaChargeBasis",
     "IndiaChargeCalculationContext",
     "IndiaChargeEvent",
     "IndiaChargeIncidence",

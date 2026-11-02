@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+import quantx.india.charges as india_charges
 from quantx.india.charges import (
     IndiaChargeBasis,
     IndiaChargeCalculationContext,
@@ -785,3 +786,64 @@ def test_provenance_records_basis_sources_and_policy_versions() -> None:
 def test_missing_gst_treatment_fails_before_breakdown() -> None:
     with pytest.raises(IndiaChargeInputUnavailable, match="stt_gst_treatment"):
         _context(stt_gst_treatment=None)
+
+
+
+def test_public_basis_type_is_exported() -> None:
+    assert "IndiaChargeBasis" in india_charges.__all__
+    assert india_charges.IndiaChargeBasis is IndiaChargeBasis
+
+
+def test_not_applicable_basis_requires_not_applicable_incidence() -> None:
+    rates = _rates()
+    rates_with_not_applicable_basis = IndiaChargeRateSet(
+        stt_rate=rates.stt_rate,
+        stamp_duty_rate=rates.stamp_duty_rate,
+        exchange_txn_rate=rates.exchange_txn_rate,
+        ipft_rate=rates.ipft_rate,
+        sebi_turnover_rate=rates.sebi_turnover_rate,
+        gst_rate=rates.gst_rate,
+        component_sources=rates.component_sources,
+        component_bases=(
+            ("stt", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("stamp_duty", IndiaChargeBasis.NOT_APPLICABLE),
+            ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("gst", IndiaChargeBasis.CLIENT_TAXABLE_VALUE),
+        ),
+    )
+    entry = IndiaChargeScheduleEntry(
+        effective_from=datetime(2026, 1, 1, tzinfo=IST),
+        effective_to=None,
+        version="synthetic-inconsistent-basis-v1",
+        rates={
+            (IndiaChargeProduct.EQUITY_DELIVERY, IndiaTradeSide.BUY, IndiaChargeEvent.TRADE):
+            rates_with_not_applicable_basis
+        },
+    )
+
+    with pytest.raises(IndiaChargeRuleUnavailable, match="NOT_APPLICABLE"):
+        IndiaMarketChargeModel(schedule=IndiaChargeSchedule((entry,))).calculate(_context())
+
+
+def test_broker_absorbed_incidence_remains_in_provenance() -> None:
+    policy = IndiaChargePassThroughPolicy(
+        stt=IndiaChargeIncidence.BROKER_ABSORBED,
+        stamp_duty=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        exchange_txn=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        ipft=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        sebi_turnover_fee=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        version="synthetic-absorbed-policy-v1",
+        source_ref="synthetic://absorbed",
+    )
+
+    result = IndiaMarketChargeModel(schedule=_schedule()).calculate(
+        _context(pass_through_policy=policy)
+    )
+
+    assert _component_amount(result, "stt") == Decimal("0")
+    assert any(
+        "stt:basis=TRANSACTION_VALUE:" in item and "incidence=BROKER_ABSORBED" in item
+        for item in result.provenance
+    )
