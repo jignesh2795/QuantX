@@ -1,6 +1,7 @@
 import threading
 import time
 import types
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -1057,3 +1058,52 @@ def test_sdk_holdings_without_vendor_method_is_unavailable(
         assert holdings.holdings == ()
     finally:
         transport.close()
+
+
+def test_sdk_transport_partial_executor_initialization_shuts_down_prior_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    def _context(client_id: str, access_token: str) -> object:
+        return object()
+
+    def _client(context: object) -> object:
+        return object()
+
+    fake_module = types.ModuleType("dhanhq")
+    fake_module.DhanContext = _context  # type: ignore[attr-defined]
+    fake_module.dhanhq = _client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dhanhq", fake_module)
+
+    real_executor = ThreadPoolExecutor
+    created: list[object] = []
+    shutdowns: list[object] = []
+
+    class FailingExecutor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            if len(created) == 1:
+                raise RuntimeError("executor construction failed")
+            self._executor = real_executor(*args, **kwargs)
+            created.append(self)
+
+        def shutdown(self, *args: object, **kwargs: object) -> None:
+            shutdowns.append(self)
+            self._executor.shutdown(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "quantx.plugins.dhan.transport.ThreadPoolExecutor", FailingExecutor, raising=True
+    )
+
+    with pytest.raises(RuntimeError, match="executor construction failed"):
+        DhanSDKTransport(
+            credentials=DhanCredentials(
+                client_id="test-id",
+                access_token="test-token",
+                expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+            )
+        )
+
+    assert len(created) == 1
+    assert len(shutdowns) == 1
+    assert shutdowns[0] is created[0]

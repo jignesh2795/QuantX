@@ -78,7 +78,13 @@ class ProductionRuntime:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.close()
+        try:
+            self.close()
+        except Exception as cleanup_error:
+            if exc_value is not None:
+                exc_value.add_note(f"production runtime cleanup failed: {cleanup_error!r}")
+                return None
+            raise
 
 
 def build_production_runtime(config: ProductionRuntimeConfig) -> ProductionRuntime:
@@ -105,8 +111,11 @@ def build_production_runtime(config: ProductionRuntimeConfig) -> ProductionRunti
             refresh_policy=config.refresh_policy,
             policy_verifier=config.policy_verifier,
         )
-    except Exception:
-        database.close()
+    except Exception as exc:
+        try:
+            database.close()
+        except Exception as close_error:
+            raise exc from close_error
         raise
     return ProductionRuntime(database, unit_of_work, registry, application)
 
