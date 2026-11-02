@@ -155,10 +155,23 @@ class DhanSDKTransport:
         self._context = context
         self._client = dhanhq(context)
         self._submit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dhan-sdk")
-        self._reconcile_executor = ThreadPoolExecutor(
-            max_workers=2, thread_name_prefix="dhan-reconcile"
-        )
-        self._query_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dhan-query")
+        try:
+            self._reconcile_executor = ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix="dhan-reconcile"
+            )
+            self._query_executor = ThreadPoolExecutor(
+                max_workers=4, thread_name_prefix="dhan-query"
+            )
+        except Exception:
+            for name in ("_submit_executor", "_reconcile_executor", "_query_executor"):
+                executor = getattr(self, name, None)
+                if executor is not None:
+                    try:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                    except RuntimeError:
+                        pass
+                setattr(self, name, None)
+            raise
 
     def _call_with_timeout(
         self,
@@ -409,6 +422,7 @@ class DhanSDKTransport:
                 executor.shutdown(wait=True, cancel_futures=True)
             except RuntimeError:
                 pass
+            setattr(self, name, None)
 
     def __del__(self) -> None:  # pragma: no cover - defensive fallback only
         try:
@@ -416,6 +430,7 @@ class DhanSDKTransport:
                 executor = getattr(self, name, None)
                 if executor is not None:
                     executor.shutdown(wait=False, cancel_futures=True)
+                    setattr(self, name, None)
         except Exception:
             pass
 

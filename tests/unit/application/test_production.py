@@ -71,3 +71,92 @@ def test_registry_configuration_failure_closes_database(tmp_path: Path) -> None:
         )
 
     assert path.exists()
+
+
+def test_build_production_runtime_database_close_failure_does_not_hide_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from quantx.persistence.sqlite import SqliteDatabase
+
+    def close_boom(self: SqliteDatabase) -> None:
+        raise RuntimeError("database close failed")
+
+    monkeypatch.setattr(SqliteDatabase, "close", close_boom, raising=True)
+
+    def fail(_: AccountConnectionRegistry) -> None:
+        raise RuntimeError("registry configuration failed")
+
+    with pytest.raises(RuntimeError, match="registry configuration failed") as exc_info:
+        build_production_runtime(
+            ProductionRuntimeConfig(
+                database_path=tmp_path / "quantx.db",
+                configure_registry=fail,
+                evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+                policy_verifier=policy_verifier(),
+            )
+        )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == "database close failed"
+
+
+def test_production_runtime_close_failure_is_surfaced(tmp_path: Path) -> None:
+    runtime = build_production_runtime(
+        ProductionRuntimeConfig(
+            database_path=tmp_path / "quantx.db",
+            configure_registry=lambda registry: None,
+            evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+            policy_verifier=policy_verifier(),
+        )
+    )
+
+    def close_boom() -> None:
+        raise RuntimeError("database close failed")
+
+    runtime.database.close = close_boom
+
+    with pytest.raises(RuntimeError, match="database close failed"):
+        runtime.close()
+
+
+def test_production_runtime_context_manager_preserves_body_exception_and_exposes_cleanup_failure(
+    tmp_path: Path,
+) -> None:
+    runtime = build_production_runtime(
+        ProductionRuntimeConfig(
+            database_path=tmp_path / "quantx.db",
+            configure_registry=lambda registry: None,
+            evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+            policy_verifier=policy_verifier(),
+        )
+    )
+
+    def fail_close() -> None:
+        raise RuntimeError("cleanup boom")
+
+    runtime.database.close = fail_close
+
+    with pytest.raises(RuntimeError, match="body") as exc_info:
+        with runtime:
+            raise RuntimeError("body")
+
+    assert any("cleanup boom" in note for note in getattr(exc_info.value, "__notes__", []))
+
+
+def test_production_runtime_cleanup_does_not_convert_keyboard_interrupt(tmp_path: Path) -> None:
+    runtime = build_production_runtime(
+        ProductionRuntimeConfig(
+            database_path=tmp_path / "quantx.db",
+            configure_registry=lambda registry: None,
+            evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+            policy_verifier=policy_verifier(),
+        )
+    )
+
+    def fail_close() -> None:
+        raise KeyboardInterrupt()
+
+    runtime.database.close = fail_close
+
+    with pytest.raises(KeyboardInterrupt):
+        runtime.close()
