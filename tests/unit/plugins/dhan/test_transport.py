@@ -1,6 +1,7 @@
 import threading
 import time
 import types
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -1496,7 +1497,8 @@ def test_close_handles_missing_and_raising_executors() -> None:
     transport._reconcile_executor = _RaisingExecutor()  # type: ignore[assignment]
     transport.close()
 
-    assert transport._query_executor._shutdown is True
+    assert transport._query_executor is None
+    assert transport._reconcile_executor is None
 
 
 def test_profile_snapshot_raw_and_failure_branches() -> None:
@@ -1614,7 +1616,6 @@ def test_in_memory_transport_health_quote_and_candles_cover_defaults() -> None:
     )
 
 
-
 def test_sdk_transport_partial_executor_initialization_shuts_down_prior_executor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1662,4 +1663,3 @@ def test_sdk_transport_partial_executor_initialization_shuts_down_prior_executor
     assert len(created) == 1
     assert len(shutdowns) == 1
     assert shutdowns[0] is created[0]
-
