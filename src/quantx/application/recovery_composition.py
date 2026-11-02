@@ -21,6 +21,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from quantx.domain.clock import Clock
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
@@ -132,6 +133,7 @@ def build_application_runtime(
     evidence_policy: DefinitiveEvidencePolicy | None = None,
     refresh_policy: RefreshPolicy | None = None,
     policy_verifier: MarketPackPolicyVerifier,
+    clock: Clock | None = None,
 ) -> ApplicationRuntime:
     """Compose durable recovery infrastructure into the one-shot startup runtime.
 
@@ -154,8 +156,9 @@ def build_application_runtime(
         evidence_policy=evidence_policy,
         refresh_policy=refresh_policy,
         policy_verifier=policy_verifier,
+        clock=clock,
     )
-    return ApplicationRuntime(pending_recovery=runner)
+    return ApplicationRuntime(pending_recovery=runner, clock=clock)
 
 
 __all__ = [

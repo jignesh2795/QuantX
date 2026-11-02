@@ -381,5 +381,6 @@ def build_live_execution(
         market_policy=_india_only_market_policy(config.market_policy),
         submission_quarantine=quarantine,
         policy_verifier=config.policy_verifier,
+        clock=config.clock,
     )
     return LiveExecutionStack(orchestrator=orchestrator, gate=gate)

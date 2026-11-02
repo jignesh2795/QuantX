@@ -12,9 +12,10 @@ transaction. Recovery never invokes this path automatically.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
+from quantx.domain.clock import Clock, SystemClock
 from quantx.execution.idempotency import OperatorResolution, OperatorResolutionAction
 from quantx.persistence import UnitOfWork
 
@@ -27,6 +28,7 @@ def resolve_pending_operator(
     operator_id: str,
     reason: str,
     resolved_at: datetime | None = None,
+    clock: Clock | None = None,
     action: OperatorResolutionAction = OperatorResolutionAction.CLOSE_UNRESOLVED,
     evidence_reference: str | None = None,
 ) -> OperatorResolution:
@@ -41,7 +43,10 @@ def resolve_pending_operator(
         raise ValueError("operator identity must not be empty")
     if not isinstance(reason, str) or not reason.strip():
         raise ValueError("operator resolution reason must not be empty")
-    observed_at = resolved_at or datetime.now(UTC)
+    active_clock = clock if clock is not None else SystemClock()
+    if not isinstance(active_clock, Clock):
+        raise TypeError("operator resolution requires a Clock")
+    observed_at = resolved_at if resolved_at is not None else active_clock.now()
     if observed_at.tzinfo is None or observed_at.utcoffset() is None:
         raise ValueError("resolved_at must be timezone-aware")
     with unit_of_work:

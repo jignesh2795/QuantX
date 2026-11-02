@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 
+from quantx.domain.clock import Clock
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.integrations.account_registry import AccountConnectionRegistry
 from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
@@ -46,6 +47,7 @@ class ProductionRuntimeConfig:
     fill_provider: FillProvider | None = None
     evidence_policy: DefinitiveEvidencePolicy | None = None
     refresh_policy: RefreshPolicy | None = None
+    clock: Clock | None = None
 
 
 @dataclass(slots=True)
@@ -57,9 +59,11 @@ class ProductionRuntime:
     registry: AccountConnectionRegistry
     application: ApplicationRuntime
 
-    def start(self, *, checked_at: datetime | None = None) -> ApplicationStartupResult:
+    def start(
+        self, *, checked_at: datetime | None = None, clock: Clock | None = None
+    ) -> ApplicationStartupResult:
         """Run mandatory pending recovery before the process becomes ready."""
-        return self.application.start(checked_at=checked_at)
+        return self.application.start(checked_at=checked_at, clock=clock)
 
     @property
     def started(self) -> bool:
@@ -104,6 +108,7 @@ def build_production_runtime(config: ProductionRuntimeConfig) -> ProductionRunti
             evidence_policy=config.evidence_policy,
             refresh_policy=config.refresh_policy,
             policy_verifier=config.policy_verifier,
+            clock=config.clock,
         )
     except Exception:
         database.close()

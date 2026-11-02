@@ -9,9 +9,10 @@ transaction. Non-definitive evidence leaves PENDING untouched.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import uuid4
 
+from quantx.domain.clock import Clock, SystemClock
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
@@ -49,6 +50,7 @@ def reconcile_pending_execution(
     provider: ReconciliationEvidenceProvider,
     unit_of_work: UnitOfWork,
     checked_at: datetime | None = None,
+    clock: Clock | None = None,
     evidence_policy: DefinitiveEvidencePolicy | None = None,
     refresh_policy: RefreshPolicy | None = None,
     position_policy: ReconciliationPolicy | None = None,
@@ -67,7 +69,12 @@ def reconcile_pending_execution(
     Both it and the pending age derived from the order feed only the
     informational NOT_FOUND eligibility verdict; they never resolve.
     """
-    observed_at = checked_at or datetime.now(UTC)
+    active_clock = clock if clock is not None else SystemClock()
+    if not isinstance(active_clock, Clock):
+        raise TypeError("reconciliation requires a Clock")
+    observed_at = checked_at if checked_at is not None else active_clock.now()
+    if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        raise ValueError("checked_at must be timezone-aware")
     try:
         pending_age = observed_at - request.order.created_at
     except TypeError:
