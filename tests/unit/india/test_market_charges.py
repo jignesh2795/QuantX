@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from quantx.india.charges import (
+    IndiaChargeBasis,
     IndiaChargeCalculationContext,
     IndiaChargeEvent,
     IndiaChargeIncidence,
@@ -54,6 +55,14 @@ def _rates() -> IndiaChargeRateSet:
             ("ipft", "ipft-source", "ipft-v1"),
             ("sebi_turnover_fee", "sebi-source", "sebi-v1"),
             ("gst", "gst-source", "gst-v1"),
+        ),
+        component_bases=(
+            ("stt", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("stamp_duty", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("gst", IndiaChargeBasis.NOT_APPLICABLE),
         ),
     )
 
@@ -205,6 +214,14 @@ def test_missing_rate_raises_rule_unavailable() -> None:
                     ("sebi_turnover_fee", "s", "v"),
                     ("gst", "s", "v"),
                 ),
+                component_bases=(
+                    ("stt", IndiaChargeBasis.TRANSACTION_VALUE),
+                    ("stamp_duty", IndiaChargeBasis.TRANSACTION_VALUE),
+                    ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
+                    ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
+                    ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
+                    ("gst", IndiaChargeBasis.NOT_APPLICABLE),
+                ),
             )
         },
     )
@@ -223,7 +240,21 @@ def test_missing_source_for_zero_rate_rejected_at_construction() -> None:
             ipft_rate=Decimal("0"),
             sebi_turnover_rate=Decimal("0"),
             gst_rate=Decimal("0"),
-            component_sources=(),
+            component_sources=(
+                ("stamp_duty", "s", "v"),
+                ("exchange_txn", "s", "v"),
+                ("ipft", "s", "v"),
+                ("sebi_turnover_fee", "s", "v"),
+                ("gst", "s", "v"),
+            ),
+            component_bases=(
+                ("stt", IndiaChargeBasis.TRANSACTION_VALUE),
+                ("stamp_duty", IndiaChargeBasis.TRANSACTION_VALUE),
+                ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
+                ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
+                ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
+                ("gst", IndiaChargeBasis.NOT_APPLICABLE),
+            ),
         )
 
 
@@ -237,6 +268,24 @@ def test_explicit_zero_rate_is_allowed_with_source() -> None:
         gst_rate=Decimal("0"),
         component_sources=tuple(
             (component, "source", "v1")
+            for component in (
+                "stt",
+                "stamp_duty",
+                "exchange_txn",
+                "ipft",
+                "sebi_turnover_fee",
+                "gst",
+            )
+        ),
+        component_bases=tuple(
+            (
+                component,
+                (
+                    IndiaChargeBasis.NOT_APPLICABLE
+                    if component == "gst"
+                    else IndiaChargeBasis.TRANSACTION_VALUE
+                ),
+            )
             for component in (
                 "stt",
                 "stamp_duty",

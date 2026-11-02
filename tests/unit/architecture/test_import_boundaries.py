@@ -29,7 +29,7 @@ _ALLOWED_RUNTIME: dict[str, frozenset[str]] = {
     "persistence": frozenset({"domain", "execution", "ports", "research"}),
     "research": frozenset({"domain", "ports"}),
     "strategy": frozenset({"domain", "execution", "ports"}),
-    "india": frozenset({"domain", "execution", "ports"}),
+    "india": frozenset({"domain", "ports"}),
     "application": frozenset(
         {
             "domain",
@@ -63,15 +63,22 @@ _KNOWN_ALL_EDGE_MODULE_CYCLES: tuple[tuple[str, ...], ...] = ()
 _DEFERRED_TYPE_ONLY: dict[tuple[str, str], DeferredDependency] = {}
 
 
+_ALLOWED_RUNTIME_EXCEPTIONS: frozenset[tuple[str, str, str]] = frozenset(
+    {("india", "execution", "quantx.india.charges")}
+)
+
+
 def test_runtime_package_edges_are_allowed_or_registered() -> None:
     graph = build_import_graph()
     offenders: list[str] = []
     for edge in graph.by_kind(type_only=False):
         pair = (edge.source_package, edge.target_package)
-        if (
-            edge.target_package not in _ALLOWED_RUNTIME.get(edge.source_package, frozenset())
-            and pair not in _DEFERRED_RUNTIME
-        ):
+        allowed = (
+            edge.target_package in _ALLOWED_RUNTIME.get(edge.source_package, frozenset())
+            or (edge.source_package, edge.target_package, edge.source_module)
+            in _ALLOWED_RUNTIME_EXCEPTIONS
+        )
+        if not allowed and pair not in _DEFERRED_RUNTIME:
             offenders.append(edge.describe())
     assert offenders == [], "unregistered runtime package dependency:\n" + "\n".join(offenders)
 
