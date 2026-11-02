@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -77,18 +77,8 @@ class IndiaChargeBasis(StrEnum):
     OPTION_PREMIUM_VALUE = "OPTION_PREMIUM_VALUE"
     OPTION_INTRINSIC_VALUE = "OPTION_INTRINSIC_VALUE"
     OPTION_EXERCISE_NOTIONAL = "OPTION_EXERCISE_NOTIONAL"
+    CLIENT_TAXABLE_VALUE = "CLIENT_TAXABLE_VALUE"
     NOT_APPLICABLE = "NOT_APPLICABLE"
-
-
-# Compatibility aliases for the same immutable calculation-basis contract.
-IndiaChargeCalculationBasis = IndiaChargeBasis
-IndiaBasis = IndiaChargeBasis
-IndiaChargeBasis.TRANSACTION = IndiaChargeBasis.TRANSACTION_VALUE  # type: ignore[attr-defined]
-IndiaChargeBasis.PREMIUM = IndiaChargeBasis.OPTION_PREMIUM_VALUE  # type: ignore[attr-defined]
-IndiaChargeBasis.OPTION_PREMIUM = IndiaChargeBasis.OPTION_PREMIUM_VALUE  # type: ignore[attr-defined]
-IndiaChargeBasis.INTRINSIC = IndiaChargeBasis.OPTION_INTRINSIC_VALUE  # type: ignore[attr-defined]
-IndiaChargeBasis.OPTION_INTRINSIC = IndiaChargeBasis.OPTION_INTRINSIC_VALUE  # type: ignore[attr-defined]
-IndiaChargeBasis.EXERCISE_NOTIONAL = IndiaChargeBasis.OPTION_EXERCISE_NOTIONAL  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,7 +139,7 @@ class IndiaChargeCalculationContext(ChargeCalculationContext):
     gst_policy_source_ref: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.transaction_value, Decimal):
+        if type(self.transaction_value) is not Decimal:
             raise TypeError("transaction_value must be a Decimal")
         if self.transaction_value < 0:
             raise ValueError("transaction_value cannot be negative")
@@ -275,7 +265,6 @@ class IndiaChargeRateSet:
     gst_rate: Decimal | None
     component_sources: tuple[tuple[str, str, str], ...] = ()
     component_bases: tuple[tuple[str, IndiaChargeBasis], ...] = ()
-    bases: tuple[tuple[str, IndiaChargeBasis], ...] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "stt_rate", _optional_rate(self.stt_rate, "stt_rate"))
@@ -294,16 +283,15 @@ class IndiaChargeRateSet:
         object.__setattr__(self, "gst_rate", _optional_rate(self.gst_rate, "gst_rate"))
         normalized_sources = _normalize_sources(self.component_sources)
         object.__setattr__(self, "component_sources", normalized_sources)
-        if self.component_bases == () and self.bases is not None:
-            normalized_bases = _normalize_bases(self.bases)
-            object.__setattr__(self, "component_bases", normalized_bases)
-        else:
-            normalized_bases = _normalize_bases(self.component_bases)
-            object.__setattr__(self, "component_bases", normalized_bases)
-        if self.bases is None or self.bases != self.component_bases:
-            object.__setattr__(self, "bases", self.component_bases)
-        if not self.component_bases:
-            raise IndiaChargeRuleUnavailable("component bases are required")
+        normalized_bases = _normalize_bases(self.component_bases)
+        object.__setattr__(self, "component_bases", normalized_bases)
+        basis_components = {component for component, _ in normalized_bases}
+        missing_bases = set(_COMPONENTS) - basis_components
+        extra_bases = basis_components - set(_COMPONENTS)
+        if missing_bases or extra_bases:
+            raise IndiaChargeRuleUnavailable(
+                "component bases must cover every charge component exactly once"
+            )
         for component, source, version in normalized_sources:
             if component not in _COMPONENTS:
                 raise IndiaChargeRuleUnavailable(f"unknown charge component source: {component}")
@@ -326,12 +314,17 @@ class IndiaChargeRateSet:
                 raise IndiaChargeRuleUnavailable(f"invalid charge basis for {component}")
 
 
+IndiaChargeRateKey = tuple[IndiaChargeProduct, IndiaTradeSide, IndiaChargeEvent]
+IndiaChargeRateEntry = tuple[IndiaChargeRateKey, IndiaChargeRateSet]
+IndiaChargeRates = Mapping[IndiaChargeRateKey, IndiaChargeRateSet] | Sequence[IndiaChargeRateEntry]
+
+
 @dataclass(frozen=True, slots=True)
 class IndiaChargeScheduleEntry:
     effective_from: datetime
     effective_to: datetime | None
     version: str
-    rates: object
+    rates: IndiaChargeRates
 
     def __post_init__(self) -> None:
         if not isinstance(self.effective_from, datetime) or self.effective_from.tzinfo is None:
@@ -406,162 +399,148 @@ class IndiaMarketChargeModel:
             raise ValueError("model_version must not be empty")
 
     def calculate(self, context: ChargeCalculationContext) -> ChargeBreakdown:
-        if not isinstance(context, IndiaChargeCalculationContext):
-            raise IndiaChargeInputUnavailable("context must be an IndiaChargeCalculationContext")
-        assert context.effective_at is not None
-        assert context.pass_through_policy is not None
-        assert context.brokerage is not None
-        assert context.dp_charges is not None
-        assert context.other_taxable_service_charges is not None
-        if context.transaction_value < 0:
-            raise ValueError("transaction_value cannot be negative")
-        if not context.transaction_value.is_finite():
-            raise ValueError("transaction_value must be finite")
+        if type(context) is not IndiaChargeCalculationContext:
+            raise IndiaChargeInputUnavailable(
+                "context must be an IndiaChargeCalculationContext"
+            )
 
-        entry = self.schedule.select(context.effective_at)
-        assert context.product is not None
-        assert context.trade_side is not None
-        key = (context.product, context.trade_side, context.event)
+        effective_at = context.effective_at
+        product = context.product
+        trade_side = context.trade_side
+        pass_through = context.pass_through_policy
+        if effective_at is None:
+            raise IndiaChargeInputUnavailable("effective_at is required")
+        if product is None:
+            raise IndiaChargeInputUnavailable("product is required")
+        if trade_side is None:
+            raise IndiaChargeInputUnavailable("trade_side is required")
+        if pass_through is None:
+            raise IndiaChargeInputUnavailable("pass_through_policy is required")
+
+        transaction_value = _required_input_decimal(
+            context.transaction_value, "transaction_value"
+        )
+        brokerage = _required_input_decimal(context.brokerage, "brokerage")
+        dp_charges = _required_input_decimal(context.dp_charges, "dp_charges")
+        other_services = _required_input_decimal(
+            context.other_taxable_service_charges, "other_taxable_service_charges"
+        )
+        stt_treatment = context.stt_gst_treatment
+        stamp_treatment = context.stamp_duty_gst_treatment
+        gst_policy_version = context.gst_policy_version
+        gst_policy_source_ref = context.gst_policy_source_ref
+        if not isinstance(stt_treatment, IndiaRecoveryTaxTreatment):
+            raise IndiaChargeInputUnavailable("stt_gst_treatment is required")
+        if not isinstance(stamp_treatment, IndiaRecoveryTaxTreatment):
+            raise IndiaChargeInputUnavailable("stamp_duty_gst_treatment is required")
+        if not isinstance(gst_policy_version, str) or not gst_policy_version.strip():
+            raise IndiaChargeInputUnavailable("gst_policy_version is required")
+        if not isinstance(gst_policy_source_ref, str) or not gst_policy_source_ref.strip():
+            raise IndiaChargeInputUnavailable("gst_policy_source_ref is required")
+
+        entry = self.schedule.select(effective_at)
+        key = (product, trade_side, context.event)
         rate_set = _rate_set_for(entry, key)
         if rate_set is None:
             raise IndiaChargeRuleUnavailable(
                 "no India charge rule for the requested product, side, and event"
             )
 
+        rates: dict[str, Decimal] = {}
         for component in _COMPONENTS:
-            rate = getattr(rate_set, _rate_field(component))
-            if rate is None:
-                raise IndiaChargeRuleUnavailable(f"missing India charge rate: {component}")
-            if not isinstance(rate, Decimal) or not rate.is_finite() or rate < 0:
-                raise IndiaChargeRuleUnavailable(f"invalid India charge rate: {component}")
-        for component in _COMPONENTS:
+            rates[component] = _required_schedule_rate(
+                getattr(rate_set, _rate_field(component)), component
+            )
             if not _has_source(rate_set.component_sources, component):
                 raise IndiaChargeRuleUnavailable(f"missing India charge source: {component}")
 
-        basis_by_component = {component: basis for component, basis in rate_set.component_bases}
+        basis_by_component = dict(rate_set.component_bases)
         for component in _COMPONENTS:
-            if component not in basis_by_component:
+            basis = basis_by_component.get(component)
+            if basis is None:
                 raise IndiaChargeRuleUnavailable(f"missing charge basis for {component}")
-            basis = basis_by_component[component]
-            expected = _supported_basis(component, context.product, context.event)
-            if expected is None or basis not in expected:
+            supported = _supported_basis(component, product, context.event)
+            if supported is None or basis not in supported:
                 raise IndiaChargeRuleUnavailable(
                     f"unsupported charge basis for {component}: {basis.value}"
                 )
-            rate = getattr(rate_set, _rate_field(component))
-            if (
-                basis is IndiaChargeBasis.NOT_APPLICABLE
-                and component != "gst"
-                and rate is not None
-                and rate != 0
-            ):
+            rate = rates[component]
+            incidence = (
+                pass_through.incidence(component)
+                if component in _PASS_THROUGH_COMPONENTS
+                else None
+            )
+            if basis is IndiaChargeBasis.NOT_APPLICABLE and rate != 0:
                 raise IndiaChargeRuleUnavailable(
-                    f"NOT_APPLICABLE requires a zero rate for {component}"
+                    f"NOT_APPLICABLE basis requires a sourced zero rate for {component}"
                 )
-            policy = context.pass_through_policy
-            assert policy is not None
-            if (
-                component in _PASS_THROUGH_COMPONENTS
-                and policy.incidence(component) is IndiaChargeIncidence.NOT_APPLICABLE
-                and rate is not None
-                and rate != 0
-            ):
-                raise IndiaChargeRuleUnavailable(
-                    f"NOT_APPLICABLE requires a zero rate for {component}"
-                )
+            if incidence is IndiaChargeIncidence.NOT_APPLICABLE:
+                if basis is not IndiaChargeBasis.NOT_APPLICABLE or rate != 0:
+                    raise IndiaChargeRuleUnavailable(
+                        f"NOT_APPLICABLE incidence requires a NOT_APPLICABLE basis and zero rate for {component}"
+                    )
 
-        assert rate_set.stt_rate is not None
-        assert rate_set.stamp_duty_rate is not None
-        assert rate_set.exchange_txn_rate is not None
-        assert rate_set.ipft_rate is not None
-        assert rate_set.sebi_turnover_rate is not None
-        assert rate_set.gst_rate is not None
-
-        stt_base = _component_base(context, "stt", basis_by_component["stt"])
-        stamp_base = _component_base(context, "stamp_duty", basis_by_component["stamp_duty"])
-        exchange_base = _component_base(context, "exchange_txn", basis_by_component["exchange_txn"])
-        ipft_base = _component_base(context, "ipft", basis_by_component["ipft"])
-        sebi_base = _component_base(
-            context, "sebi_turnover_fee", basis_by_component["sebi_turnover_fee"]
-        )
-
-        incidence: IndiaChargePassThroughPolicy = context.pass_through_policy
-        for component in _PASS_THROUGH_COMPONENTS:
-            if (
-                incidence.incidence(component) is IndiaChargeIncidence.NOT_APPLICABLE
-                and getattr(rate_set, _rate_field(component)) != 0
-            ):
-                raise IndiaChargeRuleUnavailable(
-                    f"NOT_APPLICABLE requires a zero rate for {component}"
-                )
+        bases = {
+            component: _component_base(context, component, basis_by_component[component])
+            for component in _PASS_THROUGH_COMPONENTS
+        }
         stt_amount = (
-            _rounded(stt_base * rate_set.stt_rate)
-            if incidence.stt is IndiaChargeIncidence.CLIENT_PASSTHROUGH
+            _rounded(bases["stt"] * rates["stt"])
+            if pass_through.stt is IndiaChargeIncidence.CLIENT_PASSTHROUGH
             else Decimal("0")
         )
         stamp_amount = (
-            _rounded(stamp_base * rate_set.stamp_duty_rate)
-            if incidence.stamp_duty is IndiaChargeIncidence.CLIENT_PASSTHROUGH
+            _rounded(bases["stamp_duty"] * rates["stamp_duty"])
+            if pass_through.stamp_duty is IndiaChargeIncidence.CLIENT_PASSTHROUGH
             else Decimal("0")
         )
         exchange_amount = (
-            _rounded(exchange_base * rate_set.exchange_txn_rate)
-            if incidence.exchange_txn is IndiaChargeIncidence.CLIENT_PASSTHROUGH
+            _rounded(bases["exchange_txn"] * rates["exchange_txn"])
+            if pass_through.exchange_txn is IndiaChargeIncidence.CLIENT_PASSTHROUGH
             else Decimal("0")
         )
         ipft_amount = (
-            _rounded(ipft_base * rate_set.ipft_rate)
-            if incidence.ipft is IndiaChargeIncidence.CLIENT_PASSTHROUGH
+            _rounded(bases["ipft"] * rates["ipft"])
+            if pass_through.ipft is IndiaChargeIncidence.CLIENT_PASSTHROUGH
             else Decimal("0")
         )
         sebi_amount = (
-            _rounded(sebi_base * rate_set.sebi_turnover_rate)
-            if incidence.sebi_turnover_fee is IndiaChargeIncidence.CLIENT_PASSTHROUGH
+            _rounded(bases["sebi_turnover_fee"] * rates["sebi_turnover_fee"])
+            if pass_through.sebi_turnover_fee is IndiaChargeIncidence.CLIENT_PASSTHROUGH
             else Decimal("0")
         )
 
-        components = [
+        gst_taxable_base = brokerage + dp_charges + other_services
+        if (
+            pass_through.stt is IndiaChargeIncidence.CLIENT_PASSTHROUGH
+            and stt_treatment is IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE
+        ):
+            gst_taxable_base += stt_amount
+        if (
+            pass_through.stamp_duty is IndiaChargeIncidence.CLIENT_PASSTHROUGH
+            and stamp_treatment is IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE
+        ):
+            gst_taxable_base += stamp_amount
+        if pass_through.exchange_txn is IndiaChargeIncidence.CLIENT_PASSTHROUGH:
+            gst_taxable_base += exchange_amount
+        if pass_through.ipft is IndiaChargeIncidence.CLIENT_PASSTHROUGH:
+            gst_taxable_base += ipft_amount
+        if pass_through.sebi_turnover_fee is IndiaChargeIncidence.CLIENT_PASSTHROUGH:
+            gst_taxable_base += sebi_amount
+
+        gst_amount = _rounded(gst_taxable_base * rates["gst"])
+        components = (
             ChargeComponent("stt", stt_amount),
             ChargeComponent("stamp_duty", stamp_amount),
             ChargeComponent("exchange_txn", exchange_amount),
             ChargeComponent("ipft", ipft_amount),
             ChargeComponent("sebi_turnover_fee", sebi_amount),
-        ]
-
-        gst_taxable_base = Decimal("0")
-        if (
-            incidence.stt is IndiaChargeIncidence.CLIENT_PASSTHROUGH
-            and context.stt_gst_treatment is IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE
-        ):
-            gst_taxable_base += stt_amount
-        if (
-            incidence.stamp_duty is IndiaChargeIncidence.CLIENT_PASSTHROUGH
-            and context.stamp_duty_gst_treatment
-            is IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE
-        ):
-            gst_taxable_base += stamp_amount
-        if incidence.exchange_txn is IndiaChargeIncidence.CLIENT_PASSTHROUGH:
-            gst_taxable_base += exchange_amount
-        if incidence.ipft is IndiaChargeIncidence.CLIENT_PASSTHROUGH:
-            gst_taxable_base += ipft_amount
-        if incidence.sebi_turnover_fee is IndiaChargeIncidence.CLIENT_PASSTHROUGH:
-            gst_taxable_base += sebi_amount
-        gst_taxable_base += (
-            context.brokerage + context.dp_charges + context.other_taxable_service_charges
+            ChargeComponent("gst", gst_amount),
+            ChargeComponent("brokerage", brokerage),
+            ChargeComponent("dp_charges", dp_charges),
+            ChargeComponent("other_taxable_service_charges", other_services),
         )
 
-        gst_amount = _rounded(gst_taxable_base * rate_set.gst_rate)
-        components.append(ChargeComponent("gst", gst_amount))
-        components.append(ChargeComponent("brokerage", context.brokerage))
-        components.append(ChargeComponent("dp_charges", context.dp_charges))
-        components.append(
-            ChargeComponent("other_taxable_service_charges", context.other_taxable_service_charges)
-        )
-
-        stt_treatment = context.stt_gst_treatment
-        stamp_treatment = context.stamp_duty_gst_treatment
-        assert isinstance(stt_treatment, IndiaRecoveryTaxTreatment)
-        assert isinstance(stamp_treatment, IndiaRecoveryTaxTreatment)
         provenance: tuple[str, ...] = (
             f"schedule_version={entry.version}",
             f"schedule_interval={entry.effective_from.isoformat()} to "
@@ -569,27 +548,27 @@ class IndiaMarketChargeModel:
         )
         for component in _COMPONENTS:
             source, version = _source_for(rate_set, component)
-            basis = basis_by_component[component]
             incidence_value = (
-                incidence.incidence(component).value
+                pass_through.incidence(component).value
                 if component in _PASS_THROUGH_COMPONENTS
-                else "not_applicable"
+                else "computed_from_client_taxable_base"
             )
             provenance += (
-                f"{component}:basis={basis.value}:source={source}:rule_version={version}:incidence={incidence_value}",
+                f"{component}:basis={basis_by_component[component].value}:"
+                f"source={source}:rule_version={version}:incidence={incidence_value}",
             )
         provenance += (
             f"stt_gst_treatment={stt_treatment.value}",
             f"stamp_duty_gst_treatment={stamp_treatment.value}",
-            f"pass_through_policy={context.pass_through_policy.version}",
-            f"pass_through_source={context.pass_through_policy.source_ref}",
-            f"gst_policy={context.gst_policy_version}",
-            f"gst_policy_source={context.gst_policy_source_ref}",
+            f"pass_through_policy={pass_through.version}",
+            f"pass_through_source={pass_through.source_ref}",
+            f"gst_policy={gst_policy_version.strip()}",
+            f"gst_policy_source={gst_policy_source_ref.strip()}",
         )
 
         return ChargeBreakdown(
             currency="INR",
-            components=tuple(components),
+            components=components,
             model_id=self.model_id,
             model_version=self.model_version,
             provenance=provenance,
@@ -655,7 +634,7 @@ def _optional_rate(value: object, field_name: str) -> Decimal | None:
     return value
 
 
-def _normalize_rates(value: object) -> tuple[tuple[object, object], ...]:
+def _normalize_rates(value: IndiaChargeRates) -> tuple[IndiaChargeRateEntry, ...]:
     if isinstance(value, Mapping):
         items = list(value.items())
     elif isinstance(value, (list, tuple)):
@@ -728,12 +707,10 @@ def _normalize_sources(value: object) -> tuple[tuple[str, str, str], ...]:
 def _normalize_bases(value: object) -> tuple[tuple[str, IndiaChargeBasis], ...]:
     if value is None:
         return ()
-    if isinstance(value, (list, tuple)):
-        items = list(value)
-    else:
+    if not isinstance(value, (list, tuple)):
         raise TypeError("component bases must be a sequence")
-    normalized = []
-    for item in items:
+    normalized: list[tuple[str, IndiaChargeBasis]] = []
+    for item in value:
         if not isinstance(item, (tuple, list)) or len(item) != 2:
             raise TypeError("component basis must be a (component, basis) pair")
         component, basis = item
@@ -743,35 +720,15 @@ def _normalize_bases(value: object) -> tuple[tuple[str, IndiaChargeBasis], ...]:
             try:
                 basis = IndiaChargeBasis(basis)
             except ValueError as exc:
-                raise IndiaChargeRuleUnavailable(f"invalid charge basis for {component}") from exc
+                raise IndiaChargeRuleUnavailable(
+                    f"invalid charge basis for {component}"
+                ) from exc
         if not isinstance(basis, IndiaChargeBasis):
             raise IndiaChargeRuleUnavailable(f"invalid charge basis for {component}")
         normalized.append((component.strip(), basis))
     normalized.sort(key=lambda item: item[0])
     if len({item[0] for item in normalized}) != len(normalized):
-        raise ValueError("component bases must be unique")
-    return tuple(normalized)
-    if value is None:
-        return ()
-    if isinstance(value, (list, tuple)):
-        items = list(value)
-    else:
-        raise TypeError("component_sources must be a sequence")
-    normalized = []
-    for item in items:
-        if not isinstance(item, (tuple, list)) or len(item) != 3:
-            raise TypeError("component source must be a (component, source, version) tuple")
-        component, source, version = item
-        if not isinstance(component, str) or not component.strip():
-            raise ValueError("component source name must be non-empty")
-        if not isinstance(source, str) or not source.strip():
-            raise ValueError("component source reference must be non-empty")
-        if not isinstance(version, str) or not version.strip():
-            raise ValueError("component source version must be non-empty")
-        normalized.append((component.strip(), source.strip(), version.strip()))
-    normalized.sort(key=lambda item: item[0])
-    if len({item[0] for item in normalized}) != len(normalized):
-        raise ValueError("component sources must be unique")
+        raise IndiaChargeRuleUnavailable("component bases must be unique")
     return tuple(normalized)
 
 
@@ -797,84 +754,56 @@ def _rate_set_for(
     return None
 
 
-def _stt_base(context: IndiaChargeCalculationContext) -> Decimal:
-    if (
-        context.product is IndiaChargeProduct.EQUITY_OPTIONS
-        and context.event is IndiaChargeEvent.TRADE
-    ):
-        assert context.premium_value is not None
-        return context.premium_value
-    if context.event is IndiaChargeEvent.OPTION_EXERCISE:
-        assert context.settlement_price is not None
-        assert context.strike is not None
-        assert context.quantity is not None
-        if context.option_type is IndiaOptionType.CALL:
-            return max(context.settlement_price - context.strike, Decimal("0")) * context.quantity
-        return max(context.strike - context.settlement_price, Decimal("0")) * context.quantity
-    return context.transaction_value
+def _required_input_decimal(value: object, field_name: str) -> Decimal:
+    if type(value) is not Decimal:
+        raise IndiaChargeInputUnavailable(f"{field_name} must be a Decimal")
+    if not value.is_finite() or value < 0:
+        raise IndiaChargeInputUnavailable(f"{field_name} must be finite and non-negative")
+    return value
 
 
-def _stamp_base(context: IndiaChargeCalculationContext) -> Decimal:
-    if (
-        context.product is IndiaChargeProduct.EQUITY_OPTIONS
-        and context.event is IndiaChargeEvent.TRADE
-    ):
-        assert context.premium_value is not None
-        return context.premium_value
-    return context.transaction_value
-
-
-def _exchange_base(context: IndiaChargeCalculationContext) -> Decimal:
-    if (
-        context.product is IndiaChargeProduct.EQUITY_OPTIONS
-        and context.event is IndiaChargeEvent.TRADE
-    ):
-        assert context.premium_value is not None
-        return context.premium_value
-    return context.transaction_value
-
-
-def _sebi_base(context: IndiaChargeCalculationContext) -> Decimal:
-    if (
-        context.product is IndiaChargeProduct.EQUITY_OPTIONS
-        and context.event is IndiaChargeEvent.TRADE
-    ):
-        assert context.premium_value is not None
-        return context.premium_value
-    if context.event is IndiaChargeEvent.OPTION_EXERCISE:
-        assert context.exercise_notional_value is not None
-        return context.exercise_notional_value
-    return context.transaction_value
+def _required_schedule_rate(value: Decimal | None, component: str) -> Decimal:
+    if value is None:
+        raise IndiaChargeRuleUnavailable(f"missing India charge rate: {component}")
+    if type(value) is not Decimal or not value.is_finite() or value < 0:
+        raise IndiaChargeRuleUnavailable(f"invalid India charge rate: {component}")
+    return value
 
 
 def _component_base(
     context: IndiaChargeCalculationContext, component: str, basis: IndiaChargeBasis
 ) -> Decimal:
     if basis is IndiaChargeBasis.TRANSACTION_VALUE:
-        return context.transaction_value
+        return _required_input_decimal(context.transaction_value, "transaction_value")
     if basis is IndiaChargeBasis.OPTION_PREMIUM_VALUE:
-        assert context.premium_value is not None
-        return context.premium_value
+        return _required_input_decimal(context.premium_value, "premium_value")
     if basis is IndiaChargeBasis.OPTION_INTRINSIC_VALUE:
-        assert context.settlement_price is not None
-        assert context.strike is not None
-        assert context.quantity is not None
+        settlement = _required_input_decimal(context.settlement_price, "settlement_price")
+        strike = _required_input_decimal(context.strike, "strike")
+        quantity = _required_input_decimal(context.quantity, "quantity")
+        if quantity <= 0:
+            raise IndiaChargeInputUnavailable("quantity must be positive")
         if context.option_type is IndiaOptionType.CALL:
-            return max(context.settlement_price - context.strike, Decimal("0")) * context.quantity
-        return max(context.strike - context.settlement_price, Decimal("0")) * context.quantity
+            return max(settlement - strike, Decimal("0")) * quantity
+        if context.option_type is IndiaOptionType.PUT:
+            return max(strike - settlement, Decimal("0")) * quantity
+        raise IndiaChargeInputUnavailable("option_type is required for intrinsic value")
     if basis is IndiaChargeBasis.OPTION_EXERCISE_NOTIONAL:
-        assert context.exercise_notional_value is not None
-        return context.exercise_notional_value
+        return _required_input_decimal(
+            context.exercise_notional_value, "exercise_notional_value"
+        )
     if basis is IndiaChargeBasis.NOT_APPLICABLE:
         return Decimal("0")
-    raise IndiaChargeRuleUnavailable(f"unsupported charge basis for {component}: {basis.value}")
+    raise IndiaChargeRuleUnavailable(
+        f"unsupported charge basis for {component}: {basis.value}"
+    )
 
 
 def _supported_basis(
-    component: str, product: IndiaChargeProduct | None, event: IndiaChargeEvent
+    component: str, product: IndiaChargeProduct, event: IndiaChargeEvent
 ) -> frozenset[IndiaChargeBasis] | None:
     if component == "gst":
-        return frozenset({IndiaChargeBasis.NOT_APPLICABLE})
+        return frozenset({IndiaChargeBasis.CLIENT_TAXABLE_VALUE})
     if product is IndiaChargeProduct.EQUITY_OPTIONS:
         if event is IndiaChargeEvent.TRADE:
             return frozenset({IndiaChargeBasis.OPTION_PREMIUM_VALUE})
@@ -883,7 +812,7 @@ def _supported_basis(
                 return frozenset({IndiaChargeBasis.OPTION_INTRINSIC_VALUE})
             if component == "sebi_turnover_fee":
                 return frozenset({IndiaChargeBasis.OPTION_EXERCISE_NOTIONAL})
-            return None
+            return frozenset({IndiaChargeBasis.NOT_APPLICABLE})
     if event is IndiaChargeEvent.TRADE:
         return frozenset({IndiaChargeBasis.TRANSACTION_VALUE})
     return None
@@ -902,9 +831,6 @@ def _rate_field(component: str) -> str:
 
 
 __all__ = [
-    "IndiaBasis",
-    "IndiaChargeBasis",
-    "IndiaChargeCalculationBasis",
     "IndiaChargeCalculationContext",
     "IndiaChargeEvent",
     "IndiaChargeIncidence",

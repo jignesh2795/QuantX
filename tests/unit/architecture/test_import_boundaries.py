@@ -68,19 +68,48 @@ _ALLOWED_RUNTIME_EXCEPTIONS: frozenset[tuple[str, str, str]] = frozenset(
 )
 
 
+def _runtime_edge_is_allowed(edge) -> bool:
+    return (
+        edge.target_package in _ALLOWED_RUNTIME.get(edge.source_package, frozenset())
+        or (edge.source_package, edge.target_package, edge.source_module)
+        in _ALLOWED_RUNTIME_EXCEPTIONS
+    )
+
+
 def test_runtime_package_edges_are_allowed_or_registered() -> None:
     graph = build_import_graph()
     offenders: list[str] = []
     for edge in graph.by_kind(type_only=False):
         pair = (edge.source_package, edge.target_package)
-        allowed = (
-            edge.target_package in _ALLOWED_RUNTIME.get(edge.source_package, frozenset())
-            or (edge.source_package, edge.target_package, edge.source_module)
-            in _ALLOWED_RUNTIME_EXCEPTIONS
-        )
-        if not allowed and pair not in _DEFERRED_RUNTIME:
+        if not _runtime_edge_is_allowed(edge) and pair not in _DEFERRED_RUNTIME:
             offenders.append(edge.describe())
     assert offenders == [], "unregistered runtime package dependency:\n" + "\n".join(offenders)
+
+
+def test_execution_exception_is_limited_to_india_charges_module() -> None:
+    known = frozenset(
+        {
+            "quantx.india.charges",
+            "quantx.india.risk_limits",
+            "quantx.execution",
+            "quantx.execution.charges",
+        }
+    )
+    allowed_edges = extract_imports(
+        "from quantx.execution import charges",
+        module="quantx.india.charges",
+        known_modules=known,
+    )
+    unrelated_edges = extract_imports(
+        "from quantx.execution import charges",
+        module="quantx.india.risk_limits",
+        known_modules=known,
+    )
+
+    assert len(allowed_edges) == 1
+    assert _runtime_edge_is_allowed(allowed_edges[0])
+    assert len(unrelated_edges) == 1
+    assert not _runtime_edge_is_allowed(unrelated_edges[0])
 
 
 def test_type_only_package_edges_are_allowed_or_registered() -> None:

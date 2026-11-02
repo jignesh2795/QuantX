@@ -62,7 +62,7 @@ def _rates() -> IndiaChargeRateSet:
             ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
             ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
             ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
-            ("gst", IndiaChargeBasis.NOT_APPLICABLE),
+            ("gst", IndiaChargeBasis.CLIENT_TAXABLE_VALUE),
         ),
     )
 
@@ -220,7 +220,7 @@ def test_missing_rate_raises_rule_unavailable() -> None:
                     ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
                     ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
                     ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
-                    ("gst", IndiaChargeBasis.NOT_APPLICABLE),
+                    ("gst", IndiaChargeBasis.CLIENT_TAXABLE_VALUE),
                 ),
             )
         },
@@ -253,7 +253,7 @@ def test_missing_source_for_zero_rate_rejected_at_construction() -> None:
                 ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
                 ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
                 ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
-                ("gst", IndiaChargeBasis.NOT_APPLICABLE),
+                ("gst", IndiaChargeBasis.CLIENT_TAXABLE_VALUE),
             ),
         )
 
@@ -281,7 +281,7 @@ def test_explicit_zero_rate_is_allowed_with_source() -> None:
             (
                 component,
                 (
-                    IndiaChargeBasis.NOT_APPLICABLE
+                    IndiaChargeBasis.CLIENT_TAXABLE_VALUE
                     if component == "gst"
                     else IndiaChargeBasis.TRANSACTION_VALUE
                 ),
@@ -447,3 +447,341 @@ def test_total_equals_sum_of_components() -> None:
     assert breakdown.total == sum(
         (component.amount for component in breakdown.components), Decimal("0")
     )
+
+
+
+def _exercise_policy() -> IndiaChargePassThroughPolicy:
+    return IndiaChargePassThroughPolicy(
+        stt=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        stamp_duty=IndiaChargeIncidence.NOT_APPLICABLE,
+        exchange_txn=IndiaChargeIncidence.NOT_APPLICABLE,
+        ipft=IndiaChargeIncidence.NOT_APPLICABLE,
+        sebi_turnover_fee=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        version="synthetic-exercise-policy-v1",
+        source_ref="synthetic://exercise-policy",
+    )
+
+
+def _exercise_rates(
+    *,
+    exchange_basis: IndiaChargeBasis = IndiaChargeBasis.NOT_APPLICABLE,
+) -> IndiaChargeRateSet:
+    return IndiaChargeRateSet(
+        stt_rate=Decimal("0.10"),
+        stamp_duty_rate=Decimal("0"),
+        exchange_txn_rate=Decimal("0"),
+        ipft_rate=Decimal("0"),
+        sebi_turnover_rate=Decimal("0.01"),
+        gst_rate=Decimal("0.18"),
+        component_sources=tuple(
+            (component, f"synthetic://{component}", "exercise-synthetic-v1")
+            for component in (
+                "stt", "stamp_duty", "exchange_txn", "ipft", "sebi_turnover_fee", "gst"
+            )
+        ),
+        component_bases=(
+            ("stt", IndiaChargeBasis.OPTION_INTRINSIC_VALUE),
+            ("stamp_duty", IndiaChargeBasis.NOT_APPLICABLE),
+            ("exchange_txn", exchange_basis),
+            ("ipft", IndiaChargeBasis.NOT_APPLICABLE),
+            ("sebi_turnover_fee", IndiaChargeBasis.OPTION_EXERCISE_NOTIONAL),
+            ("gst", IndiaChargeBasis.CLIENT_TAXABLE_VALUE),
+        ),
+    )
+
+
+def _exercise_model(
+    *, exchange_basis: IndiaChargeBasis = IndiaChargeBasis.NOT_APPLICABLE
+) -> IndiaMarketChargeModel:
+    entry = IndiaChargeScheduleEntry(
+        effective_from=datetime(2026, 1, 1, tzinfo=IST),
+        effective_to=None,
+        version="synthetic-exercise-schedule-v1",
+        rates={
+            (
+                IndiaChargeProduct.EQUITY_OPTIONS,
+                IndiaTradeSide.BUY,
+                IndiaChargeEvent.OPTION_EXERCISE,
+            ): _exercise_rates(exchange_basis=exchange_basis)
+        },
+    )
+    return IndiaMarketChargeModel(schedule=IndiaChargeSchedule((entry,)))
+
+
+def _exercise_context(
+    option_type: IndiaOptionType,
+    *,
+    settlement_price: Decimal,
+    strike: Decimal,
+) -> IndiaChargeCalculationContext:
+    return _context(
+        transaction_value=Decimal("7777"),
+        product=IndiaChargeProduct.EQUITY_OPTIONS,
+        trade_side=IndiaTradeSide.BUY,
+        event=IndiaChargeEvent.OPTION_EXERCISE,
+        premium_value=Decimal("999"),
+        option_type=option_type,
+        quantity=Decimal("2"),
+        settlement_price=settlement_price,
+        strike=strike,
+        exercise_notional_value=Decimal("500"),
+        brokerage=Decimal("1"),
+        dp_charges=Decimal("0"),
+        other_taxable_service_charges=Decimal("0"),
+        stt_gst_treatment=IndiaRecoveryTaxTreatment.EXCLUDE_AS_QUALIFIED_PURE_AGENT,
+        stamp_duty_gst_treatment=IndiaRecoveryTaxTreatment.EXCLUDE_AS_QUALIFIED_PURE_AGENT,
+        pass_through_policy=_exercise_policy(),
+    )
+
+
+def _component_amount(breakdown, name: str) -> Decimal:
+    return next(component.amount for component in breakdown.components if component.name == name)
+
+
+def test_call_exercise_calculates_intrinsic_stt_and_separate_sebi_notional() -> None:
+    result = _exercise_model().calculate(
+        _exercise_context(
+            IndiaOptionType.CALL,
+            settlement_price=Decimal("110"),
+            strike=Decimal("100"),
+        )
+    )
+
+    assert _component_amount(result, "stt") == Decimal("2.00")
+    assert _component_amount(result, "sebi_turnover_fee") == Decimal("5.00")
+    assert _component_amount(result, "gst") == Decimal("1.08")
+    assert result.total == Decimal("9.08")
+
+
+def test_put_exercise_calculates_intrinsic_stt_and_separate_sebi_notional() -> None:
+    result = _exercise_model().calculate(
+        _exercise_context(
+            IndiaOptionType.PUT,
+            settlement_price=Decimal("90"),
+            strike=Decimal("100"),
+        )
+    )
+
+    assert _component_amount(result, "stt") == Decimal("2.00")
+    assert _component_amount(result, "sebi_turnover_fee") == Decimal("5.00")
+    assert _component_amount(result, "gst") == Decimal("1.08")
+    assert result.total == Decimal("9.08")
+
+
+@pytest.mark.parametrize(
+    ("option_type", "settlement", "strike"),
+    [
+        (IndiaOptionType.CALL, Decimal("90"), Decimal("100")),
+        (IndiaOptionType.PUT, Decimal("110"), Decimal("100")),
+    ],
+)
+def test_out_of_the_money_exercise_has_zero_intrinsic_stt(
+    option_type: IndiaOptionType, settlement: Decimal, strike: Decimal
+) -> None:
+    result = _exercise_model().calculate(
+        _exercise_context(option_type, settlement_price=settlement, strike=strike)
+    )
+
+    assert _component_amount(result, "stt") == Decimal("0.00")
+    assert _component_amount(result, "sebi_turnover_fee") == Decimal("5.00")
+
+
+def test_exercise_rejects_unsupported_component_basis() -> None:
+    with pytest.raises(IndiaChargeRuleUnavailable, match="unsupported charge basis"):
+        _exercise_model(exchange_basis=IndiaChargeBasis.TRANSACTION_VALUE).calculate(
+            _exercise_context(
+                IndiaOptionType.CALL,
+                settlement_price=Decimal("110"),
+                strike=Decimal("100"),
+            )
+        )
+
+
+def test_option_exercise_rejected_for_non_option_product() -> None:
+    with pytest.raises(IndiaChargeRuleUnavailable, match="requires EQUITY_OPTIONS"):
+        _context(
+            product=IndiaChargeProduct.EQUITY_FUTURES,
+            event=IndiaChargeEvent.OPTION_EXERCISE,
+        )
+
+
+def test_option_assignment_is_explicitly_unsupported() -> None:
+    with pytest.raises(IndiaChargeRuleUnavailable, match="OPTION_ASSIGNMENT is unsupported"):
+        _context(event="OPTION_ASSIGNMENT")
+
+
+def test_not_applicable_incidence_with_positive_rate_fails_closed() -> None:
+    policy = IndiaChargePassThroughPolicy(
+        stt=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        stamp_duty=IndiaChargeIncidence.NOT_APPLICABLE,
+        exchange_txn=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        ipft=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        sebi_turnover_fee=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        version="synthetic-not-applicable-v1",
+        source_ref="synthetic://not-applicable",
+    )
+    with pytest.raises(IndiaChargeRuleUnavailable, match="NOT_APPLICABLE"):
+        IndiaMarketChargeModel(schedule=_schedule()).calculate(
+            _context(pass_through_policy=policy)
+        )
+
+
+def test_not_applicable_sourced_zero_rule_calculates_zero() -> None:
+    rates = IndiaChargeRateSet(
+        stt_rate=Decimal("0.001"),
+        stamp_duty_rate=Decimal("0"),
+        exchange_txn_rate=Decimal("0.0000297"),
+        ipft_rate=Decimal("0.000001"),
+        sebi_turnover_rate=Decimal("0.000001"),
+        gst_rate=Decimal("0.18"),
+        component_sources=tuple(
+            (component, f"synthetic://{component}", "zero-rule-v1")
+            for component in (
+                "stt", "stamp_duty", "exchange_txn", "ipft", "sebi_turnover_fee", "gst"
+            )
+        ),
+        component_bases=(
+            ("stt", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("stamp_duty", IndiaChargeBasis.NOT_APPLICABLE),
+            ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("gst", IndiaChargeBasis.CLIENT_TAXABLE_VALUE),
+        ),
+    )
+    entry = IndiaChargeScheduleEntry(
+        effective_from=datetime(2026, 1, 1, tzinfo=IST),
+        effective_to=None,
+        version="synthetic-zero-schedule-v1",
+        rates={
+            (IndiaChargeProduct.EQUITY_DELIVERY, IndiaTradeSide.BUY, IndiaChargeEvent.TRADE): rates
+        },
+    )
+    policy = IndiaChargePassThroughPolicy(
+        stt=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        stamp_duty=IndiaChargeIncidence.NOT_APPLICABLE,
+        exchange_txn=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        ipft=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        sebi_turnover_fee=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        version="synthetic-zero-policy-v1",
+        source_ref="synthetic://zero-policy",
+    )
+
+    result = IndiaMarketChargeModel(schedule=IndiaChargeSchedule((entry,))).calculate(
+        _context(pass_through_policy=policy)
+    )
+
+    assert _component_amount(result, "stamp_duty") == Decimal("0.00")
+    assert any("stamp_duty:basis=NOT_APPLICABLE" in item for item in result.provenance)
+
+
+def test_gst_uses_complete_client_taxable_base_and_explicit_treatments() -> None:
+    include_stt = IndiaMarketChargeModel(schedule=_schedule()).calculate(_context())
+    exclude_stt_include_stamp = IndiaMarketChargeModel(schedule=_schedule()).calculate(
+        _context(
+            stt_gst_treatment=IndiaRecoveryTaxTreatment.EXCLUDE_AS_QUALIFIED_PURE_AGENT,
+            stamp_duty_gst_treatment=IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE,
+        )
+    )
+
+    assert _component_amount(include_stt, "stt") == Decimal("10.00")
+    assert _component_amount(include_stt, "stamp_duty") == Decimal("1.50")
+    assert _component_amount(include_stt, "exchange_txn") == Decimal("0.30")
+    assert _component_amount(include_stt, "ipft") == Decimal("0.01")
+    assert _component_amount(include_stt, "sebi_turnover_fee") == Decimal("0.01")
+    assert _component_amount(include_stt, "gst") == Decimal("4.02")
+    assert include_stt.total == Decimal("27.84")
+
+    assert _component_amount(exclude_stt_include_stamp, "gst") == Decimal("2.49")
+    assert exclude_stt_include_stamp.total == Decimal("26.31")
+
+
+def test_broker_absorbed_component_is_excluded_from_client_cost_and_gst_base() -> None:
+    policy = IndiaChargePassThroughPolicy(
+        stt=IndiaChargeIncidence.BROKER_ABSORBED,
+        stamp_duty=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        exchange_txn=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        ipft=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        sebi_turnover_fee=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        version="synthetic-absorbed-policy-v1",
+        source_ref="synthetic://absorbed",
+    )
+
+    result = IndiaMarketChargeModel(schedule=_schedule()).calculate(
+        _context(pass_through_policy=policy)
+    )
+
+    assert _component_amount(result, "stt") == Decimal("0")
+    assert _component_amount(result, "gst") == Decimal("2.22")
+    assert result.total == Decimal("16.04")
+
+
+def test_client_passthrough_component_is_included_in_cost_and_gst_base() -> None:
+    result = IndiaMarketChargeModel(schedule=_schedule()).calculate(_context())
+
+    assert _component_amount(result, "stt") == Decimal("10.00")
+    assert _component_amount(result, "gst") == Decimal("4.02")
+
+
+def test_component_rounding_is_half_up_per_component_before_total() -> None:
+    rates = IndiaChargeRateSet(
+        stt_rate=Decimal("0.005"),
+        stamp_duty_rate=Decimal("0"),
+        exchange_txn_rate=Decimal("0.005"),
+        ipft_rate=Decimal("0"),
+        sebi_turnover_rate=Decimal("0"),
+        gst_rate=Decimal("0"),
+        component_sources=tuple(
+            (component, f"synthetic://{component}", "rounding-v1")
+            for component in (
+                "stt", "stamp_duty", "exchange_txn", "ipft", "sebi_turnover_fee", "gst"
+            )
+        ),
+        component_bases=(
+            ("stt", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("stamp_duty", IndiaChargeBasis.NOT_APPLICABLE),
+            ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
+            ("gst", IndiaChargeBasis.CLIENT_TAXABLE_VALUE),
+        ),
+    )
+    entry = IndiaChargeScheduleEntry(
+        effective_from=datetime(2026, 1, 1, tzinfo=IST),
+        effective_to=None,
+        version="synthetic-rounding-v1",
+        rates={
+            (IndiaChargeProduct.EQUITY_DELIVERY, IndiaTradeSide.BUY, IndiaChargeEvent.TRADE): rates
+        },
+    )
+    result = IndiaMarketChargeModel(schedule=IndiaChargeSchedule((entry,))).calculate(
+        _context(
+            transaction_value=Decimal("1"),
+            brokerage=Decimal("0"),
+            dp_charges=Decimal("0"),
+            other_taxable_service_charges=Decimal("0"),
+        )
+    )
+
+    assert _component_amount(result, "stt") == Decimal("0.01")
+    assert _component_amount(result, "exchange_txn") == Decimal("0.01")
+    assert result.total == Decimal("0.02")
+
+
+def test_provenance_records_basis_sources_and_policy_versions() -> None:
+    result = IndiaMarketChargeModel(schedule=_schedule()).calculate(_context())
+
+    assert "schedule_version=schedule-v1" in result.provenance
+    assert any(item.startswith("schedule_interval=") for item in result.provenance)
+    for component in ("stt", "stamp_duty", "exchange_txn", "ipft", "sebi_turnover_fee", "gst"):
+        assert any(f"{component}:basis=" in item for item in result.provenance)
+        assert any(f"{component}:source=" in item and "rule_version=" in item for item in result.provenance)
+    assert "pass_through_policy=policy-v1" in result.provenance
+    assert "pass_through_source=policy-source" in result.provenance
+    assert "gst_policy=gst-policy-v1" in result.provenance
+    assert "gst_policy_source=gst-policy-source" in result.provenance
+
+
+def test_missing_gst_treatment_fails_before_breakdown() -> None:
+    with pytest.raises(IndiaChargeInputUnavailable, match="stt_gst_treatment"):
+        _context(stt_gst_treatment=None)
