@@ -38,6 +38,8 @@ class Order:
     position_effect: PositionEffect | None = None
 
     def __post_init__(self) -> None:
+        if type(self.client_order_id) is not UUID:
+            raise ValueError("client_order_id must be exact UUID")
         if self.quantity <= 0:
             raise ValueError("order quantity must be positive")
         if self.order_type in {OrderType.LIMIT, OrderType.STOP_LIMIT} and self.limit_price is None:
