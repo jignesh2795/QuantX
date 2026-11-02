@@ -172,3 +172,15 @@ wall-clock/Clock inventory when another time-sensitive subsystem changes.
   caller-supplied engine clock; mismatch fails closed instead.
 - `research/result.py:102` (`result_id` UUID default): explicitly random
   identity, not time-related; excluded from determinism comparisons.
+## Issue #198 completion: behaviorally significant clock injection
+
+Application services that previously fell back to `datetime.now(UTC)` now accept a composition-injected `Clock` (`SystemClock` by default for production compatibility):
+
+- `application/runtime.py` - `ApplicationRuntime` stores a `Clock` and uses it for `start()` when `checked_at` is omitted.
+- `application/pending_recovery.py` - `PendingExecutionRecoveryRunner` stores and uses an injected `Clock`; `run()` and `recover_pending_live_executions()` propagate it.
+- `application/pending_reconciliation.py` - `reconcile_pending_execution()` accepts and uses an injected `Clock` for `checked_at` fallback.
+- `application/operator_resolution.py` - `resolve_pending_operator()` accepts and uses an injected `Clock` for `resolved_at` fallback.
+- `application/execution.py` - `ExecutionOrchestrator` stores an injected `Clock` and uses it for preflight `recorded_at` and quarantine `observed_at`.
+- `application/recovery_composition.py` and `application/live_execution.py` - propagate the injected `Clock` through recovery and LIVE execution composition.
+
+Intentional wall-clock boundaries remain in `domain/clock.py`, `domain/orders.py`, `domain/strategy.py`, `research/experiments.py`, `persistence/sqlite/*`, and `plugins/dhan/*` as documented operational/transport/audit time.

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
 from threading import RLock
 from uuid import NAMESPACE_URL, UUID, uuid5
 from weakref import WeakKeyDictionary
 
+from quantx.domain.clock import Clock, SystemClock
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketFamily, MarketRegion
@@ -310,6 +311,7 @@ class ExecutionOrchestrator:
         market_policy: MarketPolicyConfig | None = None,
         submission_quarantine: SubmissionQuarantineRepository | None = None,
         policy_verifier: MarketPackPolicyVerifier,
+        clock: Clock | None = None,
     ) -> None:
         self._paper_executor = paper_executor
         self._unit_of_work = unit_of_work
@@ -325,6 +327,9 @@ class ExecutionOrchestrator:
         self._market_policy = market_policy or default_market_policy()
         self._submission_quarantine = submission_quarantine
         self._policy_verifier = policy_verifier
+        self._clock = clock if clock is not None else SystemClock()
+        if not isinstance(self._clock, Clock):
+            raise TypeError("execution orchestrator requires a Clock")
         # Keep the issuer in the module-private registry rather than on
         # the instance, where a caller could obtain a genuine token directly.
         with _LIVE_SUBMISSION_AUTHORITIES_LOCK:
@@ -1600,7 +1605,7 @@ class ExecutionOrchestrator:
                 fingerprint,
                 source=NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION,
                 reason=reason,
-                recorded_at=datetime.now(UTC),
+                recorded_at=self._clock.now(),
             )
         except Exception:
             return ExecutionResult(
@@ -1638,7 +1643,7 @@ class ExecutionOrchestrator:
                 fingerprint,
                 source=NotSubmittedSource.ADAPTER_BROKER_REJECTION,
                 reason=reason,
-                recorded_at=datetime.now(UTC),
+                recorded_at=self._clock.now(),
             )
         except Exception:
             return ExecutionResult(
@@ -1742,7 +1747,7 @@ class ExecutionOrchestrator:
                 request_correlation_id=request.correlation_id,
                 receipt=receipt,
                 reason=self._bounded_quarantine_reason(reason),
-                observed_at=datetime.now(UTC),
+                observed_at=self._clock.now(),
             )
             recorder.record(observation)
         except Exception:

@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
+from quantx.domain.clock import Clock, SystemClock
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.orders import Fill
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
@@ -401,6 +402,7 @@ class PendingExecutionRecoveryRunner:
         evidence_policy: DefinitiveEvidencePolicy | None = None,
         refresh_policy: RefreshPolicy | None = None,
         policy_verifier: MarketPackPolicyVerifier,
+        clock: Clock | None = None,
     ) -> None:
         self._unit_of_work = unit_of_work
         self._provider_resolver = provider_resolver
@@ -411,13 +413,20 @@ class PendingExecutionRecoveryRunner:
         self._evidence_policy = evidence_policy
         self._refresh_policy = refresh_policy
         self._policy_verifier = policy_verifier
+        self._clock = clock if clock is not None else SystemClock()
+        if not isinstance(self._clock, Clock):
+            raise TypeError("pending recovery requires a Clock")
 
     def run(
         self,
         *,
         checked_at: datetime | None = None,
+        clock: Clock | None = None,
     ) -> PendingRecoveryRun:
-        observed_at = checked_at or datetime.now(UTC)
+        active_clock = clock if clock is not None else self._clock
+        if not isinstance(active_clock, Clock):
+            raise TypeError("pending recovery requires a Clock")
+        observed_at = checked_at if checked_at is not None else active_clock.now()
         if observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise ValueError("checked_at must be timezone-aware")
 
@@ -434,13 +443,14 @@ class PendingExecutionRecoveryRunner:
                 )
                 continue
             assert record.context is not None
-            results.append(self._recover_one(record.context, observed_at))
+            results.append(self._recover_one(record.context, observed_at, active_clock))
         return PendingRecoveryRun(tuple(results))
 
     def _recover_one(
         self,
         context: PendingExecutionContext,
         checked_at: datetime,
+        clock: Clock | None = None,
     ) -> PendingRecoveryResult:
         client_order_id = str(context.order.client_order_id)
         try:
@@ -475,6 +485,7 @@ class PendingExecutionRecoveryRunner:
                 provider=provider,
                 unit_of_work=self._unit_of_work,
                 checked_at=checked_at,
+                clock=clock,
                 evidence_policy=self._evidence_policy or DefinitiveEvidencePolicy.live_recovery(),
                 local_position=local_position,
                 local_account=local_account,
@@ -506,6 +517,7 @@ def recover_pending_live_executions(
     evidence_policy: DefinitiveEvidencePolicy | None = None,
     refresh_policy: RefreshPolicy | None = None,
     policy_verifier: MarketPackPolicyVerifier,
+    clock: Clock | None = None,
 ) -> PendingRecoveryRun:
     """Convenience boot hook for one deterministic pending-recovery pass."""
     return PendingExecutionRecoveryRunner(
@@ -518,4 +530,5 @@ def recover_pending_live_executions(
         evidence_policy=evidence_policy,
         refresh_policy=refresh_policy,
         policy_verifier=policy_verifier,
-    ).run(checked_at=checked_at)
+        clock=clock,
+    ).run(checked_at=checked_at, clock=clock)

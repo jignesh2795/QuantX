@@ -8,8 +8,10 @@ dependency so startup wiring remains explicit and testable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Protocol
+
+from quantx.domain.clock import Clock, SystemClock
 
 from .pending_recovery import PendingRecoveryRun
 
@@ -61,8 +63,13 @@ class ApplicationRuntime:
     readiness false.
     """
 
-    def __init__(self, *, pending_recovery: StartupRecoveryHook) -> None:
+    def __init__(
+        self, *, pending_recovery: StartupRecoveryHook, clock: Clock | None = None
+    ) -> None:
         self._pending_recovery = pending_recovery
+        self._clock = clock if clock is not None else SystemClock()
+        if not isinstance(self._clock, Clock):
+            raise TypeError("application runtime requires a Clock")
         self._started = False
         self._last_startup_result: ApplicationStartupResult | None = None
 
@@ -79,6 +86,7 @@ class ApplicationRuntime:
         self,
         *,
         checked_at: datetime | None = None,
+        clock: Clock | None = None,
     ) -> ApplicationStartupResult:
         """Run startup recovery and grant readiness only when it resolves.
 
@@ -90,7 +98,10 @@ class ApplicationRuntime:
         if self._started:
             raise RuntimeError("application runtime is already started")
 
-        observed_at = checked_at or datetime.now(UTC)
+        active_clock = clock if clock is not None else self._clock
+        if not isinstance(active_clock, Clock):
+            raise TypeError("application runtime requires a Clock")
+        observed_at = checked_at if checked_at is not None else active_clock.now()
         if observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise ValueError("checked_at must be timezone-aware")
 
