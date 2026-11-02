@@ -29,7 +29,7 @@ _ALLOWED_RUNTIME: dict[str, frozenset[str]] = {
     "persistence": frozenset({"domain", "execution", "ports", "research"}),
     "research": frozenset({"domain", "ports"}),
     "strategy": frozenset({"domain", "execution", "ports"}),
-    "india": frozenset({"domain", "ports"}),
+    "india": frozenset({"domain", "execution", "ports"}),
     "application": frozenset(
         {
             "domain",
