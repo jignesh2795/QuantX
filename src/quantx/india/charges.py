@@ -399,7 +399,7 @@ class IndiaMarketChargeModel:
             raise ValueError("model_version must not be empty")
 
     def calculate(self, context: ChargeCalculationContext) -> ChargeBreakdown:
-        if type(context) is not IndiaChargeCalculationContext:
+        if not isinstance(context, IndiaChargeCalculationContext):
             raise IndiaChargeInputUnavailable(
                 "context must be an IndiaChargeCalculationContext"
             )
@@ -417,9 +417,6 @@ class IndiaMarketChargeModel:
         if pass_through is None:
             raise IndiaChargeInputUnavailable("pass_through_policy is required")
 
-        transaction_value = _required_input_decimal(
-            context.transaction_value, "transaction_value"
-        )
         brokerage = _required_input_decimal(context.brokerage, "brokerage")
         dp_charges = _required_input_decimal(context.dp_charges, "dp_charges")
         other_services = _required_input_decimal(
@@ -470,9 +467,11 @@ class IndiaMarketChargeModel:
                 if component in _PASS_THROUGH_COMPONENTS
                 else None
             )
-            if basis is IndiaChargeBasis.NOT_APPLICABLE and rate != 0:
+            if basis is IndiaChargeBasis.NOT_APPLICABLE and (
+                rate != 0 or incidence is not IndiaChargeIncidence.NOT_APPLICABLE
+            ):
                 raise IndiaChargeRuleUnavailable(
-                    f"NOT_APPLICABLE basis requires a sourced zero rate for {component}"
+                    f"NOT_APPLICABLE basis requires a sourced zero rate and NOT_APPLICABLE incidence for {component}"
                 )
             if incidence is IndiaChargeIncidence.NOT_APPLICABLE:
                 if basis is not IndiaChargeBasis.NOT_APPLICABLE or rate != 0:
@@ -637,7 +636,7 @@ def _optional_rate(value: object, field_name: str) -> Decimal | None:
 def _normalize_rates(value: IndiaChargeRates) -> tuple[IndiaChargeRateEntry, ...]:
     if isinstance(value, Mapping):
         items = list(value.items())
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, Sequence):
         items = list(value)
     else:
         raise TypeError("rates must be a mapping or sequence")

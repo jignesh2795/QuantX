@@ -739,7 +739,7 @@ def test_component_rounding_is_half_up_per_component_before_total() -> None:
         ),
         component_bases=(
             ("stt", IndiaChargeBasis.TRANSACTION_VALUE),
-            ("stamp_duty", IndiaChargeBasis.NOT_APPLICABLE),
+            ("stamp_duty", IndiaChargeBasis.TRANSACTION_VALUE),
             ("exchange_txn", IndiaChargeBasis.TRANSACTION_VALUE),
             ("ipft", IndiaChargeBasis.TRANSACTION_VALUE),
             ("sebi_turnover_fee", IndiaChargeBasis.TRANSACTION_VALUE),
