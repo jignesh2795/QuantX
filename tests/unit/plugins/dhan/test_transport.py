@@ -1057,3 +1057,558 @@ def test_sdk_holdings_without_vendor_method_is_unavailable(
         assert holdings.holdings == ()
     finally:
         transport.close()
+
+
+class _HealthFakeDhanClient:
+    def get_fund_limits(self) -> object:
+        return {"status": "success", "remarks": "", "data": {}}
+
+    def get_positions(self) -> object:
+        return {"status": "success", "remarks": "", "data": []}
+
+    def place_order(self, **kwargs: object) -> object:
+        raise AssertionError("no submission is expected")
+
+    def cancel_order(self, order_id: str) -> object:
+        raise AssertionError("no cancellation is expected")
+
+    def get_order_by_correlationID(self, correlation_id: str) -> object:  # noqa: N802
+        raise AssertionError("no reconciliation is expected")
+
+
+def test_sdk_health_reports_success_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = _sdk_transport_without_sdk(monkeypatch, _HealthFakeDhanClient())
+    try:
+        assert transport.health(timeout=5.0) is True
+    finally:
+        transport.close()
+
+
+class _RaisingPositionsClient(_CancelEchoFakeDhanClient):
+    def get_positions(self) -> object:
+        raise RuntimeError("positions endpoint failure")
+
+
+def test_sdk_positions_transport_failure_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = _sdk_transport_without_sdk(monkeypatch, _RaisingPositionsClient(None))
+    try:
+        snapshot = transport.positions(timeout=5.0)
+        assert snapshot.available is False
+        assert snapshot.positions == ()
+        assert "positions endpoint failure" in snapshot.message
+    finally:
+        transport.close()
+
+
+def test_positions_non_list_data_is_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    snapshot = _positions_snapshot({"status": "success", "remarks": "", "data": {}})
+
+    assert snapshot.available is False
+    assert snapshot.positions == ()
+
+
+def test_positions_failure_status_is_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    snapshot = _positions_snapshot({"status": "failure", "remarks": "bad token", "data": []})
+
+    assert snapshot.available is False
+    assert snapshot.positions == ()
+
+
+def test_holdings_failure_status_is_unavailable() -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    snapshot = _holdings_snapshot({"status": "failure", "remarks": "bad token", "data": []})
+
+    assert snapshot.available is False
+    assert snapshot.holdings == ()
+
+
+def test_holding_missing_identity_returns_none() -> None:
+    from quantx.plugins.dhan.transport import _holding_snapshot
+
+    assert _holding_snapshot({"securityId": "1333"}) is None
+    assert _holding_snapshot({"exchange": "ALL"}) is None
+
+
+def test_holding_missing_total_quantity_returns_none() -> None:
+    from quantx.plugins.dhan.transport import _holding_snapshot
+
+    assert _holding_snapshot({"securityId": "1333", "exchange": "ALL"}) is None
+
+
+def test_intraday_interval_rejects_unknown_timeframe() -> None:
+    from quantx.plugins.dhan.transport import _intraday_interval
+
+    with pytest.raises(ValueError, match="unsupported Dhan intraday timeframe"):
+        _intraday_interval("2h")
+
+
+def test_depth_level_rejects_malformed_best_level() -> None:
+    from quantx.plugins.dhan.transport import _depth_level
+
+    with pytest.raises(ValueError, match="Dhan market depth level is malformed"):
+        _depth_level({"depth": {"buy": [1]}}, "buy")
+
+
+def test_profile_snapshot_status_branch_is_covered() -> None:
+    from quantx.plugins.dhan.transport import _profile_snapshot
+
+    snapshot = _profile_snapshot(
+        {"status": "success", "remarks": "", "data": {"dhanClientId": "client-1"}}
+    )
+
+    assert snapshot.available is True
+    assert snapshot.client_id == "client-1"
+
+
+class _QuoteMarketFeed:
+    def __init__(self, context: object) -> None:
+        pass
+
+    def quote_data(self, subscription: object) -> object:
+        return {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "NSE_EQ": {
+                    "1333": {
+                        "last_price": 100.25,
+                        "last_trade_time": "2026-01-01 10:00:00",
+                        "depth": {
+                            "buy": [{"price": 100.00, "quantity": 10}],
+                            "sell": [{"price": 100.50, "quantity": 5}],
+                        },
+                    }
+                }
+            },
+        }
+
+
+def test_sdk_quote_snapshot_reads_through_market_feed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    transport = _sdk_transport_without_sdk(monkeypatch, _CancelEchoFakeDhanClient(None))
+    fake_dhanhq = sys.modules["dhanhq"]
+    fake_market_feed = types.ModuleType("dhanhq._market_feed")
+    fake_market_feed.MarketFeed = _QuoteMarketFeed  # type: ignore[attr-defined]
+    fake_dhanhq._market_feed = fake_market_feed  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dhanhq._market_feed", fake_market_feed)
+    try:
+        quote = transport.quote_snapshot("1333", "NSE_EQ", timeout=5.0)
+
+        assert quote is not None
+        assert quote.last_price == Decimal("100.25")
+        assert quote.bid_price == Decimal("100.00")
+        assert quote.ask_price == Decimal("100.50")
+    finally:
+        transport.close()
+
+
+def test_sdk_quote_snapshot_transport_failure_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _RaisingMarketFeed:
+        def __init__(self, context: object) -> None:
+            pass
+
+        def quote_data(self, subscription: object) -> object:
+            raise RuntimeError("quote endpoint failure")
+
+    import sys
+    import types
+
+    transport = _sdk_transport_without_sdk(monkeypatch, _CancelEchoFakeDhanClient(None))
+    fake_dhanhq = sys.modules["dhanhq"]
+    fake_market_feed = types.ModuleType("dhanhq._market_feed")
+    fake_market_feed.MarketFeed = _RaisingMarketFeed  # type: ignore[attr-defined]
+    fake_dhanhq._market_feed = fake_market_feed  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dhanhq._market_feed", fake_market_feed)
+    try:
+        assert transport.quote_snapshot("1333", "NSE_EQ", timeout=5.0) is None
+    finally:
+        transport.close()
+
+
+def test_quote_snapshot_helper_normalizes_full_packet() -> None:
+    from quantx.plugins.dhan.transport import _quote_snapshot
+
+    quote = _quote_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "NSE_EQ": {
+                    "1333": {
+                        "last_price": 100.25,
+                        "last_trade_time": "2026-01-01 10:00:00",
+                        "depth": {
+                            "buy": [{"price": 100.00, "quantity": 10}],
+                            "sell": [{"price": 100.50, "quantity": 5}],
+                        },
+                    }
+                }
+            },
+        },
+        "1333",
+        "NSE_EQ",
+    )
+
+    assert quote is not None
+    assert quote.last_price == Decimal("100.25")
+    assert quote.observed_at.year == 2026
+
+
+def test_quote_snapshot_helper_returns_none_for_missing_or_failed_data() -> None:
+    from quantx.plugins.dhan.transport import _quote_snapshot
+
+    assert (
+        _quote_snapshot({"status": "failure", "remarks": "", "data": {}}, "1333", "NSE_EQ") is None
+    )
+    assert (
+        _quote_snapshot({"status": "success", "remarks": "", "data": {}}, "1333", "NSE_EQ") is None
+    )
+    assert (
+        _quote_snapshot(
+            {"status": "success", "remarks": "", "data": {"NSE_EQ": {}}}, "1333", "NSE_EQ"
+        )
+        is None
+    )
+
+
+def test_quote_snapshot_helper_falls_back_to_current_time_without_trade_time() -> None:
+    from quantx.plugins.dhan.transport import _quote_snapshot
+
+    quote = _quote_snapshot(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {"NSE_EQ": {"1333": {"last_price": 100}}},
+        },
+        "1333",
+        "NSE_EQ",
+    )
+
+    assert quote is not None
+    assert quote.last_price == Decimal("100")
+    assert quote.observed_at is not None
+
+
+class _HistoricalData:
+    def __init__(self, context: object) -> None:
+        pass
+
+    def historical_daily_data(self, *args: object, **kwargs: object) -> object:
+        return {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "open": [10],
+                "high": [11],
+                "low": [9],
+                "close": [10.5],
+                "volume": [100],
+                "start_Time": [1704067200],
+            },
+        }
+
+    def intraday_minute_data(self, *args: object, interval: int = 1, **kwargs: object) -> object:
+        return {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "open": [10],
+                "high": [11],
+                "low": [9],
+                "close": [10.5],
+                "volume": [100],
+                "start_Time": [1704067200],
+            },
+        }
+
+
+def test_sdk_candles_reads_daily_and_intraday_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    transport = _sdk_transport_without_sdk(monkeypatch, _CancelEchoFakeDhanClient(None))
+    fake_dhanhq = sys.modules["dhanhq"]
+    fake_dhanhq.HistoricalData = _HistoricalData  # type: ignore[attr-defined]
+    try:
+        daily = transport.candles(
+            "1333",
+            "NSE_EQ",
+            timeframe="1d",
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        intraday = transport.candles(
+            "1333",
+            "NSE_EQ",
+            timeframe="5m",
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+
+        assert len(daily) == 1
+        assert len(intraday) == 1
+        assert daily[0].close == Decimal("10.5")
+    finally:
+        transport.close()
+
+
+def test_candle_snapshots_parse_parallel_arrays() -> None:
+    from quantx.plugins.dhan.transport import _candle_snapshots
+
+    snapshots = _candle_snapshots(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "open": [10],
+                "high": [11],
+                "low": [9],
+                "close": [10.5],
+                "volume": [100],
+                "start_Time": [1704067200],
+            },
+        },
+        timeframe="1d",
+    )
+
+    assert len(snapshots) == 1
+    assert snapshots[0].open == Decimal("10")
+    assert snapshots[0].volume == Decimal("100")
+
+
+def test_candle_snapshots_reject_failure_and_malformed_series() -> None:
+    from quantx.plugins.dhan.transport import _candle_snapshots
+
+    with pytest.raises(ValueError, match="Dhan historical data reported failure"):
+        _candle_snapshots({"status": "failure", "remarks": "bad", "data": {}}, timeframe="1d")
+
+    with pytest.raises(ValueError, match="Dhan candle payload must be a mapping"):
+        _candle_snapshots(
+            {"status": "success", "remarks": "", "data": {"data": "not-a-mapping"}}, timeframe="1d"
+        )
+
+    with pytest.raises(ValueError, match="Dhan candle series is missing"):
+        _candle_snapshots(
+            {"status": "success", "remarks": "", "data": {"open": [1]}}, timeframe="1d"
+        )
+
+    with pytest.raises(ValueError, match="Dhan candle series lengths do not match"):
+        _candle_snapshots(
+            {
+                "status": "success",
+                "remarks": "",
+                "data": {
+                    "open": [1],
+                    "high": [1, 2],
+                    "low": [1],
+                    "close": [1],
+                    "volume": [1],
+                    "start_Time": [1],
+                },
+            },
+            timeframe="1d",
+        )
+
+
+def test_candle_snapshots_reject_malformed_entry() -> None:
+    from quantx.plugins.dhan.transport import _candle_snapshots
+
+    with pytest.raises(ValueError, match="Dhan candle entry is malformed"):
+        _candle_snapshots(
+            {
+                "status": "success",
+                "remarks": "",
+                "data": {
+                    "open": ["bad"],
+                    "high": [11],
+                    "low": [9],
+                    "close": [10.5],
+                    "volume": [100],
+                    "start_Time": [1704067200],
+                },
+            },
+            timeframe="1d",
+        )
+
+
+def test_candle_timestamp_parses_string_and_epoch() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from quantx.plugins.dhan.transport import _candle_timestamp
+
+    assert _candle_timestamp(1704067200).tzinfo == ZoneInfo("Asia/Kolkata")
+    parsed = _candle_timestamp("2026-01-01 10:00:00")
+    assert isinstance(parsed, datetime)
+
+
+def test_candle_timestamp_rejects_unrecognized_value() -> None:
+    from quantx.plugins.dhan.transport import _candle_timestamp
+
+    with pytest.raises(ValueError, match="unrecognized Dhan candle timestamp"):
+        _candle_timestamp(object())
+
+
+def test_order_detail_failure_branch_is_covered() -> None:
+    from quantx.plugins.dhan.transport import _order_detail
+
+    detail = _order_detail({"status": "failure", "remarks": "bad", "data": {}})
+
+    assert detail.order_status == "UNKNOWN"
+    assert detail.order_id is None
+
+
+def test_envelope_rejects_non_mapping() -> None:
+    from quantx.plugins.dhan.transport import _envelope
+
+    with pytest.raises(TypeError, match="Dhan SDK response must be a mapping"):
+        _envelope("not-a-mapping")
+
+
+def test_dhan_error_code_returns_none_for_empty_or_non_mapping() -> None:
+    from quantx.plugins.dhan.transport import _dhan_error_code
+
+    assert _dhan_error_code("not-a-mapping") is None
+    assert _dhan_error_code({"remarks": {"error_code": "   "}}) is None
+    assert _dhan_error_code({"remarks": {"error_code": "AUTH"}}) == "AUTH"
+
+
+def test_close_handles_missing_and_raising_executors() -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from quantx.plugins.dhan.transport import DhanSDKTransport
+
+    transport = DhanSDKTransport.__new__(DhanSDKTransport)
+    transport._submit_executor = None
+    transport._reconcile_executor = ThreadPoolExecutor(max_workers=1)
+    transport._query_executor = ThreadPoolExecutor(max_workers=1)
+
+    class _RaisingExecutor:
+        def shutdown(self, *, wait: bool, cancel_futures: bool) -> None:
+            raise RuntimeError("shutdown failed")
+
+    transport._reconcile_executor = _RaisingExecutor()  # type: ignore[assignment]
+    transport.close()
+
+    assert transport._query_executor._shutdown is True
+
+
+def test_profile_snapshot_raw_and_failure_branches() -> None:
+    from quantx.plugins.dhan.transport import _profile_snapshot
+
+    assert _profile_snapshot({"dhanClientId": "client-1"}).client_id == "client-1"
+    assert _profile_snapshot({"status": "failure", "remarks": "bad", "data": {}}).available is False
+
+
+def test_sdk_positions_success_returns_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _PositionsClient(_CancelEchoFakeDhanClient):
+        def get_positions(self) -> object:
+            return {"status": "success", "remarks": "", "data": []}
+
+    transport = _sdk_transport_without_sdk(monkeypatch, _PositionsClient(None))
+    try:
+        snapshot = transport.positions(timeout=5.0)
+        assert snapshot.available is True
+        assert snapshot.positions == ()
+    finally:
+        transport.close()
+
+
+def test_money_field_blank_string_is_missing() -> None:
+    from quantx.plugins.dhan.transport import _money_field
+
+    assert _money_field({"value": "   "}, "value") is None
+
+
+def test_funds_snapshot_rejects_non_mapping_response() -> None:
+    from quantx.plugins.dhan.transport import _funds_snapshot
+
+    snapshot = _funds_snapshot("not-a-mapping")
+
+    assert snapshot.available is False
+    assert "unrecognized Dhan fund-limits response" in snapshot.message
+
+
+def test_positions_snapshot_rejects_non_mapping_response() -> None:
+    from quantx.plugins.dhan.transport import _positions_snapshot
+
+    snapshot = _positions_snapshot("not-a-mapping")
+
+    assert snapshot.available is False
+    assert snapshot.message == "Dhan positions response must be a mapping"
+
+
+def test_holdings_snapshot_rejects_non_mapping_response() -> None:
+    from quantx.plugins.dhan.transport import _holdings_snapshot
+
+    snapshot = _holdings_snapshot("not-a-mapping")
+
+    assert snapshot.available is False
+    assert snapshot.message == "Dhan holdings response must be a mapping"
+
+
+def test_position_snapshot_rejects_missing_identity() -> None:
+    from quantx.plugins.dhan.transport import _position_snapshot
+
+    assert _position_snapshot({}) is None
+    assert _position_snapshot({"securityId": "1333"}) is None
+
+
+def test_quote_snapshot_helper_rejects_malformed_envelope() -> None:
+    from quantx.plugins.dhan.transport import _quote_snapshot
+
+    assert _quote_snapshot("not-a-mapping", "1333", "NSE_EQ") is None
+
+
+def test_depth_level_returns_none_without_levels() -> None:
+    from quantx.plugins.dhan.transport import _depth_level
+
+    assert _depth_level({"depth": {"buy": []}}, "buy") == (None, None)
+
+
+def test_dhan_error_code_rejects_non_string_value() -> None:
+    from quantx.plugins.dhan.transport import _dhan_error_code
+
+    assert _dhan_error_code({"remarks": {"error_code": 123}}) is None
+
+
+def test_format_dhan_remarks_returns_code_or_message_only() -> None:
+    from quantx.plugins.dhan.transport import _format_dhan_remarks
+
+    assert (
+        _format_dhan_remarks({"remarks": {"error_code": "AUTH", "error_message": "denied"}})
+        == "AUTH: denied"
+    )
+    assert _format_dhan_remarks({"remarks": {"error_code": "AUTH"}}) == "AUTH"
+    assert _format_dhan_remarks({"remarks": {"error_message": "denied"}}) == "denied"
+
+
+def test_position_snapshot_rejects_non_mapping() -> None:
+    from quantx.plugins.dhan.transport import _position_snapshot
+
+    assert _position_snapshot("not-a-mapping") is None
+
+
+def test_in_memory_transport_health_quote_and_candles_cover_defaults() -> None:
+    from datetime import UTC, datetime
+
+    transport = InMemoryDhanTransport()
+
+    assert transport.health() is True
+    assert transport.quote_snapshot("1333", "NSE_EQ") is None
+    assert (
+        transport.candles(
+            "1333",
+            "NSE_EQ",
+            timeframe="1d",
+            start=datetime(2026, 1, 1, tzinfo=UTC),
+            end=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        == ()
+    )
