@@ -476,7 +476,7 @@ class IndiaMarketChargeModel:
             if incidence is IndiaChargeIncidence.NOT_APPLICABLE:
                 if basis is not IndiaChargeBasis.NOT_APPLICABLE or rate != 0:
                     raise IndiaChargeRuleUnavailable(
-                        f"NOT_APPLICABLE incidence needs a zero-rate NOT_APPLICABLE basis: {component}"
+                        f"NOT_APPLICABLE incidence needs a zero-rate N/A basis: {component}"
                     )
 
         bases = {
@@ -823,7 +823,6 @@ def _supported_basis(
     if event is IndiaChargeEvent.TRADE:
         return frozenset({IndiaChargeBasis.TRANSACTION_VALUE, not_applicable})
     return None
-
 
 
 def _rounded(value: Decimal) -> Decimal:
