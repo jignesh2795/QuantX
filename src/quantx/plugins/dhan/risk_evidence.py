@@ -43,10 +43,8 @@ from quantx.domain.value_objects import Money
 
 from .models import (
     DhanFundsSnapshot,
-    DhanHoldingSnapshot,
     DhanHoldingsSnapshot,
     DhanInstrumentRef,
-    DhanPositionSnapshot,
     DhanPositionsSnapshot,
     DhanProfileSnapshot,
 )
@@ -421,62 +419,6 @@ class DhanRiskEvidenceSource:
             unavailable_reasons=tuple(sorted(reasons, key=lambda reason: reason.value)),
         )
 
-    def _requested_exposure(
-        self,
-        instrument: Instrument,
-        positions: DhanPositionsSnapshot,
-        holdings: DhanHoldingsSnapshot,
-        position_map: Mapping[tuple[str, str], Instrument],
-        holding_map: Mapping[str, Instrument],
-    ) -> Decimal | None:
-        position_value = Decimal("0")
-        for position in positions.positions:
-            if position_map.get((position.security_id, position.exchange_segment)) != instrument:
-                continue
-            value = _position_value(position, instrument)
-            if value is None:
-                return None
-            position_value += value
-        holding_value = Decimal("0")
-        for holding in holdings.holdings:
-            if holding_map.get(holding.security_id) != instrument:
-                continue
-            value = _holding_value(holding, instrument)
-            if value is None:
-                return None
-            holding_value += value
-        return position_value + holding_value
-
-    def _portfolio_exposure(
-        self,
-        positions: DhanPositionsSnapshot,
-        holdings: DhanHoldingsSnapshot,
-        position_map: Mapping[tuple[str, str], Instrument],
-        holding_map: Mapping[str, Instrument],
-    ) -> Decimal | None:
-        total = Decimal("0")
-        for position in positions.positions:
-            mapped = position_map.get((position.security_id, position.exchange_segment))
-            if mapped is None:
-                if position.net_quantity != 0:
-                    return None
-                continue
-            value = _position_value(position, mapped)
-            if value is None:
-                return None
-            total += value
-        for holding in holdings.holdings:
-            mapped = holding_map.get(holding.security_id)
-            if mapped is None:
-                if holding.total_quantity != 0:
-                    return None
-                continue
-            value = _holding_value(holding, mapped)
-            if value is None:
-                return None
-            total += value
-        return total
-
     def _unavailable_evidence(
         self,
         *,
@@ -524,37 +466,6 @@ def _optional_text(value: str | None) -> str | None:
     if type(value) is not str or not value.strip():
         return None
     return value.strip()
-
-
-def _usable_money(value: Decimal | None) -> bool:
-    return type(value) is Decimal and value.is_finite() and value >= 0
-
-
-def _money(value: Decimal | None, currency: str) -> Money:
-    if value is None:  # pragma: no cover - guarded by the caller's completeness check
-        raise ValueError("money value is unavailable")
-    return Money(value, currency)
-
-
-def _position_value(position: DhanPositionSnapshot, instrument: Instrument) -> Decimal | None:
-    if position.net_quantity == 0:
-        return Decimal("0")
-    average_price = position.average_price
-    if average_price is None or not _usable_money(average_price):
-        return None
-    multiplier = position.multiplier if position.multiplier is not None else instrument.multiplier
-    if multiplier is None or not _usable_money(multiplier) or multiplier == 0:
-        return None
-    return position.net_quantity * average_price * multiplier
-
-
-def _holding_value(holding: DhanHoldingSnapshot, instrument: Instrument) -> Decimal | None:
-    if holding.total_quantity == 0:
-        return Decimal("0")
-    average_cost_price = holding.average_cost_price
-    if average_cost_price is None or not _usable_money(average_cost_price):
-        return None
-    return holding.total_quantity * average_cost_price * instrument.multiplier
 
 
 def _oldest_instant(

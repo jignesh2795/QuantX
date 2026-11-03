@@ -628,8 +628,8 @@ def test_collect_with_an_unmapped_nonzero_position_keeps_portfolio_unknown() -> 
     evidence = source.collect(_request())
 
     assert evidence.snapshot is None
-    # The requested instrument is absent from the available book, so its
-    # exposure is an observed zero.
+    # The requested instrument is absent from the available book, but
+    # current exposure remains unavailable under the corrected semantics.
     # The portfolio cannot be summed because one row has no configured mapping.
     assert "current_portfolio_exposure" in _field_names(evidence)
 
@@ -673,7 +673,7 @@ def test_collect_with_an_unmapped_nonzero_holding_keeps_portfolio_unknown() -> N
     assert evidence.snapshot is None
 
 
-def test_collect_maps_a_holding_exposure_using_available_cost_basis() -> None:
+def test_collect_does_not_map_holding_cost_basis_to_current_exposure() -> None:
     source = _source(
         _transport(
             position_snapshots=(),
