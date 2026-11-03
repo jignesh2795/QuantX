@@ -2397,6 +2397,62 @@ def test_invalid_page_does_not_invoke_sdk(monkeypatch: pytest.MonkeyPatch) -> No
         transport.close()
 
 
+
+
+def test_sdk_trade_history_float_page_rejected_before_sdk_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingTradeHistoryFakeDhanClient({"status": "success", "remarks": "", "data": []})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 31, tzinfo=UTC),
+                page=1.5,  # type: ignore[arg-type]
+                timeout=5.0,
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_sdk_trade_history_string_page_rejected_before_sdk_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingTradeHistoryFakeDhanClient({"status": "success", "remarks": "", "data": []})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 31, tzinfo=UTC),
+                page="1",  # type: ignore[arg-type]
+                timeout=5.0,
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_in_memory_trade_history_float_page_rejected() -> None:
+    transport = InMemoryDhanTransport()
+    with pytest.raises(ValueError):
+        transport.trade_history(
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 31, tzinfo=UTC),
+            page=1.5,  # type: ignore[arg-type]
+        )
+
+
+def test_in_memory_trade_history_string_page_rejected() -> None:
+    transport = InMemoryDhanTransport()
+    with pytest.raises(ValueError):
+        transport.trade_history(
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 31, tzinfo=UTC),
+            page="1",  # type: ignore[arg-type]
+        )
 def test_naive_date_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _RecordingLedgerFakeDhanClient({"status": "success", "remarks": "", "data": {}})
     transport = _sdk_transport_without_sdk(monkeypatch, client)
