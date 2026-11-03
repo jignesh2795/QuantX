@@ -299,7 +299,8 @@ def test_source_declares_only_the_fields_dhan_can_actually_supply() -> None:
     source = _source()
 
     supported = {field.value for field in source.supported_fields}
-    assert supported == {
+    assert supported == set()
+    for unsupported in (
         "cash_balance",
         "available_cash",
         "blocked_cash",
@@ -309,8 +310,10 @@ def test_source_declares_only_the_fields_dhan_can_actually_supply() -> None:
         "current_position_exposure",
         "current_instrument_exposure",
         "current_portfolio_exposure",
-    }
-    for unsupported in ("daily_pnl", "equity", "high_water_mark"):
+        "daily_pnl",
+        "equity",
+        "high_water_mark",
+    ):
         assert unsupported not in supported
 
 
