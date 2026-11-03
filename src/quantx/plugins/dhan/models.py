@@ -337,7 +337,13 @@ class DhanCandleSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class DhanLedgerEntry:
-    """Normalized Dhan ledger entry; no domain or vendor types."""
+    """Normalized Dhan ledger entry; no domain or vendor types.
+
+    Monetary values are normalized with ``Decimal(str(value))``. This avoids
+    further binary-float arithmetic, but cannot reconstruct the original JSON
+    decimal lexeme or guarantee exact source-decimal fidelity when the SDK
+    decodes a numeric value as a Python float.
+    """
 
     observed_at: datetime
     client_id: str
@@ -389,7 +395,13 @@ class DhanLedgerSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class DhanTradeHistoryEntry:
-    """Normalized Dhan trade history entry; no domain or vendor types."""
+    """Normalized Dhan trade history entry; no domain or vendor types.
+
+    Monetary values are normalized with ``Decimal(str(value))``. This avoids
+    further binary-float arithmetic, but cannot reconstruct the original JSON
+    decimal lexeme or guarantee exact source-decimal fidelity when the SDK
+    decodes a numeric value as a Python float.
+    """
 
     observed_at: datetime
     client_id: str
