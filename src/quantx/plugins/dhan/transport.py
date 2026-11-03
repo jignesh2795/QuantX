@@ -440,12 +440,7 @@ class DhanSDKTransport:
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanLedgerSnapshot:
         """Fetch Dhan ledger report for a date range."""
-        if not isinstance(from_date, datetime) or from_date.tzinfo is None:
-            raise ValueError("from_date must be timezone-aware")
-        if not isinstance(to_date, datetime) or to_date.tzinfo is None:
-            raise ValueError("to_date must be timezone-aware")
-        if from_date > to_date:
-            raise ValueError("from_date must not be after to_date")
+        _validate_statement_request(from_date, to_date)
         try:
             response = self._call_with_timeout(
                 self._client.ledger_report,
@@ -472,14 +467,7 @@ class DhanSDKTransport:
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanTradeHistorySnapshot:
         """Fetch Dhan trade history for a date range and page."""
-        if not isinstance(from_date, datetime) or from_date.tzinfo is None:
-            raise ValueError("from_date must be timezone-aware")
-        if not isinstance(to_date, datetime) or to_date.tzinfo is None:
-            raise ValueError("to_date must be timezone-aware")
-        if from_date > to_date:
-            raise ValueError("from_date must not be after to_date")
-        if isinstance(page, bool) or not isinstance(page, int) or page < 0:
-            raise ValueError("page must be a non-negative integer")
+        _validate_statement_request(from_date, to_date, page)
         try:
             response = self._call_with_timeout(
                 self._client.get_trade_history,
@@ -582,12 +570,7 @@ class InMemoryDhanTransport:
         *,
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanLedgerSnapshot:
-        if not isinstance(from_date, datetime) or from_date.tzinfo is None:
-            raise ValueError("from_date must be timezone-aware")
-        if not isinstance(to_date, datetime) or to_date.tzinfo is None:
-            raise ValueError("to_date must be timezone-aware")
-        if from_date > to_date:
-            raise ValueError("from_date must not be after to_date")
+        _validate_statement_request(from_date, to_date)
         return DhanLedgerSnapshot(
             observed_at=datetime.now(UTC),
             available=True,
@@ -604,14 +587,7 @@ class InMemoryDhanTransport:
         *,
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanTradeHistorySnapshot:
-        if not isinstance(from_date, datetime) or from_date.tzinfo is None:
-            raise ValueError("from_date must be timezone-aware")
-        if not isinstance(to_date, datetime) or to_date.tzinfo is None:
-            raise ValueError("to_date must be timezone-aware")
-        if from_date > to_date:
-            raise ValueError("from_date must not be after to_date")
-        if isinstance(page, bool) or not isinstance(page, int) or page < 0:
-            raise ValueError("page must be a non-negative integer")
+        _validate_statement_request(from_date, to_date, page)
         return DhanTradeHistorySnapshot(
             observed_at=datetime.now(UTC),
             available=True,
@@ -1199,15 +1175,45 @@ def _decimal_field(value: object, field: str) -> Decimal:
     return result
 
 
+_MISSING_STATEMENT_DATA = object()
+
+
+def _validate_statement_request(
+    from_date: object,
+    to_date: object,
+    page: int | None = None,
+) -> None:
+    if (
+        not isinstance(from_date, datetime)
+        or from_date.tzinfo is None
+        or from_date.utcoffset() is None
+    ):
+        raise ValueError("from_date must be timezone-aware")
+    if not isinstance(to_date, datetime) or to_date.tzinfo is None or to_date.utcoffset() is None:
+        raise ValueError("to_date must be timezone-aware")
+    if from_date > to_date:
+        raise ValueError("from_date must not be after to_date")
+    if page is not None:
+        if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+            raise ValueError("page must be a non-negative integer")
+
+
 def _statement_envelope(response: object) -> tuple[str, str, object]:
-    """Preserve SDK statement payloads, including list-valued data."""
+    """Preserve SDK statement payloads, including list-valued data.
+
+    A missing or malformed ``data`` value is represented by
+    ``_MISSING_STATEMENT_DATA`` rather than being silently replaced with an
+    empty mapping.
+    """
     if not isinstance(response, Mapping):
         raise TypeError("Dhan SDK response must be a mapping")
     status = str(response.get("status", "failure"))
     remarks = _format_dhan_remarks(response)
+    if "data" not in response:
+        return status, remarks, _MISSING_STATEMENT_DATA
     data = response.get("data")
-    if not isinstance(data, (Mapping, list, tuple)):
-        data = {}
+    if data is None or isinstance(data, str) or not isinstance(data, (Mapping, list, tuple)):
+        return status, remarks, _MISSING_STATEMENT_DATA
     return status, remarks, data
 
 
@@ -1250,6 +1256,12 @@ def _ledger_snapshot(
             available=False,
             message=remarks or "Dhan ledger report reported failure",
         )
+    if payload is _MISSING_STATEMENT_DATA:
+        return DhanLedgerSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan ledger response data is missing or invalid",
+        )
     if isinstance(payload, (list, tuple)):
         entries_payload = list(payload)
     elif isinstance(payload, Mapping):
@@ -1266,7 +1278,7 @@ def _ledger_snapshot(
         return DhanLedgerSnapshot(
             observed_at=datetime.now(UTC),
             available=False,
-            message="Dhan ledger response must be an object or list",
+            message="Dhan ledger response data is missing or invalid",
         )
     entries: list[DhanLedgerEntry] = []
     for entry in entries_payload:
@@ -1381,6 +1393,12 @@ def _trade_history_snapshot(
             observed_at=datetime.now(UTC),
             available=False,
             message=remarks or "Dhan trade history reported failure",
+        )
+    if payload is _MISSING_STATEMENT_DATA:
+        return DhanTradeHistorySnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan trade history response data is missing or invalid",
         )
     if not isinstance(payload, list):
         return DhanTradeHistorySnapshot(
