@@ -688,6 +688,14 @@ class InMemoryDhanTransport:
 
 def _order_response(response: object, *, operation: str = "submit") -> DhanOrderResponse:
     envelope_status, remarks, payload = _envelope(response)
+    if not isinstance(payload, Mapping):
+        return DhanOrderResponse(
+            order_id=None,
+            order_status="UNKNOWN",
+            observed_at=datetime.now(UTC),
+            message="Dhan order response must be a mapping",
+            raw={"status": envelope_status, "remarks": remarks, "data": payload},
+        )
     if envelope_status != "success":
         if _dhan_error_code(response) == DhanAuthenticationRejectedError.code:
             raise DhanAuthenticationRejectedError(operation)
@@ -1141,6 +1149,40 @@ def _strict_decimal(value: object, field: str) -> Decimal:
         raise ValueError(f"invalid Dhan decimal field: {field}") from exc
 
 
+def _required_text(entry: dict[str, object], field: str) -> str:
+    value = entry.get(field)
+    if value is None:
+        raise ValueError(f"missing {field}")
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"missing {field}")
+    return text
+
+
+def _decimal_field(value: object, field: str) -> Decimal:
+    if isinstance(value, bool):
+        raise ValueError(f"boolean {field}")
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError(f"invalid {field}") from exc
+    if not result.is_finite():
+        raise ValueError(f"non-finite {field}")
+    return result
+
+
+def _statement_envelope(response: object) -> tuple[str, str, object]:
+    """Preserve SDK statement payloads, including list-valued data."""
+    if not isinstance(response, Mapping):
+        raise TypeError("Dhan SDK response must be a mapping")
+    status = str(response.get("status", "failure"))
+    remarks = _format_dhan_remarks(response)
+    data = response.get("data")
+    if not isinstance(data, (Mapping, list, tuple)):
+        data = {}
+    return status, remarks, data
+
+
 def _ledger_snapshot(
     response: object,
     from_date: datetime,
@@ -1148,7 +1190,7 @@ def _ledger_snapshot(
 ) -> DhanLedgerSnapshot:
     """Normalize a Dhan ledger report response."""
     try:
-        envelope_status, remarks, payload = _envelope(response)
+        envelope_status, remarks, payload = _statement_envelope(response)
     except (TypeError, ValueError) as exc:
         return DhanLedgerSnapshot(
             observed_at=datetime.now(UTC),
@@ -1161,7 +1203,7 @@ def _ledger_snapshot(
             available=False,
             message=remarks or "Dhan ledger report reported failure",
         )
-    data = payload.get("data")
+    data = payload
     if not isinstance(data, list):
         return DhanLedgerSnapshot(
             observed_at=datetime.now(UTC),
@@ -1177,34 +1219,50 @@ def _ledger_snapshot(
                 message="Dhan ledger entry must be a mapping",
             )
         try:
-            client_id = str(entry.get("clientId") or entry.get("clientId", "")).strip()
-            narration = str(entry.get("narration") or entry.get("narration", "")).strip()
-            voucher_date_str = str(entry.get("voucherDate") or entry.get("voucherDate", "")).strip()
-            exchange = str(entry.get("exchange") or entry.get("exchange", "")).strip()
-            voucher_description = str(
-                entry.get("voucherDescription") or entry.get("voucherDescription", "")
-            ).strip()
-            voucher_number = str(
-                entry.get("voucherNumber") or entry.get("voucherNumber", "")
-            ).strip()
-            debit = Decimal(str(entry.get("debit", 0)))
-            credit = Decimal(str(entry.get("credit", 0)))
-            running_balance = Decimal(
-                str(entry.get("runningBalance") or entry.get("runningBalance", 0))
-            )
+            client_id = _required_text(entry, "dhanClientId")
+            narration = _required_text(entry, "narration")
+            voucher_date_str = _required_text(entry, "voucherdate")
+            exchange = _required_text(entry, "exchange")
+            voucher_description = _required_text(entry, "voucherdesc")
+            voucher_number = _required_text(entry, "vouchernumber")
 
-            if not client_id:
+            debit_raw = entry.get("debit")
+            credit_raw = entry.get("credit")
+            running_balance_raw = entry.get("runbal")
+            if debit_raw is None:
                 return DhanLedgerSnapshot(
                     observed_at=datetime.now(UTC),
                     available=False,
-                    message="ledger entry missing client id",
+                    message="ledger entry missing debit",
                 )
-            if not narration:
+            if credit_raw is None:
                 return DhanLedgerSnapshot(
                     observed_at=datetime.now(UTC),
                     available=False,
-                    message="ledger entry missing narration",
+                    message="ledger entry missing credit",
                 )
+            if running_balance_raw is None:
+                return DhanLedgerSnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="ledger entry missing running balance",
+                )
+            debit = _decimal_field(debit_raw, "debit")
+            credit = _decimal_field(credit_raw, "credit")
+            running_balance = _decimal_field(running_balance_raw, "runningBalance")
+            if debit < 0:
+                return DhanLedgerSnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="ledger entry debit cannot be negative",
+                )
+            if credit < 0:
+                return DhanLedgerSnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="ledger entry credit cannot be negative",
+                )
+
             try:
                 voucher_date = parse_dhan_timestamp(voucher_date_str)
                 if voucher_date is None:
@@ -1218,24 +1276,6 @@ def _ledger_snapshot(
                     observed_at=datetime.now(UTC),
                     available=False,
                     message="ledger entry has invalid voucher date",
-                )
-            if not exchange:
-                return DhanLedgerSnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="ledger entry missing exchange",
-                )
-            if not voucher_description:
-                return DhanLedgerSnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="ledger entry missing voucher description",
-                )
-            if not voucher_number:
-                return DhanLedgerSnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="ledger entry missing voucher number",
                 )
 
             entries.append(
@@ -1262,7 +1302,7 @@ def _ledger_snapshot(
     return DhanLedgerSnapshot(
         observed_at=datetime.now(UTC),
         entries=tuple(entries),
-        available=bool(entries),
+        available=True,
         message="",
         from_date=from_date,
         to_date=to_date,
@@ -1277,7 +1317,7 @@ def _trade_history_snapshot(
 ) -> DhanTradeHistorySnapshot:
     """Normalize a Dhan trade history response."""
     try:
-        envelope_status, remarks, payload = _envelope(response)
+        envelope_status, remarks, payload = _statement_envelope(response)
     except (TypeError, ValueError) as exc:
         return DhanTradeHistorySnapshot(
             observed_at=datetime.now(UTC),
@@ -1290,15 +1330,15 @@ def _trade_history_snapshot(
             available=False,
             message=remarks or "Dhan trade history reported failure",
         )
-    data = payload.get("data")
-    if not isinstance(data, list):
+    if not isinstance(payload, list):
         return DhanTradeHistorySnapshot(
             observed_at=datetime.now(UTC),
             available=False,
-            message="Dhan trade history data must be a list",
+            message="Dhan trade history response must be a list",
         )
     entries: list[DhanTradeHistoryEntry] = []
-    for entry in data:
+    seen_trade_ids: set[str] = set()
+    for entry in payload:
         if not isinstance(entry, dict):
             return DhanTradeHistorySnapshot(
                 observed_at=datetime.now(UTC),
@@ -1306,96 +1346,40 @@ def _trade_history_snapshot(
                 message="Dhan trade history entry must be a mapping",
             )
         try:
-            client_id = str(entry.get("clientId") or entry.get("clientId", "")).strip()
-            order_id = str(entry.get("orderId") or entry.get("orderId", "")).strip()
-            exchange_order_id = str(
-                entry.get("exchangeOrderId") or entry.get("exchangeOrderId", "")
-            ).strip()
-            exchange_trade_id = str(
-                entry.get("exchangeTradeId") or entry.get("exchangeTradeId", "")
-            ).strip()
-            transaction_side = str(
-                entry.get("transactionSide") or entry.get("transactionSide", "")
-            ).strip()
-            exchange_segment = str(
-                entry.get("exchangeSegment") or entry.get("exchangeSegment", "")
-            ).strip()
-            product_type = str(entry.get("productType") or entry.get("productType", "")).strip()
-            security_id = str(entry.get("securityId") or entry.get("securityId", "")).strip()
-            trading_symbol = str(
-                entry.get("tradingSymbol") or entry.get("tradingSymbol", "")
-            ).strip()
-            traded_quantity = int(
-                str(entry.get("tradedQuantity") or entry.get("tradedQuantity", 0))
-            )
-            traded_price = Decimal(str(entry.get("tradedPrice") or entry.get("tradedPrice", 0)))
-            instrument_type = str(
-                entry.get("instrumentType") or entry.get("instrumentType", "")
-            ).strip()
-            exchange_timestamp_str = str(
-                entry.get("exchangeTime") or entry.get("exchangeTime", "")
-            ).strip()
-
-            stt = entry.get("stt")
-            sebi = entry.get("sebi")
-            brokerage = entry.get("brokerage")
-            service_tax = entry.get("serviceTax")
-            exchange_txn_charges = entry.get("exchangeTxnCharges")
-            stamp_duty = entry.get("stampDuty")
-
-            if not client_id:
+            client_id = _required_text(entry, "dhanClientId")
+            order_id = _required_text(entry, "orderId")
+            exchange_order_id = _required_text(entry, "exchangeOrderId")
+            exchange_trade_id = _required_text(entry, "exchangeTradeId")
+            transaction_side = _required_text(entry, "transactionType")
+            exchange_segment = _required_text(entry, "exchangeSegment")
+            product_type = _required_text(entry, "productType")
+            security_id = _required_text(entry, "securityId")
+            trading_symbol_raw = entry.get("tradingSymbol")
+            trading_symbol = None
+            if trading_symbol_raw is not None:
+                trading_symbol = str(trading_symbol_raw).strip()
+                if not trading_symbol:
+                    trading_symbol = None
+            custom_symbol_raw = entry.get("customSymbol")
+            custom_symbol = None
+            if custom_symbol_raw is not None:
+                custom_symbol = str(custom_symbol_raw).strip()
+                if not custom_symbol:
+                    custom_symbol = None
+            traded_quantity_raw = entry.get("tradedQuantity")
+            if traded_quantity_raw is None:
                 return DhanTradeHistorySnapshot(
                     observed_at=datetime.now(UTC),
                     available=False,
-                    message="trade history entry missing client id",
+                    message="trade history entry missing traded quantity",
                 )
-            if not order_id:
+            try:
+                traded_quantity = int(str(traded_quantity_raw).strip())
+            except (ValueError, TypeError):
                 return DhanTradeHistorySnapshot(
                     observed_at=datetime.now(UTC),
                     available=False,
-                    message="trade history entry missing order id",
-                )
-            if not exchange_order_id:
-                return DhanTradeHistorySnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="trade history entry missing exchange order id",
-                )
-            if not exchange_trade_id:
-                return DhanTradeHistorySnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="trade history entry missing exchange trade id",
-                )
-            if not transaction_side:
-                return DhanTradeHistorySnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="trade history entry missing transaction side",
-                )
-            if not exchange_segment:
-                return DhanTradeHistorySnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="trade history entry missing exchange segment",
-                )
-            if not product_type:
-                return DhanTradeHistorySnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="trade history entry missing product type",
-                )
-            if not security_id:
-                return DhanTradeHistorySnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="trade history entry missing security id",
-                )
-            if not trading_symbol:
-                return DhanTradeHistorySnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="trade history entry missing trading symbol",
+                    message="trade history entry has invalid traded quantity",
                 )
             if traded_quantity <= 0:
                 return DhanTradeHistorySnapshot(
@@ -1403,18 +1387,29 @@ def _trade_history_snapshot(
                     available=False,
                     message="trade history entry has non-positive traded quantity",
                 )
+            traded_price_raw = entry.get("tradedPrice")
+            if traded_price_raw is None:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing traded price",
+                )
+            try:
+                traded_price = _decimal_field(traded_price_raw, "tradedPrice")
+            except (ValueError, InvalidOperation, TypeError):
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry has invalid traded price",
+                )
             if traded_price < 0:
                 return DhanTradeHistorySnapshot(
                     observed_at=datetime.now(UTC),
                     available=False,
                     message="trade history entry has negative traded price",
                 )
-            if not instrument_type:
-                return DhanTradeHistorySnapshot(
-                    observed_at=datetime.now(UTC),
-                    available=False,
-                    message="trade history entry missing instrument type",
-                )
+            instrument_type = _required_text(entry, "instrument")
+            exchange_timestamp_str = _required_text(entry, "exchangeTime")
 
             try:
                 exchange_timestamp = parse_dhan_timestamp(exchange_timestamp_str)
@@ -1431,16 +1426,47 @@ def _trade_history_snapshot(
                     message="trade history entry has invalid exchange timestamp",
                 )
 
-            def _parse_optional_decimal(value: object) -> Decimal | None:
+            def _parse_optional_decimal(value: object, field_name: str) -> Decimal | None:
                 if value is None:
                     return None
                 s = str(value).strip()
                 if not s:
                     return None
                 try:
-                    return Decimal(s)
+                    result = Decimal(s)
                 except (InvalidOperation, ValueError):
-                    return None
+                    raise ValueError(f"invalid {field_name}") from None
+                if not result.is_finite():
+                    raise ValueError(f"non-finite {field_name}")
+                if isinstance(value, bool):
+                    raise ValueError(f"boolean {field_name}")
+                return result
+
+            try:
+                stt = _parse_optional_decimal(entry.get("stt"), "stt")
+                sebi = _parse_optional_decimal(entry.get("sebiTax"), "sebiTax")
+                brokerage = _parse_optional_decimal(
+                    entry.get("brokerageCharges"), "brokerageCharges"
+                )
+                service_tax = _parse_optional_decimal(entry.get("serviceTax"), "serviceTax")
+                exchange_txn_charges = _parse_optional_decimal(
+                    entry.get("exchangeTransactionCharges"), "exchangeTransactionCharges"
+                )
+                stamp_duty = _parse_optional_decimal(entry.get("stampDuty"), "stampDuty")
+            except ValueError:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry has malformed charge value",
+                )
+
+            if exchange_trade_id in seen_trade_ids:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message=f"duplicate exchange trade id: {exchange_trade_id}",
+                )
+            seen_trade_ids.add(exchange_trade_id)
 
             entries.append(
                 DhanTradeHistoryEntry(
@@ -1454,22 +1480,23 @@ def _trade_history_snapshot(
                     product_type=product_type,
                     security_id=security_id,
                     trading_symbol=trading_symbol,
+                    custom_symbol=custom_symbol,
                     traded_quantity=traded_quantity,
                     traded_price=traded_price,
                     instrument_type=instrument_type,
                     exchange_timestamp=exchange_timestamp,
-                    stt=_parse_optional_decimal(stt),
-                    sebi=_parse_optional_decimal(sebi),
-                    brokerage=_parse_optional_decimal(brokerage),
-                    service_tax=_parse_optional_decimal(service_tax),
-                    exchange_txn_charges=_parse_optional_decimal(exchange_txn_charges),
-                    stamp_duty=_parse_optional_decimal(stamp_duty),
-                    source_date_from=None,
-                    source_date_to=None,
-                    source_page=0,
+                    stt=stt,
+                    sebi=sebi,
+                    brokerage=brokerage,
+                    service_tax=service_tax,
+                    exchange_txn_charges=exchange_txn_charges,
+                    stamp_duty=stamp_duty,
+                    source_date_from=from_date,
+                    source_date_to=to_date,
+                    source_page=page,
                 )
             )
-        except (InvalidOperation, ValueError, TypeError) as exc:
+        except (TypeError, ValueError) as exc:
             return DhanTradeHistorySnapshot(
                 observed_at=datetime.now(UTC),
                 available=False,
@@ -1479,7 +1506,7 @@ def _trade_history_snapshot(
     return DhanTradeHistorySnapshot(
         observed_at=datetime.now(UTC),
         entries=tuple(entries),
-        available=bool(entries),
+        available=True,
         message="",
         from_date=from_date,
         to_date=to_date,

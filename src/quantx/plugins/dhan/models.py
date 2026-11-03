@@ -400,7 +400,7 @@ class DhanTradeHistoryEntry:
     exchange_segment: str
     product_type: str
     security_id: str
-    trading_symbol: str
+    trading_symbol: str | None
     traded_quantity: int
     traded_price: Decimal
     instrument_type: str
@@ -411,6 +411,7 @@ class DhanTradeHistoryEntry:
     service_tax: Decimal | None = None
     exchange_txn_charges: Decimal | None = None
     stamp_duty: Decimal | None = None
+    custom_symbol: str | None = None
     source_date_from: datetime | None = None
     source_date_to: datetime | None = None
     source_page: int = 0
@@ -434,8 +435,8 @@ class DhanTradeHistoryEntry:
             raise ValueError("product_type must not be empty")
         if not self.security_id.strip():
             raise ValueError("security_id must not be empty")
-        if not self.trading_symbol.strip():
-            raise ValueError("trading_symbol must not be empty")
+        if self.trading_symbol is not None and not self.trading_symbol.strip():
+            raise ValueError("trading_symbol must not be empty when present")
         if self.traded_quantity <= 0:
             raise ValueError("traded_quantity must be positive")
         if self.traded_price < 0:
