@@ -400,9 +400,7 @@ class IndiaMarketChargeModel:
 
     def calculate(self, context: ChargeCalculationContext) -> ChargeBreakdown:
         if not isinstance(context, IndiaChargeCalculationContext):
-            raise IndiaChargeInputUnavailable(
-                "context must be an IndiaChargeCalculationContext"
-            )
+            raise IndiaChargeInputUnavailable("context must be an IndiaChargeCalculationContext")
 
         effective_at = context.effective_at
         product = context.product
@@ -463,9 +461,7 @@ class IndiaMarketChargeModel:
                 )
             rate = rates[component]
             incidence = (
-                pass_through.incidence(component)
-                if component in _PASS_THROUGH_COMPONENTS
-                else None
+                pass_through.incidence(component) if component in _PASS_THROUGH_COMPONENTS else None
             )
             if basis is IndiaChargeBasis.NOT_APPLICABLE and (
                 rate != 0 or incidence is not IndiaChargeIncidence.NOT_APPLICABLE
@@ -720,9 +716,7 @@ def _normalize_bases(value: object) -> tuple[tuple[str, IndiaChargeBasis], ...]:
             try:
                 basis = IndiaChargeBasis(basis)
             except ValueError as exc:
-                raise IndiaChargeRuleUnavailable(
-                    f"invalid charge basis for {component}"
-                ) from exc
+                raise IndiaChargeRuleUnavailable(f"invalid charge basis for {component}") from exc
         if not isinstance(basis, IndiaChargeBasis):
             raise IndiaChargeRuleUnavailable(f"invalid charge basis for {component}")
         normalized.append((component.strip(), basis))
@@ -789,14 +783,10 @@ def _component_base(
             return max(strike - settlement, Decimal("0")) * quantity
         raise IndiaChargeInputUnavailable("option_type is required for intrinsic value")
     if basis is IndiaChargeBasis.OPTION_EXERCISE_NOTIONAL:
-        return _required_input_decimal(
-            context.exercise_notional_value, "exercise_notional_value"
-        )
+        return _required_input_decimal(context.exercise_notional_value, "exercise_notional_value")
     if basis is IndiaChargeBasis.NOT_APPLICABLE:
         return Decimal("0")
-    raise IndiaChargeRuleUnavailable(
-        f"unsupported charge basis for {component}: {basis.value}"
-    )
+    raise IndiaChargeRuleUnavailable(f"unsupported charge basis for {component}: {basis.value}")
 
 
 def _supported_basis(
@@ -807,18 +797,12 @@ def _supported_basis(
         return frozenset({IndiaChargeBasis.CLIENT_TAXABLE_VALUE})
     if product is IndiaChargeProduct.EQUITY_OPTIONS:
         if event is IndiaChargeEvent.TRADE:
-            return frozenset(
-                {IndiaChargeBasis.OPTION_PREMIUM_VALUE, not_applicable}
-            )
+            return frozenset({IndiaChargeBasis.OPTION_PREMIUM_VALUE, not_applicable})
         if event is IndiaChargeEvent.OPTION_EXERCISE:
             if component == "stt":
-                return frozenset(
-                    {IndiaChargeBasis.OPTION_INTRINSIC_VALUE, not_applicable}
-                )
+                return frozenset({IndiaChargeBasis.OPTION_INTRINSIC_VALUE, not_applicable})
             if component == "sebi_turnover_fee":
-                return frozenset(
-                    {IndiaChargeBasis.OPTION_EXERCISE_NOTIONAL, not_applicable}
-                )
+                return frozenset({IndiaChargeBasis.OPTION_EXERCISE_NOTIONAL, not_applicable})
             return frozenset({not_applicable})
     if event is IndiaChargeEvent.TRADE:
         return frozenset({IndiaChargeBasis.TRANSACTION_VALUE, not_applicable})

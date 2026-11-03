@@ -476,7 +476,12 @@ def _exercise_rates(
         component_sources=tuple(
             (component, f"synthetic://{component}", "exercise-synthetic-v1")
             for component in (
-                "stt", "stamp_duty", "exchange_txn", "ipft", "sebi_turnover_fee", "gst"
+                "stt",
+                "stamp_duty",
+                "exchange_txn",
+                "ipft",
+                "sebi_turnover_fee",
+                "gst",
             )
         ),
         component_bases=(
@@ -621,9 +626,7 @@ def test_not_applicable_incidence_with_positive_rate_fails_closed() -> None:
         source_ref="synthetic://not-applicable",
     )
     with pytest.raises(IndiaChargeRuleUnavailable, match="NOT_APPLICABLE"):
-        IndiaMarketChargeModel(schedule=_schedule()).calculate(
-            _context(pass_through_policy=policy)
-        )
+        IndiaMarketChargeModel(schedule=_schedule()).calculate(_context(pass_through_policy=policy))
 
 
 def test_not_applicable_sourced_zero_rule_calculates_zero() -> None:
@@ -637,7 +640,12 @@ def test_not_applicable_sourced_zero_rule_calculates_zero() -> None:
         component_sources=tuple(
             (component, f"synthetic://{component}", "zero-rule-v1")
             for component in (
-                "stt", "stamp_duty", "exchange_txn", "ipft", "sebi_turnover_fee", "gst"
+                "stt",
+                "stamp_duty",
+                "exchange_txn",
+                "ipft",
+                "sebi_turnover_fee",
+                "gst",
             )
         ),
         component_bases=(
@@ -734,7 +742,12 @@ def test_component_rounding_is_half_up_per_component_before_total() -> None:
         component_sources=tuple(
             (component, f"synthetic://{component}", "rounding-v1")
             for component in (
-                "stt", "stamp_duty", "exchange_txn", "ipft", "sebi_turnover_fee", "gst"
+                "stt",
+                "stamp_duty",
+                "exchange_txn",
+                "ipft",
+                "sebi_turnover_fee",
+                "gst",
             )
         ),
         component_bases=(
@@ -784,8 +797,7 @@ def test_provenance_records_basis_sources_and_policy_versions() -> None:
     for component in components:
         assert any(f"{component}:basis=" in item for item in result.provenance)
         assert any(
-            f"{component}:source=" in item and "rule_version=" in item
-            for item in result.provenance
+            f"{component}:source=" in item and "rule_version=" in item for item in result.provenance
         )
     assert "pass_through_policy=policy-v1" in result.provenance
     assert "pass_through_source=policy-source" in result.provenance
@@ -827,8 +839,11 @@ def test_not_applicable_basis_requires_not_applicable_incidence() -> None:
         effective_to=None,
         version="synthetic-inconsistent-basis-v1",
         rates={
-            (IndiaChargeProduct.EQUITY_DELIVERY, IndiaTradeSide.BUY, IndiaChargeEvent.TRADE):
-            rates_with_not_applicable_basis
+            (
+                IndiaChargeProduct.EQUITY_DELIVERY,
+                IndiaTradeSide.BUY,
+                IndiaChargeEvent.TRADE,
+            ): rates_with_not_applicable_basis
         },
     )
 
