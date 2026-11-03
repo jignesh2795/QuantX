@@ -1027,10 +1027,25 @@ class _CountingDhanTransport(InMemoryDhanTransport):
     def __init__(self, **overrides) -> None:
         super().__init__(**overrides)
         self.profile_reads = 0
+        self.fund_limits_reads = 0
+        self.positions_reads = 0
+        self.holdings_reads = 0
 
     def profile(self, *, timeout: float = 10.0):
         self.profile_reads += 1
         return super().profile(timeout=timeout)
+
+    def fund_limits(self, *, timeout: float = 10.0):
+        self.fund_limits_reads += 1
+        return super().fund_limits(timeout=timeout)
+
+    def positions(self, *, timeout: float = 10.0):
+        self.positions_reads += 1
+        return super().positions(timeout=timeout)
+
+    def holdings(self, *, timeout: float = 10.0):
+        self.holdings_reads += 1
+        return super().holdings(timeout=timeout)
 
 
 def _dhan_transport(**overrides) -> _CountingDhanTransport:
@@ -1104,6 +1119,9 @@ def test_built_stack_blocks_the_dhan_source_before_collection(tmp_path, override
         assert result.status is ExecutionDispatchStatus.BLOCKED
         assert _SOURCE_UNAVAILABLE in result.reason
         assert transport.profile_reads == 0
+        assert transport.fund_limits_reads == 0
+        assert transport.positions_reads == 0
+        assert transport.holdings_reads == 0
         assert stack.gate.state().enabled is True
         _assert_no_submission_side_effects(database, request, broker)
     finally:
