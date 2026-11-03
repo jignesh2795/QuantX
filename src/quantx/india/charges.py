@@ -548,10 +548,13 @@ class IndiaMarketChargeModel:
                 if component in _PASS_THROUGH_COMPONENTS
                 else "computed_from_client_taxable_base"
             )
+            # Basis and incidence entry
             provenance += (
-                f"{component}:basis={basis_by_component[component].value}",
+                f"{component}:basis={basis_by_component[component].value}:incidence={incidence_value}",
+            )
+            # Source and rule version entry
+            provenance += (
                 f"{component}:source={source}:rule_version={version}",
-                f"{component}:incidence={incidence_value}",
             )
         provenance += (
             f"stt_gst_treatment={stt_treatment.value}",
