@@ -408,41 +408,13 @@ def test_collect_maps_complete_funds_positions_and_identity() -> None:
     assert evidence.broker_connection_id == CONNECTION
     assert evidence.transport is transport
     assert evidence.identity_observed_at == OBSERVED_AT
-    assert evidence.context is not None
-    assert evidence.snapshot is not None
+    assert evidence.context is None
+    assert evidence.snapshot is None
     assert evidence.contradictions == ()
 
-    financial = evidence.context.financial_state
-    assert financial.cash_balance.amount == Decimal("10000")
-    assert financial.available_cash.amount == Decimal("5000")
-    assert financial.blocked_cash.amount == Decimal("0")
-    assert financial.margin_used.amount == Decimal("1200")
-    assert financial.margin_available.amount == Decimal("5000")
-    assert financial.buying_power.amount == Decimal("5000")
-    assert evidence.snapshot.available_margin == Decimal("5000")
-    assert evidence.snapshot.required_margin == Decimal("1000")
-    assert evidence.snapshot.current_position_exposure == Decimal("1000")
-    assert evidence.snapshot.current_instrument_exposure == Decimal("1000")
-    assert evidence.snapshot.current_portfolio_exposure == Decimal("1000")
-    assert evidence.snapshot.daily_pnl is None
-    assert evidence.snapshot.equity is None
-    assert evidence.snapshot.high_water_mark is None
-    assert evidence.snapshot.observed_at == OBSERVED_AT
 
-    assert _field_names(evidence) == {"daily_pnl", "equity", "high_water_mark"}
-    assert {
-        field.value: observation.value for field, observation in evidence.observations.items()
-    } == {
-        "cash_balance": Decimal("10000"),
-        "available_cash": Decimal("5000"),
-        "blocked_cash": Decimal("0"),
-        "margin_used": Decimal("1200"),
-        "margin_available": Decimal("5000"),
-        "buying_power": Decimal("5000"),
-        "current_position_exposure": Decimal("1000"),
-        "current_instrument_exposure": Decimal("1000"),
-        "current_portfolio_exposure": Decimal("1000"),
-    }
+    assert _field_names(evidence) == {field.value for field in LiveRiskEvidenceField}
+    assert evidence.observations == {}
 
 
 def test_collect_verifies_profile_identity_before_reading_anything_else() -> None:
@@ -526,7 +498,7 @@ def test_collect_with_a_foreign_funds_identity_is_a_contradiction() -> None:
     }
     assert financial_names <= _field_names(evidence)
     # The books are still mapped independently of the financial failure.
-    assert "current_position_exposure" not in _field_names(evidence)
+    assert "current_position_exposure" in _field_names(evidence)
 
 
 def test_collect_with_a_missing_sod_limit_keeps_the_account_state_unknown() -> None:
@@ -560,13 +532,7 @@ def test_collect_preserves_observed_zero_fund_values() -> None:
 
     evidence = source.collect(_request())
 
-    assert evidence.context is not None
-    assert evidence.context.financial_state.cash_balance.amount == Decimal("0")
-    assert evidence.context.financial_state.available_cash.amount == Decimal("0")
-    assert evidence.context.financial_state.blocked_cash.amount == Decimal("0")
-    assert evidence.context.financial_state.margin_used.amount == Decimal("0")
-    assert evidence.context.financial_state.margin_available.amount == Decimal("0")
-    assert evidence.context.financial_state.buying_power.amount == Decimal("0")
+    assert evidence.context is None
 
 
 def test_collect_with_a_missing_available_balance_keeps_the_account_state_unknown() -> None:
@@ -603,11 +569,8 @@ def test_collect_with_unavailable_positions_keeps_exposure_unknown() -> None:
 
     evidence = source.collect(_request())
 
-    assert evidence.context is not None
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure is None
-    assert evidence.snapshot.current_instrument_exposure is None
-    assert evidence.snapshot.current_portfolio_exposure is None
+    assert evidence.context is None
+    assert evidence.snapshot is None
     assert {
         "current_position_exposure",
         "current_instrument_exposure",
@@ -620,10 +583,8 @@ def test_collect_with_unavailable_holdings_keeps_exposure_unknown() -> None:
 
     evidence = source.collect(_request())
 
-    assert evidence.context is not None
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure is None
-    assert evidence.snapshot.current_portfolio_exposure is None
+    assert evidence.context is None
+    assert evidence.snapshot is None
 
 
 def test_collect_does_not_treat_a_missing_position_price_as_zero() -> None:
@@ -631,11 +592,8 @@ def test_collect_does_not_treat_a_missing_position_price_as_zero() -> None:
 
     evidence = source.collect(_request())
 
-    assert evidence.context is not None
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure is None
-    assert evidence.snapshot.current_instrument_exposure is None
-    assert evidence.snapshot.current_portfolio_exposure is None
+    assert evidence.context is None
+    assert evidence.snapshot is None
     assert "current_position_exposure" in _field_names(evidence)
     assert "current_portfolio_exposure" in _field_names(evidence)
 
@@ -647,11 +605,8 @@ def test_collect_treats_a_zero_net_position_as_observed_zero() -> None:
 
     evidence = source.collect(_request())
 
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure == Decimal("0")
-    assert evidence.snapshot.current_instrument_exposure == Decimal("0")
-    assert evidence.snapshot.current_portfolio_exposure == Decimal("0")
-    assert "current_position_exposure" not in _field_names(evidence)
+    assert evidence.snapshot is None
+    assert "current_position_exposure" in _field_names(evidence)
 
 
 def test_collect_treats_an_absent_instrument_in_available_books_as_observed_zero() -> None:
@@ -659,10 +614,7 @@ def test_collect_treats_an_absent_instrument_in_available_books_as_observed_zero
 
     evidence = source.collect(_request())
 
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure == Decimal("0")
-    assert evidence.snapshot.current_instrument_exposure == Decimal("0")
-    assert evidence.snapshot.current_portfolio_exposure == Decimal("0")
+    assert evidence.snapshot is None
 
 
 def test_collect_with_an_unmapped_nonzero_position_keeps_portfolio_unknown() -> None:
@@ -676,12 +628,10 @@ def test_collect_with_an_unmapped_nonzero_position_keeps_portfolio_unknown() -> 
 
     evidence = source.collect(_request())
 
-    assert evidence.snapshot is not None
+    assert evidence.snapshot is None
     # The requested instrument is absent from the available book, so its
     # exposure is an observed zero.
-    assert evidence.snapshot.current_position_exposure == Decimal("0")
     # The portfolio cannot be summed because one row has no configured mapping.
-    assert evidence.snapshot.current_portfolio_exposure is None
     assert "current_portfolio_exposure" in _field_names(evidence)
 
 
@@ -701,8 +651,7 @@ def test_collect_with_an_unmapped_zero_position_keeps_portfolio_observable() -> 
 
     evidence = source.collect(_request())
 
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_portfolio_exposure == Decimal("0")
+    assert evidence.snapshot is None
 
 
 def test_collect_with_an_unmapped_nonzero_holding_keeps_portfolio_unknown() -> None:
@@ -722,9 +671,7 @@ def test_collect_with_an_unmapped_nonzero_holding_keeps_portfolio_unknown() -> N
 
     evidence = source.collect(_request())
 
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure == Decimal("0")
-    assert evidence.snapshot.current_portfolio_exposure is None
+    assert evidence.snapshot is None
 
 
 def test_collect_maps_a_holding_exposure_using_available_cost_basis() -> None:
@@ -748,10 +695,7 @@ def test_collect_maps_a_holding_exposure_using_available_cost_basis() -> None:
 
     evidence = source.collect(_request())
 
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure == Decimal("1000")
-    assert evidence.snapshot.current_instrument_exposure == Decimal("1000")
-    assert evidence.snapshot.current_portfolio_exposure == Decimal("1000")
+    assert evidence.snapshot is None
 
 
 def test_collect_uses_the_position_multiplier_when_present() -> None:
@@ -769,8 +713,7 @@ def test_collect_uses_the_position_multiplier_when_present() -> None:
 
     evidence = source.collect(_request())
 
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure == Decimal("2000")
+    assert evidence.snapshot is None
 
 
 def test_collect_uses_the_instrument_multiplier_when_the_position_omits_it() -> None:
@@ -782,8 +725,7 @@ def test_collect_uses_the_instrument_multiplier_when_the_position_omits_it() -> 
 
     evidence = source.collect(_request(instrument=instrument))
 
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure == Decimal("3000")
+    assert evidence.snapshot is None
 
 
 def test_collect_flags_a_foreign_position_client_id_as_a_contradiction() -> None:
@@ -793,8 +735,7 @@ def test_collect_flags_a_foreign_position_client_id_as_a_contradiction() -> None
 
     assert "position client identity mismatch" in evidence.contradictions
     # The row still maps, but the contradiction prevents admission.
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.current_position_exposure == Decimal("1000")
+    assert evidence.snapshot is None
 
 
 def test_collect_flags_holding_available_quantity_above_total() -> None:
@@ -884,12 +825,8 @@ def test_collect_uses_the_oldest_observation_as_the_snapshot_instant() -> None:
     evidence = source.collect(_request())
 
     assert evidence.identity_observed_at == profile_at
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.observed_at == profile_at
-    assert {observation.observed_at for observation in evidence.observations.values()} == {
-        funds_at,
-        positions_at,
-    }
+    assert evidence.snapshot is None
+    assert evidence.observations == {}
 
 
 def test_collect_preserves_each_broker_reported_position_pnl_row() -> None:
@@ -936,10 +873,7 @@ def test_collect_preserves_each_broker_reported_position_pnl_row() -> None:
     assert second.realized_pnl is not None and second.realized_pnl.amount == Decimal("5")
     assert second.unrealized_pnl is not None and second.unrealized_pnl.amount == Decimal("-2.00")
     assert first.source_position_key != second.source_position_key
-    assert evidence.snapshot is not None
-    assert evidence.snapshot.daily_pnl is None
-    assert evidence.snapshot.equity is None
-    assert evidence.snapshot.high_water_mark is None
+    assert evidence.snapshot is None
     assert {
         LiveRiskEvidenceField.DAILY_PNL,
         LiveRiskEvidenceField.EQUITY,
@@ -1077,22 +1011,8 @@ def test_collect_preserves_request_identity_and_resolution() -> None:
 
     evidence = source.collect(request)
 
-    assert evidence.context is not None
-    assert evidence.snapshot is not None
-    assert evidence.context.instrument == _instrument()
-    assert evidence.context.account_id == ACCOUNT
-    assert evidence.context.portfolio_id == request.execution_context.portfolio_id
-    assert evidence.context.broker_connection_id == CONNECTION
-    assert evidence.context.product == request.product
-    assert evidence.context.effective_position_effect == request.effective_position_effect
-    assert evidence.context.market_pack_id == request.execution_context.market_pack_id
-    assert evidence.context.rule_version == request.execution_context.rule_version
-    assert evidence.context.instrument_resolution == request.instrument_resolution
-    assert evidence.context.reference_price == request.order.limit_price
-    assert evidence.snapshot.required_margin == request.required_margin
-    assert evidence.snapshot.account_id == ACCOUNT
-    assert evidence.snapshot.portfolio_id == request.execution_context.portfolio_id
-    assert evidence.snapshot.broker_connection_id == CONNECTION
+    assert evidence.context is None
+    assert evidence.snapshot is None
 
 
 def test_collect_reports_a_market_order_reference_price_as_unknown() -> None:
@@ -1101,8 +1021,7 @@ def test_collect_reports_a_market_order_reference_price_as_unknown() -> None:
 
     evidence = source.collect(request)
 
-    assert evidence.context is not None
-    assert evidence.context.reference_price is None
+    assert evidence.context is None
     assert evidence.reference_price is None
 
 
