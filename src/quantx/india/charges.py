@@ -471,12 +471,12 @@ class IndiaMarketChargeModel:
                 rate != 0 or incidence is not IndiaChargeIncidence.NOT_APPLICABLE
             ):
                 raise IndiaChargeRuleUnavailable(
-                    f"NOT_APPLICABLE basis requires a sourced zero rate and NOT_APPLICABLE incidence for {component}"
+                    f"NOT_APPLICABLE basis needs zero rate and matching incidence: {component}"
                 )
             if incidence is IndiaChargeIncidence.NOT_APPLICABLE:
                 if basis is not IndiaChargeBasis.NOT_APPLICABLE or rate != 0:
                     raise IndiaChargeRuleUnavailable(
-                        f"NOT_APPLICABLE incidence requires a NOT_APPLICABLE basis and zero rate for {component}"
+                        f"NOT_APPLICABLE incidence needs a zero-rate NOT_APPLICABLE basis: {component}"
                     )
 
         bases = {
@@ -553,8 +553,9 @@ class IndiaMarketChargeModel:
                 else "computed_from_client_taxable_base"
             )
             provenance += (
-                f"{component}:basis={basis_by_component[component].value}:"
-                f"source={source}:rule_version={version}:incidence={incidence_value}",
+                f"{component}:basis={basis_by_component[component].value}",
+                f"{component}:source={source}:rule_version={version}",
+                f"{component}:incidence={incidence_value}",
             )
         provenance += (
             f"stt_gst_treatment={stt_treatment.value}",
@@ -801,20 +802,28 @@ def _component_base(
 def _supported_basis(
     component: str, product: IndiaChargeProduct, event: IndiaChargeEvent
 ) -> frozenset[IndiaChargeBasis] | None:
+    not_applicable = IndiaChargeBasis.NOT_APPLICABLE
     if component == "gst":
         return frozenset({IndiaChargeBasis.CLIENT_TAXABLE_VALUE})
     if product is IndiaChargeProduct.EQUITY_OPTIONS:
         if event is IndiaChargeEvent.TRADE:
-            return frozenset({IndiaChargeBasis.OPTION_PREMIUM_VALUE})
+            return frozenset(
+                {IndiaChargeBasis.OPTION_PREMIUM_VALUE, not_applicable}
+            )
         if event is IndiaChargeEvent.OPTION_EXERCISE:
             if component == "stt":
-                return frozenset({IndiaChargeBasis.OPTION_INTRINSIC_VALUE})
+                return frozenset(
+                    {IndiaChargeBasis.OPTION_INTRINSIC_VALUE, not_applicable}
+                )
             if component == "sebi_turnover_fee":
-                return frozenset({IndiaChargeBasis.OPTION_EXERCISE_NOTIONAL})
-            return frozenset({IndiaChargeBasis.NOT_APPLICABLE})
+                return frozenset(
+                    {IndiaChargeBasis.OPTION_EXERCISE_NOTIONAL, not_applicable}
+                )
+            return frozenset({not_applicable})
     if event is IndiaChargeEvent.TRADE:
-        return frozenset({IndiaChargeBasis.TRANSACTION_VALUE})
+        return frozenset({IndiaChargeBasis.TRANSACTION_VALUE, not_applicable})
     return None
+
 
 
 def _rounded(value: Decimal) -> Decimal:

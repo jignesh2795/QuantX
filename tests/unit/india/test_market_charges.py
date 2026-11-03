@@ -450,7 +450,6 @@ def test_total_equals_sum_of_components() -> None:
     )
 
 
-
 def _exercise_policy() -> IndiaChargePassThroughPolicy:
     return IndiaChargePassThroughPolicy(
         stt=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
@@ -774,9 +773,20 @@ def test_provenance_records_basis_sources_and_policy_versions() -> None:
 
     assert "schedule_version=schedule-v1" in result.provenance
     assert any(item.startswith("schedule_interval=") for item in result.provenance)
-    for component in ("stt", "stamp_duty", "exchange_txn", "ipft", "sebi_turnover_fee", "gst"):
+    components = (
+        "stt",
+        "stamp_duty",
+        "exchange_txn",
+        "ipft",
+        "sebi_turnover_fee",
+        "gst",
+    )
+    for component in components:
         assert any(f"{component}:basis=" in item for item in result.provenance)
-        assert any(f"{component}:source=" in item and "rule_version=" in item for item in result.provenance)
+        assert any(
+            f"{component}:source=" in item and "rule_version=" in item
+            for item in result.provenance
+        )
     assert "pass_through_policy=policy-v1" in result.provenance
     assert "pass_through_source=policy-source" in result.provenance
     assert "gst_policy=gst-policy-v1" in result.provenance
@@ -786,7 +796,6 @@ def test_provenance_records_basis_sources_and_policy_versions() -> None:
 def test_missing_gst_treatment_fails_before_breakdown() -> None:
     with pytest.raises(IndiaChargeInputUnavailable, match="stt_gst_treatment"):
         _context(stt_gst_treatment=None)
-
 
 
 def test_public_basis_type_is_exported() -> None:
