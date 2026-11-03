@@ -2047,3 +2047,385 @@ def test_in_memory_transport_ledger_report_and_trade_history() -> None:
 
     trade_snapshot_page1 = transport.trade_history(from_date, to_date, page=1)
     assert trade_snapshot_page1.page == 1
+
+
+class _RecordingLedgerFakeDhanClient:
+    def __init__(self, ledger_response: object) -> None:
+        self._ledger_response = ledger_response
+        self.called = False
+
+    def ledger_report(self, from_date: str, to_date: str) -> object:
+        self.called = True
+        return self._ledger_response
+
+
+class _RecordingTradeHistoryFakeDhanClient:
+    def __init__(self, trade_history_response: object) -> None:
+        self._trade_history_response = trade_history_response
+        self.called = False
+
+    def get_trade_history(self, from_date: str, to_date: str, page_number: int = 0) -> object:
+        self.called = True
+        return self._trade_history_response
+
+
+def test_sdk_ledger_report_reads_official_object_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger_response = {
+        "status": "success",
+        "remarks": "",
+        "data": {
+            "dhanClientId": "client-1",
+            "narration": "FUNDS WITHDRAWAL",
+            "voucherdate": "Jun 22, 2022",
+            "exchange": "NSE-CAPITAL",
+            "voucherdesc": "PAYBNK",
+            "vouchernumber": "202200036701",
+            "debit": "20000.00",
+            "credit": "0.00",
+            "runbal": "957.29",
+        },
+    }
+    client = _RecordingLedgerFakeDhanClient(ledger_response)
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        from_date = datetime(2026, 1, 1, tzinfo=UTC)
+        to_date = datetime(2026, 1, 31, tzinfo=UTC)
+        snapshot = transport.ledger_report(from_date, to_date, timeout=5.0)
+
+        assert snapshot.available is True
+        assert snapshot.from_date == from_date
+        assert snapshot.to_date == to_date
+        assert len(snapshot.entries) == 1
+        entry = snapshot.entries[0]
+        assert entry.client_id == "client-1"
+        assert entry.narration == "FUNDS WITHDRAWAL"
+        assert entry.voucher_date == datetime(2022, 6, 22, tzinfo=ZoneInfo("Asia/Kolkata"))
+        assert entry.exchange == "NSE-CAPITAL"
+        assert entry.voucher_description == "PAYBNK"
+        assert entry.voucher_number == "202200036701"
+        assert entry.debit == Decimal("20000.00")
+        assert entry.credit == Decimal("0.00")
+        assert entry.running_balance == Decimal("957.29")
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_empty_object_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingLedgerFakeDhanClient({"status": "success", "remarks": "", "data": {}})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+        )
+        assert snapshot.available is True
+        assert snapshot.entries == ()
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_iso_date_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingLedgerFakeDhanClient(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "client-1",
+                "narration": "Test",
+                "voucherdate": "2026-01-15",
+                "exchange": "NSE",
+                "voucherdesc": "Test",
+                "vouchernumber": "VN001",
+                "debit": "1",
+                "credit": "0",
+                "runbal": "2",
+            },
+        }
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+        )
+        assert snapshot.available is True
+        assert snapshot.entries[0].voucher_date == datetime(
+            2026, 1, 15, tzinfo=ZoneInfo("Asia/Kolkata")
+        )
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_malformed_voucher_date_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingLedgerFakeDhanClient(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "client-1",
+                "narration": "Test",
+                "voucherdate": "not-a-date",
+                "exchange": "NSE",
+                "voucherdesc": "Test",
+                "vouchernumber": "VN001",
+                "debit": "1",
+                "credit": "0",
+                "runbal": "2",
+            },
+        }
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+        )
+        assert snapshot.available is False
+        assert "invalid voucher date" in snapshot.message
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_empty_voucher_date_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingLedgerFakeDhanClient(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "client-1",
+                "narration": "Test",
+                "voucherdate": "",
+                "exchange": "NSE",
+                "voucherdesc": "Test",
+                "vouchernumber": "VN001",
+                "debit": "1",
+                "credit": "0",
+                "runbal": "2",
+            },
+        }
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+        )
+        assert snapshot.available is False
+        assert "missing voucherdate" in snapshot.message
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_missing_mandatory_value_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingLedgerFakeDhanClient(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "client-1",
+                "narration": "Test",
+                "voucherdate": "2026-01-15",
+                "exchange": "NSE",
+                "voucherdesc": "Test",
+                "vouchernumber": "VN001",
+                "debit": "1",
+                "credit": "0",
+            },
+        }
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+        )
+        assert snapshot.available is False
+        assert "missing running balance" in snapshot.message
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_negative_debit_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingLedgerFakeDhanClient(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "client-1",
+                "narration": "Test",
+                "voucherdate": "2026-01-15",
+                "exchange": "NSE",
+                "voucherdesc": "Test",
+                "vouchernumber": "VN001",
+                "debit": "-1",
+                "credit": "0",
+                "runbal": "2",
+            },
+        }
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+        )
+        assert snapshot.available is False
+        assert "debit cannot be negative" in snapshot.message
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_float_precision_documented(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingLedgerFakeDhanClient(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "client-1",
+                "narration": "Test",
+                "voucherdate": "2026-01-15",
+                "exchange": "NSE",
+                "voucherdesc": "Test",
+                "vouchernumber": "VN001",
+                "debit": 0.1 + 0.2,
+                "credit": 0,
+                "runbal": 1.0,
+            },
+        }
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+        )
+        assert snapshot.available is True
+        assert snapshot.entries[0].debit == Decimal(str(0.1 + 0.2))
+    finally:
+        transport.close()
+
+
+def test_sdk_trade_history_reads_official_shape_with_custom_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trade_history_response = {
+        "status": "success",
+        "remarks": "",
+        "data": [
+            {
+                "dhanClientId": "client-1",
+                "orderId": "ORD001",
+                "exchangeOrderId": "EXCH001",
+                "exchangeTradeId": "TRD001",
+                "transactionType": "BUY",
+                "exchangeSegment": "NSE_EQ",
+                "productType": "CNC",
+                "securityId": "1333",
+                "tradingSymbol": None,
+                "customSymbol": "RELIANCE",
+                "tradedQuantity": 10,
+                "tradedPrice": 100.5,
+                "instrument": "EQUITY",
+                "exchangeTime": "2026-01-15 10:30:00",
+                "stt": 10.0,
+                "sebiTax": 0.5,
+                "brokerageCharges": 5.0,
+                "serviceTax": 0.9,
+                "exchangeTransactionCharges": 0.5,
+                "stampDuty": 1.0,
+            }
+        ],
+    }
+    client = _TradeHistoryFakeDhanClient(trade_history_response)
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        from_date = datetime(2026, 1, 1, tzinfo=UTC)
+        to_date = datetime(2026, 1, 31, tzinfo=UTC)
+        snapshot = transport.trade_history(from_date, to_date, page=0, timeout=5.0)
+        assert snapshot.available is True
+        assert snapshot.entries[0].trading_symbol is None
+        assert snapshot.entries[0].custom_symbol == "RELIANCE"
+        assert snapshot.entries[0].traded_price == Decimal(str(100.5))
+        assert snapshot.entries[0].stt == Decimal(str(10.0))
+    finally:
+        transport.close()
+
+
+def test_invalid_date_range_does_not_invoke_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _RecordingLedgerFakeDhanClient({"status": "success", "remarks": "", "data": {}})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.ledger_report(
+                datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC), timeout=5.0
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_invalid_page_does_not_invoke_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _RecordingTradeHistoryFakeDhanClient({"status": "success", "remarks": "", "data": []})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 31, tzinfo=UTC),
+                page=-1,
+                timeout=5.0,
+            )
+        assert not client.called
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 31, tzinfo=UTC),
+                page=True,
+                timeout=5.0,
+            )  # type: ignore[arg-type]
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_naive_date_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _RecordingLedgerFakeDhanClient({"status": "success", "remarks": "", "data": {}})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.ledger_report(
+                datetime(2026, 1, 1), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_valid_page_passed_to_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[int] = []
+
+    class _RecordingClient(_CancelEchoFakeDhanClient):
+        def __init__(self) -> None:
+            super().__init__(None)
+
+        def get_trade_history(self, from_date: str, to_date: str, page_number: int = 0) -> object:
+            captured.append(page_number)
+            return {"status": "success", "remarks": "", "data": []}
+
+    transport = _sdk_transport_without_sdk(monkeypatch, _RecordingClient())
+    try:
+        transport.trade_history(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), page=3, timeout=5.0
+        )
+        assert captured == [3]
+    finally:
+        transport.close()

@@ -440,6 +440,12 @@ class DhanSDKTransport:
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanLedgerSnapshot:
         """Fetch Dhan ledger report for a date range."""
+        if not isinstance(from_date, datetime) or from_date.tzinfo is None:
+            raise ValueError("from_date must be timezone-aware")
+        if not isinstance(to_date, datetime) or to_date.tzinfo is None:
+            raise ValueError("to_date must be timezone-aware")
+        if from_date > to_date:
+            raise ValueError("from_date must not be after to_date")
         try:
             response = self._call_with_timeout(
                 self._client.ledger_report,
@@ -466,6 +472,14 @@ class DhanSDKTransport:
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanTradeHistorySnapshot:
         """Fetch Dhan trade history for a date range and page."""
+        if not isinstance(from_date, datetime) or from_date.tzinfo is None:
+            raise ValueError("from_date must be timezone-aware")
+        if not isinstance(to_date, datetime) or to_date.tzinfo is None:
+            raise ValueError("to_date must be timezone-aware")
+        if from_date > to_date:
+            raise ValueError("from_date must not be after to_date")
+        if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+            raise ValueError("page must be a non-negative integer")
         try:
             response = self._call_with_timeout(
                 self._client.get_trade_history,
@@ -568,6 +582,12 @@ class InMemoryDhanTransport:
         *,
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanLedgerSnapshot:
+        if not isinstance(from_date, datetime) or from_date.tzinfo is None:
+            raise ValueError("from_date must be timezone-aware")
+        if not isinstance(to_date, datetime) or to_date.tzinfo is None:
+            raise ValueError("to_date must be timezone-aware")
+        if from_date > to_date:
+            raise ValueError("from_date must not be after to_date")
         return DhanLedgerSnapshot(
             observed_at=datetime.now(UTC),
             available=True,
@@ -584,6 +604,14 @@ class InMemoryDhanTransport:
         *,
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanTradeHistorySnapshot:
+        if not isinstance(from_date, datetime) or from_date.tzinfo is None:
+            raise ValueError("from_date must be timezone-aware")
+        if not isinstance(to_date, datetime) or to_date.tzinfo is None:
+            raise ValueError("to_date must be timezone-aware")
+        if from_date > to_date:
+            raise ValueError("from_date must not be after to_date")
+        if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+            raise ValueError("page must be a non-negative integer")
         return DhanTradeHistorySnapshot(
             observed_at=datetime.now(UTC),
             available=True,
@@ -1183,6 +1211,25 @@ def _statement_envelope(response: object) -> tuple[str, str, object]:
     return status, remarks, data
 
 
+def _parse_ledger_voucher_date(value: str) -> datetime:
+    """Parse a Dhan ledger voucher date while preserving its Asia/Kolkata instant."""
+    normalized = value.strip()
+    for fmt in ("%b %d, %Y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
+        try:
+            parsed = datetime.strptime(normalized, fmt)
+            break
+        except ValueError:
+            continue
+    else:
+        try:
+            parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"unrecognized Dhan voucher date: {value!r}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+    return parsed
+
+
 def _ledger_snapshot(
     response: object,
     from_date: datetime,
@@ -1203,15 +1250,26 @@ def _ledger_snapshot(
             available=False,
             message=remarks or "Dhan ledger report reported failure",
         )
-    data = payload
-    if not isinstance(data, list):
+    if isinstance(payload, (list, tuple)):
+        entries_payload = list(payload)
+    elif isinstance(payload, Mapping):
+        if not payload:
+            return DhanLedgerSnapshot(
+                observed_at=datetime.now(UTC),
+                available=True,
+                message="",
+                from_date=from_date,
+                to_date=to_date,
+            )
+        entries_payload = [payload]
+    else:
         return DhanLedgerSnapshot(
             observed_at=datetime.now(UTC),
             available=False,
-            message="Dhan ledger data must be a list",
+            message="Dhan ledger response must be an object or list",
         )
     entries: list[DhanLedgerEntry] = []
-    for entry in data:
+    for entry in entries_payload:
         if not isinstance(entry, dict):
             return DhanLedgerSnapshot(
                 observed_at=datetime.now(UTC),
@@ -1264,13 +1322,7 @@ def _ledger_snapshot(
                 )
 
             try:
-                voucher_date = parse_dhan_timestamp(voucher_date_str)
-                if voucher_date is None:
-                    return DhanLedgerSnapshot(
-                        observed_at=datetime.now(UTC),
-                        available=False,
-                        message="ledger entry has unparsable voucher date",
-                    )
+                voucher_date = _parse_ledger_voucher_date(voucher_date_str)
             except (ValueError, TypeError):
                 return DhanLedgerSnapshot(
                     observed_at=datetime.now(UTC),
@@ -1292,7 +1344,7 @@ def _ledger_snapshot(
                     running_balance=running_balance,
                 )
             )
-        except (InvalidOperation, ValueError, TypeError) as exc:
+        except (TypeError, ValueError) as exc:
             return DhanLedgerSnapshot(
                 observed_at=datetime.now(UTC),
                 available=False,
