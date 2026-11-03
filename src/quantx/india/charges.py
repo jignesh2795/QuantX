@@ -553,9 +553,7 @@ class IndiaMarketChargeModel:
                 f"{component}:basis={basis_by_component[component].value}:incidence={incidence_value}",
             )
             # Source and rule version entry
-            provenance += (
-                f"{component}:source={source}:rule_version={version}",
-            )
+            provenance += (f"{component}:source={source}:rule_version={version}",)
         provenance += (
             f"stt_gst_treatment={stt_treatment.value}",
             f"stamp_duty_gst_treatment={stamp_treatment.value}",
