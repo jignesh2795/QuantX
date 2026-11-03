@@ -2785,3 +2785,119 @@ def test_sdk_trade_history_negative_optional_charge_rejected(
         assert "cannot be negative" in snapshot.message or "malformed" in snapshot.message
     finally:
         transport.close()
+
+
+def test_sdk_trade_history_page_none_rejected_before_sdk_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingTradeHistoryFakeDhanClient({"status": "success", "remarks": "", "data": []})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 31, tzinfo=UTC),
+                page=None,  # type: ignore[arg-type]
+                timeout=5.0,
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_in_memory_trade_history_page_none_rejected() -> None:
+    transport = InMemoryDhanTransport()
+    with pytest.raises(ValueError):
+        transport.trade_history(
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 31, tzinfo=UTC),
+            page=None,  # type: ignore[arg-type]
+        )
+
+
+def test_sdk_trade_history_float_page_rejected_before_sdk_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingTradeHistoryFakeDhanClient({"status": "success", "remarks": "", "data": []})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 31, tzinfo=UTC),
+                page=1.5,  # type: ignore[arg-type]
+                timeout=5.0,
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_in_memory_trade_history_float_page_rejected() -> None:
+    transport = InMemoryDhanTransport()
+    with pytest.raises(ValueError):
+        transport.trade_history(
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 31, tzinfo=UTC),
+            page=1.5,  # type: ignore[arg-type]
+        )
+
+
+def test_sdk_trade_history_string_page_rejected_before_sdk_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingTradeHistoryFakeDhanClient({"status": "success", "remarks": "", "data": []})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 31, tzinfo=UTC),
+                page="1",  # type: ignore[arg-type]
+                timeout=5.0,
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_in_memory_trade_history_string_page_rejected() -> None:
+    transport = InMemoryDhanTransport()
+    with pytest.raises(ValueError):
+        transport.trade_history(
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 31, tzinfo=UTC),
+            page="1",  # type: ignore[arg-type]
+        )
+
+
+def test_sdk_trade_history_reversed_date_range_rejected_before_sdk_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingTradeHistoryFakeDhanClient({"status": "success", "remarks": "", "data": []})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 2, 1, tzinfo=UTC),
+                datetime(2026, 1, 1, tzinfo=UTC),
+                page=0,
+                timeout=5.0,
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_dhan_ledger_entry_docstring_contains_precision_note() -> None:
+    from quantx.plugins.dhan.models import DhanLedgerEntry
+
+    assert "Decimal(str(value))" in (DhanLedgerEntry.__doc__ or "")
+    assert "cannot reconstruct" in (DhanLedgerEntry.__doc__ or "")
+
+
+def test_dhan_trade_history_entry_docstring_contains_precision_note() -> None:
+    from quantx.plugins.dhan.models import DhanTradeHistoryEntry
+
+    assert "Decimal(str(value))" in (DhanTradeHistoryEntry.__doc__ or "")
+    assert "cannot reconstruct" in (DhanTradeHistoryEntry.__doc__ or "")
