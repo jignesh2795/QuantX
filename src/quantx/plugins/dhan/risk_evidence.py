@@ -36,7 +36,7 @@ from quantx.application.live_risk_evidence import (
 from quantx.domain.accounts import AccountId, BrokerConnectionId
 from quantx.domain.enums import OrderType
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.finance import AccountFinancialState, CapitalSourceType
+from quantx.domain.finance import AccountFinancialState
 from quantx.domain.instruments import Instrument
 from quantx.domain.risk import RiskContext, RiskSnapshot
 from quantx.domain.value_objects import Money
@@ -77,9 +77,7 @@ _UNSUPPORTED_FIELDS: tuple[LiveRiskEvidenceField, ...] = (
     LiveRiskEvidenceField.HIGH_WATER_MARK,
 )
 
-_SUPPORTED_FIELDS: frozenset[LiveRiskEvidenceField] = frozenset(
-    (*_FINANCIAL_FIELDS, *_EXPOSURE_FIELDS)
-)
+_SUPPORTED_FIELDS: frozenset[LiveRiskEvidenceField] = frozenset()
 
 _ALL_FIELDS: tuple[LiveRiskEvidenceField, ...] = tuple(LiveRiskEvidenceField)
 
@@ -286,38 +284,16 @@ class DhanRiskEvidenceSource:
             unavailable.update(_FINANCIAL_FIELDS)
             return None
 
-        values: dict[LiveRiskEvidenceField, Decimal | None] = {
-            LiveRiskEvidenceField.CASH_BALANCE: funds.sod_limit,
-            LiveRiskEvidenceField.AVAILABLE_CASH: funds.available_balance,
-            LiveRiskEvidenceField.BLOCKED_CASH: funds.blocked_payout_amount,
-            LiveRiskEvidenceField.MARGIN_USED: funds.utilized_amount,
-            LiveRiskEvidenceField.MARGIN_AVAILABLE: funds.available_balance,
-            LiveRiskEvidenceField.BUYING_POWER: funds.available_balance,
-        }
-        for evidence_field, value in values.items():
-            if value is None or not _usable_money(value):
-                unavailable.add(evidence_field)
-            else:
-                observations[evidence_field] = LiveRiskEvidenceObservation(value, funds.observed_at)
-        if any(evidence_field in unavailable for evidence_field in _FINANCIAL_FIELDS):
-            # ``AccountFinancialState`` needs all six values. Partial fund
-            # observations are not an account state, so none of them is
-            # retained as usable evidence.
-            for evidence_field in _FINANCIAL_FIELDS:
-                observations.pop(evidence_field, None)
-                unavailable.add(evidence_field)
-            return None
-
-        currency = "INR"
-        return AccountFinancialState(
-            capital_source=CapitalSourceType.LIVE_BROKER,
-            cash_balance=_money(funds.sod_limit, currency),
-            available_cash=_money(funds.available_balance, currency),
-            blocked_cash=_money(funds.blocked_payout_amount, currency),
-            margin_used=_money(funds.utilized_amount, currency),
-            margin_available=_money(funds.available_balance, currency),
-            buying_power=_money(funds.available_balance, currency),
-        )
+        # Dhan's fund fields do not establish the semantics required by
+        # ``AccountFinancialState`` (cash balance, available cash, blocked
+        # cash, margin used/available, buying power). ``sodLimit`` is a
+        # start-of-day balance, ``availableBalance`` is available margin,
+        # ``blockedPayoutAmount`` is blocked against a payout request, and
+        # ``utilizedAmount`` is the amount utilised in the day. None of them
+        # is a truthful current cash/margin value, so no account state is
+        # built and every financial field stays unavailable.
+        unavailable.update(_FINANCIAL_FIELDS)
+        return None
 
     def _exposures(
         self,
@@ -364,28 +340,13 @@ class DhanRiskEvidenceSource:
             ):
                 contradictions.append("holding collateral quantity contradiction")
 
-        requested = self._requested_exposure(
-            instrument, positions, holdings, position_map, holding_map
-        )
-        portfolio = self._portfolio_exposure(positions, holdings, position_map, holding_map)
-        observed_at = min(positions.observed_at, holdings.observed_at)
-        if requested is None:
-            unavailable.add(LiveRiskEvidenceField.CURRENT_POSITION_EXPOSURE)
-            unavailable.add(LiveRiskEvidenceField.CURRENT_INSTRUMENT_EXPOSURE)
-        else:
-            observations[LiveRiskEvidenceField.CURRENT_POSITION_EXPOSURE] = (
-                LiveRiskEvidenceObservation(requested, observed_at)
-            )
-            observations[LiveRiskEvidenceField.CURRENT_INSTRUMENT_EXPOSURE] = (
-                LiveRiskEvidenceObservation(requested, observed_at)
-            )
-        if portfolio is None:
-            unavailable.add(LiveRiskEvidenceField.CURRENT_PORTFOLIO_EXPOSURE)
-        else:
-            observations[LiveRiskEvidenceField.CURRENT_PORTFOLIO_EXPOSURE] = (
-                LiveRiskEvidenceObservation(portfolio, observed_at)
-            )
-        return _Exposures(requested, requested, portfolio)
+        # Dhan positions/holdings carry cost basis (``costPrice`` /
+        # ``avgCostPrice``), not current market marks. The existing
+        # ``CURRENT_*_EXPOSURE`` contracts are signed net notionals and do
+        # not permit cost-basis notional, so no exposure value is produced
+        # and every exposure field stays unavailable.
+        unavailable.update(_EXPOSURE_FIELDS)
+        return _Exposures(None, None, None)
 
     def _reverse_maps(
         self,
