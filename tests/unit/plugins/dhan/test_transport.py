@@ -2785,3 +2785,135 @@ def test_sdk_trade_history_negative_optional_charge_rejected(
         assert "cannot be negative" in snapshot.message or "malformed" in snapshot.message
     finally:
         transport.close()
+
+
+class _PageNoneTradeHistoryFakeDhanClient:
+    def __init__(self, trade_history_response: object) -> None:
+        self._trade_history_response = trade_history_response
+        self.called = False
+
+    def get_trade_history(self, from_date: str, to_date: str, page_number: int = 0) -> object:
+        self.called = True
+        return self._trade_history_response
+
+
+def test_sdk_trade_history_page_none_rejected_before_sdk_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _PageNoneTradeHistoryFakeDhanClient({"status": "success", "remarks": "", "data": []})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 31, tzinfo=UTC),
+                page=None,  # type: ignore[arg-type]
+                timeout=5.0,
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_in_memory_trade_history_page_none_rejected() -> None:
+    transport = InMemoryDhanTransport()
+    with pytest.raises(ValueError):
+        transport.trade_history(
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 31, tzinfo=UTC),
+            page=None,  # type: ignore[arg-type]
+        )
+
+
+def test_sdk_trade_history_reversed_date_range_rejected_before_sdk_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _PageNoneTradeHistoryFakeDhanClient({"status": "success", "remarks": "", "data": []})
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        with pytest.raises(ValueError):
+            transport.trade_history(
+                datetime(2026, 2, 1, tzinfo=UTC),
+                datetime(2026, 1, 1, tzinfo=UTC),
+                page=0,
+                timeout=5.0,
+            )
+        assert not client.called
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_non_finite_credit_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingLedgerFakeDhanClient(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "c1",
+                "narration": "n",
+                "voucherdate": "2026-01-15",
+                "exchange": "NSE",
+                "voucherdesc": "d",
+                "vouchernumber": "vn",
+                "debit": "1",
+                "credit": float("nan"),
+                "runbal": "2",
+            },
+        }
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+        )
+        assert snapshot.available is False
+        assert "non-finite" in snapshot.message
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_non_finite_running_balance_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingLedgerFakeDhanClient(
+        {
+            "status": "success",
+            "remarks": "",
+            "data": {
+                "dhanClientId": "c1",
+                "narration": "n",
+                "voucherdate": "2026-01-15",
+                "exchange": "NSE",
+                "voucherdesc": "d",
+                "vouchernumber": "vn",
+                "debit": "1",
+                "credit": "0",
+                "runbal": float("inf"),
+            },
+        }
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC), timeout=5.0
+        )
+        assert snapshot.available is False
+        assert "non-finite" in snapshot.message
+    finally:
+        transport.close()
+
+
+def test_dhan_ledger_entry_docstring_contains_precision_note() -> None:
+    from quantx.plugins.dhan.models import DhanLedgerEntry
+
+    assert "Decimal(str(value))" in (DhanLedgerEntry.__doc__ or "")
+    assert "cannot reconstruct" in (DhanLedgerEntry.__doc__ or "")
+
+
+def test_dhan_trade_history_entry_docstring_contains_precision_note() -> None:
+    from quantx.plugins.dhan.models import DhanTradeHistoryEntry
+
+    assert "Decimal(str(value))" in (DhanTradeHistoryEntry.__doc__ or "")
+    assert "cannot reconstruct" in (DhanTradeHistoryEntry.__doc__ or "")
