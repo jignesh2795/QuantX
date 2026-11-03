@@ -33,6 +33,7 @@ and market-policy-complete for India.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 
 from quantx.domain.accounts import AccountId, BrokerConnectionId
@@ -47,7 +48,11 @@ from quantx.domain.risk import (
     RiskLimits,
     require_live_risk_limits,
 )
-from quantx.execution.trading_gate import DurableTradingGate
+from quantx.execution.trading_gate import (
+    DurableTradingGate,
+    TradingGateState,
+    TradingGateStateStore,
+)
 from quantx.persistence.sqlite import (
     SqliteSubmissionQuarantineRepository,
     SqliteTradingGateStateStore,
@@ -92,6 +97,9 @@ _AUTHORITY_IDENTITY_REQUIRED_REASON = (
     "authority mode requires the registered account and broker connection"
 )
 
+_STARTUP_DISARM_REASON = "LIVE gate disarmed for new process start"
+_GATE_INITIALIZATION_REASON = "durable LIVE trading gate could not be initialized safely"
+
 
 class LiveExecutionCompositionError(ValidationError):
     """Raised when a LIVE stack cannot be built from the supplied inputs.
@@ -99,6 +107,66 @@ class LiveExecutionCompositionError(ValidationError):
     Messages are fixed text: a composition failure names the missing or
     mistyped requirement and never a supplied value.
     """
+
+
+class _PrefetchedTradingGateStateStore:
+    """Give the gate constructor the exact state already read under the store lock.
+
+    DurableTradingGate normally performs its own initial read. The LIVE
+    composition root must first distinguish a persisted operator block from
+    an unavailable read, so it reads once while synchronized and passes that
+    result through this adapter. Subsequent loads and every write still use
+    the original durable store and its fault domain.
+    """
+
+    def __init__(
+        self,
+        delegate: TradingGateStateStore,
+        initial_state: TradingGateState | None,
+    ) -> None:
+        self._delegate = delegate
+        self._initial_state = initial_state
+        self._initial_load_pending = True
+
+    @property
+    def shared_fault_domain(self) -> object:
+        """Retain the wrapped store's shared persistence/fault identity."""
+        return getattr(self._delegate, "shared_fault_domain", self._delegate)
+
+    def load(self) -> TradingGateState | None:
+        if self._initial_load_pending:
+            self._initial_load_pending = False
+            return self._initial_state
+        return self._delegate.load()
+
+    def save(self, state: TradingGateState) -> None:
+        self._delegate.save(state)
+
+    def synchronize(self) -> AbstractContextManager[None]:
+        return self._delegate.synchronize()
+
+
+def _build_startup_disarmed_gate(runtime: ProductionRuntime) -> DurableTradingGate:
+    """Load and disarm the LIVE gate without erasing a persisted block reason.
+
+    The direct store read is intentional: gate.state() returns a synthetic
+    blocked sentinel when durable state is unavailable, so it cannot tell a
+    real persisted block from a failed read. One synchronization scope covers
+    the direct read, gate construction and any required disarm write.
+    """
+    try:
+        state_store = SqliteTradingGateStateStore(runtime.database)
+        with state_store.synchronize():
+            persisted = state_store.load()
+            gate = DurableTradingGate(
+                _PrefetchedTradingGateStateStore(state_store, persisted),
+                default_enabled=False,
+            )
+            if persisted is None or persisted.enabled:
+                gate.block(_STARTUP_DISARM_REASON)
+            return gate
+    except Exception:
+        raise LiveExecutionCompositionError(_GATE_INITIALIZATION_REASON) from None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -279,10 +347,7 @@ def build_live_execution(
     except LiveRiskLimitsError:
         raise LiveExecutionCompositionError(_LIMITS_REQUIRED_REASON) from None
 
-    gate = DurableTradingGate(SqliteTradingGateStateStore(runtime.database))
-    # Persist a fresh disarmed state on every process start; do not inherit
-    # authorization that an operator granted to a previous process.
-    gate.block("LIVE gate disarmed for new process start")
+    gate = _build_startup_disarmed_gate(runtime)
     quarantine = SqliteSubmissionQuarantineRepository(runtime.database)
     if has_callback:
         evaluator = LivePreTradeRiskEvaluator(

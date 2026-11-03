@@ -40,6 +40,17 @@ The canonical QuantX `InstrumentId` remains the system identity. A
 
 Credentials are runtime inputs to `DhanSDKTransport` and are not stored in
 QuantX domain objects, plugin descriptors, registrations, orders, or receipts.
+`DhanCredentials` carries the broker-supplied expiry instant alongside the
+access token, excludes the token from `repr`, and normalizes the expiry to UTC.
+`DhanCredentials.from_token_response(...)` reads the documented
+`accessToken` and `expiryTime` response fields; a timezone-naive
+`expiryTime` is interpreted in Asia/Kolkata because Dhan documents that
+timestamp as IST. The host requires at least five minutes of remaining token
+lifetime by default (configurable through `DhanHostConfig`). A host using an
+injected transport must supply an explicit `credential_expires_at`; absence
+is not treated as an unbounded token. The adapter rechecks the same lifetime
+margin immediately before every order submission. No automatic token renewal,
+PIN/TOTP handling, secret persistence, or background refresh is performed.
 
 Dhan's documented regular-order correlation ID is limited to 30 characters.
 QuantX client order IDs may be UUID strings longer than that, so the plugin
@@ -201,9 +212,19 @@ unknown broker states become `UNKNOWN`.
 
 ## Uncertain outcomes
 
-A transport/network exception during submission, cancellation, or
-reconciliation produces an `UNKNOWN` execution receipt. The plugin does not
-automatically retry order submission.
+An exact structured SDK response with `remarks.error_code == "DH-901"`
+is classified as Dhan authentication rejection (Dhan defines this code as an
+invalid client ID or invalid/expired user access token). For submission, that
+documented response is a definitive broker non-acceptance: the adapter raises
+`BrokerSubmissionRejected`, and the orchestrator durably records
+`NotSubmittedSource.ADAPTER_BROKER_REJECTION`. It is distinct from local
+preflight rejection because the transport request was made. Cancellation and
+reconciliation authentication rejections remain `UNKNOWN`, because they do
+not establish the order's actual state.
+
+All other transport/network exceptions, timeouts, generic HTTP failures, and
+unrecognized broker error codes remain `UNKNOWN` and require reconciliation.
+The plugin does not automatically renew credentials or retry order submission.
 
 For a traded order, reconciliation verifies the broker-returned correlation
 identity against the deterministic Dhan correlation derived from the request.

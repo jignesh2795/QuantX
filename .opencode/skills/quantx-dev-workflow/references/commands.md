@@ -18,6 +18,7 @@ uv run pytest tests/unit -q                         # fast unit layer (also: scr
 uv run pytest tests/unit/execution -q               # execution-focused (also: scripts/test_execution.py)
 uv run pytest tests/unit/execution/paper -q         # paper venue
 uv run pytest tests/unit/plugins/dhan -q            # Dhan plugin slice
+uv run python .opencode/skills/quantx-validation-gate/scripts/package_coverage.py  # package line/branch floors
 uv run ruff check                                   # lint
 uv run ruff format --check                          # format check
 uv run mypy                                         # strict typecheck (package quantx)
@@ -39,5 +40,5 @@ pytest green + changed-file Ruff clean + git diff --check clean
 
 ## Executable gates
 
-- Validation: `python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head <sha>` runs the gate read-only and writes machine-readable evidence.
+- Validation: `python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head <sha>` runs the gate read-only and writes machine-readable evidence, including the package coverage floors for `quantx.domain`, `quantx.execution` and `quantx.persistence`.
 - Release: `python .opencode/skills/quantx-release-gate/scripts/release_check.py --expected-head <sha>` binds that evidence to the exact merge candidate. See those skills for exit codes and PASS/FAIL/UNKNOWN semantics.

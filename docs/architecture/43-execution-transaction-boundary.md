@@ -45,6 +45,29 @@ Canonical receipt recovery
 Complete idempotency
 ```
 
+## Broker submission outcomes
+
+The broker boundary distinguishes three outcomes, and only the first two
+can close a pending reservation as typed `NOT_SUBMITTED`:
+
+- `BrokerPreflightRejected` proves local validation failed before transport
+  I/O. Its durable provenance is
+  `NotSubmittedSource.ADAPTER_PREFLIGHT_REJECTION`.
+- `BrokerSubmissionRejected` is reserved for an exact, documented broker
+  protocol response proving that the broker did not accept the order even
+  though transport I/O occurred. Its provenance is
+  `NotSubmittedSource.ADAPTER_BROKER_REJECTION`. Dhan's structured
+  `DH-901` invalid-authentication response is one such case.
+- Every other failure after admission—including timeouts, transport
+  exceptions, unrecognized error codes, and ambiguous broker statuses—stays
+  `SUBMISSION_UNKNOWN`, preserves the pending reservation/quarantine path,
+  and is never automatically retried. A failed durable not-submitted closure
+  also remains `UNKNOWN`.
+
+A broker rejection must never be mislabeled as a pre-transport rejection or
+as an operator closure. It does not create an execution receipt or imply a
+fill.
+
 ## Package boundaries
 
 - `execution/preconditions/`: fail-closed checks before submission.

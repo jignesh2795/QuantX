@@ -1,6 +1,45 @@
 # QuantX Status
 
 
+## Issue #182 — package coverage floors (2026-10-31)
+
+Implemented on branch `fix/issue-182-package-coverage-floors-v1` from base
+`9841ae361e3612341cdc728c66ccf47d6ebcbd79`. `quantx.domain`, `quantx.execution`
+and `quantx.persistence` are now measured and enforced independently for line
+and branch coverage; an aggregate suite percentage is not accepted as a package
+guarantee.
+
+Baseline measured at the base SHA with the locked Python 3.12 environment and
+the full suite under branch measurement:
+
+| Package | Line | Branch | Required line | Required branch |
+|---|---:|---:|---:|---:|
+| `quantx.domain` | 88.77% | 74.66% | 87% | 73% |
+| `quantx.execution` | 89.30% | 75.41% | 88% | 74% |
+| `quantx.persistence` | 93.16% | 81.48% | 92% | 80% |
+
+Each floor is the truncated measured percentage minus one full point
+(`floor(measured) - 1`), applied uniformly to line and branch coverage. The
+measurement includes every module under each package, whether or not a test
+imports it, so untested new modules lower the package result.
+
+Standalone gate:
+
+```powershell
+uv run python .opencode/skills/quantx-validation-gate/scripts/package_coverage.py
+```
+
+The documented local validation producer runs the same gate as its
+`package-coverage` mandatory check; the release gate requires that record exactly
+once, validates its canonical invocation, and pins the package order and
+reviewed floors. Skipping the check records UNKNOWN, never PASS. Baseline
+figures, command details, new-module policy, revision policy and the separate
+issue #202 relationship are recorded in
+[`docs/implementation/package-coverage-floors.md`](implementation/package-coverage-floors.md).
+
+The floors are a regression alarm, not a mutation score, correctness proof,
+production-broker claim, or LIVE-readiness claim.
+
 ## Current work-program reconciliation — 2026-10-30
 
 The active cross-workstream priority order remains in the [master work programme](planning/quantx-work-program-2026-10.md). This status file records the implemented state and exact-SHA evidence.
@@ -8,6 +47,7 @@ The active cross-workstream priority order remains in the [master work programme
 - **P0.1 / #239, P0.2 / #240 and P0.3 / #241:** fixed and merged. Do not reimplement without a newly reproduced defect.
 - **QX-04 / #193, QX-05 / #194, QX-07 / #181, QX-08 / #196 and QX-09 / #197:** implementation recorded as merged/completed. QX-07 Slices 1, 2A and 2B landed in PRs #257, #259 and #261.
 - **LIVE trusted-clock slice / PR #281:** merged; it does not establish risk-evidence provenance. **Supplemental Dhan position P&L evidence / PR #285:** merged at `6daaa481854fe412bb2582e46d6312c6738d0ba8` from validated feature head `a95d29d88d539632fd9b9792f38e6b9c79ab29ad`. PR #285 preserves broker-reported position-row P&L as supplemental HMAC-bound evidence; it does not derive account/day P&L, equity or high-water mark, nor unblock LIVE.
+- **Issue #280 completed in PR #287**, merged at `b290802f4331d4137d3bda407d12a95750d7e6b4` from validated feature head `8a560cd243e8121345a310805cb69053336ea404`. Startup composition now preserves persisted disabled/operator block reasons, durably disarms enabled or fresh gate state, and fails closed when state loading or required persistence fails. Owner-run exact-SHA validation passed in both default (3,254 passed / 2 skipped) and Dhan-enabled (3,256 passed) locked configurations; changed-file Ruff check/format, strict mypy, diff checks, both validation producers and both release gates passed. This does not establish production-broker correctness or LIVE readiness.
 - **Issue #267 remains open.** The Dhan source still does not support required account-level `DAILY_PNL`; `authoritative_evidence_available` therefore remains false and the sanctioned authority returns before invoking source collection. The new row collection is not yet an application-facing P&L read service. Public LIVE dispatch remains blocked before reservation and broker submission. #266 accounting semantics and #269 broker-probe validation remain separate follow-up work.
 - **QX-12 / #200:** the India charges design and evidence notes are recorded under `docs/planning/`; implementation remains gated on unresolved GST/stamp-duty rate applicability.
 - **Global-market comparison and crypto extension:** remain proposals on separate unmerged docs branches; their existence does not establish audit completion, connector support, or LIVE eligibility.

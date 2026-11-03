@@ -114,12 +114,23 @@ The producer command is the one shown twice in section 3, immediately after each
 commit instead of to whatever HEAD happened to be.
 
 The [producer script](../../.opencode/skills/quantx-validation-gate/scripts/run_validation.py)
-runs six mandatory checks, named in the record as `pytest`,
+runs seven mandatory checks, named in the record as `pytest`,
 `ruff-check`, `ruff-format`, `mypy`, `git-diff-check` (runs `git diff --check`),
-and `worktree-integrity` (runs `git status --porcelain`). Ruff is scoped to
-changed, tracked Python files versus `--base`; mypy type-checks the whole
-`quantx` package. A passing changed-file Ruff verdict is therefore not a
-repository-wide formatting claim.
+`worktree-integrity` (runs `git status --porcelain`), and `package-coverage`
+(runs the package coverage gate). Ruff is scoped to changed, tracked Python
+files versus `--base`; mypy type-checks the whole `quantx` package. A passing
+changed-file Ruff verdict is therefore not a repository-wide formatting claim.
+
+`package-coverage` re-runs the full suite under branch coverage and enforces
+separate line and branch floors for `quantx.domain`, `quantx.execution` and
+`quantx.persistence`. Its evidence summary records each package's measured and
+required percentages. This is a second execution of the suite by design: the
+`pytest` record remains the canonical full-suite verdict, while the coverage
+record carries the floor evidence and cannot be inferred from it. Floors,
+baseline SHA, measurement command and revision policy are canonical in
+[package-coverage-floors.md](package-coverage-floors.md). `--skip-coverage`
+records the check as UNKNOWN; a skipped coverage check never satisfies the
+release gate.
 
 `--pytest-target` narrows the suite. A narrowed run is useful for iteration but
 does not answer the release question: its recorded argv is not the canonical
@@ -149,11 +160,14 @@ $e = Get-Content "$env:TEMP\quantx-validation\<task>\validation-dhan.json" -Raw 
 $e.schema; $e.head_sha; $e.base_rev; $e.generated_at; $e.overall
 $e.checks | Format-Table name, status, exit_code, summary
 ($e.checks | Where-Object name -like 'ruff*').output_full
+($e.checks | Where-Object name -eq 'package-coverage').summary
 ```
 
 Bindings to check: `repo` is this repository, `head_sha` and `expected_head` are
 the candidate, `base_rev` is the intended base, and `worktree-integrity` reports
-`clean tracked tree`.
+`clean tracked tree`. The `package-coverage` summary must name all three
+packages in the order `domain`, `execution`, `persistence`, with measured and
+required line/branch percentages and a PASS marker for each.
 
 An earlier command whose output was never retained cannot be reconstructed from
 a summary afterwards. If a formatting question depends on a run with no stored
@@ -198,8 +212,8 @@ invalidates the exercise even when the gate cannot detect it.
 
 - **PASS** — both producer runs PASS at the exact candidate in a clean worktree,
   and each release gate PASSes on its matching record.
-- **FAIL** — any mandatory check is FAIL, the tree is dirty, or a gate rejects
-  the record.
+- **FAIL** — any mandatory check is FAIL (including a below-floor package line
+  or branch result), the tree is dirty, or a gate rejects the record.
 - **UNKNOWN** — a check was skipped, timed out, could not run, or the evidence
   cannot be tied to the candidate.
 
@@ -246,6 +260,8 @@ A complete record for a candidate states, bound to its exact SHA and base:
 - the per-configuration pytest result, including skipped tests and why they
   skipped;
 - the changed-file count seen by Ruff and the mypy verdict;
+- the measured and required line/branch coverage for `quantx.domain`,
+  `quantx.execution` and `quantx.persistence`;
 - `git diff --check` and tracked-worktree integrity;
 - the overall verdict of both producer records and both release reports;
 - the exact evidence paths from section 7.

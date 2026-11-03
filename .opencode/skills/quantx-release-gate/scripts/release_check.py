@@ -6,8 +6,8 @@ Consumes the machine-readable evidence produced by the validation gate
 produced in this repository, belongs to the current HEAD, and satisfies the
 mandatory check contract of the `quantx.validation-evidence.v1` schema: every
 check record emitted by the validation gate (pytest, ruff-check, ruff-format,
-mypy, git-diff-check, worktree-integrity) must be present exactly once as a
-well-formed record, and the overall verdict is recomputed from those records
+mypy, git-diff-check, worktree-integrity, package-coverage) must be present
+exactly once as a well-formed record, and the overall verdict is recomputed from those records
 and never trusted as a summary field. Record semantics are cross-checked
 against the producer's shapes: for the command checks a PASS requires exit 0,
 a FAIL requires a nonzero exit, and an UNKNOWN cannot carry an exit code,
@@ -20,7 +20,9 @@ combinations the producer can emit, including the collected-no-tests FAIL
 that can occur with exit 0 and the exit-0 UNKNOWN contradiction/incomplete
 paths); non-finite or negative durations are rejected, while the Ruff
 vacuous-pass shape is preserved; worktree-integrity is produced without an
-exit code. On top of shape checks, every PASS-status mandatory record must
+exit code; package-coverage records must carry the producer's three-package
+summary in fixed order with the reviewed line/branch requirements and no
+out-of-range status mix. On top of shape checks, every PASS-status mandatory record must
 carry the canonical command arguments for its scope (`command-scope`): pytest
 must be exactly ["uv", "run", "pytest"] (targeted runs never satisfy the
 full-suite contract regardless of counts), Ruff must cover exactly the
@@ -76,6 +78,7 @@ MANDATORY_CHECKS: tuple[str, ...] = (
     "mypy",
     "git-diff-check",
     "worktree-integrity",
+    "package-coverage",
 )
 
 CHECK_RECORD_FIELDS: tuple[str, ...] = (
@@ -89,7 +92,7 @@ CHECK_RECORD_FIELDS: tuple[str, ...] = (
     "output_tail",
 )
 
-_COMMAND_CHECKS = ("ruff-check", "ruff-format", "mypy", "git-diff-check")
+_COMMAND_CHECKS = ("ruff-check", "ruff-format", "mypy", "git-diff-check", "package-coverage")
 
 # Canonical producer invocations (run_validation.build_checks). A PASS-status
 # record must carry exactly these arguments; scope mismatches never PASS.
@@ -98,6 +101,12 @@ _CANONICAL_ARGV: dict[str, tuple[str, ...]] = {
     "mypy": ("uv", "run", "mypy"),
     "git-diff-check": ("git", "diff", "--check"),
     "worktree-integrity": ("git", "status", "--porcelain"),
+    "package-coverage": (
+        "uv",
+        "run",
+        "python",
+        ".opencode/skills/quantx-validation-gate/scripts/package_coverage.py",
+    ),
 }
 _RUFF_PREFIX: dict[str, tuple[str, ...]] = {
     "ruff-check": ("uv", "run", "ruff", "check"),
@@ -125,11 +134,38 @@ _DIFF_CHECK_ERROR_SUMMARY = "git diff --check failed without actionable output"
 _DIFF_CHECK_ERROR_NOTE = "git error"
 _DIFF_CHECK_SKIPPED_NOTE = "skipped by request"
 
+# Producer strings from run_validation.classify_package_coverage and
+# package_coverage.py. The summary carries measured and required percentages;
+# the release gate pins the package order and required floors, but cannot
+# independently recompute the measured values without re-running the suite.
+_COVERAGE_ORDER = ("domain", "execution", "persistence")
+_COVERAGE_FLOORS = {
+    "domain": (87, 73),
+    "execution": (88, 74),
+    "persistence": (92, 80),
+}
+_COVERAGE_PART_RE = re.compile(
+    r"(?P<package>domain|execution|persistence) "
+    r"line=(?P<line>\d+\.\d{2})% req=(?P<line_req>\d+)% (?P<line_status>PASS|FAIL) "
+    r"branch=(?P<branch>\d+\.\d{2})% req=(?P<branch_req>\d+)% (?P<branch_status>PASS|FAIL)"
+)
+_COVERAGE_PASS_SUMMARY = (
+    "domain line=88.77% req=87% PASS branch=74.66% req=73% PASS; "
+    "execution line=89.30% req=88% PASS branch=75.41% req=74% PASS; "
+    "persistence line=93.16% req=92% PASS branch=81.48% req=80% PASS"
+)
+_COVERAGE_FAIL_SUMMARY = _COVERAGE_PASS_SUMMARY.replace(
+    "domain line=88.77% req=87% PASS", "domain line=80.00% req=87% FAIL"
+)
+_COVERAGE_FLOOR_NOTE = "package coverage floor not met"
+_COVERAGE_GATE_FAIL_NOTE = "coverage gate failed"
+_COVERAGE_INCOMPLETE_NOTE = "package coverage measurement incomplete"
+
 NON_CLAIMS = [
     "PASS confirms: complete, internally consistent validation evidence for this repository and "
     "this exact HEAD, with every mandatory check (pytest, ruff-check, ruff-format, mypy, "
-    "git-diff-check, worktree-integrity) present exactly once and reporting PASS; the tracked "
-    "worktree is clean, and the diff range has no whitespace errors.",
+    "git-diff-check, worktree-integrity, package-coverage) present exactly once and reporting "
+    "PASS; the tracked worktree is clean, and the diff range has no whitespace errors.",
     "PASS does NOT authenticate the evidence: it is an editable local JSON file, and recomputation "
     "verifies internal consistency only (including recorded command arguments), not that the "
     "checks were truly executed. This schema has no cryptographic or trusted-runner attestation.",
@@ -378,11 +414,111 @@ def check_record_problems(index: int, entry: object) -> list[str]:
     return problems
 
 
+def coverage_summary_problems(summary: str) -> tuple[list[str], list[str]]:
+    """Validate the package-coverage summary shape, order and required floors."""
+    parts = summary.split("; ")
+    if len(parts) != len(_COVERAGE_ORDER):
+        return [
+            f"package-coverage summary {summary!r} does not name all three packages exactly once"
+        ], []
+    problems: list[str] = []
+    statuses: list[str] = []
+    for expected, part in zip(_COVERAGE_ORDER, parts, strict=True):
+        match = _COVERAGE_PART_RE.fullmatch(part)
+        if match is None:
+            problems.append(f"package-coverage summary part is malformed: {part!r}")
+            continue
+        if match.group("package") != expected:
+            problems.append(
+                f"package-coverage summary package {match.group('package')!r} "
+                f"is out of order; expected {expected!r}"
+            )
+        line_floor, branch_floor = _COVERAGE_FLOORS[expected]
+        if int(match.group("line_req")) != line_floor:
+            problems.append(
+                f"package-coverage {expected} line requirement "
+                f"{match.group('line_req')}% does not match {line_floor}%"
+            )
+        if int(match.group("branch_req")) != branch_floor:
+            problems.append(
+                f"package-coverage {expected} branch requirement "
+                f"{match.group('branch_req')}% does not match {branch_floor}%"
+            )
+        statuses.extend([match.group("line_status"), match.group("branch_status")])
+    return problems, statuses
+
+
+def package_coverage_record_problems(
+    status: str, exit_code: int | None, summary: str, notes: list[str]
+) -> list[str]:
+    """Mirror classify_package_coverage and pin its producer record shapes."""
+    problems: list[str] = []
+    if status == PASS:
+        if exit_code != 0:
+            problems.append(
+                f"check 'package-coverage' has status PASS with exit_code {exit_code!r}"
+            )
+        if notes:
+            problems.append(f"check 'package-coverage' has status PASS with notes {notes!r}")
+        summary_problems, statuses = coverage_summary_problems(summary)
+        problems.extend(summary_problems)
+        if statuses and any(item != PASS for item in statuses):
+            problems.append(
+                "check 'package-coverage' has status PASS with a failing "
+                f"package result {summary!r}"
+            )
+        return problems
+    if status == FAIL:
+        if exit_code != 1:
+            problems.append(
+                f"check 'package-coverage' has status FAIL with exit_code {exit_code!r}"
+            )
+        if notes == [_COVERAGE_FLOOR_NOTE]:
+            summary_problems, statuses = coverage_summary_problems(summary)
+            problems.extend(summary_problems)
+            if statuses and FAIL not in statuses:
+                problems.append(
+                    "check 'package-coverage' reports a floor failure but its summary "
+                    f"contains no failing package {summary!r}"
+                )
+        elif notes == [_COVERAGE_GATE_FAIL_NOTE]:
+            if summary:
+                problems.append(
+                    "check 'package-coverage' reports a coverage-run failure but "
+                    f"carries summary {summary!r}"
+                )
+        else:
+            problems.append(f"check 'package-coverage' has status FAIL with notes {notes!r}")
+        return problems
+    if status == UNKNOWN:
+        if summary:
+            problems.append(f"check 'package-coverage' has status UNKNOWN with summary {summary!r}")
+        if exit_code is None:
+            if not notes:
+                problems.append(
+                    "check 'package-coverage' has status UNKNOWN without an exit code or notes"
+                )
+        elif exit_code == 2:
+            if notes != [_COVERAGE_INCOMPLETE_NOTE]:
+                problems.append(
+                    "check 'package-coverage' has status UNKNOWN with exit_code 2 but "
+                    f"notes {notes!r}"
+                )
+        elif notes != [f"package coverage gate exit code {exit_code}"]:
+            problems.append(
+                "check 'package-coverage' has status UNKNOWN with an unexpected "
+                f"exit_code {exit_code!r} and notes {notes!r}"
+            )
+    return problems
+
+
 def semantic_record_problems(
     name: str, status: str, exit_code: int | None, summary: str, notes: list[str]
 ) -> list[str]:
     """Reject statuses that contradict the producer's exit codes or summaries."""
     problems: list[str] = []
+    if name == "package-coverage":
+        return package_coverage_record_problems(status, exit_code, summary, notes)
     if name == "worktree-integrity":
         if exit_code is not None:
             problems.append(
@@ -917,6 +1053,18 @@ def self_test() -> int:
                 base["summary"] = (
                     "no whitespace errors" if status == PASS else "whitespace errors found"
                 )
+            elif name == "package-coverage":
+                base["argv"] = list(_CANONICAL_ARGV["package-coverage"])
+                if status == PASS:
+                    base["summary"] = _COVERAGE_PASS_SUMMARY
+                elif status == FAIL:
+                    base["exit_code"] = 1
+                    base["summary"] = _COVERAGE_FAIL_SUMMARY
+                    base["notes"] = [_COVERAGE_FLOOR_NOTE]
+                else:
+                    base["exit_code"] = None
+                    base["summary"] = ""
+                    base["notes"] = ["skipped by request"]
             base.update(overrides)
             return base
 
@@ -1398,6 +1546,144 @@ def self_test() -> int:
         )
         for case_name, data in diff_check_reject_cases:
             path = write_case("diff-check-reject.json", data)
+            report = evaluate(tmp, path, None, head)
+            check_case(case_name, integrity_status(report) == FAIL)
+
+        coverage_slot = MANDATORY_CHECKS.index("package-coverage")
+        coverage_accept_cases: list[tuple[str, dict, str]] = []
+        checks = case_checks()
+        checks[coverage_slot] = record("package-coverage", FAIL)
+        coverage_accept_cases.append(
+            (
+                "package-coverage floor FAIL accepted",
+                payload(overall=FAIL, checks=checks),
+                FAIL,
+            )
+        )
+        checks = case_checks()
+        checks[coverage_slot] = record(
+            "package-coverage",
+            FAIL,
+            summary="",
+            notes=[_COVERAGE_GATE_FAIL_NOTE],
+        )
+        coverage_accept_cases.append(
+            (
+                "package-coverage run FAIL accepted",
+                payload(overall=FAIL, checks=checks),
+                FAIL,
+            )
+        )
+        checks = case_checks()
+        checks[coverage_slot] = record(
+            "package-coverage",
+            UNKNOWN,
+            exit_code=2,
+            summary="",
+            notes=[_COVERAGE_INCOMPLETE_NOTE],
+        )
+        coverage_accept_cases.append(
+            (
+                "package-coverage incomplete UNKNOWN accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        checks = case_checks()
+        checks[coverage_slot] = record(
+            "package-coverage",
+            UNKNOWN,
+            exit_code=None,
+            summary="",
+            notes=["timed out after 3600s"],
+        )
+        coverage_accept_cases.append(
+            (
+                "package-coverage timeout UNKNOWN accepted",
+                payload(overall=UNKNOWN, checks=checks),
+                UNKNOWN,
+            )
+        )
+        for case_name, data, expected_overall in coverage_accept_cases:
+            path = write_case("coverage-accept.json", data)
+            report = evaluate(tmp, path, None, head)
+            check_case(
+                case_name,
+                integrity_status(report) == PASS and report["overall"] == expected_overall,
+            )
+
+        coverage_reject_cases: list[tuple[str, dict]] = []
+        checks = case_checks()
+        checks[coverage_slot] = record("package-coverage", PASS, summary="all good")
+        coverage_reject_cases.append(
+            ("package-coverage malformed PASS summary rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[coverage_slot] = record("package-coverage", PASS, summary=_COVERAGE_FAIL_SUMMARY)
+        coverage_reject_cases.append(
+            ("package-coverage PASS with failing package rejected", payload(checks=checks))
+        )
+        lowered_floor = _COVERAGE_PASS_SUMMARY.replace("req=87%", "req=80%", 1)
+        checks = case_checks()
+        checks[coverage_slot] = record("package-coverage", PASS, summary=lowered_floor)
+        coverage_reject_cases.append(
+            ("package-coverage PASS with lowered requirement rejected", payload(checks=checks))
+        )
+        checks = case_checks()
+        checks[coverage_slot] = record("package-coverage", FAIL, summary=_COVERAGE_PASS_SUMMARY)
+        coverage_reject_cases.append(
+            (
+                "package-coverage floor FAIL without failing package rejected",
+                payload(overall=FAIL, checks=checks),
+            )
+        )
+        checks = case_checks()
+        checks[coverage_slot] = record(
+            "package-coverage",
+            FAIL,
+            exit_code=0,
+            summary=_COVERAGE_FAIL_SUMMARY,
+        )
+        coverage_reject_cases.append(
+            ("package-coverage FAIL with exit 0 rejected", payload(overall=FAIL, checks=checks))
+        )
+        checks = case_checks()
+        checks[coverage_slot] = record(
+            "package-coverage",
+            UNKNOWN,
+            exit_code=2,
+            summary="",
+            notes=["some other reason"],
+        )
+        coverage_reject_cases.append(
+            (
+                "package-coverage UNKNOWN exit 2 with wrong note rejected",
+                payload(overall=UNKNOWN, checks=checks),
+            )
+        )
+        checks = case_checks()
+        checks[coverage_slot] = record(
+            "package-coverage",
+            UNKNOWN,
+            exit_code=None,
+            summary="",
+            notes=[],
+        )
+        coverage_reject_cases.append(
+            (
+                "package-coverage UNKNOWN without notes rejected",
+                payload(overall=UNKNOWN, checks=checks),
+            )
+        )
+        checks = case_checks()
+        checks[coverage_slot] = record(
+            "package-coverage", PASS, summary=_COVERAGE_PASS_SUMMARY, notes=["extra"]
+        )
+        coverage_reject_cases.append(
+            ("package-coverage PASS with notes rejected", payload(checks=checks))
+        )
+        for case_name, data in coverage_reject_cases:
+            path = write_case("coverage-reject.json", data)
             report = evaluate(tmp, path, None, head)
             check_case(case_name, integrity_status(report) == FAIL)
 

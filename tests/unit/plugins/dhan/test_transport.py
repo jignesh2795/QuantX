@@ -1,6 +1,7 @@
 import threading
 import time
 import types
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from quantx.plugins.dhan.mapping import dhan_correlation_id
 from quantx.plugins.dhan.models import DhanCredentials, DhanOrderRequest
 from quantx.plugins.dhan.transport import (
+    DhanAuthenticationRejectedError,
     DhanSDKTransport,
     DhanTimeoutError,
     DhanTransport,
@@ -82,6 +84,61 @@ def test_transport_helpers_unwrap_success_and_failure_envelopes() -> None:
     }
     order = _order_response(success)
     failed = _order_response(failure)
+
+    auth_failure = {
+        "status": "failure",
+        "remarks": {
+            "error_code": "DH-901",
+            "error_type": "Invalid Authentication",
+            "error_message": "token is invalid or expired",
+        },
+        "data": "",
+    }
+    with pytest.raises(DhanAuthenticationRejectedError, match="DH-901"):
+        _order_response(auth_failure)
+    with pytest.raises(DhanAuthenticationRejectedError, match="DH-901"):
+        _order_detail(auth_failure)
+    with pytest.raises(DhanAuthenticationRejectedError) as cancel_error:
+        _order_response(auth_failure, operation="cancel")
+    assert cancel_error.value.operation == "cancel"
+    assert "during cancel" in str(cancel_error.value)
+
+    # Free text is never promoted to typed authentication evidence.
+    text_only_auth_hint = {
+        "status": "failure",
+        "remarks": "request failed with DH-901 somewhere in the text",
+        "data": "",
+    }
+    text_only_failure = _order_response(text_only_auth_hint)
+    assert text_only_failure.order_status == "UNKNOWN"
+
+    # DH-904 is a rate-limit outcome, not an authentication failure.
+    rate_limit_failure = {
+        "status": "failure",
+        "remarks": {
+            "error_code": "DH-904",
+            "error_type": "Rate Limit Exceeded",
+            "error_message": "rate limit exceeded",
+        },
+        "data": "",
+    }
+    rate_limited = _order_response(rate_limit_failure)
+    assert rate_limited.order_status == "UNKNOWN"
+    assert "DH-904" in rate_limited.message
+
+    # DH-902 is an unrecognized authentication code and must stay UNKNOWN.
+    unrecognized_auth_failure = {
+        "status": "failure",
+        "remarks": {
+            "error_code": "DH-902",
+            "error_type": "Authentication Error",
+            "error_message": "unrecognized authentication failure",
+        },
+        "data": "",
+    }
+    unrecognized_auth = _order_response(unrecognized_auth_failure)
+    assert unrecognized_auth.order_status == "UNKNOWN"
+    assert "DH-902" in unrecognized_auth.message
 
     assert order.order_id == "123"
     assert order.order_status == "PENDING"
@@ -310,7 +367,11 @@ def _sdk_transport_without_sdk(monkeypatch: pytest.MonkeyPatch, client: object) 
     fake_module.dhanhq = _client  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "dhanhq", fake_module)
     return DhanSDKTransport(
-        credentials=DhanCredentials(client_id="test-id", access_token="test-token")
+        credentials=DhanCredentials(
+            client_id="test-id",
+            access_token="test-token",
+            expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+        )
     )
 
 
@@ -888,7 +949,11 @@ def _sdk_transport_with_context(
     fake_module.dhanhq = _client  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "dhanhq", fake_module)
     return DhanSDKTransport(
-        credentials=DhanCredentials(client_id="test-id", access_token="test-token")
+        credentials=DhanCredentials(
+            client_id="test-id",
+            access_token="test-token",
+            expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+        )
     )
 
 

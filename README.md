@@ -92,9 +92,16 @@ Useful local checks:
 
 ```powershell
 uv run pytest tests/unit/execution/paper -q
+uv run python .opencode/skills/quantx-validation-gate/scripts/package_coverage.py
 uv run python scripts/test_execution.py
 uv run python scripts/test_fast.py
 uv run python scripts/test_all.py
 ```
+
+The package coverage command runs the full suite with branch measurement and
+enforces the recorded line/branch floors for `quantx.domain`,
+`quantx.execution` and `quantx.persistence`. See
+`docs/implementation/package-coverage-floors.md` for the baseline, thresholds
+and revision policy.
 
 After dependency changes, regenerate the lockfile with `uv lock` and commit `uv.lock` so the environment is reproducible. uv's project workflow uses `uv sync` and `uv run`, with development dependencies defined in the `dev` dependency group.

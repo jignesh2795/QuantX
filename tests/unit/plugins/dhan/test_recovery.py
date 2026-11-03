@@ -1,5 +1,6 @@
 """Unit coverage for read-only Dhan recovery evidence."""
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -127,6 +128,7 @@ def _adapter(
         _cancel_timeout=5.0,
         _reconcile_timeout=5.0,
         _product_map={"CNC": "CNC"},
+        _credentials_expires_at=datetime(2099, 1, 1, tzinfo=UTC),
     )
 
 

@@ -106,10 +106,14 @@ If construction or recovery fails, the host must not advertise execution readine
 
 `build_live_execution(runtime, config)` is the supported way to assemble a LIVE-capable
 orchestrator over a validated `ProductionRuntime`. It returns the orchestrator plus the durable
-gate it uses. Every invocation unconditionally persists a disarmed state, overriding an enabled
-state left by a prior process; an operator must explicitly enable the gate after each process
-start. If the disarm write fails, composition raises and the host must not expose execution.
-Invalid configuration is rejected before gate construction and writes no durable state.
+gate it uses. Every invocation reads the persisted gate state under the store synchronization
+boundary before constructing the gate. An existing disabled state and its reason are preserved
+(for example, an operator stop or loss-breach block). A previously enabled state is durably
+disarmed with the fixed startup reason; a fresh database is initialized disarmed with that same
+reason. An operator must explicitly enable the gate after each process start. If the state read,
+gate initialization, or required disarm write fails, composition raises a fixed-message error and
+the host must not expose execution. Invalid configuration is rejected before gate construction
+and writes no durable state.
 
 - India-only by enforcement: the factory derives a restrictive market policy from
   `MarketRegion` members. India keeps the caller's classification and check placements

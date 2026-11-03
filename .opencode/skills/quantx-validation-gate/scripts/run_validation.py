@@ -9,6 +9,10 @@ The script never modifies the repository and never fixes anything. Missing
 tools, timeouts, unparsed summaries, skipped checks, dirty tracked files, or
 a HEAD change during the run are never reported as PASS.
 
+The `package-coverage` check runs the package coverage gate, which measures
+line and branch coverage independently for `quantx.domain`, `quantx.execution`
+and `quantx.persistence` and fails when any reviewed package floor is breached.
+
 Ruff invocations additionally keep their complete stdout/stderr in
 `output_full`, so a linter/formatter verdict can be re-read from the evidence
 without re-running Ruff. `output_tail` stays the bounded tail that the console
@@ -63,6 +67,16 @@ _PYTEST_COUNT_RE = re.compile(
 # argv on a PASS pytest record; anything else (e.g. --pytest-target paths)
 # is diagnostic-only evidence.
 CANONICAL_PYTEST_ARGV = ("uv", "run", "pytest")
+
+# Canonical package-coverage invocation. The release gate requires exactly
+# this argv on a PASS package-coverage record.
+CANONICAL_COVERAGE_ARGV = (
+    "uv",
+    "run",
+    "python",
+    ".opencode/skills/quantx-validation-gate/scripts/package_coverage.py",
+)
+COVERAGE_PACKAGES = ("domain", "execution", "persistence")
 
 
 def pytest_argv(targets: list[str]) -> list[str]:
@@ -163,6 +177,32 @@ def classify_pytest(exit_code: int, output: str) -> tuple[str, str, list[str]]:
             return UNKNOWN, summary, ["exit 0 without a parsed pass summary; incomplete evidence"]
         return PASS, summary, []
     return FAIL, summary, [f"pytest exit code {exit_code}"]
+
+
+def coverage_summary(output: str) -> str:
+    """Return the last package-coverage summary line, or an empty string."""
+    marker = "SUMMARY: "
+    for line in reversed(output.splitlines()):
+        if line.startswith(marker):
+            return line[len(marker) :]
+    return ""
+
+
+def classify_package_coverage(exit_code: int, output: str) -> tuple[str, str, list[str]]:
+    """Classify the package-coverage gate without inferring a missing verdict."""
+    summary = coverage_summary(output)
+    complete = summary and all(f"{package} " in summary for package in COVERAGE_PACKAGES)
+    if exit_code == 0:
+        if complete and "FAIL" not in summary:
+            return PASS, summary, []
+        return UNKNOWN, summary, ["exit 0 without a complete package coverage summary"]
+    if exit_code == 1:
+        if summary:
+            return FAIL, summary, ["package coverage floor not met"]
+        return FAIL, "", ["coverage gate failed"]
+    if exit_code == 2:
+        return UNKNOWN, summary, ["package coverage measurement incomplete"]
+    return UNKNOWN, summary, [f"package coverage gate exit code {exit_code}"]
 
 
 def classify_exit_zero(exit_code: int) -> tuple[str, list[str]]:
@@ -269,6 +309,41 @@ def build_checks(args: argparse.Namespace, repo: Path) -> list[Check]:
                 Check(
                     "pytest",
                     argv,
+                    status,
+                    exit_code=outcome.exit_code,
+                    duration_s=outcome.duration_s,
+                    summary=summary,
+                    notes=notes,
+                    output_tail=outcome.output_tail,
+                )
+            )
+
+    coverage_argv = list(CANONICAL_COVERAGE_ARGV)
+    if args.skip_coverage:
+        checks.append(
+            Check("package-coverage", coverage_argv, UNKNOWN, notes=["skipped by request"])
+        )
+    else:
+        outcome = run_command(coverage_argv, repo, args.timeout)
+        if outcome.kind != "completed" or outcome.exit_code is None:
+            checks.append(
+                Check(
+                    "package-coverage",
+                    coverage_argv,
+                    UNKNOWN,
+                    duration_s=outcome.duration_s,
+                    notes=outcome.notes,
+                    output_tail=outcome.output_tail,
+                )
+            )
+        else:
+            status, summary, notes = classify_package_coverage(
+                outcome.exit_code, outcome.output_tail
+            )
+            checks.append(
+                Check(
+                    "package-coverage",
+                    coverage_argv,
                     status,
                     exit_code=outcome.exit_code,
                     duration_s=outcome.duration_s,
@@ -526,6 +601,28 @@ def self_test() -> int:
     check("pytest no tests", classify_pytest(5, "no tests ran in 0.01s")[0] == FAIL)
     check("pytest contradiction", classify_pytest(0, "2 failed, 5 passed in 1s")[0] == UNKNOWN)
     check("pytest missing summary", classify_pytest(0, "collected something")[0] == UNKNOWN)
+
+    coverage_pass = (
+        "SUMMARY: domain line=88.77% req=87% PASS branch=74.66% req=73% PASS; "
+        "execution line=89.30% req=88% PASS branch=75.41% req=74% PASS; "
+        "persistence line=93.16% req=92% PASS branch=81.48% req=80% PASS"
+    )
+    coverage_fail = coverage_pass.replace(
+        "domain line=88.77% req=87% PASS", "domain line=80.00% req=87% FAIL"
+    )
+    check("coverage pass", classify_package_coverage(0, coverage_pass)[0] == PASS)
+    check(
+        "coverage summary extracted",
+        classify_package_coverage(0, f"report\n{coverage_pass}\n")[1] == coverage_pass[9:],
+    )
+    check(
+        "coverage missing package is unknown",
+        classify_package_coverage(0, "SUMMARY: domain line=88.71% req=87% PASS")[0] == UNKNOWN,
+    )
+    check("coverage fail", classify_package_coverage(1, coverage_fail)[0] == FAIL)
+    check("coverage test failure fail", classify_package_coverage(1, "pytest failed")[0] == FAIL)
+    check("coverage incomplete unknown", classify_package_coverage(2, "")[0] == UNKNOWN)
+    check("coverage gate error unknown", classify_package_coverage(3, "")[0] == UNKNOWN)
     check("exit zero pass", classify_exit_zero(0)[0] == PASS)
     check("exit nonzero fail", classify_exit_zero(1)[0] == FAIL)
     check(
@@ -627,6 +724,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=float, default=3600.0, help="per-check timeout seconds")
     parser.add_argument("--output", default=None, help="evidence JSON path (default: temp dir)")
     parser.add_argument("--skip-pytest", action="store_true")
+    parser.add_argument("--skip-coverage", action="store_true")
     parser.add_argument("--skip-ruff", action="store_true")
     parser.add_argument("--skip-mypy", action="store_true")
     parser.add_argument("--skip-diffcheck", action="store_true")

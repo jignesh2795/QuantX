@@ -418,6 +418,38 @@ def test_not_submitted_resolution_survives_close_and_reopen(tmp_path) -> None:
             )
 
 
+def test_broker_rejection_not_submitted_source_survives_close_and_reopen(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    client_order_id = uuid4()
+    context = _pending_context(client_order_id)
+    fingerprint = context.request_fingerprint
+
+    with SqliteDatabase(path) as database:
+        store = SqliteIdempotencyStore(database)
+        store.reserve_or_get(client_order_id, fingerprint, context)
+        resolution = store.record_not_submitted(
+            client_order_id,
+            fingerprint,
+            source=NotSubmittedSource.ADAPTER_BROKER_REJECTION,
+            reason="Dhan authentication rejected (DH-901)",
+            recorded_at=RESOLVED_AT,
+        )
+
+    assert resolution.source is NotSubmittedSource.ADAPTER_BROKER_REJECTION
+
+    with SqliteDatabase(path) as reopened:
+        store = SqliteIdempotencyStore(reopened)
+        decision = store.check(client_order_id, fingerprint)
+
+        assert decision.not_submitted_resolution is not None
+        assert (
+            decision.not_submitted_resolution.source is NotSubmittedSource.ADAPTER_BROKER_REJECTION
+        )
+        assert decision.reservation_pending is False
+        assert decision.operator_resolved is False
+        assert store.list_pending_contexts() == ()
+
+
 def test_resolve_pending_persists_receipt_across_reopen(tmp_path) -> None:
     path = tmp_path / "quantx.db"
     client_order_id = uuid4()
