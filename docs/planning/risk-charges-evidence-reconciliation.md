@@ -529,3 +529,144 @@ next bounded evidence task is to obtain redacted, static Dhan response/statement
 fixtures (no credentials) and reconcile the documented field meanings and
 cash-equity equation. No broker calls, production assertions, or LIVE changes
 are authorized by this design note.
+
+
+---
+
+## Independent adversarial review reconciliation — 2026-11-03
+
+**Reviewed PR candidate:** `1d1d6f1d76364e18084133fd716f7e227ed79f94`  
+**Original PR base:** `6871c46202d4b9256b14d6b5945703c68f0f7de5`  
+**Current main reviewed:** `d7d473c39b3cf55b726d69151cd14ce1e51747ed`
+
+The original base is an ancestor of current `main`; 12 commits have landed
+since that base. The target planning file is unchanged on current `main`
+relative to the original base (same blob SHA
+`e8ed5c5793730aad1a3ebd0b51d9a7f8bbd0f44c`). The PR remains a one-file
+documentation change; the intervening main commits do not create a conflict
+in this file. Source claims below were rechecked against current `main`
+rather than assumed from the older PR base.
+
+### Verified persistence and contract facts
+
+- Current `src/quantx/persistence/sqlite/schema.py` declares
+  `SCHEMA_VERSION = 8`. Its current schema creates execution lifecycle,
+  trading-gate and quarantine tables, market candle/quote tables, and research
+  run/result/manifest/experiment tables. It does **not** create account-equity
+  observation tables, durable risk-session baseline tables, or an
+  external-capital-flow ledger. This absence is verified from the current
+  schema declaration and `_create_current_schema` composition, not an
+  unverified assumption.
+- A durable session-opening baseline therefore cannot be added by simply
+  reusing the current schema. Any future persisted baseline requires an
+  explicitly designed, versioned SQLite migration (or a separately justified
+  persistence backend), plus restart and migration tests. This design note
+  does not approve that migration or a schema shape.
+- There are two distinct types named `AccountFinancialState`; they must not be
+  conflated:
+  - `quantx.domain.finance.AccountFinancialState` is the domain risk-context
+    value with six required `Money` fields: cash balance, available cash,
+    blocked cash, margin used, margin available and buying power. It requires
+    one currency and non-negative amounts.
+  - `quantx.integrations.reconciliation.account.AccountFinancialState` is the
+    broker-neutral observation seam referenced in this design. It carries
+    account/connection identity, observation time, source and currency, with
+    optional available cash, equity, margin used and margin available. It
+    does not currently express an equity basis, trusted capture time,
+    complete asset/liability coverage, capital-flow classification or a
+    session-opening baseline.
+- The reconciliation type is a plausible seam to extend, not an already
+  sufficient session-equity contract. Any extension must make the missing
+  semantics explicit and must not silently feed a partially observed account
+  into LIVE risk.
+- PR [#285](https://github.com/jignesh2795/QuantX/pull/285) is merged at
+  `6daaa481854fe412bb2582e46d6312c6738d0ba8`. It adds HMAC-bound,
+  supplemental **per-position** realized/unrealized P&L observations. It does
+  not aggregate them into account/day P&L, derive account equity or a
+  high-water mark, populate the corresponding risk snapshot fields, or
+  authorize LIVE.
+- The proposed formula below uses proposed concepts
+  `current_net_liquidation_equity`, `session_open_net_liquidation_equity`
+  and `net_external_capital_contributions`. These are design variables,
+  **not existing QuantX fields or implemented data sources**. The formula
+  remains a proposal until each term has a validated source, scope, currency,
+  timestamp and completeness contract.
+
+### Main versus integration-branch Dhan state
+
+This PR targets `main`. At current `main` SHA
+`d7d473c39b3cf55b726d69151cd14ce1e51747ed`, the Dhan risk source still
+contains the earlier funds mappings that motivated the semantic correction:
+`sod_limit` to cash balance, `available_balance` to available cash,
+margin available and buying power, `blocked_payout_amount` to blocked cash,
+and `utilized_amount` to margin used. The design records these as a semantic
+gap; it does not validate or endorse those mappings.
+
+Separately, the integration branch
+`integration/quantx-issue267-final-failclosed-repair-2026-11-03` contains
+PRs #298 and #299 through merge
+`6d21c0998ddedd62f33577928f487e9520e990e4`. There, the Dhan risk-evidence
+source advertises no supported LIVE risk fields and returns unavailable
+evidence before transport collection. The integration merge does not change
+the fact that current `main` has not yet incorporated those slices. Neither
+branch establishes Dhan account-level `DAILY_PNL`, complete net-liquidation
+equity or LIVE readiness.
+
+### Blocking static-fixture dependencies before implementation
+
+The following redacted, static source fixtures are required to test the
+proposed mapping and reconciliation. These are input dependencies, not a
+request to make broker calls. Use historical exports or otherwise lawfully
+obtained samples; never include credentials, access tokens, real client IDs,
+account numbers, names, addresses or other PII.
+
+| Fixture | Minimum content to preserve after redaction | Validation purpose |
+|---|---|---|
+| `fundlimit.json` | Complete `GET /fundlimit` response, including `sodLimit`, `availableBalance`, `blockedPayoutAmount`, `utilizedAmount`, collateral, receivables and withdrawable balance where present | Establish the actual funds fields and their documented/observed distinctions; do not infer net-liquidation equity |
+| `positions.json` | Complete `GET /positions` rows, including security/segment, product and position types, multiplier where present, day and carry-forward quantities/values, realized/unrealized P&L, and response observation time where supplied | Reconcile position-level versus session/account P&L semantics and carry-forward treatment |
+| `holdings.json` | Complete `GET /holdings` response with DP, T1, available and collateral quantities and average cost fields | Establish the holdings universe; cost basis is not a current mark |
+| `trades_page0.json`, `trades_page1.json` | Consecutive paginated trade-history pages with trade IDs, timestamps, quantities, prices, pagination metadata and all listed charge components | Reconcile trade completeness, realized calculation candidates and charges |
+| `ledger.json` | Full session date-range debit/credit entries, voucher dates, narration, voucher references and running balances | Test flow classification and identify what date-only ledger evidence cannot establish |
+| `quote_batch.json` | Batched quote response covering every instrument represented in positions and holdings, with quote fields and source timestamps | Test mark coverage and freshness; an incomplete instrument universe must remain UNKNOWN |
+| `traders_diary_summary.json` (if obtainable) | The corresponding Trader's Diary realized-P&L summary and adjustments for the same account/session | Cross-check FIFO/closed-position semantics against Positions and Trade History; absence must be recorded, not synthesized |
+
+A redacted fixture set must preserve consistent pseudonymous identities across
+files (for example, the same stable alias for one account and broker client),
+currency, instrument identifiers needed for cross-file joins, source field
+names, timestamps, page ordering, and evidence of whether pagination is
+complete. Redaction must not remove the relationships needed to reconcile
+trades, positions, holdings, ledger entries and quotes.
+
+The files must represent a coherent account and session. Where the contract
+requires a session-opening baseline and a later valuation, samples must include
+both relevant observations and enough source history to test capital movements
+between them. A single funds or positions response is not evidence of a
+complete cash/equity identity. Missing pages, missing instruments, unclassified
+ledger rows, date-only timing where intraday attribution is necessary, stale
+quotes, or an unavailable Trader's Diary comparison must remain explicit
+limitations.
+
+Static fixtures can validate parsing, joins, candidate calculations and
+reconciliation hypotheses. They do **not** authenticate the original broker
+session, prove that an API guarantees completeness/freshness, establish
+production authority, or by themselves authorize any LIVE evidence field.
+
+### Adversarial-review disposition and implementation gate
+
+The independent read-only review dated 2026-11-03 found the accounting design
+internally sound and the reviewed Dhan v2 documentation mapping accurate, with
+no source-supported basis to weaken the fail-closed conclusion. It identified
+the persistence, contract distinction and fixture dependencies made explicit
+above.
+
+**Review verdict: PASS WITH FINDINGS — design quality accepted; implementation
+not authorized. Current accounting verdict remains DESIGN NEEDS MORE EVIDENCE.**
+
+Implementation remains blocked until the redacted static fixture set is
+reconciled, an evidenced account cash/equity identity and capital-flow
+classification are established, the session-baseline persistence design is
+specified, and the affected migrations and restart behavior are separately
+reviewed. Preserve realized-only `daily_pnl`, current `max_drawdown`
+semantics and the #267 LIVE fail-closed boundary. No production code, schema,
+risk behavior, broker operation or LIVE authorization is changed by this
+documentation update.
