@@ -440,7 +440,7 @@ class DhanSDKTransport:
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanLedgerSnapshot:
         """Fetch Dhan ledger report for a date range."""
-        _validate_statement_request(from_date, to_date)
+        _validate_ledger_request(from_date, to_date)
         try:
             response = self._call_with_timeout(
                 self._client.ledger_report,
@@ -467,7 +467,7 @@ class DhanSDKTransport:
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanTradeHistorySnapshot:
         """Fetch Dhan trade history for a date range and page."""
-        _validate_statement_request(from_date, to_date, page)
+        _validate_trade_request(from_date, to_date, page)
         try:
             response = self._call_with_timeout(
                 self._client.get_trade_history,
@@ -570,7 +570,7 @@ class InMemoryDhanTransport:
         *,
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanLedgerSnapshot:
-        _validate_statement_request(from_date, to_date)
+        _validate_ledger_request(from_date, to_date)
         return DhanLedgerSnapshot(
             observed_at=datetime.now(UTC),
             available=True,
@@ -587,7 +587,7 @@ class InMemoryDhanTransport:
         *,
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> DhanTradeHistorySnapshot:
-        _validate_statement_request(from_date, to_date, page)
+        _validate_trade_request(from_date, to_date, page)
         return DhanTradeHistorySnapshot(
             observed_at=datetime.now(UTC),
             available=True,
@@ -1178,11 +1178,11 @@ def _decimal_field(value: object, field: str) -> Decimal:
 _MISSING_STATEMENT_DATA = object()
 
 
-def _validate_statement_request(
+def _validate_ledger_request(
     from_date: object,
     to_date: object,
-    page: int | None = None,
 ) -> None:
+    """Validate ledger request parameters (date range only)."""
     if (
         not isinstance(from_date, datetime)
         or from_date.tzinfo is None
@@ -1193,9 +1193,26 @@ def _validate_statement_request(
         raise ValueError("to_date must be timezone-aware")
     if from_date > to_date:
         raise ValueError("from_date must not be after to_date")
-    if page is not None:
-        if isinstance(page, bool) or not isinstance(page, int) or page < 0:
-            raise ValueError("page must be a non-negative integer")
+
+
+def _validate_trade_request(
+    from_date: object,
+    to_date: object,
+    page: int,
+) -> None:
+    """Validate trade history request parameters (date range + page)."""
+    if (
+        not isinstance(from_date, datetime)
+        or from_date.tzinfo is None
+        or from_date.utcoffset() is None
+    ):
+        raise ValueError("from_date must be timezone-aware")
+    if not isinstance(to_date, datetime) or to_date.tzinfo is None or to_date.utcoffset() is None:
+        raise ValueError("to_date must be timezone-aware")
+    if from_date > to_date:
+        raise ValueError("from_date must not be after to_date")
+    if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+        raise ValueError("page must be a non-negative integer")
 
 
 def _statement_envelope(response: object) -> tuple[str, str, object]:
