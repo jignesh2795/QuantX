@@ -412,7 +412,6 @@ def test_collect_maps_complete_funds_positions_and_identity() -> None:
     assert evidence.snapshot is None
     assert evidence.contradictions == ()
 
-
     assert _field_names(evidence) == {field.value for field in LiveRiskEvidenceField}
     assert evidence.observations == {}
 
