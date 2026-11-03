@@ -20,6 +20,8 @@ from .models import (
     DhanFundsSnapshot,
     DhanHoldingSnapshot,
     DhanHoldingsSnapshot,
+    DhanLedgerEntry,
+    DhanLedgerSnapshot,
     DhanOrderDetail,
     DhanOrderRequest,
     DhanOrderResponse,
@@ -28,6 +30,8 @@ from .models import (
     DhanPositionsSnapshot,
     DhanProfileSnapshot,
     DhanQuoteSnapshot,
+    DhanTradeHistoryEntry,
+    DhanTradeHistorySnapshot,
 )
 from .session import DhanAuthenticationRejectedError
 
@@ -99,6 +103,23 @@ class DhanTransport(Protocol):
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> tuple[DhanCandleSnapshot, ...]: ...
 
+    def ledger_report(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanLedgerSnapshot: ...
+
+    def trade_history(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        page: int = 0,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanTradeHistorySnapshot: ...
+
     def close(self) -> None: ...
 
 
@@ -114,6 +135,10 @@ class _DhanClient(Protocol):
     def cancel_order(self, order_id: str) -> object: ...
 
     def get_order_by_correlationID(self, correlation_id: str) -> object: ...
+
+    def ledger_report(self, from_date: str, to_date: str) -> object: ...
+
+    def get_trade_history(self, from_date: str, to_date: str, page_number: int = 0) -> object: ...
 
 
 @dataclass(slots=True)
@@ -407,6 +432,58 @@ class DhanSDKTransport:
             )
         return _candle_snapshots(response, timeframe=timeframe)
 
+    def ledger_report(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanLedgerSnapshot:
+        """Fetch Dhan ledger report for a date range."""
+        try:
+            response = self._call_with_timeout(
+                self._client.ledger_report,
+                from_date.strftime("%Y-%m-%d"),
+                to_date.strftime("%Y-%m-%d"),
+                timeout=timeout,
+                operation="ledger_report",
+                executor=self._query_executor,
+            )
+        except Exception as exc:
+            return DhanLedgerSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan ledger report transport failure: {exc}",
+            )
+        return _ledger_snapshot(response, from_date, to_date)
+
+    def trade_history(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        page: int = 0,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanTradeHistorySnapshot:
+        """Fetch Dhan trade history for a date range and page."""
+        try:
+            response = self._call_with_timeout(
+                self._client.get_trade_history,
+                from_date.strftime("%Y-%m-%d"),
+                to_date.strftime("%Y-%m-%d"),
+                page,
+                timeout=timeout,
+                operation="trade_history",
+                executor=self._query_executor,
+            )
+        except Exception as exc:
+            return DhanTradeHistorySnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan trade history transport failure: {exc}",
+            )
+        return _trade_history_snapshot(response, from_date, to_date, page)
+
     def close(self) -> None:
         """Shut down the internal executors deterministically.
 
@@ -482,6 +559,39 @@ class InMemoryDhanTransport:
 
     def close(self) -> None:
         """No-op lifecycle hook so the host can close any transport uniformly."""
+        pass
+
+    def ledger_report(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanLedgerSnapshot:
+        return DhanLedgerSnapshot(
+            observed_at=datetime.now(UTC),
+            available=True,
+            message="",
+            from_date=from_date,
+            to_date=to_date,
+        )
+
+    def trade_history(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        page: int = 0,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanTradeHistorySnapshot:
+        return DhanTradeHistorySnapshot(
+            observed_at=datetime.now(UTC),
+            available=True,
+            message="",
+            from_date=from_date,
+            to_date=to_date,
+            page=page,
+        )
 
     def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse:
         self._submitted.append(request)
@@ -1029,6 +1139,352 @@ def _strict_decimal(value: object, field: str) -> Decimal:
         return Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError) as exc:
         raise ValueError(f"invalid Dhan decimal field: {field}") from exc
+
+
+def _ledger_snapshot(
+    response: object,
+    from_date: datetime,
+    to_date: datetime,
+) -> DhanLedgerSnapshot:
+    """Normalize a Dhan ledger report response."""
+    try:
+        envelope_status, remarks, payload = _envelope(response)
+    except (TypeError, ValueError) as exc:
+        return DhanLedgerSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=f"unrecognized Dhan ledger response: {exc}",
+        )
+    if envelope_status != "success":
+        return DhanLedgerSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=remarks or "Dhan ledger report reported failure",
+        )
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return DhanLedgerSnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan ledger data must be a list",
+        )
+    entries: list[DhanLedgerEntry] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            return DhanLedgerSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message="Dhan ledger entry must be a mapping",
+            )
+        try:
+            client_id = str(entry.get("clientId") or entry.get("clientId", "")).strip()
+            narration = str(entry.get("narration") or entry.get("narration", "")).strip()
+            voucher_date_str = str(entry.get("voucherDate") or entry.get("voucherDate", "")).strip()
+            exchange = str(entry.get("exchange") or entry.get("exchange", "")).strip()
+            voucher_description = str(
+                entry.get("voucherDescription") or entry.get("voucherDescription", "")
+            ).strip()
+            voucher_number = str(
+                entry.get("voucherNumber") or entry.get("voucherNumber", "")
+            ).strip()
+            debit = Decimal(str(entry.get("debit", 0)))
+            credit = Decimal(str(entry.get("credit", 0)))
+            running_balance = Decimal(
+                str(entry.get("runningBalance") or entry.get("runningBalance", 0))
+            )
+
+            if not client_id:
+                return DhanLedgerSnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="ledger entry missing client id",
+                )
+            if not narration:
+                return DhanLedgerSnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="ledger entry missing narration",
+                )
+            try:
+                voucher_date = parse_dhan_timestamp(voucher_date_str)
+                if voucher_date is None:
+                    return DhanLedgerSnapshot(
+                        observed_at=datetime.now(UTC),
+                        available=False,
+                        message="ledger entry has unparsable voucher date",
+                    )
+            except (ValueError, TypeError):
+                return DhanLedgerSnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="ledger entry has invalid voucher date",
+                )
+            if not exchange:
+                return DhanLedgerSnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="ledger entry missing exchange",
+                )
+            if not voucher_description:
+                return DhanLedgerSnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="ledger entry missing voucher description",
+                )
+            if not voucher_number:
+                return DhanLedgerSnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="ledger entry missing voucher number",
+                )
+
+            entries.append(
+                DhanLedgerEntry(
+                    observed_at=datetime.now(UTC),
+                    client_id=client_id,
+                    narration=narration,
+                    voucher_date=voucher_date,
+                    exchange=exchange,
+                    voucher_description=voucher_description,
+                    voucher_number=voucher_number,
+                    debit=debit,
+                    credit=credit,
+                    running_balance=running_balance,
+                )
+            )
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            return DhanLedgerSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"ledger entry is malformed: {exc}",
+            )
+
+    return DhanLedgerSnapshot(
+        observed_at=datetime.now(UTC),
+        entries=tuple(entries),
+        available=bool(entries),
+        message="",
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+
+def _trade_history_snapshot(
+    response: object,
+    from_date: datetime,
+    to_date: datetime,
+    page: int,
+) -> DhanTradeHistorySnapshot:
+    """Normalize a Dhan trade history response."""
+    try:
+        envelope_status, remarks, payload = _envelope(response)
+    except (TypeError, ValueError) as exc:
+        return DhanTradeHistorySnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=f"unrecognized Dhan trade history response: {exc}",
+        )
+    if envelope_status != "success":
+        return DhanTradeHistorySnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message=remarks or "Dhan trade history reported failure",
+        )
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return DhanTradeHistorySnapshot(
+            observed_at=datetime.now(UTC),
+            available=False,
+            message="Dhan trade history data must be a list",
+        )
+    entries: list[DhanTradeHistoryEntry] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            return DhanTradeHistorySnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message="Dhan trade history entry must be a mapping",
+            )
+        try:
+            client_id = str(entry.get("clientId") or entry.get("clientId", "")).strip()
+            order_id = str(entry.get("orderId") or entry.get("orderId", "")).strip()
+            exchange_order_id = str(
+                entry.get("exchangeOrderId") or entry.get("exchangeOrderId", "")
+            ).strip()
+            exchange_trade_id = str(
+                entry.get("exchangeTradeId") or entry.get("exchangeTradeId", "")
+            ).strip()
+            transaction_side = str(
+                entry.get("transactionSide") or entry.get("transactionSide", "")
+            ).strip()
+            exchange_segment = str(
+                entry.get("exchangeSegment") or entry.get("exchangeSegment", "")
+            ).strip()
+            product_type = str(entry.get("productType") or entry.get("productType", "")).strip()
+            security_id = str(entry.get("securityId") or entry.get("securityId", "")).strip()
+            trading_symbol = str(
+                entry.get("tradingSymbol") or entry.get("tradingSymbol", "")
+            ).strip()
+            traded_quantity = int(
+                str(entry.get("tradedQuantity") or entry.get("tradedQuantity", 0))
+            )
+            traded_price = Decimal(str(entry.get("tradedPrice") or entry.get("tradedPrice", 0)))
+            instrument_type = str(
+                entry.get("instrumentType") or entry.get("instrumentType", "")
+            ).strip()
+            exchange_timestamp_str = str(
+                entry.get("exchangeTime") or entry.get("exchangeTime", "")
+            ).strip()
+
+            stt = entry.get("stt")
+            sebi = entry.get("sebi")
+            brokerage = entry.get("brokerage")
+            service_tax = entry.get("serviceTax")
+            exchange_txn_charges = entry.get("exchangeTxnCharges")
+            stamp_duty = entry.get("stampDuty")
+
+            if not client_id:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing client id",
+                )
+            if not order_id:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing order id",
+                )
+            if not exchange_order_id:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing exchange order id",
+                )
+            if not exchange_trade_id:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing exchange trade id",
+                )
+            if not transaction_side:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing transaction side",
+                )
+            if not exchange_segment:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing exchange segment",
+                )
+            if not product_type:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing product type",
+                )
+            if not security_id:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing security id",
+                )
+            if not trading_symbol:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing trading symbol",
+                )
+            if traded_quantity <= 0:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry has non-positive traded quantity",
+                )
+            if traded_price < 0:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry has negative traded price",
+                )
+            if not instrument_type:
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry missing instrument type",
+                )
+
+            try:
+                exchange_timestamp = parse_dhan_timestamp(exchange_timestamp_str)
+                if exchange_timestamp is None:
+                    return DhanTradeHistorySnapshot(
+                        observed_at=datetime.now(UTC),
+                        available=False,
+                        message="trade history entry has unparsable exchange timestamp",
+                    )
+            except (ValueError, TypeError):
+                return DhanTradeHistorySnapshot(
+                    observed_at=datetime.now(UTC),
+                    available=False,
+                    message="trade history entry has invalid exchange timestamp",
+                )
+
+            def _parse_optional_decimal(value: object) -> Decimal | None:
+                if value is None:
+                    return None
+                s = str(value).strip()
+                if not s:
+                    return None
+                try:
+                    return Decimal(s)
+                except (InvalidOperation, ValueError):
+                    return None
+
+            entries.append(
+                DhanTradeHistoryEntry(
+                    observed_at=datetime.now(UTC),
+                    client_id=client_id,
+                    order_id=order_id,
+                    exchange_order_id=exchange_order_id,
+                    exchange_trade_id=exchange_trade_id,
+                    transaction_side=transaction_side,
+                    exchange_segment=exchange_segment,
+                    product_type=product_type,
+                    security_id=security_id,
+                    trading_symbol=trading_symbol,
+                    traded_quantity=traded_quantity,
+                    traded_price=traded_price,
+                    instrument_type=instrument_type,
+                    exchange_timestamp=exchange_timestamp,
+                    stt=_parse_optional_decimal(stt),
+                    sebi=_parse_optional_decimal(sebi),
+                    brokerage=_parse_optional_decimal(brokerage),
+                    service_tax=_parse_optional_decimal(service_tax),
+                    exchange_txn_charges=_parse_optional_decimal(exchange_txn_charges),
+                    stamp_duty=_parse_optional_decimal(stamp_duty),
+                    source_date_from=None,
+                    source_date_to=None,
+                    source_page=0,
+                )
+            )
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            return DhanTradeHistorySnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"trade history entry is malformed: {exc}",
+            )
+
+    return DhanTradeHistorySnapshot(
+        observed_at=datetime.now(UTC),
+        entries=tuple(entries),
+        available=bool(entries),
+        message="",
+        from_date=from_date,
+        to_date=to_date,
+        page=page,
+    )
 
 
 def _position_snapshot(entry: object) -> DhanPositionSnapshot | None:

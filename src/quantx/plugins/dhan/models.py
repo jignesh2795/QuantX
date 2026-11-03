@@ -333,3 +333,144 @@ class DhanCandleSnapshot:
             raise ValueError("timeframe must not be empty")
         if self.timestamp.tzinfo is None or self.timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanLedgerEntry:
+    """Normalized Dhan ledger entry; no domain or vendor types."""
+
+    observed_at: datetime
+    client_id: str
+    narration: str
+    voucher_date: datetime
+    exchange: str
+    voucher_description: str
+    voucher_number: str
+    debit: Decimal
+    credit: Decimal
+    running_balance: Decimal
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
+        if not self.client_id.strip():
+            raise ValueError("client_id must not be empty")
+        if not self.narration.strip():
+            raise ValueError("narration must not be empty")
+        if self.voucher_date.tzinfo is None or self.voucher_date.utcoffset() is None:
+            raise ValueError("voucher_date must be timezone-aware")
+        if not self.exchange.strip():
+            raise ValueError("exchange must not be empty")
+        if not self.voucher_description.strip():
+            raise ValueError("voucher_description must not be empty")
+        if not self.voucher_number.strip():
+            raise ValueError("voucher_number must not be empty")
+        if self.debit < 0:
+            raise ValueError("debit cannot be negative")
+        if self.credit < 0:
+            raise ValueError("credit cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanLedgerSnapshot:
+    """Normalized Dhan ledger report observation; no domain or vendor types."""
+
+    observed_at: datetime
+    entries: tuple[DhanLedgerEntry, ...] = ()
+    available: bool = True
+    message: str = ""
+    from_date: datetime | None = None
+    to_date: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanTradeHistoryEntry:
+    """Normalized Dhan trade history entry; no domain or vendor types."""
+
+    observed_at: datetime
+    client_id: str
+    order_id: str
+    exchange_order_id: str
+    exchange_trade_id: str
+    transaction_side: str
+    exchange_segment: str
+    product_type: str
+    security_id: str
+    trading_symbol: str
+    traded_quantity: int
+    traded_price: Decimal
+    instrument_type: str
+    exchange_timestamp: datetime
+    stt: Decimal | None = None
+    sebi: Decimal | None = None
+    brokerage: Decimal | None = None
+    service_tax: Decimal | None = None
+    exchange_txn_charges: Decimal | None = None
+    stamp_duty: Decimal | None = None
+    source_date_from: datetime | None = None
+    source_date_to: datetime | None = None
+    source_page: int = 0
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
+        if not self.client_id.strip():
+            raise ValueError("client_id must not be empty")
+        if not self.order_id.strip():
+            raise ValueError("order_id must not be empty")
+        if not self.exchange_order_id.strip():
+            raise ValueError("exchange_order_id must not be empty")
+        if not self.exchange_trade_id.strip():
+            raise ValueError("exchange_trade_id must not be empty")
+        if not self.transaction_side.strip():
+            raise ValueError("transaction_side must not be empty")
+        if not self.exchange_segment.strip():
+            raise ValueError("exchange_segment must not be empty")
+        if not self.product_type.strip():
+            raise ValueError("product_type must not be empty")
+        if not self.security_id.strip():
+            raise ValueError("security_id must not be empty")
+        if not self.trading_symbol.strip():
+            raise ValueError("trading_symbol must not be empty")
+        if self.traded_quantity <= 0:
+            raise ValueError("traded_quantity must be positive")
+        if self.traded_price < 0:
+            raise ValueError("traded_price cannot be negative")
+        if not self.instrument_type.strip():
+            raise ValueError("instrument_type must not be empty")
+        if self.exchange_timestamp.tzinfo is None or self.exchange_timestamp.utcoffset() is None:
+            raise ValueError("exchange_timestamp must be timezone-aware")
+        if self.traded_quantity > 0 and self.traded_price == 0:
+            raise ValueError("traded_price must be positive when quantity is positive")
+        for name in (
+            "stt",
+            "sebi",
+            "brokerage",
+            "service_tax",
+            "exchange_txn_charges",
+            "stamp_duty",
+        ):
+            value = getattr(self, name)
+            if value is not None and value < 0:
+                raise ValueError(f"{name} cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class DhanTradeHistorySnapshot:
+    """Normalized Dhan trade history report observation; no domain or vendor types."""
+
+    observed_at: datetime
+    entries: tuple[DhanTradeHistoryEntry, ...] = ()
+    available: bool = True
+    message: str = ""
+    from_date: datetime | None = None
+    to_date: datetime | None = None
+    page: int = 0
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
