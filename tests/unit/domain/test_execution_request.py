@@ -234,6 +234,14 @@ def test_live_execution_accepts_exact_uuid_client_order_id() -> None:
     assert type(request.order.client_order_id) is UUID
 
 
+def test_live_request_guard_rejects_bypassed_non_uuid_client_order_id() -> None:
+    forged = _order()
+    object.__setattr__(forged, "client_order_id", "opaque-client")
+
+    with pytest.raises(ValueError, match="live execution requires an exact UUID client_order_id"):
+        _live_request(forged)
+
+
 @pytest.mark.parametrize(
     "client_order_id",
     [
@@ -248,7 +256,7 @@ def test_live_execution_rejects_non_exact_uuid_client_order_id(client_order_id) 
     with pytest.raises(ValueError) as exc_info:
         _live_request(replace(_order(), client_order_id=client_order_id))
 
-    assert str(exc_info.value) == "live execution requires an exact UUID client_order_id"
+    assert str(exc_info.value) == "client_order_id must be a UUID"
 
 
 def test_live_request_replace_revalidates_exact_uuid_client_order_id() -> None:
@@ -257,7 +265,7 @@ def test_live_request_replace_revalidates_exact_uuid_client_order_id() -> None:
     with pytest.raises(ValueError) as exc_info:
         replace(request, order=replace(request.order, client_order_id="opaque-client"))
 
-    assert str(exc_info.value) == "live execution requires an exact UUID client_order_id"
+    assert str(exc_info.value) == "client_order_id must be a UUID"
 
 
 @pytest.mark.parametrize(
@@ -269,13 +277,12 @@ def test_live_request_replace_revalidates_exact_uuid_client_order_id() -> None:
         ExecutionMode.BACKTEST,
     ],
 )
-def test_non_live_modes_accept_opaque_client_order_id(mode: ExecutionMode) -> None:
-    request = _paper_request(
-        replace(_order(), client_order_id="opaque-client"),
-        mode=mode,
-    )
-
-    assert request.order.client_order_id == "opaque-client"
+def test_non_live_modes_reject_opaque_client_order_id(mode: ExecutionMode) -> None:
+    with pytest.raises(ValueError, match="client_order_id must be a UUID"):
+        _paper_request(
+            replace(_order(), client_order_id="opaque-client"),
+            mode=mode,
+        )
 
 
 def test_explicit_product_requires_market_pack_identity() -> None:
