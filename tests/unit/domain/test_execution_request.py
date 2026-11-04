@@ -234,6 +234,14 @@ def test_live_execution_accepts_exact_uuid_client_order_id() -> None:
     assert type(request.order.client_order_id) is UUID
 
 
+def test_live_request_guard_rejects_bypassed_non_uuid_client_order_id() -> None:
+    forged = _order()
+    object.__setattr__(forged, "client_order_id", "opaque-client")
+
+    with pytest.raises(ValueError, match="live execution requires an exact UUID client_order_id"):
+        _live_request(forged)
+
+
 @pytest.mark.parametrize(
     "client_order_id",
     [
