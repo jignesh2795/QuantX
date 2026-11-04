@@ -2563,7 +2563,7 @@ def _evidence_timestamps(
     return tuple(stamps)
 
 
-def test_backtest_repeated_runs_produce_identical_evidence_timestamps(monkeypatch) -> None:
+def test_backtest_repeated_runs_produce_identical_evidence_artifact_bytes(monkeypatch) -> None:
     """Equivalent replay inputs must not use process wall-clock time.
 
     Runs the same two-frame series twice and asserts every timestamp-bearing
