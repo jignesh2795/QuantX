@@ -83,10 +83,30 @@ class SimulatedClock(Clock):
         self._current += delta
 
 
+def resolve_clock_instant(
+    clock: Clock,
+    explicit: datetime | None,
+    *,
+    name: str,
+) -> datetime:
+    """Resolve one validated instant, preferring an explicit caller override.
+
+    The clock is read exactly once only when ``explicit`` is ``None``. A
+    malformed or naive instant is rejected before the caller performs work.
+    """
+    if not isinstance(clock, Clock):
+        raise TypeError("clock must be a Clock")
+    instant = explicit if explicit is not None else clock.now()
+    if type(instant) is not datetime:
+        raise TypeError(f"{name} must be a datetime")
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise ValueError(f"{name} must be timezone-aware")
+    return instant
+
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("clock timestamp must be timezone-aware")
     return value.astimezone(UTC)
 
 
-__all__ = ["Clock", "FixedClock", "SimulatedClock", "SystemClock"]
+__all__ = ["Clock", "FixedClock", "SimulatedClock", "SystemClock", "resolve_clock_instant"]
