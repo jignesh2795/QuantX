@@ -92,6 +92,7 @@ class CountingClock(FixedClock):
         self.reads += 1
         return super().now()
 
+
 def _config(tmp_path, **overrides) -> DhanHostConfig:
     credentials = overrides.pop("credentials", None)
     transport = overrides.pop("transport", InMemoryDhanTransport())
@@ -335,6 +336,7 @@ def test_host_propagates_configured_clock_to_startup_recovery(tmp_path) -> None:
         assert clock.reads == 1
     finally:
         host.close()
+
 
 def test_host_startup_failure_propagates_without_started(tmp_path) -> None:
     host = build_dhan_host_runtime(_config(tmp_path))
