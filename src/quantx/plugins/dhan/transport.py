@@ -162,15 +162,22 @@ class DhanSDKTransport:
             self._query_executor = ThreadPoolExecutor(
                 max_workers=4, thread_name_prefix="dhan-query"
             )
-        except Exception:
+        except (Exception, KeyboardInterrupt, SystemExit) as exc:
+            cleanup_errors: list[BaseException] = []
             for name in ("_submit_executor", "_reconcile_executor", "_query_executor"):
                 executor = getattr(self, name, None)
-                if executor is not None:
-                    try:
-                        executor.shutdown(wait=False, cancel_futures=True)
-                    except RuntimeError:
-                        pass
+                if executor is None:
+                    continue
+                try:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                except (Exception, KeyboardInterrupt, SystemExit) as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
                 setattr(self, name, None)
+            for cleanup_failure in cleanup_errors:
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                    exc.add_note(f"Dhan SDK executor cleanup failed: {cleanup_failure!r}")
+            if cleanup_errors and not isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise exc from cleanup_errors[-1]
             raise
 
     def _call_with_timeout(

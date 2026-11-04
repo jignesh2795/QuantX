@@ -80,7 +80,7 @@ class ProductionRuntime:
     ) -> None:
         try:
             self.close()
-        except Exception as cleanup_error:
+        except (Exception, KeyboardInterrupt, SystemExit) as cleanup_error:
             if exc_value is not None:
                 exc_value.add_note(f"production runtime cleanup failed: {cleanup_error!r}")
                 return None
@@ -111,11 +111,14 @@ def build_production_runtime(config: ProductionRuntimeConfig) -> ProductionRunti
             refresh_policy=config.refresh_policy,
             policy_verifier=config.policy_verifier,
         )
-    except Exception as exc:
+    except (Exception, KeyboardInterrupt, SystemExit) as exc:
         try:
             database.close()
         except Exception as close_error:
-            raise exc from close_error
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                exc.add_note(f"production runtime database cleanup failed: {close_error!r}")
+            else:
+                raise exc from close_error
         raise
     return ProductionRuntime(database, unit_of_work, registry, application)
 

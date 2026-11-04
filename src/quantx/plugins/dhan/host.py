@@ -204,7 +204,7 @@ class DhanHostRuntime:
         if callable(close):
             try:
                 close()
-            except Exception as exc:
+            except (Exception, KeyboardInterrupt, SystemExit) as exc:
                 secondary_error = exc
 
         if primary_error is not None:
@@ -231,7 +231,7 @@ class DhanHostRuntime:
     ) -> None:
         try:
             self.close()
-        except Exception as cleanup_error:
+        except (Exception, KeyboardInterrupt, SystemExit) as cleanup_error:
             if exc_value is not None:
                 exc_value.add_note(f"Dhan host cleanup failed: {cleanup_error!r}")
                 return None
@@ -305,13 +305,16 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
             market_data=market_data,
             runtime=runtime,
         )
-    except Exception as exc:
+    except (Exception, KeyboardInterrupt, SystemExit) as exc:
         close = getattr(transport, "close", None)
         if callable(close):
             try:
                 close()
             except Exception as close_error:
-                raise exc from close_error
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                    exc.add_note(f"Dhan host transport cleanup failed: {close_error!r}")
+                else:
+                    raise exc from close_error
         raise
 
 
