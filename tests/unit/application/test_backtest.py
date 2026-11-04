@@ -1,4 +1,5 @@
 from dataclasses import replace
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -2587,11 +2588,26 @@ def test_backtest_repeated_runs_produce_identical_evidence_timestamps(monkeypatc
         )
         return result, captured
 
+    class FirstAmbientDateTime(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            return cls(2000, 1, 1, tzinfo=UTC)
+
+    class SecondAmbientDateTime(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            return cls(2099, 12, 31, tzinfo=UTC)
+
+    monkeypatch.setattr("quantx.domain.orders.datetime", FirstAmbientDateTime)
     first_result, first_requests = _run()
+    monkeypatch.setattr("quantx.domain.orders.datetime", SecondAmbientDateTime)
     second_result, second_requests = _run()
 
     first_evidence = _evidence_timestamps(first_result, first_requests)
     second_evidence = _evidence_timestamps(second_result, second_requests)
+    first_artifact = json.dumps(first_evidence, separators=(",", ":")).encode("utf-8")
+    second_artifact = json.dumps(second_evidence, separators=(",", ":")).encode("utf-8")
+    assert first_artifact == second_artifact
     assert first_evidence == second_evidence
     assert first_evidence == (
         frame_time,
