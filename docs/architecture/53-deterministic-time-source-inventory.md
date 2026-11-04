@@ -240,6 +240,10 @@ expressions**:
 | `application/operator_resolution.py` | 1 | Separate operator-resolution audit timestamp |
 
 The replay regression serializes the timestamp-bearing semantic evidence
+vector to UTF-8 JSON bytes and compares runs while the ambient Order wall
+clock is independently pinned to 2000 and 2099; the bytes remain identical.
+
+The guard also detects direct `datetime.now`/`utcnow`, `date.today`, and
 `time`-module wall-clock APIs (including imported aliases); any new call or
 move outside the reviewed per-file counts fails the test. This allowlist is
 not permission to use wall time in replay or decision-age calculations.
