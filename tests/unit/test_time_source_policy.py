@@ -98,7 +98,7 @@ def _wall_clock_calls(tree: ast.Module) -> int:
         date_owners = date_types | {
             f"{module}.date" for module in datetime_modules
         }
-        if (method in {"now", "utcnow"} and owner in datetime_owners) or (
+        if (method in {"now", "utcnow", "today"} and owner in datetime_owners) or (
             method == "today" and owner in date_owners
         ):
             count += 1
