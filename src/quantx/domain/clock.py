@@ -103,6 +103,7 @@ def resolve_clock_instant(
         raise ValueError(f"{name} must be timezone-aware")
     return instant
 
+
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("clock timestamp must be timezone-aware")
