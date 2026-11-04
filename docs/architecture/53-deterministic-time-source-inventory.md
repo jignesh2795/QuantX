@@ -125,9 +125,9 @@ use; never replay evidence).
 - `plugins/dhan/adapter.py:179,365` — LIVE-only fallbacks when the broker
   supplies no parseable time, and UNKNOWN receipts. Reachable only via
   LIVE dispatch, never replay/backtest/paper.
-- `application/runtime.py:62`, `pending_recovery.py:118`,
-  `pending_reconciliation.py:70`, `operator_resolution.py:44` —
-  LIVE boot/recovery/operator parameters with explicit overrides.
+- `application/operator_resolution.py` — separately audited operator-action
+  timestamp. `resolved_at` remains an explicit override; this audit record is
+  not part of the startup/recovery/reconciliation decision-time chain.
 - `persistence/sqlite/idempotency.py:141,179,206,264`,
   `research.py:108`, `schema.py:236,262,274,285,295,304`,
   `trading_gate.py:43` (12) — row-write bookkeeping times; schema and
@@ -172,3 +172,91 @@ wall-clock/Clock inventory when another time-sensitive subsystem changes.
   caller-supplied engine clock; mismatch fails closed instead.
 - `research/result.py:102` (`result_id` UUID default): explicitly random
   identity, not time-related; excluded from determinism comparisons.
+## Issue #198 clock-injection completion slice (main baseline `d235c299b3d024772ffb3a4585269d757744fbad`)
+
+The three behaviorally significant application fallbacks that previously read
+`datetime.now(UTC)` when `checked_at` was omitted now resolve through the
+existing `Clock` port:
+
+- `application/runtime.py` — `ApplicationRuntime` accepts an optional `Clock`
+  (default `SystemClock`) and resolves one `checked_at` at the beginning of
+  each startup attempt. An explicit `checked_at` wins without reading the
+  clock.
+- `application/pending_recovery.py` — `PendingExecutionRecoveryRunner` accepts
+  a `Clock` and reads it once per direct `run()` call when no explicit
+  `checked_at` is supplied. The exact instant is passed to every per-record
+  reconciliation; no nested per-record clock read occurs. The convenience
+  `recover_pending_live_executions` API also accepts and forwards the clock.
+- `application/pending_reconciliation.py` — direct calls accept an optional
+  `Clock`; the single resolved instant drives pending age, the provisional
+  UNKNOWN receipt timestamp, evidence refresh, and recovery receipt time.
+- Composition shares one `Clock` instance from
+  `DhanHostConfig`/`ProductionRuntimeConfig` through
+  `build_application_runtime`, `ApplicationRuntime`, and
+  `PendingExecutionRecoveryRunner`. Startup passes its already-resolved
+  instant into the runner, so that path reads the clock once total.
+- `domain/clock.py::resolve_clock_instant` centralizes explicit-override
+  precedence, exactly-one-read semantics, and strict aware-datetime
+  validation. Malformed or naive clock output is rejected before recovery
+  work or reconciliation writes begin.
+
+`resolve_pending_operator` is intentionally separate: it timestamps an
+operator-authored audit action, not an automated recovery decision. Its
+`resolved_at` override and independent wall-clock default remain unchanged.
+
+Replay/event-time construction is unchanged. `application/backtest.py` pins
+each replay-created order to its frame observation timestamp; signal
+timestamps must match that event; execution, fill, receipt, step, and account
+state evidence retain the existing deterministic replay clock contracts.
+`tests/unit/application/test_backtest.py` covers event-time order creation,
+repeat-run timestamp equivalence, wall-clock-defaulted signal rejection, and
+repeat-run equivalence across the timestamp-bearing replay evidence vector.
+The shared interactive `Order`, `Fill`, `StrategySignal`, and `Experiment`
+defaults are therefore retained rather than mechanically replaced.
+
+### Enforced direct-wall-clock allowlist
+
+`tests/unit/test_time_source_policy.py` parses every Python module under
+`src/quantx` and requires the exact direct-call allowlist below. The baseline
+review found three direct `datetime.now(UTC)` fallbacks in the runtime,
+pending-recovery, and pending-reconciliation decision chain; those are now
+Clock-backed. The retained allowlist totals **53 direct wall-clock call
+expressions**:
+
+| Path | Count | Rationale |
+|---|---:|---|
+| `domain/clock.py` | 1 | Canonical `SystemClock` implementation |
+| `domain/orders.py` | 1 | Interactive Order/Fill construction defaults via `utc_now` |
+| `domain/strategy.py` | 1 | Interactive `StrategySignal.generated_at` default; replay guards event time |
+| `research/experiments.py` | 1 | Researcher-created experiment timestamp; persisted reads restore stored time |
+| `plugins/dhan/transport.py` | 28 | Broker transport observation timestamps |
+| `plugins/dhan/adapter.py` | 2 | LIVE broker timestamp fallback and UNKNOWN receipt timestamp |
+| `persistence/sqlite/schema.py` | 8 | Schema migration audit stamps |
+| `persistence/sqlite/idempotency.py` | 5 | Persisted idempotency lifecycle/audit stamps |
+| `persistence/sqlite/research.py` | 1 | Research persistence bookkeeping |
+| `persistence/sqlite/trading_gate.py` | 1 | Durable trading-gate state bookkeeping |
+| `application/execution.py` | 3 | Operational execution-record and quarantine timestamps |
+| `application/operator_resolution.py` | 1 | Separate operator-resolution audit timestamp |
+
+The guard also detects direct `datetime.now`/`utcnow`, `date.today`, and
+`time`-module wall-clock APIs (including imported aliases); any new call or
+move outside the reviewed per-file counts fails the test. This allowlist is
+not permission to use wall time in replay or decision-age calculations.
+
+### Regression evidence required
+
+- `ApplicationRuntime` reads its injected clock once when `checked_at` is
+  omitted; an explicit override reads it zero times; a naive clock result
+  fails before the recovery hook is called.
+- A recovery pass shares one instant across all pending records; a supplied
+  `checked_at` reads the runner clock zero times.
+- Direct reconciliation derives both `pending_age` and all downstream
+  evidence timestamps from one injected instant; a supplied `checked_at`
+  reads the clock zero times.
+- Production and Dhan host composition tests prove that the deployment's
+  configured clock reaches startup recovery.
+- Existing replay regressions continue to pin replay order time to the event
+  and keep timestamp-bearing outputs independent of ambient wall time.
+
+These tests do not claim LIVE readiness, change broker API semantics, or
+change recovery's no-submit/no-auto-retry/UNKNOWN behavior.
