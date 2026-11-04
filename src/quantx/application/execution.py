@@ -49,6 +49,7 @@ from quantx.execution.submission_preflight import (
     BrokerSubmissionRejected,
 )
 from quantx.execution.trading_gate import TradingGate
+from quantx.markets.trusted_checks import ensure_india_trusted_checks_registered
 from quantx.persistence import UnitOfWork
 from quantx.ports.market_checks import (
     SKIPPED_STAGE_STATUS_CODE,
@@ -322,6 +323,7 @@ class ExecutionOrchestrator:
         # factory sets it, LIVE submission is bound to the same object that owns
         # the trusted risk-evidence construction path.
         self._live_broker = live_broker
+        ensure_india_trusted_checks_registered()
         self._market_policy = market_policy or default_market_policy()
         self._submission_quarantine = submission_quarantine
         self._policy_verifier = policy_verifier

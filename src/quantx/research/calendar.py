@@ -1,33 +1,29 @@
-"""Market-session classification for historical research and replay.
+"""Compatibility re-exports for market calendars.
 
-Calendars are deliberately separate from normalization so venue-specific
-session rules can be supplied by plugins without leaking into the core.
+``HistoricalCalendar`` remains defined here as the research-facing
+protocol. The moved market calendar contracts are re-exported from
+``quantx.markets.common.calendar``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, time
-from enum import StrEnum
+from datetime import datetime
 from typing import Protocol
-from zoneinfo import ZoneInfo
 
+from quantx.markets.common.calendar import (
+    FixedDailySessionCalendar,
+    MarketCalendar,
+    SessionClassification,
+    SessionStatus,
+)
 
-class SessionStatus(StrEnum):
-    OPEN = "OPEN"
-    CLOSED = "CLOSED"
-    AUCTION = "AUCTION"
-    HALT = "HALT"
-    UNKNOWN = "UNKNOWN"
-
-
-@dataclass(frozen=True, slots=True)
-class SessionClassification:
-    timestamp: datetime
-    status: SessionStatus
-    timezone: str
-    calendar_version: str
-    reason: str = ""
+__all__ = [
+    "FixedDailySessionCalendar",
+    "HistoricalCalendar",
+    "MarketCalendar",
+    "SessionClassification",
+    "SessionStatus",
+]
 
 
 class HistoricalCalendar(Protocol):
@@ -40,78 +36,3 @@ class HistoricalCalendar(Protocol):
     version: str
 
     def historical_timestamp_expected(self, timestamp: datetime) -> bool | None: ...
-
-
-class MarketCalendar:
-    """Protocol-like base for market calendar implementations."""
-
-    version: str
-
-    def classify(self, timestamp: datetime) -> SessionClassification:
-        raise NotImplementedError
-
-    def historical_timestamp_expected(self, timestamp: datetime) -> bool | None:
-        """Return whether a historical bar is expected at the timestamp."""
-
-        classification = self.classify(timestamp)
-        if classification.status is SessionStatus.OPEN:
-            return True
-        if classification.status is SessionStatus.UNKNOWN:
-            return None
-        return False
-
-
-@dataclass(frozen=True, slots=True)
-class FixedDailySessionCalendar(MarketCalendar):
-    """Deterministic development calendar with one daily open interval."""
-
-    timezone: str
-    open_time: time
-    close_time: time
-    version: str = "fixed-daily-v1"
-
-    def __post_init__(self) -> None:
-        if not self.timezone.strip():
-            raise ValueError("timezone must not be empty")
-        try:
-            ZoneInfo(self.timezone)
-        except KeyError as exc:
-            raise ValueError(f"unknown timezone: {self.timezone}") from exc
-        if self.open_time >= self.close_time:
-            raise ValueError("open_time must be before close_time")
-
-    def classify(self, timestamp: datetime) -> SessionClassification:
-        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-            raise ValueError("timestamp must be timezone-aware")
-        local = timestamp.astimezone(ZoneInfo(self.timezone))
-        current = local.timetz().replace(tzinfo=None)
-        if local.weekday() >= 5:
-            status = SessionStatus.CLOSED
-            reason = "outside configured session: weekend"
-        else:
-            status = (
-                SessionStatus.OPEN
-                if self.open_time <= current < self.close_time
-                else SessionStatus.CLOSED
-            )
-            reason = (
-                "within configured session"
-                if status is SessionStatus.OPEN
-                else "outside configured session"
-            )
-        return SessionClassification(
-            timestamp=timestamp,
-            status=status,
-            timezone=self.timezone,
-            calendar_version=self.version,
-            reason=reason,
-        )
-
-
-__all__ = [
-    "FixedDailySessionCalendar",
-    "HistoricalCalendar",
-    "MarketCalendar",
-    "SessionClassification",
-    "SessionStatus",
-]

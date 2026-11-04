@@ -71,7 +71,7 @@ from quantx.execution.paper.profile import (
     OrderBookSnapshot,
     SlippageModel,
 )
-from quantx.india.market_pack import (
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )

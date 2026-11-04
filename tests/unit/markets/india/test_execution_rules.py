@@ -10,13 +10,13 @@ import pytest
 from quantx.domain.enums import AssetClass, OrderSide, OrderType
 from quantx.domain.orders import Order
 from quantx.domain.value_objects import InstrumentId
-from quantx.india.domain import (
+from quantx.markets.india.domain import (
     IndianExchange,
     IndianInstrumentSpec,
     IndianSegment,
     ProductType,
 )
-from quantx.india.execution_rules import IndiaExecutionRuleEngine, IndiaRuleDecision
+from quantx.markets.india.execution_rules import IndiaExecutionRuleEngine, IndiaRuleDecision
 
 EXPIRY = datetime(2026, 1, 29, 15, 30, tzinfo=UTC)
 UNDERLYING = InstrumentId("NSE", "NIFTY")
