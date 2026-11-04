@@ -9,9 +9,10 @@ transaction. Non-definitive evidence leaves PENDING untouched.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import uuid4
 
+from quantx.domain.clock import Clock, SystemClock, resolve_clock_instant
 from quantx.domain.enums import OrderStatus
 from quantx.domain.execution_request import (
     ApprovedExecutionRequest,
@@ -59,6 +60,7 @@ def reconcile_pending_execution(
     instrument_id: str | None = None,
     not_found_policy: NotFoundResolutionPolicy | None = None,
     secondary_absence_confirmed: bool | None = None,
+    clock: Clock | None = None,
 ) -> EvidenceRefreshOutcome:
     """Reconcile one pending execution; resolve it only on definitive evidence.
 
@@ -67,7 +69,8 @@ def reconcile_pending_execution(
     Both it and the pending age derived from the order feed only the
     informational NOT_FOUND eligibility verdict; they never resolve.
     """
-    observed_at = checked_at or datetime.now(UTC)
+    active_clock = SystemClock() if clock is None else clock
+    observed_at = resolve_clock_instant(active_clock, checked_at, name="checked_at")
     try:
         pending_age = observed_at - request.order.created_at
     except TypeError:
