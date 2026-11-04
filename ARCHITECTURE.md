@@ -35,15 +35,10 @@ See [ADR-008](docs/architecture/adr/ADR-008-v0.1-programmatic-library-scope.md).
 
 ## Order lifecycle and safety path
 
-QuantX uses one canonical order lifecycle and fail-closed admission:
-
-1. Approved execution request and policy verification.
-2. Trading-gate and session checks.
-3. Market-policy and risk checks.
-4. Broker connection, health, instrument, and capability probes.
-5. Durable idempotency reservation.
-6. Broker submission only after all prior checks pass.
-7. Receipt persistence, quarantine, and recovery.
+QuantX uses one canonical order lifecycle and fail-closed admission. For the
+ordered control path, see
+[Control and safety path](docs/architecture/control-and-safety-path.md); for
+implemented behavior and current limitations, see [Status](docs/STATUS.md).
 
 Unsupported, malformed, or uncertain outcomes remain explicit (`UNKNOWN` or
 blocked). Recovery never submits broker orders.
@@ -77,9 +72,11 @@ blocked). Recovery never submits broker orders.
 
 - [Architecture overview](docs/architecture/README.md)
 - [Architecture records](docs/architecture/00-overview.md)
+- [ADR index](docs/architecture/adr/)
 - [ADR-008 scope](docs/architecture/adr/ADR-008-v0.1-programmatic-library-scope.md)
 - [Acceptance criteria](docs/architecture/28-v0.1-acceptance-criteria.md)
-- [Safety architecture](docs/architecture/56-live-execution-safety-audit-and-priority.md)
+- [Control and safety path](docs/architecture/control-and-safety-path.md)
+- [Historical LIVE safety audit](docs/architecture/56-live-execution-safety-audit-and-priority.md)
 - [Implementation guide](docs/implementation/README.md)
 - [Roadmap](docs/roadmap/README.md)
 - [Status](docs/STATUS.md)
