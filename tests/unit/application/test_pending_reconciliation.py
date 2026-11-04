@@ -39,8 +39,8 @@ from quantx.domain.product_selection import ProductSelectionResolution, resolve_
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
-from quantx.execution.ports import ExecutionReceipt
 from quantx.execution.idempotency.fingerprint import request_fingerprint
+from quantx.execution.ports import ExecutionReceipt
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
 from quantx.india.market_pack import (
