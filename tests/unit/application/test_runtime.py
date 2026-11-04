@@ -243,6 +243,20 @@ def test_runtime_explicit_checked_at_does_not_read_injected_clock() -> None:
     assert clock.reads == 0
 
 
+def test_runtime_rejects_non_datetime_clock_before_recovery() -> None:
+    class MalformedClock(Clock):
+        def now(self) -> datetime:
+            return None  # type: ignore[return-value]
+
+    recovery = FakeRecovery(PendingRecoveryRun())
+    runtime = ApplicationRuntime(pending_recovery=recovery, clock=MalformedClock())
+
+    with pytest.raises(TypeError, match="checked_at must be a datetime"):
+        runtime.start()
+
+    assert recovery.calls == 0
+    assert not runtime.started
+
 def test_runtime_rejects_naive_clock_before_recovery() -> None:
     class NaiveClock(Clock):
         def now(self) -> datetime:
