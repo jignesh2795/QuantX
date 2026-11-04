@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
+from quantx.domain.clock import Clock, SystemClock, resolve_clock_instant
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.orders import Fill
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
@@ -401,7 +402,11 @@ class PendingExecutionRecoveryRunner:
         evidence_policy: DefinitiveEvidencePolicy | None = None,
         refresh_policy: RefreshPolicy | None = None,
         policy_verifier: MarketPackPolicyVerifier,
+        clock: Clock | None = None,
     ) -> None:
+        if clock is not None and not isinstance(clock, Clock):
+            raise TypeError("clock must be a Clock")
+        self._clock = SystemClock() if clock is None else clock
         self._unit_of_work = unit_of_work
         self._provider_resolver = provider_resolver
         self._local_order_provider = local_order_provider
@@ -417,9 +422,7 @@ class PendingExecutionRecoveryRunner:
         *,
         checked_at: datetime | None = None,
     ) -> PendingRecoveryRun:
-        observed_at = checked_at or datetime.now(UTC)
-        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
-            raise ValueError("checked_at must be timezone-aware")
+        observed_at = resolve_clock_instant(self._clock, checked_at, name="checked_at")
 
         pending_records = self._unit_of_work.idempotency.list_pending_recovery_records()
         results: list[PendingRecoveryResult] = []
@@ -506,6 +509,7 @@ def recover_pending_live_executions(
     evidence_policy: DefinitiveEvidencePolicy | None = None,
     refresh_policy: RefreshPolicy | None = None,
     policy_verifier: MarketPackPolicyVerifier,
+    clock: Clock | None = None,
 ) -> PendingRecoveryRun:
     """Convenience boot hook for one deterministic pending-recovery pass."""
     return PendingExecutionRecoveryRunner(
@@ -518,4 +522,5 @@ def recover_pending_live_executions(
         evidence_policy=evidence_policy,
         refresh_policy=refresh_policy,
         policy_verifier=policy_verifier,
+        clock=clock,
     ).run(checked_at=checked_at)
