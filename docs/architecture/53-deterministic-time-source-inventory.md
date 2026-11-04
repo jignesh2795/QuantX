@@ -172,6 +172,7 @@ wall-clock/Clock inventory when another time-sensitive subsystem changes.
   caller-supplied engine clock; mismatch fails closed instead.
 - `research/result.py:102` (`result_id` UUID default): explicitly random
   identity, not time-related; excluded from determinism comparisons.
+
 ## Issue #198 clock-injection completion slice (main baseline `d235c299b3d024772ffb3a4585269d757744fbad`)
 
 The three behaviorally significant application fallbacks that previously read
@@ -238,7 +239,7 @@ expressions**:
 | `application/execution.py` | 3 | Operational execution-record and quarantine timestamps |
 | `application/operator_resolution.py` | 1 | Separate operator-resolution audit timestamp |
 
-The guard also detects direct `datetime.now`/`utcnow`, `date.today`, and
+The replay regression serializes the timestamp-bearing semantic evidence
 `time`-module wall-clock APIs (including imported aliases); any new call or
 move outside the reviewed per-file counts fails the test. This allowlist is
 not permission to use wall time in replay or decision-age calculations.
