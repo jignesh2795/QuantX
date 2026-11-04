@@ -183,6 +183,8 @@ class CountingClock(FixedClock):
     def now(self) -> datetime:
         self.reads += 1
         return super().now()
+
+
 class FakeRecovery:
     def __init__(self, report: PendingRecoveryRun) -> None:
         self.report = report
