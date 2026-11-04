@@ -1,6 +1,7 @@
 import threading
 import time
 import types
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -1057,3 +1058,204 @@ def test_sdk_holdings_without_vendor_method_is_unavailable(
         assert holdings.holdings == ()
     finally:
         transport.close()
+
+
+def test_sdk_transport_partial_executor_initialization_shuts_down_prior_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    def _context(client_id: str, access_token: str) -> object:
+        return object()
+
+    def _client(context: object) -> object:
+        return object()
+
+    fake_module = types.ModuleType("dhanhq")
+    fake_module.DhanContext = _context  # type: ignore[attr-defined]
+    fake_module.dhanhq = _client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dhanhq", fake_module)
+
+    real_executor = ThreadPoolExecutor
+    created: list[object] = []
+    shutdowns: list[object] = []
+
+    class FailingExecutor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            if len(created) == 1:
+                raise RuntimeError("executor construction failed")
+            self._executor = real_executor(*args, **kwargs)
+            created.append(self)
+
+        def shutdown(self, *args: object, **kwargs: object) -> None:
+            shutdowns.append(self)
+            self._executor.shutdown(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "quantx.plugins.dhan.transport.ThreadPoolExecutor", FailingExecutor, raising=True
+    )
+
+    with pytest.raises(RuntimeError, match="executor construction failed"):
+        DhanSDKTransport(
+            credentials=DhanCredentials(
+                client_id="test-id",
+                access_token="test-token",
+                expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+            )
+        )
+
+    assert len(created) == 1
+    assert len(shutdowns) == 1
+    assert shutdowns[0] is created[0]
+
+
+def _sdk_transport_partial_executor_setup(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    raise_on_index: int,
+    raise_exc: BaseException,
+    shutdown_raises: BaseException | None = None,
+) -> tuple[list[object], list[object]]:
+    import sys
+
+    def _context(client_id: str, access_token: str) -> object:
+        return object()
+
+    def _client(context: object) -> object:
+        return object()
+
+    fake_module = types.ModuleType("dhanhq")
+    fake_module.DhanContext = _context  # type: ignore[attr-defined]
+    fake_module.dhanhq = _client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dhanhq", fake_module)
+
+    real_executor = ThreadPoolExecutor
+    created: list[object] = []
+    shutdowns: list[object] = []
+
+    class FailingExecutor:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            if len(created) == raise_on_index:
+                raise raise_exc
+            self._executor = real_executor(*args, **kwargs)
+            created.append(self)
+
+        def shutdown(self, *args: object, **kwargs: object) -> None:
+            shutdowns.append(self)
+            if shutdown_raises is not None:
+                raise shutdown_raises
+            self._executor.shutdown(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "quantx.plugins.dhan.transport.ThreadPoolExecutor", FailingExecutor, raising=True
+    )
+    return created, shutdowns
+
+
+def test_sdk_transport_partial_executor_initialization_keyboard_interrupt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created, shutdowns = _sdk_transport_partial_executor_setup(
+        monkeypatch, raise_on_index=1, raise_exc=KeyboardInterrupt()
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        DhanSDKTransport(
+            credentials=DhanCredentials(
+                client_id="test-id",
+                access_token="test-token",
+                expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+            )
+        )
+
+    assert len(created) == 1
+    assert len(shutdowns) == 1
+
+
+def test_sdk_transport_partial_executor_initialization_system_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created, shutdowns = _sdk_transport_partial_executor_setup(
+        monkeypatch, raise_on_index=1, raise_exc=SystemExit(7)
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        DhanSDKTransport(
+            credentials=DhanCredentials(
+                client_id="test-id",
+                access_token="test-token",
+                expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+            )
+        )
+
+    assert exc_info.value.code == 7
+    assert len(created) == 1
+    assert len(shutdowns) == 1
+
+
+def test_sdk_transport_partial_executor_initialization_third_executor_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created, shutdowns = _sdk_transport_partial_executor_setup(
+        monkeypatch, raise_on_index=2, raise_exc=KeyboardInterrupt()
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        DhanSDKTransport(
+            credentials=DhanCredentials(
+                client_id="test-id",
+                access_token="test-token",
+                expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+            )
+        )
+
+    assert len(created) == 2
+    assert len(shutdowns) == 2
+
+
+def test_sdk_transport_partial_executor_cleanup_failure_does_not_replace_original(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created, shutdowns = _sdk_transport_partial_executor_setup(
+        monkeypatch,
+        raise_on_index=1,
+        raise_exc=KeyboardInterrupt(),
+        shutdown_raises=RuntimeError("executor close failed"),
+    )
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        DhanSDKTransport(
+            credentials=DhanCredentials(
+                client_id="test-id",
+                access_token="test-token",
+                expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+            )
+        )
+
+    assert len(created) == 1
+    assert len(shutdowns) == 1
+    assert any("executor close failed" in note for note in getattr(exc_info.value, "__notes__", []))
+
+
+def test_sdk_transport_partial_executor_cleanup_interruption_does_not_replace_original(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created, shutdowns = _sdk_transport_partial_executor_setup(
+        monkeypatch,
+        raise_on_index=1,
+        raise_exc=KeyboardInterrupt(),
+        shutdown_raises=SystemExit(9),
+    )
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        DhanSDKTransport(
+            credentials=DhanCredentials(
+                client_id="test-id",
+                access_token="test-token",
+                expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+            )
+        )
+
+    assert len(created) == 1
+    assert len(shutdowns) == 1
+    assert any("SystemExit" in note for note in getattr(exc_info.value, "__notes__", []))

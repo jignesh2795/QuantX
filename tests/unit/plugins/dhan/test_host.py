@@ -777,3 +777,264 @@ def test_risk_evidence_source_builder_derives_the_client_id_from_credentials(
         assert source.transport is host.transport
     finally:
         host.close()
+
+
+class _RecordingCloseTransport(InMemoryDhanTransport):
+    def __init__(self, *, fail_close: bool = False) -> None:
+        super().__init__()
+        self.close_calls = 0
+        self.fail_close = fail_close
+
+    def close(self) -> None:
+        self.close_calls += 1
+        if self.fail_close:
+            raise RuntimeError("transport close failed")
+
+
+def test_host_build_failure_closes_acquired_transport(tmp_path) -> None:
+    transport = _RecordingCloseTransport()
+
+    with pytest.raises(sqlite3.OperationalError):
+        build_dhan_host_runtime(
+            _config(tmp_path, transport=transport, database_path=tmp_path / "missing" / "quantx.db")
+        )
+
+    assert transport.close_calls == 1
+
+
+def test_host_close_runtime_failure_still_closes_transport(tmp_path) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path, transport=_RecordingCloseTransport()))
+    transport = host.transport
+    assert isinstance(transport, _RecordingCloseTransport)
+
+    def fail_runtime_close() -> None:
+        raise RuntimeError("runtime close failed")
+
+    host.runtime.database.close = fail_runtime_close
+
+    with pytest.raises(RuntimeError, match="runtime close failed"):
+        host.close()
+
+    assert transport.close_calls == 1
+
+
+def test_host_close_reports_both_cleanup_failures(tmp_path) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path, transport=_RecordingCloseTransport()))
+    transport = host.transport
+    assert isinstance(transport, _RecordingCloseTransport)
+    transport.fail_close = True
+    calls: list[str] = []
+
+    def fail_runtime_close() -> None:
+        calls.append("runtime")
+        raise RuntimeError("runtime close failed")
+
+    def record_transport_close() -> None:
+        calls.append("transport")
+        raise RuntimeError("transport close failed")
+
+    host.runtime.database.close = fail_runtime_close
+    transport.close = record_transport_close
+
+    with pytest.raises(RuntimeError, match="runtime close failed") as exc_info:
+        host.close()
+
+    assert calls == ["runtime", "transport"]
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == "transport close failed"
+
+
+def test_host_context_manager_preserves_body_exception_and_exposes_cleanup_failure(
+    tmp_path,
+) -> None:
+    host = build_dhan_host_runtime(
+        _config(tmp_path, transport=_RecordingCloseTransport(fail_close=True))
+    )
+
+    with pytest.raises(RuntimeError, match="body") as exc_info:
+        with host:
+            raise RuntimeError("body")
+
+    assert any(
+        "transport close failed" in note for note in getattr(exc_info.value, "__notes__", [])
+    )
+
+
+def test_host_cleanup_failure_with_no_earlier_exception_is_surfaced(tmp_path) -> None:
+    host = build_dhan_host_runtime(
+        _config(tmp_path, transport=_RecordingCloseTransport(fail_close=True))
+    )
+
+    with pytest.raises(RuntimeError, match="transport close failed"):
+        host.close()
+
+
+def test_host_cleanup_does_not_convert_keyboard_interrupt(tmp_path) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path, transport=_RecordingCloseTransport()))
+    transport = host.transport
+    assert isinstance(transport, _RecordingCloseTransport)
+
+    def fail_runtime_close() -> None:
+        raise KeyboardInterrupt()
+
+    host.runtime.database.close = fail_runtime_close
+
+    with pytest.raises(KeyboardInterrupt):
+        host.close()
+
+    assert transport.close_calls == 1
+
+
+def test_host_cleanup_does_not_convert_system_exit(tmp_path) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path, transport=_RecordingCloseTransport()))
+    transport = host.transport
+    assert isinstance(transport, _RecordingCloseTransport)
+
+    def fail_runtime_close() -> None:
+        raise SystemExit(7)
+
+    host.runtime.database.close = fail_runtime_close
+
+    with pytest.raises(SystemExit) as exc_info:
+        host.close()
+
+    assert exc_info.value.code == 7
+    assert transport.close_calls == 1
+
+
+def test_host_interrupted_cleanup_preserves_original_when_transport_close_fails(
+    tmp_path,
+) -> None:
+    host = build_dhan_host_runtime(
+        _config(tmp_path, transport=_RecordingCloseTransport(fail_close=True))
+    )
+    transport = host.transport
+    assert isinstance(transport, _RecordingCloseTransport)
+
+    def fail_runtime_close() -> None:
+        raise KeyboardInterrupt()
+
+    host.runtime.database.close = fail_runtime_close
+
+    with pytest.raises(KeyboardInterrupt):
+        host.close()
+
+    assert transport.close_calls == 1
+
+
+def test_host_interrupted_cleanup_preserves_system_exit_when_transport_close_fails(
+    tmp_path,
+) -> None:
+    host = build_dhan_host_runtime(
+        _config(tmp_path, transport=_RecordingCloseTransport(fail_close=True))
+    )
+    transport = host.transport
+    assert isinstance(transport, _RecordingCloseTransport)
+
+    def fail_runtime_close() -> None:
+        raise SystemExit(7)
+
+    host.runtime.database.close = fail_runtime_close
+
+    with pytest.raises(SystemExit) as exc_info:
+        host.close()
+
+    assert exc_info.value.code == 7
+    assert transport.close_calls == 1
+
+
+def test_host_partial_startup_failure_does_not_mark_started(tmp_path) -> None:
+    host = build_dhan_host_runtime(_config(tmp_path))
+
+    def fail_start(**kwargs: object) -> object:
+        raise RuntimeError("startup failed")
+
+    host.runtime.application.start = fail_start
+
+    with pytest.raises(RuntimeError, match="startup failed"):
+        host.start()
+
+    assert not host.started
+
+
+def test_build_dhan_host_runtime_keyboard_interrupt_closes_transport(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import quantx.plugins.dhan.host as host_mod
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(host_mod, "DhanBrokerAdapter", boom, raising=True)
+    transport = _RecordingCloseTransport()
+    cfg = _config(tmp_path, transport=transport)
+
+    with pytest.raises(KeyboardInterrupt):
+        build_dhan_host_runtime(cfg)
+
+    assert transport.close_calls == 1
+
+
+def test_build_dhan_host_runtime_system_exit_closes_transport(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import quantx.plugins.dhan.host as host_mod
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise SystemExit(7)
+
+    monkeypatch.setattr(host_mod, "DhanBrokerAdapter", boom, raising=True)
+    transport = _RecordingCloseTransport()
+    cfg = _config(tmp_path, transport=transport)
+
+    with pytest.raises(SystemExit) as exc_info:
+        build_dhan_host_runtime(cfg)
+
+    assert exc_info.value.code == 7
+    assert transport.close_calls == 1
+
+
+def test_build_dhan_host_runtime_interrupt_cleanup_failure_does_not_replace_original(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import quantx.plugins.dhan.host as host_mod
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(host_mod, "DhanBrokerAdapter", boom, raising=True)
+    transport = _RecordingCloseTransport(fail_close=True)
+    cfg = _config(tmp_path, transport=transport)
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        build_dhan_host_runtime(cfg)
+
+    assert transport.close_calls == 1
+    assert any(
+        "transport close failed" in note or "transport cleanup failed" in note
+        for note in getattr(exc_info.value, "__notes__", [])
+    )
+
+
+def test_build_dhan_host_runtime_interrupt_cleanup_interruption_does_not_replace_original(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class InterruptCloseTransport(_RecordingCloseTransport):
+        def close(self) -> None:
+            self.close_calls += 1
+            raise SystemExit(9)
+
+    import quantx.plugins.dhan.host as host_mod
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(host_mod, "DhanBrokerAdapter", boom, raising=True)
+    transport = InterruptCloseTransport()
+    cfg = _config(tmp_path, transport=transport)
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        build_dhan_host_runtime(cfg)
+
+    assert transport.close_calls == 1
+    assert any("SystemExit" in note for note in getattr(exc_info.value, "__notes__", []))

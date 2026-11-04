@@ -186,13 +186,39 @@ class DhanHostRuntime:
         closed first so in-flight recovery work settles before the wire
         boundary is torn down. Transports without a ``close`` hook
         (pre-R0-B custom implementations) are tolerated.
+
+        Cleanup is best-effort in the sense that every applicable operation is
+        attempted, but a failure is never hidden: an ordinary runtime failure
+        remains the raised exception and any later cleanup failure is chained
+        as its cause. ``KeyboardInterrupt`` and ``SystemExit`` are also
+        preserved while still allowing transport cleanup to run.
         """
+        primary_error: BaseException | None = None
         try:
             self.runtime.close()
-        finally:
-            close = getattr(self.transport, "close", None)
-            if callable(close):
+        except (Exception, KeyboardInterrupt, SystemExit) as exc:
+            primary_error = exc
+
+        secondary_error: BaseException | None = None
+        close = getattr(self.transport, "close", None)
+        if callable(close):
+            try:
                 close()
+            except (Exception, KeyboardInterrupt, SystemExit) as exc:
+                secondary_error = exc
+
+        if primary_error is not None:
+            if isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
+                if secondary_error is not None:
+                    primary_error.add_note(
+                        f"transport close failed during interrupted cleanup: {secondary_error!r}"
+                    )
+                raise primary_error
+            if secondary_error is not None:
+                raise primary_error from secondary_error
+            raise primary_error
+        if secondary_error is not None:
+            raise secondary_error
 
     def __enter__(self) -> DhanHostRuntime:
         return self
@@ -203,7 +229,13 @@ class DhanHostRuntime:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.close()
+        try:
+            self.close()
+        except (Exception, KeyboardInterrupt, SystemExit) as cleanup_error:
+            if exc_value is not None:
+                exc_value.add_note(f"Dhan host cleanup failed: {cleanup_error!r}")
+                return None
+            raise
 
 
 def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
@@ -217,61 +249,75 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         if config.transport is not None
         else DhanSDKTransport(credentials=_require_credentials(config))
     )
-    connection = BrokerConnectionRef(
-        config.account_id,
-        config.connection_id,
-        _DHAN_BROKER_ID,
-        config.market_context_id,
-    )
-    instrument_map = {
-        instrument.instrument_id: (instrument, instrument_ref)
-        for instrument, instrument_ref in config.instruments
-    }
-    adapter = DhanBrokerAdapter(
-        _connection=connection,
-        _instruments=instrument_map,
-        _transport=transport,
-        _submit_timeout=config.submit_timeout_seconds,
-        _cancel_timeout=config.cancel_timeout_seconds,
-        _reconcile_timeout=config.reconcile_timeout_seconds,
-        _read_timeout=config.read_timeout_seconds,
-        _product_map=config.product_map,
-        _risk_evidence_client_id=_dhan_evidence_client_id(config),
-        _credentials_expires_at=(
-            config.credentials.expires_at
-            if config.credentials is not None
-            else config.credential_expires_at
-        ),
-        _minimum_token_lifetime=config.minimum_token_lifetime,
-        _clock=config.clock,
-    )
-    market_data = DhanMarketDataAdapter(_instruments=instrument_map, _transport=transport)
-
-    def configure(registry: AccountConnectionRegistry) -> None:
-        registry.register(RegisteredConnection(adapter.connection, adapter))
-
-    runtime = build_production_runtime(
-        ProductionRuntimeConfig(
-            database_path=config.database_path,
-            configure_registry=configure,
-            evidence_factory=build_dhan_recovery_provider,
-            policy_verifier=config.policy_verifier,
-            expected_broker_id=_DHAN_BROKER_ID,
-            local_order_provider=config.local_order_provider,
-            local_position_provider=config.local_position_provider,
-            local_account_provider=config.local_account_provider,
-            fill_provider=config.fill_provider,
-            evidence_policy=config.evidence_policy,
-            refresh_policy=config.refresh_policy,
+    try:
+        connection = BrokerConnectionRef(
+            config.account_id,
+            config.connection_id,
+            _DHAN_BROKER_ID,
+            config.market_context_id,
         )
-    )
-    return DhanHostRuntime(
-        config=config,
-        transport=transport,
-        adapter=adapter,
-        market_data=market_data,
-        runtime=runtime,
-    )
+        instrument_map = {
+            instrument.instrument_id: (instrument, instrument_ref)
+            for instrument, instrument_ref in config.instruments
+        }
+        adapter = DhanBrokerAdapter(
+            _connection=connection,
+            _instruments=instrument_map,
+            _transport=transport,
+            _submit_timeout=config.submit_timeout_seconds,
+            _cancel_timeout=config.cancel_timeout_seconds,
+            _reconcile_timeout=config.reconcile_timeout_seconds,
+            _read_timeout=config.read_timeout_seconds,
+            _product_map=config.product_map,
+            _risk_evidence_client_id=_dhan_evidence_client_id(config),
+            _credentials_expires_at=(
+                config.credentials.expires_at
+                if config.credentials is not None
+                else config.credential_expires_at
+            ),
+            _minimum_token_lifetime=config.minimum_token_lifetime,
+            _clock=config.clock,
+        )
+        market_data = DhanMarketDataAdapter(_instruments=instrument_map, _transport=transport)
+
+        def configure(registry: AccountConnectionRegistry) -> None:
+            registry.register(RegisteredConnection(adapter.connection, adapter))
+
+        runtime = build_production_runtime(
+            ProductionRuntimeConfig(
+                database_path=config.database_path,
+                configure_registry=configure,
+                evidence_factory=build_dhan_recovery_provider,
+                policy_verifier=config.policy_verifier,
+                expected_broker_id=_DHAN_BROKER_ID,
+                local_order_provider=config.local_order_provider,
+                local_position_provider=config.local_position_provider,
+                local_account_provider=config.local_account_provider,
+                fill_provider=config.fill_provider,
+                evidence_policy=config.evidence_policy,
+                refresh_policy=config.refresh_policy,
+            )
+        )
+        return DhanHostRuntime(
+            config=config,
+            transport=transport,
+            adapter=adapter,
+            market_data=market_data,
+            runtime=runtime,
+        )
+    except (Exception, KeyboardInterrupt, SystemExit) as exc:
+        close = getattr(transport, "close", None)
+        if callable(close):
+            try:
+                close()
+            except (Exception, KeyboardInterrupt, SystemExit) as close_error:
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)) or isinstance(
+                    close_error, (KeyboardInterrupt, SystemExit)
+                ):
+                    exc.add_note(f"Dhan host transport cleanup failed: {close_error!r}")
+                else:
+                    raise exc from close_error
+        raise
 
 
 def build_dhan_risk_evidence_source(
