@@ -8,14 +8,16 @@ from datetime import UTC, datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
 from threading import RLock
+from typing import TypeGuard
 from uuid import NAMESPACE_URL, UUID, uuid5
 from weakref import WeakKeyDictionary
 
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
-from quantx.domain.instruments import MarketFamily, MarketRegion
+from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, MarketRegion
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.domain.risk import RiskDecision, RiskResult
+from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
 from quantx.execution.idempotency import (
     IdempotencyDecisionValidationError,
     NotSubmittedSource,
@@ -50,6 +52,12 @@ from quantx.execution.submission_preflight import (
 )
 from quantx.execution.trading_gate import TradingGate
 from quantx.persistence import UnitOfWork
+from quantx.ports.broker import (
+    BrokerCapability,
+    BrokerConnectionRef,
+    BrokerDescriptor,
+    CapabilitySet,
+)
 from quantx.ports.market_checks import (
     SKIPPED_STAGE_STATUS_CODE,
     MarketCheckEvidence,
@@ -111,6 +119,51 @@ class ExecutionResult:
     @property
     def executed(self) -> bool:
         return self.status is ExecutionDispatchStatus.EXECUTED
+
+
+def _is_valid_broker_connection(value: object) -> TypeGuard[BrokerConnectionRef]:
+    """Accept only the exact connection reference and canonical field types."""
+    return (
+        type(value) is BrokerConnectionRef
+        and type(value.account_id) is AccountId
+        and type(value.connection_id) is BrokerConnectionId
+        and type(value.broker_id) is str
+        and bool(value.broker_id.strip())
+        and type(value.market_context_id) is str
+        and bool(value.market_context_id.strip())
+    )
+
+
+def _is_valid_broker_instrument(value: object) -> TypeGuard[Instrument]:
+    """Accept only a canonical Instrument with canonical identity fields."""
+    return (
+        type(value) is Instrument
+        and type(value.instrument_id) is InstrumentId
+        and type(value.market) is MarketContext
+    )
+
+
+def _is_valid_capability_set(value: object) -> TypeGuard[CapabilitySet]:
+    """Reject duck-typed, subclassed, or malformed broker capability sets."""
+    return (
+        type(value) is CapabilitySet
+        and type(value.values) is frozenset
+        and all(type(capability) is BrokerCapability for capability in value.values)
+    )
+
+
+def _is_valid_broker_descriptor(value: object) -> TypeGuard[BrokerDescriptor]:
+    """Validate the descriptor and its nested capability declaration exactly."""
+    return (
+        type(value) is BrokerDescriptor
+        and type(value.broker_id) is str
+        and bool(value.broker_id.strip())
+        and type(value.display_name) is str
+        and bool(value.display_name.strip())
+        and _is_valid_capability_set(value.capabilities)
+        and type(value.adapter_version) is str
+        and bool(value.adapter_version.strip())
+    )
 
 
 # Static, sanitized observation reasons. Quarantine evidence must never
@@ -868,7 +921,18 @@ class ExecutionOrchestrator:
                 check_entries,
             )
 
-        connection = broker.connection
+        try:
+            connection = broker.connection
+        except Exception:
+            connection = None
+        if not _is_valid_broker_connection(connection):
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker connection probe returned an invalid result",
+                ),
+                check_entries,
+            )
         if connection.account_id != request.execution_context.account_id:
             return self._with_evidence_prefix(
                 ExecutionResult(
@@ -885,7 +949,12 @@ class ExecutionOrchestrator:
                 ),
                 check_entries,
             )
-        if not broker.health():
+
+        try:
+            healthy = broker.health()
+        except Exception:
+            healthy = None
+        if healthy is False:
             return self._with_evidence_prefix(
                 ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
@@ -893,13 +962,46 @@ class ExecutionOrchestrator:
                 ),
                 check_entries,
             )
+        if healthy is not True:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker health probe returned an invalid result",
+                ),
+                check_entries,
+            )
 
-        broker_instrument = broker.instrument(request.order.instrument)
+        try:
+            broker_instrument = broker.instrument(request.order.instrument)
+        except Exception:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker instrument probe returned an invalid result",
+                ),
+                check_entries,
+            )
         if broker_instrument is None:
             return self._with_evidence_prefix(
                 ExecutionResult(
                     ExecutionDispatchStatus.BLOCKED,
                     reason="broker does not expose the requested canonical instrument",
+                ),
+                check_entries,
+            )
+        if not _is_valid_broker_instrument(broker_instrument):
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker instrument probe returned an invalid result",
+                ),
+                check_entries,
+            )
+        if broker_instrument.instrument_id != request.order.instrument:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker instrument does not match the requested canonical instrument",
                 ),
                 check_entries,
             )
@@ -954,16 +1056,11 @@ class ExecutionOrchestrator:
                 if blocked is not None:
                     return self._blocked_with_evidence(blocked, check_entries)
 
-        required_capabilities = request.order.required_capabilities
-        if required_capabilities and not broker.capabilities().require(required_capabilities):
-            return self._with_evidence_prefix(
-                ExecutionResult(
-                    ExecutionDispatchStatus.BLOCKED,
-                    reason="broker does not support all required execution capabilities",
-                ),
-                check_entries,
-            )
-
+        # The preliminary LIVE authority checks run before the broker
+        # capability and descriptor probes. An unavailable authority is a
+        # property of this execution context, not of the broker, so it must be
+        # reported as such instead of being masked by a later probe outcome.
+        # Capability and descriptor validation remains mandatory below.
         unit_of_work = self._unit_of_work
         if unit_of_work is None:
             return self._with_evidence_prefix(
@@ -993,6 +1090,58 @@ class ExecutionOrchestrator:
                 ),
                 check_entries,
             )
+
+        required_capabilities = request.order.required_capabilities
+        try:
+            capabilities = broker.capabilities()
+        except Exception:
+            capabilities = None
+        if not _is_valid_capability_set(capabilities):
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker capability probe returned an invalid result",
+                ),
+                check_entries,
+            )
+
+        try:
+            descriptor = broker.descriptor
+        except Exception:
+            descriptor = None
+        if not _is_valid_broker_descriptor(descriptor):
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker capability descriptor returned an invalid result",
+                ),
+                check_entries,
+            )
+        if descriptor.broker_id != connection.broker_id:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker capability descriptor does not match the connection",
+                ),
+                check_entries,
+            )
+        if descriptor.capabilities.values != capabilities.values:
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker capability descriptor does not match reported capabilities",
+                ),
+                check_entries,
+            )
+        if required_capabilities and not capabilities.require(required_capabilities):
+            return self._with_evidence_prefix(
+                ExecutionResult(
+                    ExecutionDispatchStatus.BLOCKED,
+                    reason="broker does not support all required execution capabilities",
+                ),
+                check_entries,
+            )
+
         if self._live_risk_evaluator is not None:
             try:
                 live_risk = self._live_risk_evaluator(request)

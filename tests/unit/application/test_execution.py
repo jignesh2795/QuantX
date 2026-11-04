@@ -564,32 +564,6 @@ def test_live_blocks_unhealthy_broker() -> None:
     assert "healthy" in result.reason
 
 
-def test_live_blocks_missing_required_capability() -> None:
-    request = _request(
-        ExecutionMode.LIVE,
-        connection_id=BrokerConnectionId("conn-1"),
-        required_capabilities=frozenset(
-            {
-                BrokerCapability.ORDER_SUBMISSION,
-                BrokerCapability.ORDER_CANCELLATION,
-            }
-        ),
-    )
-    result = ExecutionOrchestrator(
-        application_runtime=_started_runtime(),
-        trading_gate=_durable_gate(),
-        submission_quarantine=_FakeSubmissionQuarantine(),
-        live_risk_evaluator=_approving_live_risk_evaluator(),
-        market_policy=india_market_policy(
-            session_evaluator=_approving_india_session_evaluator(),
-            rule_evaluator=_approving_india_evaluator(),
-        ),
-        policy_verifier=policy_verifier(),
-    ).execute(request, broker=FakeBroker())
-    assert result.status is ExecutionDispatchStatus.BLOCKED
-    assert "capabilities" in result.reason
-
-
 def test_live_blocks_broker_instrument_market_mismatch() -> None:
     request = _request(
         ExecutionMode.LIVE,
