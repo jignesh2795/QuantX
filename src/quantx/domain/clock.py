@@ -97,7 +97,7 @@ def resolve_clock_instant(
     if not isinstance(clock, Clock):
         raise TypeError("clock must be a Clock")
     instant = explicit if explicit is not None else clock.now()
-    if type(instant) is not datetime:
+    if not isinstance(instant, datetime):
         raise TypeError(f"{name} must be a datetime")
     if instant.tzinfo is None or instant.utcoffset() is None:
         raise ValueError(f"{name} must be timezone-aware")
