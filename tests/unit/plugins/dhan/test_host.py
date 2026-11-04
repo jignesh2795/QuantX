@@ -83,6 +83,15 @@ def _instrument_ref() -> DhanInstrumentRef:
     )
 
 
+class CountingClock(FixedClock):
+    def __init__(self, current: datetime) -> None:
+        super().__init__(current)
+        self.reads = 0
+
+    def now(self) -> datetime:
+        self.reads += 1
+        return super().now()
+
 def _config(tmp_path, **overrides) -> DhanHostConfig:
     credentials = overrides.pop("credentials", None)
     transport = overrides.pop("transport", InMemoryDhanTransport())
@@ -314,6 +323,18 @@ def test_host_start_delegates_to_production_runtime(tmp_path) -> None:
     finally:
         host.close()
 
+
+def test_host_propagates_configured_clock_to_startup_recovery(tmp_path) -> None:
+    clock = CountingClock(CHECKED_AT)
+    host = build_dhan_host_runtime(_config(tmp_path, clock=clock))
+    try:
+        result = host.start()
+
+        assert host.started
+        assert result.ready
+        assert clock.reads == 1
+    finally:
+        host.close()
 
 def test_host_startup_failure_propagates_without_started(tmp_path) -> None:
     host = build_dhan_host_runtime(_config(tmp_path))
