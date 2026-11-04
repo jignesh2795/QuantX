@@ -4,9 +4,7 @@ Open-source, modular, event-driven trading infrastructure and platform for India
 
 ## Status
 
-V0.1 acceptance is complete for the declared programmatic local-first library scope under ADR-008; the CLI remains explicitly deferred. M4.1 deterministic strategy-to-paper rehearsal merged on 2026-10-14 via PR #218 (validated feature head `d99c12f3ae051f992722bee2bc8ea3253032fdc8`; merge commit `a0bf101b6f6bb87d11460cefb199932a768d6335`).
-
-The current implementation sequence is post-v0.1 Strategy Platform work. The next ordered design task is issue #197 (market-pack pre-trade-check pipeline), which precedes broader engine-truth `StrategyContext` and deterministic callback work in issue #196. Overall M4 remains in progress: Python/Flow runtime parity remains the M4 exit criterion. Execution/recovery boundaries stay frozen unless a concrete invariant violation is reproduced. UI/Flow authoring, AI/agents, scheduling, broad CLI work, and distributed services remain outside M4.1.
+V0.1 acceptance is complete for the declared programmatic local-first library scope under ADR-008; the CLI remains explicitly deferred. M4.1 deterministic strategy-to-paper rehearsal merged on 2026-10-14 via PR #218. QX-04, QX-05, QX-07, QX-08 and QX-09 are recorded as merged/completed. Issue #267 remains open; LIVE dispatch stays blocked. See `docs/STATUS.md` for exact-SHA evidence.
 
 ## Design direction
 
