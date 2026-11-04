@@ -85,6 +85,7 @@ def test_production_runtime_propagates_one_clock_read_through_startup(tmp_path: 
     finally:
         runtime.close()
 
+
 def test_registry_configuration_failure_closes_database(tmp_path: Path) -> None:
     path = tmp_path / "quantx.db"
 
