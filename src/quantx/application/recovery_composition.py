@@ -21,6 +21,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from quantx.domain.clock import Clock, SystemClock
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import PendingExecutionRecoveryRequest
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
@@ -132,6 +133,7 @@ def build_application_runtime(
     evidence_policy: DefinitiveEvidencePolicy | None = None,
     refresh_policy: RefreshPolicy | None = None,
     policy_verifier: MarketPackPolicyVerifier,
+    clock: Clock | None = None,
 ) -> ApplicationRuntime:
     """Compose durable recovery infrastructure into the one-shot startup runtime.
 
@@ -139,6 +141,9 @@ def build_application_runtime(
     the corresponding evidence stays explicitly unavailable and the existing
     ``DefinitiveEvidencePolicy`` machinery keeps the reservation pending.
     """
+    active_clock = SystemClock() if clock is None else clock
+    if not isinstance(active_clock, Clock):
+        raise TypeError("clock must be a Clock")
     resolver = RecoveryEndpointResolver(
         registry,
         evidence_factory,
@@ -154,8 +159,9 @@ def build_application_runtime(
         evidence_policy=evidence_policy,
         refresh_policy=refresh_policy,
         policy_verifier=policy_verifier,
+        clock=active_clock,
     )
-    return ApplicationRuntime(pending_recovery=runner)
+    return ApplicationRuntime(pending_recovery=runner, clock=active_clock)
 
 
 __all__ = [
