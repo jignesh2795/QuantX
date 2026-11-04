@@ -39,6 +39,7 @@ from quantx.domain.product_selection import ProductSelectionResolution, resolve_
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
+from quantx.execution.ports import ExecutionReceipt
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
@@ -1330,6 +1331,7 @@ def test_direct_pending_reconciliation_uses_one_injected_evidence_instant(
         )
 
         receipt = captured["receipt"]
+        assert isinstance(receipt, ExecutionReceipt)
         assert not outcome.definitive
         assert clock.reads == 1
         assert captured["checked_at"] == instant
@@ -1368,6 +1370,8 @@ def test_direct_pending_reconciliation_explicit_checked_at_skips_clock_read(
 
         assert clock.reads == 0
         assert captured["checked_at"] == explicit
-        assert captured["receipt"].executed_at == explicit
+        receipt = captured["receipt"]
+        assert isinstance(receipt, ExecutionReceipt)
+        assert receipt.executed_at == explicit
     finally:
         database.close()
