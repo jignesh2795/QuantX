@@ -257,6 +257,7 @@ def test_runtime_rejects_non_datetime_clock_before_recovery() -> None:
     assert recovery.calls == 0
     assert not runtime.started
 
+
 def test_runtime_rejects_naive_clock_before_recovery() -> None:
     class NaiveClock(Clock):
         def now(self) -> datetime:
@@ -270,6 +271,7 @@ def test_runtime_rejects_naive_clock_before_recovery() -> None:
 
     assert recovery.calls == 0
     assert not runtime.started
+
 
 def test_runtime_stays_unready_when_recovery_fails() -> None:
     recovery = FakeRecovery(
