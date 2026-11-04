@@ -955,3 +955,86 @@ def test_host_partial_startup_failure_does_not_mark_started(tmp_path) -> None:
         host.start()
 
     assert not host.started
+
+
+def test_build_dhan_host_runtime_keyboard_interrupt_closes_transport(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import quantx.plugins.dhan.host as host_mod
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(host_mod, "DhanBrokerAdapter", boom, raising=True)
+    transport = _RecordingCloseTransport()
+    cfg = _config(tmp_path, transport=transport)
+
+    with pytest.raises(KeyboardInterrupt):
+        build_dhan_host_runtime(cfg)
+
+    assert transport.close_calls == 1
+
+
+def test_build_dhan_host_runtime_system_exit_closes_transport(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import quantx.plugins.dhan.host as host_mod
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise SystemExit(7)
+
+    monkeypatch.setattr(host_mod, "DhanBrokerAdapter", boom, raising=True)
+    transport = _RecordingCloseTransport()
+    cfg = _config(tmp_path, transport=transport)
+
+    with pytest.raises(SystemExit) as exc_info:
+        build_dhan_host_runtime(cfg)
+
+    assert exc_info.value.code == 7
+    assert transport.close_calls == 1
+
+
+def test_build_dhan_host_runtime_interrupt_cleanup_failure_does_not_replace_original(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import quantx.plugins.dhan.host as host_mod
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(host_mod, "DhanBrokerAdapter", boom, raising=True)
+    transport = _RecordingCloseTransport(fail_close=True)
+    cfg = _config(tmp_path, transport=transport)
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        build_dhan_host_runtime(cfg)
+
+    assert transport.close_calls == 1
+    assert any(
+        "transport close failed" in note or "transport cleanup failed" in note
+        for note in getattr(exc_info.value, "__notes__", [])
+    )
+
+
+def test_build_dhan_host_runtime_interrupt_cleanup_interruption_does_not_replace_original(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class InterruptCloseTransport(_RecordingCloseTransport):
+        def close(self) -> None:
+            self.close_calls += 1
+            raise SystemExit(9)
+
+    import quantx.plugins.dhan.host as host_mod
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(host_mod, "DhanBrokerAdapter", boom, raising=True)
+    transport = InterruptCloseTransport()
+    cfg = _config(tmp_path, transport=transport)
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        build_dhan_host_runtime(cfg)
+
+    assert transport.close_calls == 1
+    assert any("SystemExit" in note for note in getattr(exc_info.value, "__notes__", []))

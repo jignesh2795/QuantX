@@ -160,3 +160,127 @@ def test_production_runtime_cleanup_does_not_convert_keyboard_interrupt(tmp_path
 
     with pytest.raises(KeyboardInterrupt):
         runtime.close()
+
+
+def test_build_production_runtime_keyboard_interrupt_closes_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from quantx.persistence.sqlite import SqliteDatabase
+
+    closed: list[int] = []
+
+    def close_rec(self: SqliteDatabase) -> None:
+        closed.append(1)
+        SqliteDatabase.close.__wrapped__(self) if hasattr(
+            SqliteDatabase.close, "__wrapped__"
+        ) else None
+
+    # Simpler: call original via unpatched reference captured before patching.
+    original_close = SqliteDatabase.close
+
+    def close_wrapper(self: SqliteDatabase) -> None:
+        closed.append(1)
+        original_close(self)
+
+    monkeypatch.setattr(SqliteDatabase, "close", close_wrapper, raising=True)
+
+    def fail(_: AccountConnectionRegistry) -> None:
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        build_production_runtime(
+            ProductionRuntimeConfig(
+                database_path=tmp_path / "quantx.db",
+                configure_registry=fail,
+                evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+                policy_verifier=policy_verifier(),
+            )
+        )
+
+    assert closed == [1]
+
+
+def test_build_production_runtime_system_exit_closes_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from quantx.persistence.sqlite import SqliteDatabase
+
+    closed: list[int] = []
+    original_close = SqliteDatabase.close
+
+    def close_wrapper(self: SqliteDatabase) -> None:
+        closed.append(1)
+        original_close(self)
+
+    monkeypatch.setattr(SqliteDatabase, "close", close_wrapper, raising=True)
+
+    def fail(_: AccountConnectionRegistry) -> None:
+        raise SystemExit(7)
+
+    with pytest.raises(SystemExit) as exc_info:
+        build_production_runtime(
+            ProductionRuntimeConfig(
+                database_path=tmp_path / "quantx.db",
+                configure_registry=fail,
+                evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+                policy_verifier=policy_verifier(),
+            )
+        )
+
+    assert exc_info.value.code == 7
+    assert closed == [1]
+
+
+def test_build_production_runtime_interrupt_cleanup_failure_does_not_replace_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from quantx.persistence.sqlite import SqliteDatabase
+
+    def close_boom(self: SqliteDatabase) -> None:
+        raise RuntimeError("database close failed")
+
+    monkeypatch.setattr(SqliteDatabase, "close", close_boom, raising=True)
+
+    def fail(_: AccountConnectionRegistry) -> None:
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        build_production_runtime(
+            ProductionRuntimeConfig(
+                database_path=tmp_path / "quantx.db",
+                configure_registry=fail,
+                evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+                policy_verifier=policy_verifier(),
+            )
+        )
+
+    assert any("database close failed" in note for note in getattr(exc_info.value, "__notes__", []))
+
+
+def test_build_production_runtime_interrupt_cleanup_interruption_does_not_replace_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from quantx.persistence.sqlite import SqliteDatabase
+
+    def close_boom(self: SqliteDatabase) -> None:
+        raise SystemExit(9)
+
+    monkeypatch.setattr(SqliteDatabase, "close", close_boom, raising=True)
+
+    def fail(_: AccountConnectionRegistry) -> None:
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        build_production_runtime(
+            ProductionRuntimeConfig(
+                database_path=tmp_path / "quantx.db",
+                configure_registry=fail,
+                evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+                policy_verifier=policy_verifier(),
+            )
+        )
+
+    assert any(
+        "SystemExit(9)" in note or "SystemExit" in note
+        for note in getattr(exc_info.value, "__notes__", [])
+    )

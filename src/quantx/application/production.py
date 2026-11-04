@@ -114,8 +114,10 @@ def build_production_runtime(config: ProductionRuntimeConfig) -> ProductionRunti
     except (Exception, KeyboardInterrupt, SystemExit) as exc:
         try:
             database.close()
-        except Exception as close_error:
-            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+        except (Exception, KeyboardInterrupt, SystemExit) as close_error:
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)) or isinstance(
+                close_error, (KeyboardInterrupt, SystemExit)
+            ):
                 exc.add_note(f"production runtime database cleanup failed: {close_error!r}")
             else:
                 raise exc from close_error

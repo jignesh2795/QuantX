@@ -310,8 +310,10 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
         if callable(close):
             try:
                 close()
-            except Exception as close_error:
-                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            except (Exception, KeyboardInterrupt, SystemExit) as close_error:
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)) or isinstance(
+                    close_error, (KeyboardInterrupt, SystemExit)
+                ):
                     exc.add_note(f"Dhan host transport cleanup failed: {close_error!r}")
                 else:
                     raise exc from close_error
