@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from quantx.application.strategy_preflight import (
+from quantx.markets import default_market_registry
     EventTimeSupport,
     assess_backtest_event_time_support,
     assess_rehearsal_event_time_support,
@@ -62,7 +63,7 @@ def test_rehearsal_preflight_requires_typed_custom_executor_capability() -> None
 
 def test_backtest_preflight_accepts_owned_simulated_clock_only_at_zero_latency() -> None:
     clock = SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC))
-    engine = PaperExecutionEngine(clock=clock, profile=PaperSimulationProfile())
+    engine = PaperExecutionEngine(market_registry=default_market_registry(), clock=clock, profile=PaperSimulationProfile())
     assert (
         assess_backtest_event_time_support(
             engine, internally_composed=True, configured_latency_ms=0

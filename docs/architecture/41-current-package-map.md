@@ -107,10 +107,12 @@ Subpackages should be introduced when a responsibility has an independent invari
 When an existing module is modified, move it only when the new boundary is justified by ownership and callers can be migrated safely. Avoid repository-wide structural migrations while execution-integrity work is active.
 ## Market-module migration notes
 
-`quantx.markets` is caller-populated. `default_market_registry()` is an
-explicit composition helper for the default India module; backtest and paper
-execution retain a compatibility fallback to it when no registry is supplied.
-Market selection still requires exact `MarketContext` membership.
+`quantx.markets` is caller-populated. `default_market_registry()` remains an
+explicit composition helper for the default India module. Backtest and paper
+execution no longer substitute it when `market_registry` is omitted or
+``None``; callers must supply the registry explicitly or receive
+``UnsupportedMarketError``. Market selection still requires exact
+`MarketContext` membership.
 
 `IndiaMarketModule` currently registers exactly two contexts: NSE equity and
 NSE derivatives. Other India venues and families may be handled by legacy

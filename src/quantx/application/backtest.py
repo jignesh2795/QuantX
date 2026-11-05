@@ -646,14 +646,8 @@ class DeterministicBacktestService:
         intent contexts remain unchanged, and the legacy callable strategy path is
         unaffected.
         """
-        # Compatibility composition boundary: callers may omit the registry
-        # for the default India module. This is a factory call, not a hidden
-        # singleton or implicit market default; market selection below still
-        # requires exact context membership.
         if market_registry is None:
-            from quantx.markets import default_market_registry
-
-            market_registry = default_market_registry()
+            raise UnsupportedMarketError("market_registry is required")
         series_items = (series,) if hasattr(series, "instrument") else tuple(series)
         for item in series_items:
             instrument_id = getattr(item, "instrument", None)

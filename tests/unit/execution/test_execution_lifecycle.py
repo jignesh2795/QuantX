@@ -9,6 +9,7 @@ from quantx.domain.orders import Fill
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.receipts import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
+from quantx.markets import default_market_registry
 
 
 def test_partial_lifecycle_generates_deterministic_continuation_identity() -> None:
@@ -160,7 +161,10 @@ def test_partial_continuation_executes_remaining_quantity_with_parent_correlatio
         Decimal("4"),
         OrderStatus.PARTIALLY_FILLED,
     )
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     receipt = engine.continue_partial(
         request,
         lifecycle,
