@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import subprocess
 import sys
@@ -47,6 +48,22 @@ def test_public_api_exports_match_the_curated_snapshot() -> None:
     assert all(getattr(api, name, None) is not None for name in EXPECTED_PUBLIC_API)
 
 
+def test_public_api_imports_only_domain_and_market_data_port_contracts() -> None:
+    repository_root = Path(__file__).resolve().parents[2]
+    api_path = repository_root / "src" / "quantx" / "api.py"
+    tree = ast.parse(api_path.read_text(encoding="utf-8"))
+    imported_modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+    assert imported_modules
+    assert all(
+        module.startswith("quantx.domain.") or module == "quantx.ports.market_data"
+        for module in imported_modules
+    )
+
+
 def test_public_api_import_is_vendor_free_and_network_free() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     environment = os.environ.copy()
@@ -63,7 +80,7 @@ def reject_network(*args, **kwargs):
     raise AssertionError("quantx.api import attempted network access")
 
 socket.create_connection = reject_network
-socket.socket.connect = reject_network
+socket.socket = reject_network
 
 import quantx.api
 
@@ -72,7 +89,14 @@ assert not any(
     name == "quantx.application" or name.startswith("quantx.application.")
     for name in sys.modules
 )
-assert not any(name.startswith("quantx.plugins.dhan") for name in sys.modules)
+assert not any(
+    name == "quantx.plugins" or name.startswith("quantx.plugins.")
+    for name in sys.modules
+)
+assert not any(
+    name == "quantx.integrations" or name.startswith("quantx.integrations.")
+    for name in sys.modules
+)
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
