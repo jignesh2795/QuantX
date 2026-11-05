@@ -105,3 +105,19 @@ Subpackages should be introduced when a responsibility has an independent invari
 ## Migration rule
 
 When an existing module is modified, move it only when the new boundary is justified by ownership and callers can be migrated safely. Avoid repository-wide structural migrations while execution-integrity work is active.
+## Market-module migration notes
+
+`quantx.markets` is caller-populated. `default_market_registry()` is an
+explicit composition helper for the default India module; backtest and paper
+execution retain a compatibility fallback to it when no registry is supplied.
+Market selection still requires exact `MarketContext` membership.
+
+`IndiaMarketModule` currently registers exactly two contexts: NSE equity and
+NSE derivatives. Other India venues and families may be handled by legacy
+session, rule, or product-resolution code, but they are not advertised as
+supported module contexts and cannot be selected through the registry.
+
+The India module currently has one implemented market pack. Its pack id and
+rule version are shared across both registered contexts; product selection
+remains NSE-equity-specific and other contexts fail closed during product
+resolution.

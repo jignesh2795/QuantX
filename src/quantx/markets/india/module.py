@@ -1,4 +1,17 @@
-"""India market module wrapper."""
+"""India market module wrapper.
+
+The registered context set is intentionally limited to the India contexts that
+this migration treats as supported module capabilities: NSE equity and NSE
+derivatives. Other India venues and families may still be handled by legacy
+session, rule, or product-resolution code, but they are not advertised as
+supported by ``IndiaMarketModule`` and therefore cannot be selected through
+the registry.
+
+The single implemented India market pack currently supplies one pack id and
+rule version for every registered context. Product selection remains
+NSE-equity-specific; contexts without an explicit compatible product fail
+closed during product resolution.
+"""
 
 from __future__ import annotations
 

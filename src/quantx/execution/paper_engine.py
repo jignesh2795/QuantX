@@ -106,6 +106,9 @@ class PaperExecutionEngine:
             )
         if snapshot.instrument != request.order.instrument:
             raise PaperExecutionError("market snapshot instrument does not match the order")
+        # Compatibility composition boundary: a missing registry uses the
+        # default India module. Market selection below still requires exact
+        # context membership; no implicit market context is accepted.
         registry = self._market_registry
         if registry is None:
             from quantx.markets import default_market_registry
