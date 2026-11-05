@@ -1,5 +1,6 @@
 """Tests for the explicit production-process runtime composition."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from quantx.application.production import (
     ProductionRuntimeConfig,
     build_production_runtime,
 )
+from quantx.domain.clock import FixedClock
 from quantx.domain.value_objects import AccountId
 from quantx.integrations.account_registry import AccountConnectionRegistry
 from tests.unit._execution_request_proofs import policy_verifier
@@ -50,6 +52,36 @@ def test_production_runtime_start_runs_recovery_before_ready(tmp_path: Path) -> 
         assert result.recovered == 0
         assert result.pending == 0
         assert result.failed == 0
+    finally:
+        runtime.close()
+
+
+class CountingClock(FixedClock):
+    def __init__(self, current: datetime) -> None:
+        super().__init__(current)
+        self.reads = 0
+
+    def now(self) -> datetime:
+        self.reads += 1
+        return super().now()
+
+
+def test_production_runtime_propagates_one_clock_read_through_startup(tmp_path: Path) -> None:
+    instant = datetime(2026, 1, 1, 12, tzinfo=UTC)
+    clock = CountingClock(instant)
+    runtime = build_production_runtime(
+        ProductionRuntimeConfig(
+            database_path=tmp_path / "quantx.db",
+            configure_registry=lambda registry: None,
+            evidence_factory=lambda adapter, request: None,  # type: ignore[return-value]
+            policy_verifier=policy_verifier(),
+            clock=clock,
+        )
+    )
+    try:
+        runtime.start()
+        assert clock.reads == 1
+        assert runtime.started
     finally:
         runtime.close()
 

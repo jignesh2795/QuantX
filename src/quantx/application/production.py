@@ -9,11 +9,12 @@ application/domain layers.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 
+from quantx.domain.clock import Clock, SystemClock
 from quantx.domain.policy_verification import MarketPackPolicyVerifier
 from quantx.integrations.account_registry import AccountConnectionRegistry
 from quantx.persistence.sqlite import SqliteDatabase, SqliteUnitOfWork
@@ -46,6 +47,11 @@ class ProductionRuntimeConfig:
     fill_provider: FillProvider | None = None
     evidence_policy: DefinitiveEvidencePolicy | None = None
     refresh_policy: RefreshPolicy | None = None
+    clock: Clock = field(default_factory=SystemClock, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.clock, Clock):
+            raise TypeError("clock must be a Clock")
 
 
 @dataclass(slots=True)
@@ -110,6 +116,7 @@ def build_production_runtime(config: ProductionRuntimeConfig) -> ProductionRunti
             evidence_policy=config.evidence_policy,
             refresh_policy=config.refresh_policy,
             policy_verifier=config.policy_verifier,
+            clock=config.clock,
         )
     except (Exception, KeyboardInterrupt, SystemExit) as exc:
         try:

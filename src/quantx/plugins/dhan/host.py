@@ -296,6 +296,7 @@ def build_dhan_host_runtime(config: DhanHostConfig) -> DhanHostRuntime:
                 fill_provider=config.fill_provider,
                 evidence_policy=config.evidence_policy,
                 refresh_policy=config.refresh_policy,
+                clock=config.clock,
             )
         )
         return DhanHostRuntime(

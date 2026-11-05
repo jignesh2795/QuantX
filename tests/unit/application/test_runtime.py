@@ -13,6 +13,7 @@ from quantx.application.reconciliation import (
     OrderWorkflowStatus,
 )
 from quantx.application.runtime import ApplicationRuntime
+from quantx.domain.clock import Clock, FixedClock
 from quantx.domain.enums import OrderStatus
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
 from quantx.integrations.reconciliation.account import (
@@ -174,6 +175,16 @@ def _unresolved(order_id: UUID = _ORDER_ID) -> PendingRecoveryResult:
     )
 
 
+class CountingClock(FixedClock):
+    def __init__(self, current: datetime) -> None:
+        super().__init__(current)
+        self.reads = 0
+
+    def now(self) -> datetime:
+        self.reads += 1
+        return super().now()
+
+
 class FakeRecovery:
     def __init__(self, report: PendingRecoveryRun) -> None:
         self.report = report
@@ -205,6 +216,61 @@ def test_runtime_starts_when_recovery_fully_resolves() -> None:
     with pytest.raises(RuntimeError, match="already started"):
         runtime.start(checked_at=checked_at)
     assert recovery.calls == 1
+
+
+def test_runtime_uses_injected_clock_once_when_checked_at_is_omitted() -> None:
+    instant = datetime(2026, 1, 1, 12, tzinfo=UTC)
+    clock = CountingClock(instant)
+    recovery = FakeRecovery(PendingRecoveryRun())
+    runtime = ApplicationRuntime(pending_recovery=recovery, clock=clock)
+
+    result = runtime.start()
+
+    assert result.ready
+    assert recovery.checked_at == instant
+    assert clock.reads == 1
+
+
+def test_runtime_explicit_checked_at_does_not_read_injected_clock() -> None:
+    clock = CountingClock(datetime(2026, 1, 1, 12, tzinfo=UTC))
+    recovery = FakeRecovery(PendingRecoveryRun())
+    runtime = ApplicationRuntime(pending_recovery=recovery, clock=clock)
+    explicit = datetime(2026, 2, 1, 9, tzinfo=UTC)
+
+    runtime.start(checked_at=explicit)
+
+    assert recovery.checked_at == explicit
+    assert clock.reads == 0
+
+
+def test_runtime_rejects_non_datetime_clock_before_recovery() -> None:
+    class MalformedClock(Clock):
+        def now(self) -> datetime:
+            return None  # type: ignore[return-value]
+
+    recovery = FakeRecovery(PendingRecoveryRun())
+    runtime = ApplicationRuntime(pending_recovery=recovery, clock=MalformedClock())
+
+    with pytest.raises(TypeError, match="checked_at must be a datetime"):
+        runtime.start()
+
+    assert recovery.calls == 0
+    assert not runtime.started
+
+
+def test_runtime_rejects_naive_clock_before_recovery() -> None:
+    class NaiveClock(Clock):
+        def now(self) -> datetime:
+            return datetime(2026, 1, 1, 12)
+
+    recovery = FakeRecovery(PendingRecoveryRun())
+    runtime = ApplicationRuntime(pending_recovery=recovery, clock=NaiveClock())
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        runtime.start()
+
+    assert recovery.calls == 0
+    assert not runtime.started
 
 
 def test_runtime_stays_unready_when_recovery_fails() -> None:

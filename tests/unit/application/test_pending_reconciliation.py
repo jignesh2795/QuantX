@@ -5,15 +5,20 @@ import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from threading import Barrier, Lock, Thread
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
-from quantx.application.evidence_refresh import DefinitiveEvidencePolicy
+from quantx.application.evidence_refresh import (
+    DefinitiveEvidencePolicy,
+    ReconciliationEvidenceRefresher,
+)
 from quantx.application.pending_reconciliation import reconcile_pending_execution
 from quantx.application.pending_recovery import PendingExecutionRecoveryRunner
 from quantx.application.reconciliation import OrderWorkflowStatus
 from quantx.domain.accounts import AccountId, BrokerConnectionId
+from quantx.domain.clock import FixedClock
 from quantx.domain.deployment import (
     ExecutionContext,
     ExecutionMode,
@@ -35,6 +40,7 @@ from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
 from quantx.execution.idempotency import PendingExecutionContext
 from quantx.execution.idempotency.fingerprint import request_fingerprint
+from quantx.execution.ports import ExecutionReceipt
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
 from quantx.india.market_pack import (
@@ -1224,3 +1230,148 @@ def test_pending_context_preserves_canonical_default_product_and_rule_identity()
     assert recovery_request.execution_context.market_pack_id == "india-equity"
     assert recovery_request.execution_context.rule_version == "india-products-v1"
     assert recovery_request.product_resolution == selection.resolution
+
+
+class CountingClock(FixedClock):
+    def __init__(self, current: datetime) -> None:
+        super().__init__(current)
+        self.reads = 0
+
+    def now(self) -> datetime:
+        self.reads += 1
+        return super().now()
+
+
+def test_pending_recovery_runner_shares_one_clock_instant_across_records(
+    tmp_path, monkeypatch
+) -> None:
+    database, unit_of_work = _database_and_uow(tmp_path)
+    try:
+        requests = (_request(), _request())
+        for request in requests:
+            fingerprint = request_fingerprint(request)
+            unit_of_work.idempotency.reserve_or_get(
+                request.order.client_order_id,
+                fingerprint,
+                PendingExecutionContext.from_request(request, fingerprint),
+            )
+
+        instant = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        clock = CountingClock(instant)
+        observed: list[datetime] = []
+
+        def reconcile(_request, **kwargs):
+            observed.append(kwargs["checked_at"])
+            return SimpleNamespace(definitive=False)
+
+        monkeypatch.setattr(
+            "quantx.application.pending_recovery.reconcile_pending_execution", reconcile
+        )
+        runner = PendingExecutionRecoveryRunner(
+            unit_of_work=unit_of_work,
+            provider_resolver=lambda _: ScriptedProvider(),
+            policy_verifier=policy_verifier(),
+            clock=clock,
+        )
+
+        report = runner.run()
+
+        assert report.attempted == 2
+        assert report.pending == 2
+        assert observed == [instant, instant]
+        assert clock.reads == 1
+    finally:
+        database.close()
+
+
+def test_pending_recovery_runner_explicit_checked_at_skips_clock_read(tmp_path) -> None:
+    database, unit_of_work = _database_and_uow(tmp_path)
+    try:
+        clock = CountingClock(CHECKED_AT)
+        explicit = datetime(2026, 2, 1, 10, 0, tzinfo=UTC)
+        runner = PendingExecutionRecoveryRunner(
+            unit_of_work=unit_of_work,
+            provider_resolver=lambda _: ScriptedProvider(),
+            policy_verifier=policy_verifier(),
+            clock=clock,
+        )
+
+        report = runner.run(checked_at=explicit)
+
+        assert report.attempted == 0
+        assert clock.reads == 0
+    finally:
+        database.close()
+
+
+def test_direct_pending_reconciliation_uses_one_injected_evidence_instant(
+    tmp_path, monkeypatch
+) -> None:
+    database, unit_of_work = _database_and_uow(tmp_path)
+    try:
+        request = _request()
+        instant = request.order.created_at + timedelta(minutes=17)
+        clock = CountingClock(instant)
+        captured: dict[str, object] = {}
+
+        def refresh(_refresher, receipt, **kwargs):
+            captured["receipt"] = receipt
+            captured.update(kwargs)
+            return SimpleNamespace(definitive=False, broker_order=None)
+
+        monkeypatch.setattr(ReconciliationEvidenceRefresher, "refresh", refresh)
+        outcome = reconcile_pending_execution(
+            request,
+            fingerprint="fp-a",
+            local_order=None,
+            broker_order=None,
+            provider=ScriptedProvider(),
+            unit_of_work=unit_of_work,
+            clock=clock,
+        )
+
+        receipt = captured["receipt"]
+        assert isinstance(receipt, ExecutionReceipt)
+        assert not outcome.definitive
+        assert clock.reads == 1
+        assert captured["checked_at"] == instant
+        assert captured["pending_age"] == timedelta(minutes=17)
+        assert receipt.executed_at == instant
+    finally:
+        database.close()
+
+
+def test_direct_pending_reconciliation_explicit_checked_at_skips_clock_read(
+    tmp_path, monkeypatch
+) -> None:
+    database, unit_of_work = _database_and_uow(tmp_path)
+    try:
+        request = _request()
+        clock = CountingClock(CHECKED_AT)
+        explicit = request.order.created_at + timedelta(minutes=5)
+        captured: dict[str, object] = {}
+
+        def refresh(_refresher, receipt, **kwargs):
+            captured["receipt"] = receipt
+            captured.update(kwargs)
+            return SimpleNamespace(definitive=False, broker_order=None)
+
+        monkeypatch.setattr(ReconciliationEvidenceRefresher, "refresh", refresh)
+        reconcile_pending_execution(
+            request,
+            fingerprint="fp-a",
+            local_order=None,
+            broker_order=None,
+            provider=ScriptedProvider(),
+            unit_of_work=unit_of_work,
+            checked_at=explicit,
+            clock=clock,
+        )
+
+        assert clock.reads == 0
+        assert captured["checked_at"] == explicit
+        receipt = captured["receipt"]
+        assert isinstance(receipt, ExecutionReceipt)
+        assert receipt.executed_at == explicit
+    finally:
+        database.close()
