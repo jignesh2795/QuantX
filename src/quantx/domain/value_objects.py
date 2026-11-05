@@ -35,12 +35,30 @@ class Money:
     currency: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.amount, Decimal):
+            raise TypeError("amount must be a Decimal")
+        if not self.amount.is_finite():
+            raise ValueError("amount must be finite")
         if not self.currency:
             raise ValueError("currency must not be empty")
 
     @classmethod
     def zero(cls, currency: str) -> "Money":
         return cls(Decimal("0"), currency)
+
+    def __add__(self, other: object) -> "Money":
+        if not isinstance(other, Money):
+            return NotImplemented
+        if self.currency != other.currency:
+            raise ValueError(f"currency mismatch: {self.currency} vs {other.currency}")
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other: object) -> "Money":
+        if not isinstance(other, Money):
+            return NotImplemented
+        if self.currency != other.currency:
+            raise ValueError(f"currency mismatch: {self.currency} vs {other.currency}")
+        return Money(self.amount - other.amount, self.currency)
 
 
 @dataclass(frozen=True, slots=True)
