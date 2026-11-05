@@ -20,6 +20,8 @@ from .models import (
     DhanFundsSnapshot,
     DhanHoldingSnapshot,
     DhanHoldingsSnapshot,
+    DhanLedgerEntry,
+    DhanLedgerSnapshot,
     DhanOrderDetail,
     DhanOrderRequest,
     DhanOrderResponse,
@@ -28,6 +30,8 @@ from .models import (
     DhanPositionsSnapshot,
     DhanProfileSnapshot,
     DhanQuoteSnapshot,
+    DhanTradeHistoryEntry,
+    DhanTradeHistorySnapshot,
 )
 from .session import DhanAuthenticationRejectedError
 
@@ -99,6 +103,23 @@ class DhanTransport(Protocol):
         timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
     ) -> tuple[DhanCandleSnapshot, ...]: ...
 
+    def ledger_report(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanLedgerSnapshot: ...
+
+    def trade_history(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        page: int = 0,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanTradeHistorySnapshot: ...
+
     def close(self) -> None: ...
 
 
@@ -114,6 +135,10 @@ class _DhanClient(Protocol):
     def cancel_order(self, order_id: str) -> object: ...
 
     def get_order_by_correlationID(self, correlation_id: str) -> object: ...
+
+    def ledger_report(self, from_date: str, to_date: str) -> object: ...
+
+    def get_trade_history(self, from_date: str, to_date: str, page_number: int = 0) -> object: ...
 
 
 @dataclass(slots=True)
@@ -414,6 +439,60 @@ class DhanSDKTransport:
             )
         return _candle_snapshots(response, timeframe=timeframe)
 
+    def ledger_report(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanLedgerSnapshot:
+        """Fetch Dhan ledger report for a date range."""
+        _validate_ledger_request(from_date, to_date)
+        try:
+            response = self._call_with_timeout(
+                self._client.ledger_report,
+                from_date.strftime("%Y-%m-%d"),
+                to_date.strftime("%Y-%m-%d"),
+                timeout=timeout,
+                operation="ledger_report",
+                executor=self._query_executor,
+            )
+        except Exception as exc:
+            return DhanLedgerSnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan ledger report transport failure: {exc}",
+            )
+        return _ledger_snapshot(response, from_date, to_date)
+
+    def trade_history(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        page: int = 0,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanTradeHistorySnapshot:
+        """Fetch Dhan trade history for a date range and page."""
+        _validate_trade_request(from_date, to_date, page)
+        try:
+            response = self._call_with_timeout(
+                self._client.get_trade_history,
+                from_date.strftime("%Y-%m-%d"),
+                to_date.strftime("%Y-%m-%d"),
+                page,
+                timeout=timeout,
+                operation="trade_history",
+                executor=self._query_executor,
+            )
+        except Exception as exc:
+            return DhanTradeHistorySnapshot(
+                observed_at=datetime.now(UTC),
+                available=False,
+                message=f"Dhan trade history transport failure: {exc}",
+            )
+        return _trade_history_snapshot(response, from_date, to_date, page)
+
     def close(self) -> None:
         """Shut down the internal executors deterministically.
 
@@ -489,6 +568,41 @@ class InMemoryDhanTransport:
 
     def close(self) -> None:
         """No-op lifecycle hook so the host can close any transport uniformly."""
+        pass
+
+    def ledger_report(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanLedgerSnapshot:
+        _validate_ledger_request(from_date, to_date)
+        return DhanLedgerSnapshot(
+            observed_at=datetime.now(UTC),
+            available=True,
+            message="",
+            from_date=from_date,
+            to_date=to_date,
+        )
+
+    def trade_history(
+        self,
+        from_date: datetime,
+        to_date: datetime,
+        page: int = 0,
+        *,
+        timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
+    ) -> DhanTradeHistorySnapshot:
+        _validate_trade_request(from_date, to_date, page)
+        return DhanTradeHistorySnapshot(
+            observed_at=datetime.now(UTC),
+            available=True,
+            message="",
+            from_date=from_date,
+            to_date=to_date,
+            page=page,
+        )
 
     def submit(self, request: DhanOrderRequest, *, timeout: float) -> DhanOrderResponse:
         self._submitted.append(request)
@@ -585,6 +699,14 @@ class InMemoryDhanTransport:
 
 def _order_response(response: object, *, operation: str = "submit") -> DhanOrderResponse:
     envelope_status, remarks, payload = _envelope(response)
+    if not isinstance(payload, Mapping):
+        return DhanOrderResponse(
+            order_id=None,
+            order_status="UNKNOWN",
+            observed_at=datetime.now(UTC),
+            message="Dhan order response must be a mapping",
+            raw={"status": envelope_status, "remarks": remarks, "data": payload},
+        )
     if envelope_status != "success":
         if _dhan_error_code(response) == DhanAuthenticationRejectedError.code:
             raise DhanAuthenticationRejectedError(operation)
@@ -1036,6 +1158,456 @@ def _strict_decimal(value: object, field: str) -> Decimal:
         return Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError) as exc:
         raise ValueError(f"invalid Dhan decimal field: {field}") from exc
+
+
+def _required_text(entry: dict[str, object], field: str) -> str:
+    value = entry.get(field)
+    if value is None:
+        raise ValueError(f"missing {field}")
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"missing {field}")
+    return text
+
+
+def _decimal_field(value: object, field: str) -> Decimal:
+    if isinstance(value, bool):
+        raise ValueError(f"boolean {field}")
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError(f"invalid {field}") from exc
+    if not result.is_finite():
+        raise ValueError(f"non-finite {field}")
+    return result
+
+
+_MISSING_STATEMENT_DATA = object()
+
+
+def _validate_ledger_request(
+    from_date: object,
+    to_date: object,
+) -> None:
+    """Validate ledger request parameters (date range only)."""
+    if (
+        not isinstance(from_date, datetime)
+        or from_date.tzinfo is None
+        or from_date.utcoffset() is None
+    ):
+        raise ValueError("from_date must be timezone-aware")
+    if not isinstance(to_date, datetime) or to_date.tzinfo is None or to_date.utcoffset() is None:
+        raise ValueError("to_date must be timezone-aware")
+    if from_date > to_date:
+        raise ValueError("from_date must not be after to_date")
+
+
+def _validate_trade_request(
+    from_date: object,
+    to_date: object,
+    page: int,
+) -> None:
+    """Validate trade history request parameters (date range + page)."""
+    if (
+        not isinstance(from_date, datetime)
+        or from_date.tzinfo is None
+        or from_date.utcoffset() is None
+    ):
+        raise ValueError("from_date must be timezone-aware")
+    if not isinstance(to_date, datetime) or to_date.tzinfo is None or to_date.utcoffset() is None:
+        raise ValueError("to_date must be timezone-aware")
+    if from_date > to_date:
+        raise ValueError("from_date must not be after to_date")
+    if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+        raise ValueError("page must be a non-negative integer")
+
+
+def _statement_envelope(response: object) -> tuple[str, str, object]:
+    """Preserve SDK statement payloads, including list-valued data.
+
+    A missing or malformed ``data`` value is represented by
+    ``_MISSING_STATEMENT_DATA`` rather than being silently replaced with an
+    empty mapping.
+    """
+    if not isinstance(response, Mapping):
+        raise TypeError("Dhan SDK response must be a mapping")
+    status = str(response.get("status", "failure"))
+    remarks = _format_dhan_remarks(response)
+    if "data" not in response:
+        return status, remarks, _MISSING_STATEMENT_DATA
+    data = response.get("data")
+    if data is None or isinstance(data, str) or not isinstance(data, (Mapping, list, tuple)):
+        return status, remarks, _MISSING_STATEMENT_DATA
+    return status, remarks, data
+
+
+def _parse_ledger_voucher_date(value: str) -> datetime:
+    """Parse a Dhan ledger voucher date while preserving its Asia/Kolkata instant."""
+    normalized = value.strip()
+    for fmt in ("%b %d, %Y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
+        try:
+            parsed = datetime.strptime(normalized, fmt)
+            break
+        except ValueError:
+            continue
+    else:
+        try:
+            parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"unrecognized Dhan voucher date: {value!r}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+    return parsed
+
+
+def _ledger_snapshot(
+    response: object,
+    from_date: datetime,
+    to_date: datetime,
+) -> DhanLedgerSnapshot:
+    """Normalize a Dhan ledger report response."""
+    observed_at = datetime.now(UTC)
+    try:
+        envelope_status, remarks, payload = _statement_envelope(response)
+    except (TypeError, ValueError) as exc:
+        return DhanLedgerSnapshot(
+            observed_at=observed_at,
+            available=False,
+            message=f"unrecognized Dhan ledger response: {exc}",
+        )
+    if envelope_status != "success":
+        return DhanLedgerSnapshot(
+            observed_at=observed_at,
+            available=False,
+            message=remarks or "Dhan ledger report reported failure",
+        )
+    if payload is _MISSING_STATEMENT_DATA:
+        return DhanLedgerSnapshot(
+            observed_at=observed_at,
+            available=False,
+            message="Dhan ledger response data is missing or invalid",
+        )
+    if isinstance(payload, (list, tuple)):
+        entries_payload = list(payload)
+    elif isinstance(payload, Mapping):
+        if not payload:
+            return DhanLedgerSnapshot(
+                observed_at=observed_at,
+                available=True,
+                message="",
+                from_date=from_date,
+                to_date=to_date,
+            )
+        entries_payload = [payload]
+    else:
+        return DhanLedgerSnapshot(
+            observed_at=observed_at,
+            available=False,
+            message="Dhan ledger response data is missing or invalid",
+        )
+    entries: list[DhanLedgerEntry] = []
+    for entry in entries_payload:
+        if not isinstance(entry, dict):
+            return DhanLedgerSnapshot(
+                observed_at=observed_at,
+                available=False,
+                message="Dhan ledger entry must be a mapping",
+            )
+        try:
+            client_id = _required_text(entry, "dhanClientId")
+            narration = _required_text(entry, "narration")
+            voucher_date_str = _required_text(entry, "voucherdate")
+            exchange = _required_text(entry, "exchange")
+            voucher_description = _required_text(entry, "voucherdesc")
+            voucher_number = _required_text(entry, "vouchernumber")
+
+            debit_raw = entry.get("debit")
+            credit_raw = entry.get("credit")
+            running_balance_raw = entry.get("runbal")
+            if debit_raw is None:
+                return DhanLedgerSnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="ledger entry missing debit",
+                )
+            if credit_raw is None:
+                return DhanLedgerSnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="ledger entry missing credit",
+                )
+            if running_balance_raw is None:
+                return DhanLedgerSnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="ledger entry missing running balance",
+                )
+            debit = _decimal_field(debit_raw, "debit")
+            credit = _decimal_field(credit_raw, "credit")
+            running_balance = _decimal_field(running_balance_raw, "runningBalance")
+            if debit < 0:
+                return DhanLedgerSnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="ledger entry debit cannot be negative",
+                )
+            if credit < 0:
+                return DhanLedgerSnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="ledger entry credit cannot be negative",
+                )
+
+            try:
+                voucher_date = _parse_ledger_voucher_date(voucher_date_str)
+            except (ValueError, TypeError):
+                return DhanLedgerSnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="ledger entry has invalid voucher date",
+                )
+
+            entries.append(
+                DhanLedgerEntry(
+                    observed_at=observed_at,
+                    client_id=client_id,
+                    narration=narration,
+                    voucher_date=voucher_date,
+                    exchange=exchange,
+                    voucher_description=voucher_description,
+                    voucher_number=voucher_number,
+                    debit=debit,
+                    credit=credit,
+                    running_balance=running_balance,
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            return DhanLedgerSnapshot(
+                observed_at=observed_at,
+                available=False,
+                message=f"ledger entry is malformed: {exc}",
+            )
+
+    return DhanLedgerSnapshot(
+        observed_at=observed_at,
+        entries=tuple(entries),
+        available=True,
+        message="",
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+
+def _trade_history_snapshot(
+    response: object,
+    from_date: datetime,
+    to_date: datetime,
+    page: int,
+) -> DhanTradeHistorySnapshot:
+    """Normalize a Dhan trade history response."""
+    observed_at = datetime.now(UTC)
+    try:
+        envelope_status, remarks, payload = _statement_envelope(response)
+    except (TypeError, ValueError) as exc:
+        return DhanTradeHistorySnapshot(
+            observed_at=observed_at,
+            available=False,
+            message=f"unrecognized Dhan trade history response: {exc}",
+        )
+    if envelope_status != "success":
+        return DhanTradeHistorySnapshot(
+            observed_at=observed_at,
+            available=False,
+            message=remarks or "Dhan trade history reported failure",
+        )
+    if payload is _MISSING_STATEMENT_DATA:
+        return DhanTradeHistorySnapshot(
+            observed_at=observed_at,
+            available=False,
+            message="Dhan trade history response data is missing or invalid",
+        )
+    if not isinstance(payload, list):
+        return DhanTradeHistorySnapshot(
+            observed_at=observed_at,
+            available=False,
+            message="Dhan trade history response must be a list",
+        )
+    entries: list[DhanTradeHistoryEntry] = []
+    seen_trade_ids: set[str] = set()
+    for entry in payload:
+        if not isinstance(entry, dict):
+            return DhanTradeHistorySnapshot(
+                observed_at=observed_at,
+                available=False,
+                message="Dhan trade history entry must be a mapping",
+            )
+        try:
+            client_id = _required_text(entry, "dhanClientId")
+            order_id = _required_text(entry, "orderId")
+            exchange_order_id = _required_text(entry, "exchangeOrderId")
+            exchange_trade_id = _required_text(entry, "exchangeTradeId")
+            transaction_side = _required_text(entry, "transactionType")
+            exchange_segment = _required_text(entry, "exchangeSegment")
+            product_type = _required_text(entry, "productType")
+            security_id = _required_text(entry, "securityId")
+            trading_symbol_raw = entry.get("tradingSymbol")
+            trading_symbol = None
+            if trading_symbol_raw is not None:
+                trading_symbol = str(trading_symbol_raw).strip()
+                if not trading_symbol:
+                    trading_symbol = None
+            custom_symbol_raw = entry.get("customSymbol")
+            custom_symbol = None
+            if custom_symbol_raw is not None:
+                custom_symbol = str(custom_symbol_raw).strip()
+                if not custom_symbol:
+                    custom_symbol = None
+            traded_quantity_raw = entry.get("tradedQuantity")
+            if traded_quantity_raw is None:
+                return DhanTradeHistorySnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="trade history entry missing traded quantity",
+                )
+            try:
+                traded_quantity = int(str(traded_quantity_raw).strip())
+            except (ValueError, TypeError):
+                return DhanTradeHistorySnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="trade history entry has invalid traded quantity",
+                )
+            if traded_quantity <= 0:
+                return DhanTradeHistorySnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="trade history entry has non-positive traded quantity",
+                )
+            traded_price_raw = entry.get("tradedPrice")
+            if traded_price_raw is None:
+                return DhanTradeHistorySnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="trade history entry missing traded price",
+                )
+            try:
+                traded_price = _decimal_field(traded_price_raw, "tradedPrice")
+            except (ValueError, InvalidOperation, TypeError):
+                return DhanTradeHistorySnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="trade history entry has invalid traded price",
+                )
+            if traded_price < 0:
+                return DhanTradeHistorySnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="trade history entry has negative traded price",
+                )
+            instrument_type = _required_text(entry, "instrument")
+            exchange_timestamp_str = _required_text(entry, "exchangeTime")
+
+            try:
+                exchange_timestamp = parse_dhan_timestamp(exchange_timestamp_str)
+                if exchange_timestamp is None:
+                    return DhanTradeHistorySnapshot(
+                        observed_at=observed_at,
+                        available=False,
+                        message="trade history entry has unparsable exchange timestamp",
+                    )
+            except (ValueError, TypeError):
+                return DhanTradeHistorySnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="trade history entry has invalid exchange timestamp",
+                )
+
+            def _parse_optional_decimal(value: object, field_name: str) -> Decimal | None:
+                if value is None:
+                    return None
+                s = str(value).strip()
+                if not s:
+                    return None
+                try:
+                    result = Decimal(s)
+                except (InvalidOperation, ValueError):
+                    raise ValueError(f"invalid {field_name}") from None
+                if not result.is_finite():
+                    raise ValueError(f"non-finite {field_name}")
+                if isinstance(value, bool):
+                    raise ValueError(f"boolean {field_name}")
+                return result
+
+            try:
+                stt = _parse_optional_decimal(entry.get("stt"), "stt")
+                sebi = _parse_optional_decimal(entry.get("sebiTax"), "sebiTax")
+                brokerage = _parse_optional_decimal(
+                    entry.get("brokerageCharges"), "brokerageCharges"
+                )
+                service_tax = _parse_optional_decimal(entry.get("serviceTax"), "serviceTax")
+                exchange_txn_charges = _parse_optional_decimal(
+                    entry.get("exchangeTransactionCharges"), "exchangeTransactionCharges"
+                )
+                stamp_duty = _parse_optional_decimal(entry.get("stampDuty"), "stampDuty")
+            except ValueError:
+                return DhanTradeHistorySnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message="trade history entry has malformed charge value",
+                )
+
+            if exchange_trade_id in seen_trade_ids:
+                return DhanTradeHistorySnapshot(
+                    observed_at=observed_at,
+                    available=False,
+                    message=f"duplicate exchange trade id: {exchange_trade_id}",
+                )
+            seen_trade_ids.add(exchange_trade_id)
+
+            entries.append(
+                DhanTradeHistoryEntry(
+                    observed_at=observed_at,
+                    client_id=client_id,
+                    order_id=order_id,
+                    exchange_order_id=exchange_order_id,
+                    exchange_trade_id=exchange_trade_id,
+                    transaction_side=transaction_side,
+                    exchange_segment=exchange_segment,
+                    product_type=product_type,
+                    security_id=security_id,
+                    trading_symbol=trading_symbol,
+                    custom_symbol=custom_symbol,
+                    traded_quantity=traded_quantity,
+                    traded_price=traded_price,
+                    instrument_type=instrument_type,
+                    exchange_timestamp=exchange_timestamp,
+                    stt=stt,
+                    sebi=sebi,
+                    brokerage=brokerage,
+                    service_tax=service_tax,
+                    exchange_txn_charges=exchange_txn_charges,
+                    stamp_duty=stamp_duty,
+                    source_date_from=from_date,
+                    source_date_to=to_date,
+                    source_page=page,
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            return DhanTradeHistorySnapshot(
+                observed_at=observed_at,
+                available=False,
+                message=f"trade history entry is malformed: {exc}",
+            )
+
+    return DhanTradeHistorySnapshot(
+        observed_at=observed_at,
+        entries=tuple(entries),
+        available=True,
+        message="",
+        from_date=from_date,
+        to_date=to_date,
+        page=page,
+    )
 
 
 def _position_snapshot(entry: object) -> DhanPositionSnapshot | None:
