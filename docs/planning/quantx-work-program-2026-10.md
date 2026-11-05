@@ -1,10 +1,10 @@
-# QuantX Master Work Programme — October 2026
+# QuantX Master Work Programme — October/November 2026
 
 **Status:** Active cross-workstream sequencing and reconciliation record
 
-**Snapshot date:** 2026-10-27
+**Snapshot date:** 2026-11-05
 
-**Baseline reviewed:** `main` at `a34ec73b3f9457079882ca99b895a8efeae23d73` (PR #281, trusted-clock freshness slice)
+**Baseline reviewed:** `main` at `93ae5d0be0dec94308d85856c58a5e2f7be0eca2` (PR #307 merge; post-merge tree reconciled to its validated candidate)
 
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, and release-readiness work in one progressable plan.
 
@@ -12,11 +12,10 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline verified during this reconciliation: `a34ec73b3f9457079882ca99b895a8efeae23d73`.
-- Open PRs: **0** at snapshot time.
-- Open issues: **20** after issue #181 was reconciled and closed on 2026-10-27.
-- Active branch for this documentation reconciliation: `docs/quantx-master-work-program-2026-10`, based on `main`. This change is documentation-only.
-- No new test suite, CI run, broker call, sandbox run, or LIVE operation was performed as part of this tracker update.
+- Latest `main` baseline verified during this reconciliation: `93ae5d0be0dec94308d85856c58a5e2f7be0eca2`.
+- PR #307 is merged; the open-PR and open-issue counts are intentionally not frozen in this work programme.
+- Active branch for this documentation reconciliation: `docs/quantx-post-pr307-reconciliation-2026-11-05`, based on the verified `main` merge SHA. This change is documentation-only.
+- No tests, hosted CI, broker calls, sandbox runs, or LIVE operations were performed as part of this tracker update.
 
 **Work rules:** use one coherent branch/PR per implementation slice; record exact base and candidate SHAs; keep validation evidence tied to its tested SHA; run the declared local validation gates with Dhan extra both enabled and disabled where applicable; distinguish local/operator-reported results from GitHub Actions; do not merge production code without exact-SHA evidence and required review. UNKNOWN and missing authoritative evidence are never PASS.
 
@@ -33,7 +32,8 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 | QX-07 dependency ownership (#181) | Slices 1, 2A and 2B merged; issue #181 closed on 2026-10-27 after verification | PRs #257, #259, #261; Slice 2B merge `8f86f8f8893261c414874bac09f75185f5ed5dd5` |
 | QX-08 StrategyContext/callback sequence (#196) | Completed | PR sequence recorded in `docs/STATUS.md` |
 | QX-09 market-pack pre-trade pipeline (#197) | Completed | PR #221 |
-| LIVE trusted-clock freshness | Completed slice; not full evidence authority | PR #281; remaining work is #267 |
+| LIVE trusted-clock freshness | Completed slice; not full evidence authority | PR #281 |
+| Dhan read-only ledger and page-scoped trade-history ingestion (#267 sub-slice) | Implemented and merged; observation-only, not accounting/LIVE authority | PR #307 merge `93ae5d0be0dec94308d85856c58a5e2f7be0eca2` from validated head `11c1ec4959771755d6262a23bd1ed24f71cc6bbb`; merge tree equals candidate tree `1747aab19854f9a2d21d29f5c331ab62ab0701d0`; exact-SHA local validation and independent semantic review passed |
 | QX-06 multi-leg semantics (#195) | **Design only**; no multi-leg execution implementation or capability claim | ADR-010; keep partial-leg failure and exposure semantics explicit |
 
 QX-07 closure is a current update that supersedes the pre-merge snapshot still preserved in historical sections of `docs/STATUS.md`. The final slice's recorded local candidate validation was default **2,695 passed / 1 skipped** and Dhan-enabled **2,696 passed**, with Ruff/format, strict mypy, and independent review recorded as passing. These results belong to candidate SHA `a5219cf7616f34483e3c596d3feb47ac4c00673f`; they are local evidence, not GitHub Actions evidence, and do not establish production-broker or LIVE readiness.
@@ -46,7 +46,7 @@ Use the waves below as sequence, not as a commitment to implement every issue in
 
 | Rank | Issue | State / next required outcome |
 |---|---|---|
-| **A1 — next** | [#267 LIVE risk evaluator authority and request-bound evidence](https://github.com/jignesh2795/QuantX/issues/267) | Highest priority. Block arbitrary/unapproved evaluator composition; bind risk inputs to the exact order, account, portfolio, broker connection and market context; require typed evidence with verifiable authority, observation time, freshness, completeness and explicit unavailable states. Missing/stale/foreign/contradictory evidence must block before reservation and submit. If a trustworthy adapter is absent, keep the sanctioned LIVE path unavailable/blocked. |
+| **A1 — next** | [#267 LIVE risk evaluator authority and request-bound evidence](https://github.com/jignesh2795/QuantX/issues/267) | The application-owned composition, source-grant trust boundary, exact request binding, trusted-clock/HMAC verification and fail-closed dispatch guard are present on main. Remaining gap: no source supplies the mandatory account-financial fields and the enabled exposure/P&L fields with valid semantics, completeness and provenance. Dhan currently declares no supported LIVE fields; keep admission blocked. Audit the evidence-source feasibility with #266 before designing any account/day P&L service. |
 | A2 | [#266 LIVE daily-loss limit only sees realized P&L](https://github.com/jignesh2795/QuantX/issues/266) | Define realized/unrealized P&L, valuation basis/time, mark-to-market reversal, freshness and fail-closed semantics. Do not silently change the existing realized-only contract. Coordinate with #267's evidence model. |
 | Completed | [#280 preserve operator block reason at startup](https://github.com/jignesh2795/QuantX/issues/280) — [PR #287](https://github.com/jignesh2795/QuantX/pull/287) | Merged at `b290802f4331d4137d3bda407d12a95750d7e6b4`. Preserves existing disabled reasons; durably disarms enabled/fresh states; fails closed on gate-state read or required persistence failures. Exact-SHA default and Dhan validation plus both release gates passed. |
 | A3 | [#189 Dhan startup/shutdown cleanup audit](https://github.com/jignesh2795/QuantX/issues/189) | Ensure cleanup errors remain observable and the primary startup failure is preserved; no network calls or adapter UNKNOWN-semantic changes. |
@@ -112,6 +112,10 @@ For every implementation slice:
 
 ## 6. Immediate next task
 
-**Proceed with #267, not another broad architecture rewrite.** Start by inspecting the current sanctioned LIVE composition and every call path that supplies `LiveRiskEvaluationInputs`. Map each required identity/evidence field to its authoritative source—or explicitly identify it as unavailable. Design the smallest application-owned composition and request-binding contract that cannot be self-authorized by a caller-shaped dataclass. Preserve trusted-clock freshness, India-only LIVE policy, durable disarmed gate, startup recovery, idempotency, UNKNOWN/quarantine, reconciliation and no-auto-retry invariants. If no authority-bearing evidence adapter exists, the accepted outcome is a tested block, not a fabricated adapter.
+**Continue #267 at the remaining evidence-source gap; do not reimplement the composition or request-binding controls.** Main at `93ae5d0be0dec94308d85856c58a5e2f7be0eca2` now has an application-owned LIVE evaluator, registered-adapter source construction, exact approved-request identity checks, trusted-clock freshness, HMAC-sealed per-request evidence authorization, and fail-closed checks before reservation/submission. Callback mode is non-authoritative. Tests prove it is not consulted for LIVE admission.
 
-This plan records priorities and acceptance intent; it does not itself claim implementation, test, CI, sandbox, broker or LIVE results.
+The next deliverable is a source-backed evidence feasibility matrix for every field returned by `required_live_risk_evidence_fields`: the six mandatory financial values; exposure values required by configured limits; `DAILY_PNL` when daily loss is enabled; and `EQUITY`/`HIGH_WATER_MARK` when drawdown is enabled. For each field, record the exact source endpoint/field, economic meaning, account/client binding, completeness and pagination, observation-time/freshness, precision limitations, contradiction checks, and test evidence—or mark it unavailable. Dhan currently declares an empty supported-field set: funds fields do not establish the required `AccountFinancialState`; cost-basis positions are not current marked exposures; and account/day P&L, equity and high-water mark remain unavailable. PR #285's row-level P&L is supplemental, while PR #307's ledger/trade-history transport is read-only and not wired into the risk source; ledger `runbal` is not equity and one trade-history page does not prove completeness.
+
+Coordinate the accounting basis with #266 before deriving any daily P&L: realized/unrealized split, closed-trade coverage, mark source/time, reversal behavior, fees/charges and session boundary must be explicit. Preserve trusted-clock freshness, India-only LIVE policy, durable disarmed gate, startup recovery, idempotency, UNKNOWN/quarantine, reconciliation and no-auto-retry invariants. Unless a trustworthy source can supply every required field under those semantics, the accepted runtime behavior remains a tested block—not a fabricated adapter or LIVE-readiness claim.
+
+This plan records priorities and acceptance intent; it does not itself claim implementation, hosted CI, sandbox, broker or LIVE results.
