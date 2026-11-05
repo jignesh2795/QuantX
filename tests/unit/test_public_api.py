@@ -19,7 +19,6 @@ EXPECTED_PUBLIC_API = [
     "Contract",
     "ExecutionContext",
     "ExecutionMode",
-    "FixedClock",
     "Instrument",
     "InstrumentId",
     "MarketContext",
