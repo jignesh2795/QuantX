@@ -22,9 +22,9 @@ ALLOWED_WALL_CLOCK_CALLS: dict[str, int] = {
     "persistence/sqlite/trading_gate.py": 1,
     "plugins/dhan/adapter.py": 2,
     # Dhan transport retains its reviewed broker-observation fallbacks and adds
-# one malformed-order fallback plus shared ledger/trade parser timestamps,
-# transport-failure timestamps, and in-memory observation timestamps.
-"plugins/dhan/transport.py": 35,
+    # one malformed-order fallback plus shared ledger/trade parser timestamps,
+    # transport-failure timestamps, and in-memory observation timestamps.
+    "plugins/dhan/transport.py": 35,
     "research/experiments.py": 1,
 }
 
