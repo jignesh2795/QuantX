@@ -5,7 +5,7 @@ All currently exported names are provisional; see docs/public-api.md for
 stability tiers and the pre-1.0 compatibility policy.
 """
 
-from quantx.domain.clock import Clock, FixedClock, SimulatedClock, SystemClock
+from quantx.domain.clock import Clock, SimulatedClock, SystemClock
 from quantx.domain.deployment import ExecutionContext, ExecutionMode, PortfolioId, StrategyDeploymentId
 from quantx.domain.enums import AssetClass, OrderSide, OrderType, PositionEffect, TimeInForce
 from quantx.domain.instruments import (
@@ -30,7 +30,6 @@ __all__ = [
     "Contract",
     "ExecutionContext",
     "ExecutionMode",
-    "FixedClock",
     "Instrument",
     "InstrumentId",
     "MarketContext",
