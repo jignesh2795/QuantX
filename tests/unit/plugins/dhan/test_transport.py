@@ -1308,6 +1308,7 @@ def test_sdk_ledger_report_reads_official_shape(monkeypatch: pytest.MonkeyPatch)
         assert snapshot.to_date == to_date
         assert len(snapshot.entries) == 1
         entry = snapshot.entries[0]
+        assert entry.observed_at == snapshot.observed_at
         assert entry.client_id == "client-1"
         assert entry.narration == "Test narration"
         assert entry.voucher_date == datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Kolkata"))
@@ -1440,6 +1441,7 @@ def test_sdk_trade_history_reads_official_shape(monkeypatch: pytest.MonkeyPatch)
         assert snapshot.page == 0
         assert len(snapshot.entries) == 1
         entry = snapshot.entries[0]
+        assert entry.observed_at == snapshot.observed_at
         assert entry.client_id == "client-1"
         assert entry.order_id == "ORD001"
         assert entry.exchange_order_id == "EXCH001"
