@@ -24,7 +24,10 @@ broker plugins, the optional Dhan SDK, or perform network access.
 
 The current surface is intentionally focused on market-neutral domain values,
 order intent and time contracts, and market-data interfaces. It does not
-publish application composition or broker submission authority.
+publish application composition or broker submission authority. FixedClock is
+kept internal because its implementation is documented as a test helper.
+ExecutionMode.LIVE describes a requested execution context; it does not grant
+permission, establish account authority, or establish broker readiness.
 
 ## Stability tiers
 
@@ -74,7 +77,7 @@ The provisional exports are grouped by responsibility:
 - **Order intent and execution context:** ExecutionContext, ExecutionMode,
   OrderSide, OrderType, PositionEffect, TimeInForce, and TradeIntent.
 - **Market data:** Candle, Quote, MarketDataPort, and MarketDataStore.
-- **Time:** Clock, FixedClock, SimulatedClock, and SystemClock.
+- **Time:** Clock, SimulatedClock, and SystemClock.
 
 ## Deliberate exclusions
 
