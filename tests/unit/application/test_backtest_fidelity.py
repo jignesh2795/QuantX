@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.application.backtest import BacktestDisposition, DeterministicBacktestService
-from quantx.markets import default_market_registry
 from quantx.domain.accounts import AccountId
 from quantx.domain.deployment import (
     ExecutionContext,
@@ -27,6 +26,7 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.paper_engine import PaperSimulationProfile
+from quantx.markets import default_market_registry
 from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
