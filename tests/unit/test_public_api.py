@@ -80,6 +80,7 @@ def reject_network(*args, **kwargs):
     raise AssertionError("quantx.api import attempted network access")
 
 socket.create_connection = reject_network
+socket.getaddrinfo = reject_network
 socket.socket = reject_network
 
 import quantx.api
