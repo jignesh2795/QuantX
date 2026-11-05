@@ -3476,7 +3476,6 @@ def test_backtest_requires_explicit_market_registry() -> None:
             series=_series(),
             strategy=lambda frame: None,
             financial_state=_financial_state(),
-            execution_context=_context(),
             market_registry=None,
         )
 
@@ -3488,5 +3487,4 @@ def test_backtest_omitted_market_registry_fails_closed() -> None:
             series=_series(),
             strategy=lambda frame: None,
             financial_state=_financial_state(),
-            execution_context=_context(),
         )

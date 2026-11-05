@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from quantx.markets import default_market_registry
 from quantx.application.backtest import (
     AccountStateSamplingPolicy,
     BacktestResult,
@@ -16,6 +15,7 @@ from quantx.domain.clock import Clock
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.policy import PolicyContext
 from quantx.execution.paper import PaperSimulationProfile
+from quantx.markets import default_market_registry
 from quantx.research.data import HistoricalDataSeries
 from quantx.research.replay import MultiSeries
 from quantx.research.result import ResearchResult, ResearchRunSpec

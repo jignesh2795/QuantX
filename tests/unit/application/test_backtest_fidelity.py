@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from quantx.application.backtest import BacktestDisposition, DeterministicBacktestService
+from quantx.markets import default_market_registry
 from quantx.domain.accounts import AccountId
 from quantx.domain.deployment import (
     ExecutionContext,
@@ -163,6 +164,7 @@ def _run(series, order_type: OrderType, price: Decimal | None = None):
         series=series,
         strategy=_strategy(order_type, price),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
 
@@ -323,6 +325,7 @@ def _run_with_profile(series, order_type, profile, price=None):
         strategy=_strategy(order_type, price),
         financial_state=_financial_state(),
         execution_profile=profile,
+        market_registry=default_market_registry(),
     )
 
 

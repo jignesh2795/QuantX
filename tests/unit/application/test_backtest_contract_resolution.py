@@ -198,6 +198,7 @@ def test_backtest_binds_resolution_to_risk_and_the_approved_request() -> None:
         series=_series(),
         strategy=_strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     expected = resolver.resolve_at(OPTION, T0)
