@@ -62,15 +62,6 @@ from quantx.execution.trading_gate import (
     InMemoryTradingGateStateStore,
     TradingGate,
 )
-from quantx.india.domain import IndianExchange, IndianSegment
-from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
-from quantx.india.market_checks import india_market_policy
-from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
-from quantx.india.session_calendar import (
-    IndiaSessionDecision,
-    IndiaSessionPermission,
-    IndiaSessionResult,
-)
 from quantx.integrations.brokers import (
     BrokerCapability,
     BrokerConnectionRef,
@@ -92,6 +83,15 @@ from quantx.integrations.reconciliation.orders import (
 from quantx.integrations.reconciliation.positions import PositionReconciliation
 from quantx.integrations.reconciliation.positions import (
     ReconciliationStatus as PositionReconciliationStatus,
+)
+from quantx.markets.india.domain import IndianExchange, IndianSegment
+from quantx.markets.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.markets.india.market_checks import india_market_policy
+from quantx.markets.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
+from quantx.markets.india.session_calendar import (
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionResult,
 )
 from quantx.persistence import ReceiptRepository, UnitOfWork
 from quantx.persistence.sqlite import (

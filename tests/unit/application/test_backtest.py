@@ -75,7 +75,7 @@ from quantx.execution.historical_account_state import HistoricalAccountStateSnap
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.paper_session import PaperSession
-from quantx.india.market_pack import (
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )
@@ -3338,3 +3338,49 @@ def test_backtest_absent_effect_without_versioned_rule_prevents_risk() -> None:
         )
 
     assert risk.contexts == []
+
+
+def test_backtest_rejects_unsupported_market_context(monkeypatch) -> None:
+    from quantx.markets import MarketRegistry, UnsupportedMarketError
+
+    monkeypatch.setattr(
+        "quantx.markets.default_market_registry",
+        lambda: MarketRegistry(),
+    )
+    service = _service(instrument_registry=InMemoryInstrumentRegistry((_instrument(),)))
+    with pytest.raises(UnsupportedMarketError):
+        service.run(
+            series=_series(),
+            strategy=lambda frame: None,
+            financial_state=_financial_state(),
+            execution_context=_context(),
+        )
+
+
+def test_backtest_passes_caller_market_registry_to_composed_paper_engine(monkeypatch) -> None:
+    import quantx.application.backtest as backtest_module
+    from quantx.markets import default_market_registry
+
+    original_engine = backtest_module.PaperExecutionEngine
+    engines: list[PaperExecutionEngine] = []
+
+    def capture_engine(**kwargs) -> PaperExecutionEngine:
+        engine = original_engine(**kwargs)
+        engines.append(engine)
+        return engine
+
+    monkeypatch.setattr(backtest_module, "PaperExecutionEngine", capture_engine)
+    market_registry = default_market_registry()
+    service = _service(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
+    )
+
+    service.run(
+        series=_series(),
+        strategy=_hold_all("market-registry-propagation"),
+        financial_state=_financial_state(),
+        market_registry=market_registry,
+    )
+
+    assert len(engines) == 1
+    assert engines[0]._market_registry is market_registry

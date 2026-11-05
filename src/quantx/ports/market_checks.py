@@ -9,16 +9,18 @@ broker-submit capability.
 
 from __future__ import annotations
 
-import importlib
 import re
 import types
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from functools import cache
 from typing import Protocol, runtime_checkable
 
+from quantx.domain._trusted_check_authority import (
+    _is_approved_trusted_check_implementation,
+    _is_core_trusted_check_registrar,
+)
 from quantx.domain.deployment import ExecutionMode
 from quantx.domain.execution_request import ApprovedExecutionRequest
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
@@ -145,70 +147,41 @@ class TrustedCheckImplementation:
     attribute: str
 
 
-def _resolve_implementation(implementation: TrustedCheckImplementation) -> type | None:
-    """Resolve one approved class object in a single attempt (fail closed).
+# Only the core application bootstrap can supply the registrar capability.
+# The capability itself is owned by quantx._trusted_check_authority and is
+# deliberately not stored or exported from this ports module.
+_PINNED_TRUSTED_CHECKS: dict[str, type | None] = {}
 
-    Returns None when the module cannot be imported, the attribute is
-    missing or not a class, or the class is not defined in the approved
-    module. Callers compare by identity, never by the class' ``__module__``
-    string, which any caller-defined class can set.
+
+def _register_trusted_check(check_id: object, implementation: object, registrar: object) -> None:
+    """Pin one exact implementation approved by the core bootstrap.
+
+    This is an internal ports operation, not a market-pack registration API.
+    Authority and canonical object identity are checked before pinning.
     """
-    try:
-        module = importlib.import_module(implementation.module)
-        candidate = getattr(module, implementation.attribute, None)
-    except Exception:
-        return None
-    if not isinstance(candidate, type) or candidate.__module__ != implementation.module:
-        return None
-    return candidate
-
-
-_PINNED_IMPLEMENTATIONS: dict[TrustedCheckImplementation, type | None] = {}
-"""Durable approved-class identities, pinned before pack code can run.
-
-Populated by :func:`pin_trusted_implementations`, which the approved
-adapter module calls at its own import — and any attribute-rebinding
-attack must import that module first, so the pin always observes the
-reviewed classes. The pin is first-write-wins and is never cleared by the
-resolution cache, so a later rebinding (even with a spoofed ``__module__``)
-cannot become the resolved identity.
-"""
-
-
-def pin_trusted_implementations() -> None:
-    """Pin every approved implementation identity for the process lifetime.
-
-    Called once from the approved adapter module at import time. Later
-    calls — including adversarial re-pins after rebinding a module
-    attribute — are no-ops, so the first (reviewed) resolution stands.
-
-    Guarantee: after the approved module has been imported normally, no
-    module-attribute rebinding can confer trust, with or without a spoofed
-    ``__module__``. Explicitly excluded: import-system tampering (such as
-    pre-poisoning ``sys.modules`` with a counterfeit approved module) and
-    writes to private core names (``_TRUSTED_CHECK_BINDINGS``,
-    ``_PINNED_IMPLEMENTATIONS``, cache manipulation). Those are equivalent
-    to patching the core itself and are outside this guarantee.
-    """
-    for binding in _TRUSTED_CHECK_BINDINGS.values():
-        if binding.implementation not in _PINNED_IMPLEMENTATIONS:
-            _PINNED_IMPLEMENTATIONS[binding.implementation] = _resolve_implementation(
-                binding.implementation
-            )
-
-
-@cache
-def _approved_implementation(implementation: TrustedCheckImplementation) -> type | None:
-    """Return the approved class object, preferring the durable pin.
-
-    The pinned identity (if present) wins over the live module attribute,
-    so first runtime resolution after a rebinding still observes the
-    reviewed class. Unpinned references fall back to a single live
-    resolution, which fails closed.
-    """
-    if implementation in _PINNED_IMPLEMENTATIONS:
-        return _PINNED_IMPLEMENTATIONS[implementation]
-    return _resolve_implementation(implementation)
+    if not _is_core_trusted_check_registrar(registrar):
+        raise PermissionError("invalid trusted-check registrar")
+    if not isinstance(check_id, str):
+        raise ValueError("check_id must be a string")
+    binding = _TRUSTED_CHECK_BINDINGS.get(check_id)
+    if binding is None:
+        raise ValueError("unknown trusted check identity")
+    if not isinstance(implementation, type):
+        raise ValueError("implementation must be a class")
+    if not _is_approved_trusted_check_implementation(check_id, implementation):
+        raise ValueError("implementation is not the exact core-approved class")
+    # Metadata is a secondary consistency check only. Exact object identity
+    # above is the authorization decision.
+    if (
+        implementation.__module__ != binding.implementation.module
+        or implementation.__qualname__ != binding.implementation.attribute
+    ):
+        raise ValueError("core-approved implementation metadata is inconsistent")
+    if check_id in _PINNED_TRUSTED_CHECKS:
+        if _PINNED_TRUSTED_CHECKS[check_id] is not implementation:
+            raise ValueError("conflicting trusted implementation")
+        return
+    _PINNED_TRUSTED_CHECKS[check_id] = implementation
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,14 +227,14 @@ _TRUSTED_CHECK_BINDINGS: Mapping[str, TrustedCheckBinding] = types.MappingProxyT
     {
         "india.session-calendar": TrustedCheckBinding(
             implementation=TrustedCheckImplementation(
-                "quantx.india.market_checks", "IndiaSessionCheck"
+                "quantx.markets.india.market_checks", "IndiaSessionCheck"
             ),
             regions=frozenset({MarketRegion.INDIA}),
             stage=MarketCheckStage.PRE_DISPATCH,
         ),
         "india.compatibility-rules": TrustedCheckBinding(
             implementation=TrustedCheckImplementation(
-                "quantx.india.market_checks", "IndiaCompatCheck"
+                "quantx.markets.india.market_checks", "IndiaCompatCheck"
             ),
             regions=frozenset({MarketRegion.INDIA}),
             stage=MarketCheckStage.PRE_SUBMIT,
@@ -320,10 +293,12 @@ def is_trusted_check(
     comparison, so no caller metadata can impersonate it), and the
     placement region and stage both match. Anything else is untrusted.
     """
-    binding = _TRUSTED_CHECK_BINDINGS.get(check_id) if isinstance(check_id, str) else None
+    if not isinstance(check_id, str):
+        return False
+    binding = _TRUSTED_CHECK_BINDINGS.get(check_id)
     if binding is None or region not in binding.regions or stage is not binding.stage:
         return False
-    approved = _approved_implementation(binding.implementation)
+    approved = _PINNED_TRUSTED_CHECKS.get(check_id)
     return approved is not None and type(check) is approved
 
 
@@ -893,7 +868,6 @@ __all__ = [
     "is_valid_rule_set_version",
     "market_evidence_to_mapping",
     "normalize_market_context",
-    "pin_trusted_implementations",
     "sanitize_public_reason",
     "select_market_policy",
     "sequence_to_mapping",

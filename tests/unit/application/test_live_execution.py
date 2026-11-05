@@ -60,15 +60,15 @@ from quantx.domain.risk import (
 from quantx.domain.value_objects import Money, ProductCode
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.trading_gate import TradingGateState
-from quantx.india.domain import IndianExchange, IndianSegment
-from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
-from quantx.india.market_checks import india_market_policy
-from quantx.india.session_calendar import (
+from quantx.integrations.account_registry import AccountConnectionRegistry, RegisteredConnection
+from quantx.markets.india.domain import IndianExchange, IndianSegment
+from quantx.markets.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.markets.india.market_checks import india_market_policy
+from quantx.markets.india.session_calendar import (
     IndiaSessionDecision,
     IndiaSessionPermission,
     IndiaSessionResult,
 )
-from quantx.integrations.account_registry import AccountConnectionRegistry, RegisteredConnection
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteSubmissionQuarantineRepository,

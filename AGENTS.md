@@ -58,3 +58,7 @@ Never say tests pass without exact command/results. When validation is requested
 - Never remove the primary checkout or another active task's worktree. Do not delete branches or commits as part of worktree cleanup. Do not broadly delete `Temp\opencode`, temporary folders, or other paths as a substitute for Git worktree-aware cleanup.
 - After cleanup, verify with `git worktree list --porcelain` that the task-created temporary worktree is gone. `git worktree prune` is for stale administrative records whose worktree directories are already absent; it does not replace removing a live worktree. Inspect `git worktree prune --dry-run` before pruning.
 - If a worktree must remain for an explicit follow-up, report it as ACTIVE with its path, purpose, branch/SHA, and cleanup owner/condition. Do not silently leave a completed task's temporary worktree behind. If safe cleanup is blocked, report the exact path and reason instead of forcing removal.
+
+## Current bounded migration
+
+The market-module migration mainline is an in-progress bounded slice. Keep #267 open and fail-closed; do not claim completion or LIVE readiness.

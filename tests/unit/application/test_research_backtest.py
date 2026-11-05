@@ -14,7 +14,7 @@ from quantx.domain.instruments import Instrument, MarketContext, MarketFamily, M
 from quantx.domain.market_data import Quote
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
-from quantx.india.market_pack import (
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )

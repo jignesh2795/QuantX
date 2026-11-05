@@ -43,10 +43,6 @@ from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionReceipt
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
-from quantx.india.market_pack import (
-    INDIA_EQUITY_POSITION_EFFECT_POLICY,
-    INDIA_EQUITY_PRODUCT_SELECTION,
-)
 from quantx.integrations.reconciliation import (
     AccountFinancialState,
     OrderObservation,
@@ -54,6 +50,10 @@ from quantx.integrations.reconciliation import (
     StateSource,
 )
 from quantx.integrations.reconciliation.broker_evidence import BrokerOrderEvidence
+from quantx.markets.india.market_pack import (
+    INDIA_EQUITY_POSITION_EFFECT_POLICY,
+    INDIA_EQUITY_PRODUCT_SELECTION,
+)
 from quantx.persistence.sqlite import (
     SqliteDatabase,
     SqliteIdempotencyStore,

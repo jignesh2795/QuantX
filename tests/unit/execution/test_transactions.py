@@ -13,7 +13,7 @@ from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.preconditions.models import PreconditionsResult, PreconditionsStatus
 from quantx.execution.transactions.coordinator import ExecutionTransactionCoordinator
-from quantx.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
+from quantx.markets.india.market_pack import INDIA_EQUITY_PRODUCT_SELECTION
 from quantx.persistence import ReceiptRepository
 from tests.unit._execution_request_proofs import policy_verifier
 

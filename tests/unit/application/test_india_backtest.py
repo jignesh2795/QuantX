@@ -24,13 +24,13 @@ from quantx.domain.strategy import (
     StrategySignal,
 )
 from quantx.domain.value_objects import InstrumentId, Money
-from quantx.india import (
+from quantx.markets.india import (
     IndianExchange,
     IndianInstrumentCatalog,
     IndianInstrumentSpec,
     IndianSegment,
 )
-from quantx.india.market_pack import (
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )
