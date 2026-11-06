@@ -41,7 +41,7 @@ from quantx.domain.product_selection import (
     resolve_request_product,
 )
 from quantx.domain.value_objects import ProductCode
-from quantx.india.market_pack import (
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_MARKET_PACK_ID,
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,

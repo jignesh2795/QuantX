@@ -14,6 +14,7 @@ from quantx.execution.paper.executor import PaperOrderExecutor
 from quantx.execution.paper.latency import LatencyModel
 from quantx.execution.paper.profile import ExecutionProfile
 from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
+from quantx.markets import default_market_registry
 
 
 def _executor(*, latency_ms: int = 0) -> PaperOrderExecutor:
@@ -62,7 +63,9 @@ def test_rehearsal_preflight_requires_typed_custom_executor_capability() -> None
 
 def test_backtest_preflight_accepts_owned_simulated_clock_only_at_zero_latency() -> None:
     clock = SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC))
-    engine = PaperExecutionEngine(clock=clock, profile=PaperSimulationProfile())
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(), clock=clock, profile=PaperSimulationProfile()
+    )
     assert (
         assess_backtest_event_time_support(
             engine, internally_composed=True, configured_latency_ms=0

@@ -72,19 +72,19 @@ from quantx.execution.receipts.identity import (
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.execution.receipts.quarantine import QuarantineObservationKind
 from quantx.execution.trading_gate import DurableTradingGate, InMemoryTradingGateStateStore
-from quantx.india.domain import IndianExchange, IndianSegment
-from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
-from quantx.india.market_checks import india_market_policy
-from quantx.india.session_calendar import (
-    IndiaSessionDecision,
-    IndiaSessionPermission,
-    IndiaSessionResult,
-)
 from quantx.integrations.brokers import (
     BrokerCapability,
     BrokerConnectionRef,
     BrokerDescriptor,
     CapabilitySet,
+)
+from quantx.markets.india.domain import IndianExchange, IndianSegment
+from quantx.markets.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.markets.india.market_checks import india_market_policy
+from quantx.markets.india.session_calendar import (
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionResult,
 )
 from quantx.persistence import ReceiptRepository, UnitOfWork
 from tests.unit._execution_request_proofs import approved_request, policy_verifier

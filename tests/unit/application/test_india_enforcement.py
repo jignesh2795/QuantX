@@ -36,31 +36,31 @@ from quantx.domain.value_objects import ProductCode
 from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
-from quantx.india.domain import (
+from quantx.integrations.brokers import (
+    BrokerConnectionRef,
+    CapabilitySet,
+)
+from quantx.markets.india.domain import (
     IndianExchange,
     IndianInstrumentSpec,
     IndianSegment,
     ProductType,
 )
-from quantx.india.execution_rules import (
+from quantx.markets.india.execution_rules import (
     IndiaExecutionRuleEngine,
     IndiaRuleDecision,
     IndiaRuleResult,
 )
-from quantx.india.market_checks import india_market_policy
-from quantx.india.rule_data import (
+from quantx.markets.india.market_checks import india_market_policy
+from quantx.markets.india.rule_data import (
     IndiaRuleScope,
     IndiaVenueRuleSnapshot,
     PriceBandRuleSnapshot,
 )
-from quantx.india.session_calendar import (
+from quantx.markets.india.session_calendar import (
     IndiaSessionDecision,
     IndiaSessionPermission,
     IndiaSessionResult,
-)
-from quantx.integrations.brokers import (
-    BrokerConnectionRef,
-    CapabilitySet,
 )
 from quantx.persistence.sqlite import (
     SqliteDatabase,

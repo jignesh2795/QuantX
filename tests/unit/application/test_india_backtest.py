@@ -24,13 +24,14 @@ from quantx.domain.strategy import (
     StrategySignal,
 )
 from quantx.domain.value_objects import InstrumentId, Money
-from quantx.india import (
+from quantx.markets import default_market_registry
+from quantx.markets.india import (
     IndianExchange,
     IndianInstrumentCatalog,
     IndianInstrumentSpec,
     IndianSegment,
 )
-from quantx.india.market_pack import (
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )
@@ -114,6 +115,7 @@ def test_indian_nse_spec_flows_through_registry_and_deterministic_backtest() -> 
             buying_power=Money(Decimal("1000"), "INR"),
         ),
         policy_context=PolicyContext(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 1

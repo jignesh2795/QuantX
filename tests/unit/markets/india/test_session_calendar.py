@@ -5,8 +5,8 @@ import pytest
 
 from quantx.domain.clock import FixedClock
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
-from quantx.india.domain import IndianExchange, IndianSegment
-from quantx.india.session_calendar import (
+from quantx.markets.india.domain import IndianExchange, IndianSegment
+from quantx.markets.india.session_calendar import (
     IndiaSessionCalendar,
     IndiaSessionCalendarSnapshot,
     IndiaSessionDayOverride,

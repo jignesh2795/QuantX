@@ -6,7 +6,7 @@ import pytest
 from quantx.domain.enums import AssetClass
 from quantx.domain.instruments import OptionType
 from quantx.domain.value_objects import InstrumentId
-from quantx.india import (
+from quantx.markets.india import (
     IndianExchange,
     IndianInstrumentCatalog,
     IndianInstrumentSpec,

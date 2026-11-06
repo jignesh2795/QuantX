@@ -26,6 +26,7 @@ from quantx.domain.value_objects import Money
 from quantx.execution.accounting import FillAccounting
 from quantx.execution.paper import PaperExecutionEngine, PaperSimulationProfile, QuoteSnapshot
 from quantx.execution.paper_session import PaperSession
+from quantx.markets import default_market_registry
 from tests.unit._execution_request_proofs import approved_request
 
 
@@ -68,7 +69,10 @@ def _request() -> ApprovedExecutionRequest:
 
 
 def test_execute_account_and_value_uses_observed_mark() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     instrument = _instrument()
     session = PaperSession(
         executor=engine,
@@ -93,6 +97,7 @@ def test_execute_account_and_value_uses_observed_mark() -> None:
 
 def test_idempotent_receipt_does_not_double_apply_position_or_cash() -> None:
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(fee_bps=Decimal("10")),
     )
@@ -131,6 +136,7 @@ def test_receipt_fee_flows_into_accounting_by_default() -> None:
     from quantx.execution.paper import PaperSimulationProfile
 
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(fee_bps=Decimal("10")),
     )
@@ -158,7 +164,10 @@ def test_receipt_fee_flows_into_accounting_by_default() -> None:
 
 
 def test_missing_mark_produces_incomplete_valuation() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     instrument = _instrument()
     session = PaperSession(
         executor=engine,
@@ -190,6 +199,7 @@ def test_partial_continuation_reuses_account_pipeline_and_post_trade_risk() -> N
     instrument = _instrument()
     clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=clock,
         profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1"), fee_bps=Decimal("10")),
     )
@@ -259,6 +269,7 @@ def test_partial_continuation_recalculates_position_margin_for_full_resulting_po
     request = _request()
     clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=clock,
         profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1")),
     )
@@ -329,6 +340,7 @@ def test_partial_continuation_is_blocked_before_executor_on_projected_position_e
     request = _request()
     clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=clock,
         profile=PaperSimulationProfile(partial_fill_ratio=Decimal("1")),
     )

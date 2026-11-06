@@ -25,6 +25,7 @@ from quantx.domain.value_objects import Money
 from quantx.execution.margin_ledger import MarginLedger
 from quantx.execution.paper_engine import PaperExecutionEngine, QuoteSnapshot
 from quantx.execution.paper_session import PaperSession
+from quantx.markets import default_market_registry
 from tests.unit._execution_request_proofs import approved_request
 
 
@@ -82,7 +83,10 @@ def _snapshot(instrument: Instrument) -> QuoteSnapshot:
 
 def test_paper_session_tracks_margin_until_position_closes() -> None:
     instrument = _instrument()
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     session = PaperSession(
         executor=engine,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),

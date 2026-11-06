@@ -32,6 +32,7 @@ from quantx.execution.paper import (
     PaperSimulationProfile,
     QuoteSnapshot,
 )
+from quantx.markets import UnsupportedMarketError, default_market_registry
 from quantx.persistence import ReceiptRepository
 from tests.unit._execution_request_proofs import approved_request
 
@@ -73,6 +74,7 @@ def _snapshot(*, bid=None, ask=None, last=None) -> MarketSnapshot:
 
 def test_market_buy_uses_observed_ask_and_explicit_slippage() -> None:
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(slippage_bps=Decimal("10")),
     )
@@ -83,6 +85,7 @@ def test_market_buy_uses_observed_ask_and_explicit_slippage() -> None:
 
 def test_simulation_latency_is_applied_to_fill_and_receipt() -> None:
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(latency_ms=250),
     )
@@ -97,7 +100,10 @@ def test_simulation_latency_is_applied_to_fill_and_receipt() -> None:
 
 
 def test_repeated_client_order_is_idempotent() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     request = _request()
     snapshot = _snapshot(ask=Decimal("100"))
     first = engine.execute(request, snapshot=snapshot)
@@ -107,7 +113,10 @@ def test_repeated_client_order_is_idempotent() -> None:
 
 
 def test_reusing_client_order_id_for_changed_request_is_blocked() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     request = _request()
     engine.execute(request, snapshot=_snapshot(ask=Decimal("100")))
     changed_order = replace(request.order, quantity=Decimal("11"))
@@ -118,7 +127,10 @@ def test_reusing_client_order_id_for_changed_request_is_blocked() -> None:
 
 
 def test_missing_required_price_does_not_create_a_fill() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     receipt = engine.execute(_request(), snapshot=_snapshot(bid=Decimal("99")))
     assert receipt.fills == ()
     assert receipt.order_status.value == "ACCEPTED"
@@ -126,7 +138,10 @@ def test_missing_required_price_does_not_create_a_fill() -> None:
 
 
 def test_snapshot_instrument_must_match_order() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     mismatched = MarketSnapshot(
         instrument=InstrumentId("NSE", "INFY"),
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
@@ -137,7 +152,10 @@ def test_snapshot_instrument_must_match_order() -> None:
 
 
 def test_paper_engine_rejects_live_mode() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     with pytest.raises(PaperExecutionError, match="PAPER, SHADOW, or REPLAY"):
         engine.execute(_request(ExecutionMode.LIVE), snapshot=_snapshot(ask=Decimal("100")))
 
@@ -172,6 +190,7 @@ class _StaleObservationStore:
 
 def test_stale_observation_returns_cached_receipt_not_pending() -> None:
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         idempotency_store=_StaleObservationStore(InMemoryIdempotencyStore()),
     )
@@ -202,6 +221,7 @@ class _FakeReceiptRepository(ReceiptRepository):
 def test_repository_backed_duplicate_returns_authoritative_receipt() -> None:
     repository = _FakeReceiptRepository()
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         receipt_repository=repository,
     )
@@ -216,6 +236,7 @@ def test_repository_backed_duplicate_returns_authoritative_receipt() -> None:
 def test_fresh_execution_saves_receipt_to_repository() -> None:
     repository = _FakeReceiptRepository()
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         receipt_repository=repository,
     )
@@ -227,6 +248,7 @@ def test_fresh_execution_saves_receipt_to_repository() -> None:
 def test_cache_conflict_cannot_override_repository_receipt() -> None:
     repository = _FakeReceiptRepository()
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         receipt_repository=repository,
     )
@@ -244,6 +266,7 @@ def test_missing_repository_receipt_fails_closed_without_resubmit() -> None:
     store = InMemoryIdempotencyStore()
     repository = _FakeReceiptRepository()
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         idempotency_store=store,
         receipt_repository=repository,
@@ -299,6 +322,7 @@ def test_market_sell_slippage_divides_reference_price() -> None:
         RiskResult(RiskDecision.APPROVE, "approved"),
     )
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(slippage_bps=Decimal("10")),
     )
@@ -310,10 +334,12 @@ def test_market_sell_slippage_divides_reference_price() -> None:
 
 def test_slipped_fill_records_reference_price_deterministically() -> None:
     first_engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(slippage_bps=Decimal("10")),
     )
     second_engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(slippage_bps=Decimal("10")),
     )
@@ -342,6 +368,7 @@ def test_configured_charge_model_is_recorded_with_deterministic_provenance() -> 
     from quantx.execution.charges import PercentageBpsChargeModel
 
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
         profile=PaperSimulationProfile(
             charge_model=PercentageBpsChargeModel(
@@ -390,7 +417,10 @@ def test_charge_model_and_fee_bps_cannot_be_ambiguous() -> None:
 
 
 def test_zero_slippage_records_reference_and_realized_price() -> None:
-    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+    )
     receipt = engine.execute(_request(), snapshot=_snapshot(bid=Decimal("99"), ask=Decimal("100")))
 
     assert receipt.fills[0].price == Decimal("100")
@@ -398,3 +428,12 @@ def test_zero_slippage_records_reference_and_realized_price() -> None:
     assert "realized_price=100" in receipt.assumptions
     assert "realized_quantity=10" in receipt.assumptions
     assert "remaining_quantity=0" in receipt.assumptions
+
+
+def test_paper_execution_requires_explicit_market_registry() -> None:
+    engine = PaperExecutionEngine(clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)))
+    request = _request()
+    snapshot = _snapshot(last=Decimal("100"))
+
+    with pytest.raises(UnsupportedMarketError, match="market_registry is required"):
+        engine.execute(request, snapshot=snapshot)

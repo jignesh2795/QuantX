@@ -110,3 +110,12 @@ The portfolio layer may eventually contain positions across multiple markets, bu
 ## v0.1
 
 India is the first complete market module. Other market packages may initially contain only interfaces, capability metadata, or placeholders until implemented. This keeps global separation in the architecture without forcing premature multi-market implementation.
+## Current implementation status
+
+The universal core now has a `quantx.markets` package with caller-populated
+`MarketRegistry`, common market-neutral contracts, an India module, and a
+minimal digital-assets placeholder. `quantx.india` remains a deprecated
+compatibility shim that re-exports `quantx.markets.india` and does not confer
+trusted-check identity. `application/live_execution.py` remains unchanged.
+This is a bounded migration slice, not a general authorization for future
+structural rewrites or new market implementations.

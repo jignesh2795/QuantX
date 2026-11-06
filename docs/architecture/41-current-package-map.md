@@ -14,7 +14,8 @@ src/quantx/
 ├── integrations/
 ├── research/
 ├── persistence/
-├── india/
+├── markets/
+├── india/  # deprecated compatibility shim
 ├── plugins/
 ├── ports/
 └── strategy/
@@ -96,7 +97,7 @@ Subpackages should be introduced when a responsibility has an independent invari
 3. Execution owns normalized execution semantics and safety boundaries.
 4. Broker adapters remain under integrations/plugins and must not leak vendor SDK types into the core.
 5. Research owns historical-data provenance and replay; it cannot silently modify source evidence.
-6. India/global/crypto rules live behind their respective market/plugin boundaries as those implementations mature.
+6. India rules live behind `quantx.markets.india`; other markets remain unimplemented until their implementations mature.
 7. Infrastructure implements persistence, messaging, config, and observability behind stable boundaries.
 8. A new module should get its own subpackage when it has independent invariants, tests, or a likely plugin boundary.
 9. Do not create one giant `utils.py`, `services.py`, or `models.py` for unrelated concerns.
@@ -104,3 +105,21 @@ Subpackages should be introduced when a responsibility has an independent invari
 ## Migration rule
 
 When an existing module is modified, move it only when the new boundary is justified by ownership and callers can be migrated safely. Avoid repository-wide structural migrations while execution-integrity work is active.
+## Market-module migration notes
+
+`quantx.markets` is caller-populated. `default_market_registry()` remains an
+explicit composition helper for the default India module. Backtest and paper
+execution no longer substitute it when `market_registry` is omitted or
+``None``; callers must supply the registry explicitly or receive
+``UnsupportedMarketError``. Market selection still requires exact
+`MarketContext` membership.
+
+`IndiaMarketModule` currently registers exactly two contexts: NSE equity and
+NSE derivatives. Other India venues and families may be handled by legacy
+session, rule, or product-resolution code, but they are not advertised as
+supported module contexts and cannot be selected through the registry.
+
+The India module currently has one implemented market pack. Its pack id and
+rule version are shared across both registered contexts; product selection
+remains NSE-equity-specific and other contexts fail closed during product
+resolution.

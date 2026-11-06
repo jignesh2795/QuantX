@@ -49,19 +49,19 @@ from quantx.execution.idempotency.fingerprint import request_fingerprint
 from quantx.execution.order_lifecycle import OrderLifecycleStatus
 from quantx.execution.receipts.models import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.trading_gate import DurableTradingGate
-from quantx.india.domain import IndianExchange, IndianSegment
-from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
-from quantx.india.market_checks import india_market_policy
-from quantx.india.session_calendar import (
-    IndiaSessionDecision,
-    IndiaSessionPermission,
-    IndiaSessionResult,
-)
 from quantx.integrations.brokers import BrokerConnectionRef
 from quantx.integrations.reconciliation import (
     BrokerOrderEvidence,
     BrokerOrderEvidenceStatus,
     OrderObservation,
+)
+from quantx.markets.india.domain import IndianExchange, IndianSegment
+from quantx.markets.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+from quantx.markets.india.market_checks import india_market_policy
+from quantx.markets.india.session_calendar import (
+    IndiaSessionDecision,
+    IndiaSessionPermission,
+    IndiaSessionResult,
 )
 from quantx.persistence.sqlite import (
     SqliteDatabase,

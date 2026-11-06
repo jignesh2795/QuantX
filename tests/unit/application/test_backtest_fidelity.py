@@ -26,7 +26,8 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.paper_engine import PaperSimulationProfile
-from quantx.india.market_pack import (
+from quantx.markets import default_market_registry
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )
@@ -163,6 +164,7 @@ def _run(series, order_type: OrderType, price: Decimal | None = None):
         series=series,
         strategy=_strategy(order_type, price),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
 
@@ -323,6 +325,7 @@ def _run_with_profile(series, order_type, profile, price=None):
         strategy=_strategy(order_type, price),
         financial_state=_financial_state(),
         execution_profile=profile,
+        market_registry=default_market_registry(),
     )
 
 

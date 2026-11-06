@@ -40,7 +40,8 @@ from quantx.domain.strategy import (
 )
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.paper_engine import PaperSimulationProfile
-from quantx.india.market_pack import (
+from quantx.markets import default_market_registry
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )
@@ -292,6 +293,7 @@ def test_candle_market_order_fills_at_bar_close() -> None:
         series=_candle_series(),
         strategy=_buy_once_strategy(_context()),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.steps) == 3
@@ -373,6 +375,7 @@ def test_candle_limit_order_produces_no_fill_without_invention() -> None:
         series=_candle_series(),
         strategy=_limit_strategy(_context()),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.steps) == 3
@@ -412,6 +415,7 @@ def test_candle_crossed_limit_fills_at_bar_close_end_to_end() -> None:
         series=_candle_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 3
@@ -467,6 +471,7 @@ def test_candle_limit_fills_only_crossed_bars() -> None:
         series=_candle_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     # closes: 100.000...01 (fill), 101.5 (no fill), 99.5 (fill).
@@ -490,6 +495,7 @@ def test_candle_stop_order_produces_no_fill_without_invention() -> None:
         series=_candle_series(),
         strategy=_stop_strategy(_context()),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.steps) == 3
@@ -533,6 +539,7 @@ def test_candle_buy_stop_triggered_and_ambiguous_bars() -> None:
         series=_candle_series(),
         strategy=_stop_every_bar_strategy(_context(), OrderSide.BUY, Decimal("100")),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert [step.disposition for step in result.steps] == [
@@ -558,6 +565,7 @@ def test_candle_sell_stop_triggered_and_ambiguous_bars() -> None:
         series=_candle_series(),
         strategy=_stop_every_bar_strategy(_context(), OrderSide.SELL, Decimal("100")),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert [step.disposition for step in result.steps] == [
@@ -607,6 +615,7 @@ def test_candle_stop_limit_never_fills_with_explicit_reasons() -> None:
         series=_candle_series(),
         strategy=_stop_limit_every_bar_strategy(_context()),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert [step.disposition for step in result.steps] == [
@@ -630,6 +639,7 @@ def test_candle_stop_run_is_deterministic() -> None:
             series=_candle_series(),
             strategy=_stop_every_bar_strategy(_context(), OrderSide.BUY, Decimal("100")),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     first = run_all()
@@ -654,6 +664,7 @@ def test_candle_run_is_chronological_deterministic_and_reproducible() -> None:
             series=shuffled,
             strategy=_buy_once_strategy(_context()),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     first = run_all()
@@ -694,6 +705,7 @@ def test_candle_run_consumes_no_future_information() -> None:
         series=series,
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert seen == list(expected)
@@ -719,6 +731,7 @@ def test_candle_receipt_records_basic_bar_identity() -> None:
         series=_candle_series(),
         strategy=_buy_once_strategy(_context()),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     (receipt,) = result.receipts
@@ -783,6 +796,7 @@ def test_mixed_series_records_identity_per_payload() -> None:
         series=series,
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 2
@@ -804,6 +818,7 @@ def test_candle_receipt_identity_is_reproducible() -> None:
             series=_candle_series(),
             strategy=_buy_once_strategy(_context()),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     first = run_all()
@@ -858,6 +873,7 @@ def _volume_run(series, quantity: Decimal, rate: Decimal | None):
         strategy=_volume_strategy(quantity),
         financial_state=_financial_state(),
         candle_volume_participation_rate=rate,
+        market_registry=default_market_registry(),
     )
 
 
@@ -936,6 +952,7 @@ def test_quote_stop_behavior_unchanged() -> None:
         series=_quote_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     # Quote STOP orders propose no fill in this engine, as before: the
@@ -954,6 +971,7 @@ def test_quote_backtest_still_executes() -> None:
         series=_quote_series(),
         strategy=_buy_once_strategy(_context()),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 1
@@ -992,6 +1010,7 @@ def test_each_candle_fill_uses_its_own_bar_close() -> None:
         series=_candle_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 3
@@ -1036,6 +1055,7 @@ def test_candle_end_to_end_replay_to_accounting() -> None:
         strategy=StrategyEvaluationService(_CandleParityStrategy()),
         strategy_ir=ir,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 1
@@ -1057,6 +1077,7 @@ def _slipped_run(series, strategy, profile):
         strategy=strategy,
         financial_state=_financial_state(),
         execution_profile=profile,
+        market_registry=default_market_registry(),
     )
 
 
@@ -1134,6 +1155,7 @@ def test_candle_participation_slippage_ratio_stay_independent() -> None:
         financial_state=_financial_state(),
         execution_profile=profile,
         candle_volume_participation_rate=Decimal("0.10"),
+        market_registry=default_market_registry(),
     )
 
     base_quantities = [fill.quantity for receipt in base.receipts for fill in receipt.fills]

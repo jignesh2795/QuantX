@@ -30,6 +30,7 @@ from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.paper_engine import PaperExecutionEngine
+from quantx.markets import default_market_registry
 from quantx.research.data import HistoricalDataSeries, HistoricalObservation
 from quantx.research.market_rules import (
     PointInTimeContractCatalog,
@@ -148,7 +149,9 @@ class _RecordingRiskEngine:
 class _RecordingEngine:
     def __init__(self) -> None:
         self.requests: list[ApprovedExecutionRequest] = []
-        self._inner = PaperExecutionEngine(clock=SimulatedClock(T0))
+        self._inner = PaperExecutionEngine(
+            market_registry=default_market_registry(), clock=SimulatedClock(T0)
+        )
 
     @property
     def clock(self) -> SimulatedClock:
@@ -195,6 +198,7 @@ def test_backtest_binds_resolution_to_risk_and_the_approved_request() -> None:
         series=_series(),
         strategy=_strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     expected = resolver.resolve_at(OPTION, T0)

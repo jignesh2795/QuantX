@@ -15,3 +15,11 @@ The universal core remains venue-neutral, but the initial product domain models 
 The first implementation is more deliberate than a stock-only engine, but later options/F&O capabilities can be added without breaking the fundamental trading lifecycle.
 
 Crypto and international markets may reuse the universal core through adapters/extensions rather than defining the core around crypto assumptions.
+## Current implementation note
+
+The bounded market-module migration implements this ADR's boundary by moving
+the canonical India implementation to `quantx.markets.india`, retaining
+`quantx.india` as a deprecated compatibility shim, and routing market
+selection through caller-populated `MarketRegistry`. `application/live_execution.py`
+remains unchanged. This is an in-progress slice, not a claim that additional
+markets are implemented.

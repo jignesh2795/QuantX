@@ -373,11 +373,13 @@ def test_application_source_has_no_india_imports() -> None:
     for path in sorted(package.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("quantx.india"):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "quantx.markets.india"
+            ):
                 offenders.append(f"{path.name}:{node.lineno}")
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name.startswith("quantx.india"):
+                    if alias.name.startswith("quantx.markets.india"):
                         offenders.append(f"{path.name}:{node.lineno}")
     assert offenders == []
 
@@ -606,7 +608,7 @@ def test_unknown_family_string_fails_closed() -> None:
     ],
 )
 def test_unmapped_india_families_block(family: MarketFamily) -> None:
-    from quantx.india.market_checks import india_market_policy
+    from quantx.markets.india.market_checks import india_market_policy
 
     market = MarketContext(MarketRegion.INDIA, family, "NSE", "IN")
     request = _request(market=market)
@@ -655,7 +657,7 @@ def test_backtest_mode_rejection_preserved() -> None:
 
 
 def test_b3_exception_in_session_evaluator_sanitized() -> None:
-    from quantx.india.market_checks import IndiaSessionCheck
+    from quantx.markets.india.market_checks import IndiaSessionCheck
 
     def exploding(request):
         raise RuntimeError("B3 venue snapshot exploded")
@@ -686,12 +688,12 @@ def test_b3_exception_in_session_evaluator_sanitized() -> None:
 
 
 def test_b3_exception_in_compat_evaluator_sanitized() -> None:
-    from quantx.india.market_checks import IndiaCompatCheck
+    from quantx.markets.india.market_checks import IndiaCompatCheck
 
     def exploding(request):
         raise RuntimeError("B3 compat exploded")
 
-    from quantx.india.market_checks import IndiaSessionCheck as SessionCheck
+    from quantx.markets.india.market_checks import IndiaSessionCheck as SessionCheck
 
     regions = tuple(
         _canonical_india_policy()
@@ -721,8 +723,8 @@ def test_b3_exception_in_compat_evaluator_sanitized() -> None:
 
 
 def _approving_session():
-    from quantx.india.domain import IndianExchange, IndianSegment
-    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+    from quantx.markets.india.domain import IndianExchange, IndianSegment
+    from quantx.markets.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
 
     def allow(request):
         return IndiaSessionResult(
@@ -879,8 +881,8 @@ def test_requires_pack_without_stages_rejected() -> None:
 
 
 def _india_approving_session():
-    from quantx.india.domain import IndianExchange, IndianSegment
-    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+    from quantx.markets.india.domain import IndianExchange, IndianSegment
+    from quantx.markets.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
 
     def allow(request):
         return IndiaSessionResult(
@@ -898,7 +900,7 @@ def _india_approving_session():
 
 
 def test_india_partial_pack_blocks_before_submit() -> None:
-    from quantx.india.market_checks import india_market_policy
+    from quantx.markets.india.market_checks import india_market_policy
 
     config = india_market_policy(session_evaluator=_india_approving_session())
     broker = _RecordingBroker(_instrument())
@@ -920,9 +922,9 @@ def test_india_partial_pack_blocks_before_submit() -> None:
 
 
 def test_session_rejection_carries_block_evidence() -> None:
-    from quantx.india.domain import IndianExchange, IndianSegment
-    from quantx.india.market_checks import india_market_policy
-    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+    from quantx.markets.india.domain import IndianExchange, IndianSegment
+    from quantx.markets.india.market_checks import india_market_policy
+    from quantx.markets.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
 
     def closed(request):
         return IndiaSessionResult(
@@ -950,8 +952,8 @@ def test_session_rejection_carries_block_evidence() -> None:
 
 
 def test_compat_rejection_carries_block_evidence() -> None:
-    from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
-    from quantx.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
+    from quantx.markets.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
 
     def rejecting(request):
         return IndiaRuleResult(
@@ -997,8 +999,8 @@ def test_compat_rejection_carries_block_evidence() -> None:
 
 
 def test_malformed_rule_reason_fails_closed() -> None:
-    from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
-    from quantx.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
+    from quantx.markets.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
 
     def garbage(request):
         return IndiaRuleResult(
@@ -1585,7 +1587,7 @@ def test_dynamic_check_id_change_fails_closed() -> None:
 
 
 def _compat_policy(rule_evaluator) -> MarketPolicyConfig:
-    from quantx.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
+    from quantx.markets.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
 
     regions = tuple(
         _canonical_india_policy()
@@ -1612,7 +1614,11 @@ def test_rule_level_banned_text_sanitized() -> None:
     """An allow-listed aggregate rejection with a banned rule-level reason
     blocks with the approved reason; serialized evidence carries only the
     fixed withheld text."""
-    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.execution_rules import (
+        IndiaRuleCheck,
+        IndiaRuleDecision,
+        IndiaRuleResult,
+    )
 
     def evaluator(request):
         return IndiaRuleResult(
@@ -1645,7 +1651,11 @@ def test_rule_level_banned_text_sanitized() -> None:
 def test_rule_level_untrusted_text_sanitized() -> None:
     """Clean-looking but unapproved rule-level text is replaced by the fixed
     withheld message; the allow-listed aggregate reason is preserved."""
-    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.execution_rules import (
+        IndiaRuleCheck,
+        IndiaRuleDecision,
+        IndiaRuleResult,
+    )
 
     def evaluator(request):
 
@@ -1673,7 +1683,11 @@ def test_rule_level_untrusted_text_sanitized() -> None:
 
 def test_evidence_provenance_metadata_gated() -> None:
     """Banned provenance/version metadata is dropped from public evidence."""
-    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.execution_rules import (
+        IndiaRuleCheck,
+        IndiaRuleDecision,
+        IndiaRuleResult,
+    )
 
     def evaluator(request):
         return IndiaRuleResult(
@@ -1709,8 +1723,8 @@ def test_session_rejection_untrusted_text_normalized() -> None:
     """A session evaluator returning clean but unapproved text is normalized
     to the static template without interpolating the evaluator text."""
 
-    from quantx.india.domain import IndianExchange, IndianSegment
-    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+    from quantx.markets.india.domain import IndianExchange, IndianSegment
+    from quantx.markets.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
 
     def closed(request):
         return IndiaSessionResult(
@@ -1724,7 +1738,7 @@ def test_session_rejection_untrusted_text_normalized() -> None:
             calendar_evaluated=True,
         )
 
-    from quantx.india.market_checks import india_market_policy
+    from quantx.markets.india.market_checks import india_market_policy
 
     config = india_market_policy(session_evaluator=closed)
     result = _live_orchestrator(market_policy=config).execute(_request())
@@ -1737,8 +1751,8 @@ def test_session_rejection_untrusted_text_normalized() -> None:
 def test_session_rejection_approved_message_preserved() -> None:
     """The approved plain session rejection stays intelligible."""
 
-    from quantx.india.domain import IndianExchange, IndianSegment
-    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+    from quantx.markets.india.domain import IndianExchange, IndianSegment
+    from quantx.markets.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
 
     def closed(request):
         return IndiaSessionResult(
@@ -1752,7 +1766,7 @@ def test_session_rejection_approved_message_preserved() -> None:
             calendar_evaluated=True,
         )
 
-    from quantx.india.market_checks import india_market_policy
+    from quantx.markets.india.market_checks import india_market_policy
 
     config = india_market_policy(session_evaluator=closed)
     result = _live_orchestrator(market_policy=config).execute(_request())
@@ -1918,7 +1932,7 @@ def test_india_rule_name_unapproved_normalized() -> None:
     identity; the allow-listed aggregate reason is preserved."""
 
     def evaluator(request):
-        from quantx.india.execution_rules import (
+        from quantx.markets.india.execution_rules import (
             IndiaRuleCheck,
             IndiaRuleDecision,
             IndiaRuleResult,
@@ -2036,7 +2050,7 @@ def test_spoofed_module_identity_gains_no_trust() -> None:
                 "india session/calendar blocked the request: XJ-77 evaluator text",
             )
 
-    _SpoofedModule.__module__ = "quantx.india.market_checks"
+    _SpoofedModule.__module__ = "quantx.markets.india.market_checks"
 
     from quantx.ports.market_checks import is_trusted_check
 
@@ -2066,7 +2080,7 @@ def test_hijacked_approved_attribute_gains_no_trust(monkeypatch) -> None:
     """Repointing the approved module attribute at a caller-defined class
     fails closed: the core cross-checks that the resolved class really is
     defined in the approved module before comparing identity."""
-    import quantx.india.market_checks as india_checks
+    import quantx.markets.india.market_checks as india_checks
     from quantx.ports.market_checks import is_trusted_check
 
     class _Hijacked:
@@ -2087,15 +2101,13 @@ def test_hijacked_approved_attribute_gains_no_trust(monkeypatch) -> None:
             is False
         )
     finally:
-        # Drop any resolution cached while the approved name pointed at the
-        # hijacked class so the approved adapter stays trusted afterwards.
-        importlib.import_module("quantx.ports.market_checks")._approved_implementation.cache_clear()
+        pass
 
 
 def test_subclass_of_approved_implementation_gains_no_trust() -> None:
     """Trust is class-object identity, not inheritance: a subclass of the
     approved adapter is still an unreviewed implementation."""
-    from quantx.india.market_checks import IndiaSessionCheck
+    from quantx.markets.india.market_checks import IndiaSessionCheck
     from quantx.ports.market_checks import is_trusted_check
 
     class _DerivedSessionCheck(IndiaSessionCheck):
@@ -2115,7 +2127,7 @@ def test_subclass_of_approved_implementation_gains_no_trust() -> None:
 def test_approved_implementations_remain_trusted() -> None:
     """The identity binding is satisfied by the real approved adapters, and
     a placement that does not match the binding is still untrusted."""
-    from quantx.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
+    from quantx.markets.india.market_checks import IndiaCompatCheck, IndiaSessionCheck
     from quantx.ports.market_checks import is_trusted_check
 
     assert (
@@ -2254,8 +2266,8 @@ def test_registry_mutation_does_not_confer_trust_on_later_check() -> None:
 
 
 def _closed_session_evaluator():
-    from quantx.india.domain import IndianExchange, IndianSegment
-    from quantx.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
+    from quantx.markets.india.domain import IndianExchange, IndianSegment
+    from quantx.markets.india.session_calendar import IndiaSessionDecision, IndiaSessionResult
 
     def closed(request) -> IndiaSessionResult:
         return IndiaSessionResult(
@@ -2275,7 +2287,7 @@ def _closed_session_evaluator():
 def test_approved_india_behavior_survives_registry_mutator() -> None:
     """Approved India reasons and codes stay reachable after an untrusted
     check has attempted registry writes."""
-    from quantx.india.market_checks import india_market_policy
+    from quantx.markets.india.market_checks import india_market_policy
 
     base = india_market_policy(session_evaluator=_closed_session_evaluator())
     config = MarketPolicyConfig(
@@ -2299,7 +2311,7 @@ def test_execution_ignores_rebound_registry_aliases(monkeypatch) -> None:
     """The runner resolves trust through core accessors that read the
     private immutable registry, so rebinding the public module aliases
     cannot change what a check is authorized to return."""
-    from quantx.india.market_checks import IndiaSessionCheck
+    from quantx.markets.india.market_checks import IndiaSessionCheck
     from quantx.ports.market_checks import trusted_failure_codes
 
     core = importlib.import_module("quantx.ports.market_checks")
@@ -2343,7 +2355,11 @@ def test_approved_code_with_unapproved_suffix_is_withheld(reason: str) -> None:
     """An approved rule code does not license arbitrary trailing text: the
     message must match the code's trusted template exactly, so the suffix
     reaches neither the public reason nor the serialized evidence."""
-    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.execution_rules import (
+        IndiaRuleCheck,
+        IndiaRuleDecision,
+        IndiaRuleResult,
+    )
 
     def evaluator(request):
         return IndiaRuleResult(
@@ -2375,7 +2391,7 @@ def test_approved_code_with_unapproved_suffix_is_withheld(reason: str) -> None:
 def test_approved_lot_size_message_stays_byte_identical() -> None:
     """The established INDIA_LOT_SIZE_INVALID rejection format is preserved
     byte for byte for a valid message."""
-    from quantx.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.execution_rules import IndiaRuleDecision, IndiaRuleResult
 
     def evaluator(request):
         return IndiaRuleResult(
@@ -2406,7 +2422,11 @@ def test_approved_lot_size_message_stays_byte_identical() -> None:
 
 
 def _unapproved_values_evaluator(version: str, provenance: str):
-    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.execution_rules import (
+        IndiaRuleCheck,
+        IndiaRuleDecision,
+        IndiaRuleResult,
+    )
 
     def evaluator(request):
         return IndiaRuleResult(
@@ -2465,7 +2485,11 @@ def test_unapproved_rule_name_collapses_and_approved_values_survive() -> None:
     """A clean arbitrary snake_case rule name is not a recognized rule and
     collapses to the fixed identity, while approved names, the approved
     version token, and the fixed rule reasons keep the structure intact."""
-    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.execution_rules import (
+        IndiaRuleCheck,
+        IndiaRuleDecision,
+        IndiaRuleResult,
+    )
 
     def evaluator(request):
         return IndiaRuleResult(
@@ -2504,7 +2528,11 @@ def test_unapproved_rule_name_collapses_and_approved_values_survive() -> None:
 def test_approved_rule_code_prefix_with_unapproved_reason_suffix_withheld() -> None:
     """A rule fact whose reason heads an approved code but appends
     unapproved text keeps the entry structure while withholding the text."""
-    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.execution_rules import (
+        IndiaRuleCheck,
+        IndiaRuleDecision,
+        IndiaRuleResult,
+    )
 
     def evaluator(request):
         return IndiaRuleResult(
@@ -2703,7 +2731,11 @@ def test_non_bool_passed_fails_closed_generic(passed) -> None:
 def test_india_evaluator_non_bool_passed_fails_closed(passed) -> None:
     """A non-Boolean verdict from the India evaluator cannot serialize a
     contradictory public fact, even when the reason itself is approved."""
-    from quantx.india.execution_rules import IndiaRuleCheck, IndiaRuleDecision, IndiaRuleResult
+    from quantx.markets.india.execution_rules import (
+        IndiaRuleCheck,
+        IndiaRuleDecision,
+        IndiaRuleResult,
+    )
 
     def evaluator(request):
         return IndiaRuleResult(
@@ -2851,9 +2883,9 @@ def test_cold_cache_hijack_during_dispatch_stays_untrusted(monkeypatch) -> None:
         check_id = "na.hijacker"
 
         def __call__(self, request) -> MarketCheckResult:
-            india_checks = importlib.import_module("quantx.india.market_checks")
+            india_checks = importlib.import_module("quantx.markets.india.market_checks")
             india_checks.IndiaCompatCheck = _EvilCompatDispatch
-            _EvilCompatDispatch.__module__ = "quantx.india.market_checks"
+            _EvilCompatDispatch.__module__ = "quantx.markets.india.market_checks"
             return MarketCheckResult(self.check_id, MarketCheckOutcome.PASS, None, "hijacked")
 
     # Make the rogue resolvable as a module attribute, so that only the
@@ -2861,10 +2893,8 @@ def test_cold_cache_hijack_during_dispatch_stays_untrusted(monkeypatch) -> None:
     monkeypatch.setattr(
         sys.modules[__name__], "_EvilCompatDispatch", _EvilCompatDispatch, raising=False
     )
-    core = importlib.import_module("quantx.ports.market_checks")
-    india_checks = importlib.import_module("quantx.india.market_checks")
+    india_checks = importlib.import_module("quantx.markets.india.market_checks")
     real_compat_check = india_checks.IndiaCompatCheck
-    core._approved_implementation.cache_clear()
 
     regions = tuple(
         _canonical_india_policy()
@@ -2903,7 +2933,6 @@ def test_cold_cache_hijack_during_dispatch_stays_untrusted(monkeypatch) -> None:
         )
     finally:
         india_checks.IndiaCompatCheck = real_compat_check
-        core._approved_implementation.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -3098,3 +3127,10 @@ def test_exception_with_raising_stringification_fails_closed() -> None:
     assert result.check_evidence.blocking_failure_code == MarketCheckFailureCode.EVALUATION_FAILED
     payload = json.dumps(sequence_to_mapping(result.check_evidence), sort_keys=True)
     assert "exception rendering must not escape" not in payload
+
+
+@pytest.fixture(autouse=True)
+def _register_india_trusted_checks() -> None:
+    from quantx.markets.trusted_checks import ensure_india_trusted_checks_registered
+
+    ensure_india_trusted_checks_registered()

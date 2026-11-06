@@ -24,12 +24,13 @@ from tests.unit.architecture._import_graph import (
 _ALLOWED_RUNTIME: dict[str, frozenset[str]] = {
     "domain": frozenset(),
     "ports": frozenset({"domain"}),
-    "execution": frozenset({"domain", "ports"}),
+    "execution": frozenset({"domain", "markets", "ports"}),
     "integrations": frozenset({"domain", "execution", "ports"}),
     "persistence": frozenset({"domain", "execution", "ports", "research"}),
-    "research": frozenset({"domain", "ports"}),
+    "research": frozenset({"domain", "ports", "markets"}),
     "strategy": frozenset({"domain", "execution", "ports"}),
-    "india": frozenset({"domain", "ports"}),
+    "india": frozenset({"domain", "markets", "ports"}),
+    "markets": frozenset({"domain", "ports"}),
     "application": frozenset(
         {
             "domain",
@@ -39,6 +40,7 @@ _ALLOWED_RUNTIME: dict[str, frozenset[str]] = {
             "ports",
             "research",
             "strategy",
+            "markets",
         }
     ),
     "plugins": frozenset({"application", "domain", "execution", "integrations", "ports"}),

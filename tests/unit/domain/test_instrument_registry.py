@@ -14,7 +14,7 @@ from quantx.domain.instruments import (
     OptionType,
 )
 from quantx.domain.value_objects import InstrumentId
-from quantx.india import IndianExchange, IndianInstrumentSpec, IndianSegment
+from quantx.markets.india import IndianExchange, IndianInstrumentSpec, IndianSegment
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 EXPIRY = datetime(2026, 12, 31, 15, 30, tzinfo=UTC)

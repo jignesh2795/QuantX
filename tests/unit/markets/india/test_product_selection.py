@@ -21,15 +21,15 @@ from quantx.domain.order_intents import TradeIntent
 from quantx.domain.orders import Order
 from quantx.domain.risk import RiskDecision, RiskResult
 from quantx.domain.value_objects import InstrumentId, ProductCode
-from quantx.india.domain import (
+from quantx.markets.india.domain import (
     IndianExchange,
     IndianInstrumentSpec,
     IndianSegment,
     ProductType,
 )
-from quantx.india.execution_rules import IndiaExecutionRuleEngine, IndiaRuleDecision
-from quantx.india.product_selection import india_product_type, india_request_product
-from quantx.india.rule_data import IndiaRuleScope, IndiaVenueRuleSnapshot
+from quantx.markets.india.execution_rules import IndiaExecutionRuleEngine, IndiaRuleDecision
+from quantx.markets.india.product_selection import india_product_type, india_request_product
+from quantx.markets.india.rule_data import IndiaRuleScope, IndiaVenueRuleSnapshot
 from tests.unit._execution_request_proofs import approved_request
 
 NOW = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)

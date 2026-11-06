@@ -19,9 +19,9 @@ from quantx.domain.position_effect import (
 )
 from quantx.domain.product_selection import ProductSelectionError
 from quantx.domain.value_objects import ProductCode
-from quantx.india.domain import ProductType
-from quantx.india.execution_rules import india_supported_products
-from quantx.india.market_pack import (
+from quantx.markets.india.domain import ProductType
+from quantx.markets.india.execution_rules import india_supported_products
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_COMPATIBILITY_PRODUCT,
     INDIA_EQUITY_MARKET_PACK_ID,
     INDIA_EQUITY_POSITION_EFFECT_POLICY,

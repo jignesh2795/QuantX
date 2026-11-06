@@ -17,6 +17,7 @@ from quantx.domain.market_data import Candle
 from quantx.domain.orders import Fill
 from quantx.domain.risk import RiskResult
 from quantx.execution.persistence import ReceiptRepository
+from quantx.markets import MarketRegistry, UnsupportedMarketError
 
 from .charges import (
     ChargeBreakdown,
@@ -71,6 +72,7 @@ class PaperExecutionEngine:
         slippage_model: SlippageModel | None = None,
         idempotency_store: IdempotencyStore | None = None,
         receipt_repository: ReceiptRepository | None = None,
+        market_registry: MarketRegistry | None = None,
     ) -> None:
         self._clock = clock
         self._profile = profile or PaperSimulationProfile()
@@ -78,6 +80,7 @@ class PaperExecutionEngine:
         self._slippage_model = slippage_model or SlippageModel(self._profile.slippage_bps)
         self._idempotency = idempotency_store or InMemoryIdempotencyStore()
         self._receipt_repository = receipt_repository
+        self._market_registry = market_registry
         self._receipts: dict[UUID, ExecutionReceipt] = {}
         self._events: list[object] = []
 
@@ -103,6 +106,13 @@ class PaperExecutionEngine:
             )
         if snapshot.instrument != request.order.instrument:
             raise PaperExecutionError("market snapshot instrument does not match the order")
+        registry = self._market_registry
+        if registry is None:
+            raise UnsupportedMarketError("market_registry is required")
+        if registry.get_for_context(request.execution_context.market) is None:
+            raise UnsupportedMarketError(
+                f"unsupported market for paper execution: {request.execution_context.market!r}"
+            )
 
         client_order_id = request.order.client_order_id
         fingerprint = request_fingerprint(request)

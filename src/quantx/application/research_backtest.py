@@ -15,6 +15,7 @@ from quantx.domain.clock import Clock
 from quantx.domain.finance import AccountFinancialState, BrokerConstraint
 from quantx.domain.policy import PolicyContext
 from quantx.execution.paper import PaperSimulationProfile
+from quantx.markets import default_market_registry
 from quantx.research.data import HistoricalDataSeries
 from quantx.research.replay import MultiSeries
 from quantx.research.result import ResearchResult, ResearchRunSpec
@@ -72,6 +73,7 @@ class ResearchBacktestApplicationService:
                 candle_volume_participation_rate=candle_volume_participation_rate,
                 account_state_sampling_policy=account_state_sampling_policy,
                 provenance=spec.to_provenance(),
+                market_registry=default_market_registry(),
             )
             completed_at = self._timestamp()
             return self._to_research_result(

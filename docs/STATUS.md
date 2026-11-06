@@ -1050,3 +1050,21 @@ The protected C14 salvage sources are `feat/m2-dataset-ingestion-workflow-v1` an
 C14 explicitly defers scheduling, retry orchestration, streaming, production historical-data service, distributed ingestion, cloud storage, generic ETL, UI, AI/ML, optimization, and broad broker expansion.
 
 GitHub Actions is not a repository validation gate while billing is disabled; OpenCode/local validation remains the execution gate. No production-broker end-to-end execution has been performed.
+
+## Market-module migration mainline (in progress)
+
+A bounded market-module migration is being rebuilt on current main through
+`feat/market-module-migration-mainline-v1`. It moves the canonical India
+implementation to `quantx.markets.india`, adds caller-populated
+`MarketRegistry`, common market-neutral contracts, the India module and
+digital-assets placeholder, trusted registration, MarketContext propagation
+into research/backtest/paper execution, legacy compatibility shims, and the
+required boundary and neutrality tests. It does not alter
+`application/live_execution.py`, add LIVE execution paths, or change broker
+authorization. #267 remains open and fail-closed; #266 accounting semantics
+remain separate follow-up work. This entry records in-progress work, not a
+merge or release.
+
+## Market-module migration mainline reconciliation (2026-11-06)
+
+Reconciled with current main at 41550505922a294daef4c6aa73fb4c8420b42ab8. The structural MarketModule registry correction allows non-MarketModuleBase implementations to register while preserving all field, context, duplicate and fail-closed validations. #267 remains Wave A1 and is not resolved by this migration.

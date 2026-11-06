@@ -75,7 +75,8 @@ from quantx.execution.historical_account_state import HistoricalAccountStateSnap
 from quantx.execution.idempotency import InMemoryIdempotencyStore
 from quantx.execution.paper_engine import PaperExecutionEngine, PaperSimulationProfile
 from quantx.execution.paper_session import PaperSession
-from quantx.india.market_pack import (
+from quantx.markets import UnsupportedMarketError, default_market_registry
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )
@@ -235,6 +236,7 @@ def test_backtest_rejects_intent_strategy_identity_mismatch() -> None:
             series=_series(),
             strategy=strategy,
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
 
@@ -269,6 +271,7 @@ def test_backtest_rejects_signal_intent_direction_mismatch() -> None:
             series=_series(),
             strategy=strategy,
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
 
@@ -295,6 +298,7 @@ def test_backtest_rejects_nondeterministic_signal_timestamp() -> None:
             series=_series(),
             strategy=strategy,
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
 
@@ -339,6 +343,7 @@ def test_backtest_composes_replay_strategy_risk_policy_and_paper_execution() -> 
         series=_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 1
@@ -381,6 +386,7 @@ def test_backtest_blocks_risk_rejected_intent_without_execution() -> None:
         series=_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 0
@@ -420,6 +426,7 @@ def test_backtest_requires_approval_when_policy_requires_manual_approval() -> No
         strategy=strategy,
         financial_state=_financial_state(),
         policy_context=PolicyContext(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 0
@@ -464,6 +471,7 @@ def test_backtest_blocks_intent_when_canonical_market_does_not_match() -> None:
         series=_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert all(step.disposition is BacktestDisposition.BLOCKED for step in result.steps)
@@ -608,6 +616,7 @@ def test_timer_dispatch_precedes_entire_equal_timestamp_cohort() -> None:
         strategy=StrategyEvaluationService(strategy),
         strategy_ir=ir,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
@@ -683,6 +692,7 @@ def test_active_order_persists_into_next_strategy_context_until_terminal_status(
         strategy=StrategyEvaluationService(_LimitThenObserve()),
         strategy_ir=ir,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.receipts) == 1
@@ -737,6 +747,7 @@ def test_backtest_reports_timers_undelivered_beyond_replay_horizon() -> None:
         strategy=StrategyEvaluationService(strategy),
         strategy_ir=_runtime_ir("timer-horizon-backtest"),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.undelivered_timers) == 1
@@ -818,6 +829,7 @@ def test_precommit_risk_or_policy_fault_preserves_timer_and_continues(
         strategy=StrategyEvaluationService(strategy),
         strategy_ir=_runtime_ir(f"precommit-{failure_layer}"),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     first = result.steps[0]
@@ -842,7 +854,7 @@ def test_precommit_risk_or_policy_fault_preserves_timer_and_continues(
 def test_clock_drift_between_strategy_and_execution_is_recorded_without_execute() -> None:
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
     ahead = start + timedelta(seconds=1)
-    engine = _CapturingEngine(clock=FixedClock(start))
+    engine = _CapturingEngine(market_registry=default_market_registry(), clock=FixedClock(start))
     engine.event_time_support = EventTimeSupport.SUPPORTED
     observed: list[datetime] = []
     strategy_ir = _runtime_ir("clock-drift-before-execution")
@@ -896,6 +908,7 @@ def test_clock_drift_between_strategy_and_execution_is_recorded_without_execute(
         strategy=StrategyEvaluationService(_BuyOnceStrategy()),
         strategy_ir=strategy_ir,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert observed == [start]
@@ -920,6 +933,7 @@ def test_postcommit_callback_errors_complete_batch_then_latch_halt() -> None:
         strategy=StrategyEvaluationService(strategy),
         strategy_ir=ir,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.receipts) == 1
@@ -947,7 +961,9 @@ def test_unexpected_future_effective_receipt_preserves_facts_and_halts() -> None
             self._clock = FixedClock(ahead)
             return super().execute(request, snapshot=snapshot)
 
-    engine = _JumpClockEngine(clock=FixedClock(first_frame))
+    engine = _JumpClockEngine(
+        market_registry=default_market_registry(), clock=FixedClock(first_frame)
+    )
     engine.event_time_support = EventTimeSupport.SUPPORTED
     strategy = _BacktestCommitThenFailObserver()
     ir = _runtime_ir("callback-backtest")
@@ -961,6 +977,7 @@ def test_unexpected_future_effective_receipt_preserves_facts_and_halts() -> None
         strategy=StrategyEvaluationService(strategy),
         strategy_ir=ir,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.receipts) == 1
@@ -986,7 +1003,9 @@ def test_unexpected_early_effective_receipt_preserves_facts_and_halts() -> None:
             self._clock = FixedClock(before_frame)
             return super().execute(request, snapshot=snapshot)
 
-    engine = _BackwardsClockEngine(clock=FixedClock(first_frame))
+    engine = _BackwardsClockEngine(
+        market_registry=default_market_registry(), clock=FixedClock(first_frame)
+    )
     engine.event_time_support = EventTimeSupport.SUPPORTED
     strategy = _BacktestCommitThenFailObserver()
 
@@ -999,6 +1018,7 @@ def test_unexpected_early_effective_receipt_preserves_facts_and_halts() -> None:
         strategy=StrategyEvaluationService(strategy),
         strategy_ir=_runtime_ir("early-evidence-backtest"),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.receipts) == 1
@@ -1019,7 +1039,7 @@ def test_unexpected_early_effective_receipt_preserves_facts_and_halts() -> None:
 
 def test_qx08_preflight_rejects_clock_ahead_before_first_strategy_callback() -> None:
     ahead = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
-    engine = _CapturingEngine(clock=FixedClock(ahead))
+    engine = _CapturingEngine(market_registry=default_market_registry(), clock=FixedClock(ahead))
     engine.event_time_support = EventTimeSupport.SUPPORTED
     ir = _runtime_ir("clock-preflight-backtest")
     observed: list[datetime] = []
@@ -1049,6 +1069,7 @@ def test_qx08_preflight_rejects_clock_ahead_before_first_strategy_callback() -> 
             strategy=StrategyEvaluationService(_SpyStrategy()),
             strategy_ir=ir,
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     assert observed == []
@@ -1059,7 +1080,7 @@ def test_qx08_preflight_rejects_clock_ahead_before_first_strategy_callback() -> 
 
 def test_injected_qx08_clock_drift_blocks_before_next_strategy_callback() -> None:
     start = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
-    engine = _CapturingEngine(clock=FixedClock(start))
+    engine = _CapturingEngine(market_registry=default_market_registry(), clock=FixedClock(start))
     engine.event_time_support = EventTimeSupport.SUPPORTED
     strategy_ir = _runtime_ir("clock-drift-backtest")
     observed: list[datetime] = []
@@ -1088,6 +1109,7 @@ def test_injected_qx08_clock_drift_blocks_before_next_strategy_callback() -> Non
         strategy=StrategyEvaluationService(_HoldStrategy()),
         strategy_ir=strategy_ir,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert observed == [start]
@@ -1129,6 +1151,7 @@ def test_callback_driver_rejects_nonzero_execution_latency_before_first_step() -
             strategy_ir=ir,
             financial_state=_financial_state(),
             execution_profile=PaperSimulationProfile(latency_ms=1),
+            market_registry=default_market_registry(),
         )
 
     assert called == []
@@ -1136,7 +1159,10 @@ def test_callback_driver_rejects_nonzero_execution_latency_before_first_step() -
 
 def test_unknown_executor_time_capability_fails_closed() -> None:
     instrument = _instrument()
-    engine = _CapturingEngine(clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+    engine = _CapturingEngine(
+        market_registry=default_market_registry(),
+        clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)),
+    )
     ir = _runtime_ir("preflight-backtest")
 
     with pytest.raises(ValueError, match="UNKNOWN"):
@@ -1149,6 +1175,7 @@ def test_unknown_executor_time_capability_fails_closed() -> None:
             strategy=StrategyEvaluationService(_ParityStrategy()),
             strategy_ir=ir,
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     assert engine.captured == []
@@ -1193,6 +1220,7 @@ def test_backtest_accepts_runtime_neutral_strategy_evaluation_service() -> None:
         strategy=StrategyEvaluationService(_ParityStrategy()),
         strategy_ir=ir,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 1
@@ -1214,7 +1242,9 @@ def test_replay_strategy_output_matches_paper_session_execution_input() -> None:
     evaluated = evaluate_replay_frame(evaluation, frame, ir)
     assert evaluated.result.intent is not None
 
-    engine = PaperExecutionEngine(clock=SimulatedClock(frame.observation.timestamp))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(), clock=SimulatedClock(frame.observation.timestamp)
+    )
     session = PaperSession(
         executor=engine,
         instrument_registry=InMemoryInstrumentRegistry((instrument,)),
@@ -1284,6 +1314,7 @@ def test_backtest_exposes_deterministic_account_state_trajectory() -> None:
         series=_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.account_states) == 1
@@ -1337,6 +1368,7 @@ def test_backtest_exposes_time_indexed_account_state_series() -> None:
         series=_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(result.account_states) == 1
@@ -1402,6 +1434,7 @@ def test_backtest_multinstrument_sampling_policy_is_explicit() -> None:
         strategy=strategy,
         financial_state=_financial_state(),
         account_state_sampling_policy=AccountStateSamplingPolicy.EXACT_CURRENT,
+        market_registry=default_market_registry(),
     )
     assert exact.account_state_sampling_policy is AccountStateSamplingPolicy.EXACT_CURRENT
     # The frame-0 sample precedes that frame's execution: no position yet.
@@ -1417,6 +1450,7 @@ def test_backtest_multinstrument_sampling_policy_is_explicit() -> None:
         strategy=strategy,
         financial_state=_financial_state(),
         account_state_sampling_policy=AccountStateSamplingPolicy.AS_OF_OBSERVED,
+        market_registry=default_market_registry(),
     )
     assert as_of.account_state_sampling_policy is AccountStateSamplingPolicy.AS_OF_OBSERVED
     assert as_of.account_state_series[0].cash == Money(Decimal("1000"), "INR")
@@ -1505,6 +1539,7 @@ def test_backtest_as_of_observed_with_unusable_mark_stays_incomplete() -> None:
         strategy=strategy,
         financial_state=_financial_state(),
         account_state_sampling_policy=AccountStateSamplingPolicy.AS_OF_OBSERVED,
+        market_registry=default_market_registry(),
     )
     assert result.executed_count == 1
     assert result.account_state_series[0].cash == Money(Decimal("1000"), "INR")
@@ -1554,6 +1589,7 @@ def test_backtest_result_provenance_defaults_to_none() -> None:
         series=_series(),
         strategy=_hold_all("no-provenance"),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.provenance is None
@@ -1572,6 +1608,7 @@ def test_backtest_attaches_caller_provenance_unchanged() -> None:
         strategy=_hold_all("attached"),
         financial_state=_financial_state(),
         provenance=supplied,
+        market_registry=default_market_registry(),
     )
 
     assert result.provenance is supplied
@@ -1589,6 +1626,7 @@ def test_backtest_identical_provenance_gives_identical_fingerprint() -> None:
             strategy=_hold_all("fingerprint-stable"),
             financial_state=_financial_state(),
             provenance=provenance,
+            market_registry=default_market_registry(),
         )
 
     first = run_with(_provenance())
@@ -1621,6 +1659,7 @@ def test_backtest_changed_provenance_declaration_changes_fingerprint() -> None:
             strategy=_hold_all("fingerprint-change"),
             financial_state=_financial_state(),
             provenance=provenance,
+            market_registry=default_market_registry(),
         )
 
     first = run_with(_provenance())
@@ -1680,6 +1719,7 @@ def test_backtest_heterogeneous_datasets_fail_closed() -> None:
             strategy=_hold_all("heterogeneous"),
             financial_state=_financial_state(),
             provenance=_provenance(),
+            market_registry=default_market_registry(),
         )
 
 
@@ -1705,6 +1745,7 @@ def test_backtest_declared_version_mismatch_fails_closed() -> None:
             strategy=_hold_all("mismatch"),
             financial_state=_financial_state(),
             provenance=mismatched,
+            market_registry=default_market_registry(),
         )
 
 
@@ -1757,6 +1798,7 @@ def test_backtest_shared_dataset_multi_instrument_binding() -> None:
             financial_state=_financial_state(),
             account_state_sampling_policy=policy,
             provenance=_provenance(),
+            market_registry=default_market_registry(),
         )
 
     exact = run_with(AccountStateSamplingPolicy.EXACT_CURRENT)
@@ -1803,6 +1845,7 @@ def test_backtest_wrong_dataset_same_source_version_fails_closed() -> None:
             strategy=_hold_all("wrong-dataset"),
             financial_state=_financial_state(),
             provenance=_provenance(),
+            market_registry=default_market_registry(),
         )
 
 
@@ -1854,6 +1897,7 @@ def test_backtest_different_sources_same_dataset_binds() -> None:
         strategy=_hold_all("shared-dataset"),
         financial_state=_financial_state(),
         provenance=supplied,
+        market_registry=default_market_registry(),
     )
 
     assert result.provenance is supplied
@@ -1923,6 +1967,7 @@ def test_backtest_logical_mismatch_in_later_frame_fails_closed() -> None:
             strategy=strategy,
             financial_state=_financial_state(),
             provenance=_provenance(),
+            market_registry=default_market_registry(),
         )
     assert calls == []
 
@@ -1976,6 +2021,7 @@ def test_backtest_same_source_multiple_versions_fail_closed() -> None:
             strategy=_hold_all("multi-version"),
             financial_state=_financial_state(),
             provenance=_provenance(),
+            market_registry=default_market_registry(),
         )
 
 
@@ -2002,6 +2048,7 @@ def test_backtest_dataset_identity_has_no_normalization() -> None:
                 strategy=_hold_all("no-normalization"),
                 financial_state=_financial_state(),
                 provenance=variants,
+                market_registry=default_market_registry(),
             )
 
 
@@ -2018,6 +2065,7 @@ def test_backtest_provenance_object_reused_across_runs() -> None:
             strategy=_hold_all("reused"),
             financial_state=_financial_state(),
             provenance=supplied,
+            market_registry=default_market_registry(),
         )
 
     first = run_with()
@@ -2151,6 +2199,7 @@ def test_backtest_accepts_declared_effective_run_configuration() -> None:
         strategy_ir=_c12_strategy_ir(),
         financial_state=_financial_state(),
         provenance=supplied,
+        market_registry=default_market_registry(),
     )
 
     assert result.provenance is supplied
@@ -2169,6 +2218,7 @@ def test_backtest_rejects_declared_run_configuration_mismatch() -> None:
             strategy_ir=_c12_strategy_ir(),
             financial_state=_financial_state(),
             provenance=_provenance_with(wrong),
+            market_registry=default_market_registry(),
         )
     assert counting.calls == []
 
@@ -2186,6 +2236,7 @@ def test_backtest_rejects_strategy_identity_without_authoritative_ir() -> None:
             strategy=_hold_all("callable-strategy"),
             financial_state=_financial_state(),
             provenance=_provenance_with(declared),
+            market_registry=default_market_registry(),
         )
 
 
@@ -2212,6 +2263,7 @@ def test_backtest_run_configuration_tracks_slippage_profile() -> None:
         financial_state=_financial_state(),
         execution_profile=profile,
         provenance=supplied,
+        market_registry=default_market_registry(),
     )
     assert result.provenance is supplied
 
@@ -2225,6 +2277,7 @@ def test_backtest_run_configuration_tracks_slippage_profile() -> None:
             financial_state=_financial_state(),
             execution_profile=profile,
             provenance=_provenance_with(_effective_default_configuration()),
+            market_registry=default_market_registry(),
         )
     assert counting.calls == []
 
@@ -2239,7 +2292,10 @@ def test_backtest_rejects_injected_engine_without_canonical_identity() -> None:
         _effective_default_configuration(),
         execution=replace(_effective_default_configuration().execution, execution_models=()),
     )
-    engine = PaperExecutionEngine(clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=SimulatedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)),
+    )
 
     with pytest.raises(ValueError, match="execution-model identity"):
         _c12_service(InMemoryInstrumentRegistry((instrument,)), execution_engine=engine).run(
@@ -2248,6 +2304,7 @@ def test_backtest_rejects_injected_engine_without_canonical_identity() -> None:
             strategy_ir=_c12_strategy_ir(),
             financial_state=_financial_state(),
             provenance=_provenance_with(declared),
+            market_registry=default_market_registry(),
         )
     assert counting.calls == []
 
@@ -2266,6 +2323,7 @@ def test_backtest_rejects_opaque_charge_model_declared_as_absent() -> None:
             financial_state=_financial_state(),
             execution_profile=profile,
             provenance=_provenance_with(_effective_default_configuration()),
+            market_registry=default_market_registry(),
         )
     assert counting.calls == []
 
@@ -2297,6 +2355,7 @@ def test_backtest_accepts_explicit_percentage_charge_model() -> None:
         financial_state=_financial_state(),
         execution_profile=profile,
         provenance=supplied,
+        market_registry=default_market_registry(),
     )
     assert result.provenance is supplied
 
@@ -2327,6 +2386,7 @@ def test_backtest_rejects_bare_callable_with_structured_provenance() -> None:
             strategy=strategy,
             financial_state=_financial_state(),
             provenance=_provenance_with(declared),
+            market_registry=default_market_registry(),
         )
     assert counting_calls == []
 
@@ -2402,6 +2462,7 @@ def test_backtest_orders_carry_replay_occurrence_time_not_wall_clock(monkeypatch
         series=_series(),
         strategy=_buy_once_strategy(instrument, context),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 1
@@ -2426,6 +2487,7 @@ def test_backtest_repeated_runs_produce_identical_order_timestamps(monkeypatch) 
         series=_series(),
         strategy=_buy_once_strategy(instrument, context),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     second_captured = _replay_time_recording_engine(monkeypatch)
@@ -2436,6 +2498,7 @@ def test_backtest_repeated_runs_produce_identical_order_timestamps(monkeypatch) 
         series=_series(),
         strategy=_buy_once_strategy(instrument, context),
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(first_captured) == 1
@@ -2460,7 +2523,7 @@ def test_backtest_injected_engine_clock_determines_execution_time() -> None:
 
     def _run_once() -> BacktestResult:
         caller_clock = SimulatedClock(frame_time)
-        engine = PaperExecutionEngine(clock=caller_clock)
+        engine = PaperExecutionEngine(market_registry=default_market_registry(), clock=caller_clock)
         return _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
@@ -2469,6 +2532,7 @@ def test_backtest_injected_engine_clock_determines_execution_time() -> None:
             series=_series(),
             strategy=_buy_once_strategy(instrument, _context()),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     first = _run_once()
@@ -2498,7 +2562,7 @@ def test_backtest_rejects_injected_engine_clock_before_replay_time() -> None:
     """
     instrument = _instrument()
     caller_clock = SimulatedClock(datetime(2020, 6, 1, 10, 0, tzinfo=UTC))
-    engine = PaperExecutionEngine(clock=caller_clock)
+    engine = PaperExecutionEngine(market_registry=default_market_registry(), clock=caller_clock)
 
     with pytest.raises(ValueError, match="predates the replay frame"):
         _service(
@@ -2509,6 +2573,7 @@ def test_backtest_rejects_injected_engine_clock_before_replay_time() -> None:
             series=_series(),
             strategy=_buy_once_strategy(instrument, _context()),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
 
@@ -2539,6 +2604,7 @@ def test_backtest_rejects_signal_using_wall_clock_default() -> None:
             series=_series(),
             strategy=strategy,
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
 
@@ -2585,6 +2651,7 @@ def test_backtest_repeated_runs_produce_identical_evidence_artifact_bytes(monkey
             series=_series(),
             strategy=_buy_once_strategy(instrument, context),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
         return result, captured
 
@@ -2709,6 +2776,7 @@ def test_backtest_rejected_clock_leaves_no_venue_side_effects() -> None:
     store = _RecordingIdempotencyStore()
     repository = _RecordingReceiptRepository()
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=SimulatedClock(datetime(2020, 6, 1, 10, 0, tzinfo=UTC)),
         idempotency_store=store,
         receipt_repository=repository,
@@ -2723,6 +2791,7 @@ def test_backtest_rejected_clock_leaves_no_venue_side_effects() -> None:
             series=_series(),
             strategy=_buy_once_strategy(instrument, _context()),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     assert store.reserve_calls == []
@@ -2746,7 +2815,9 @@ def test_backtest_accepts_injected_clock_ahead_of_replay_time() -> None:
     instrument = _instrument()
 
     def _run_once() -> tuple[BacktestResult, list[ApprovedExecutionRequest]]:
-        engine = _CapturingEngine(clock=FixedClock(ahead))
+        engine = _CapturingEngine(
+            market_registry=default_market_registry(), clock=FixedClock(ahead)
+        )
         result = _service(
             position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
             instrument_registry=InMemoryInstrumentRegistry((instrument,)),
@@ -2755,6 +2826,7 @@ def test_backtest_accepts_injected_clock_ahead_of_replay_time() -> None:
             series=_series(),
             strategy=_buy_once_strategy(instrument, _context()),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
         return result, engine.captured
 
@@ -2790,6 +2862,7 @@ def test_backtest_accepts_advancing_clock_ahead_of_replay_time() -> None:
 
     def _run_once() -> tuple[BacktestResult, list[ApprovedExecutionRequest]]:
         engine = _CapturingEngine(
+            market_registry=default_market_registry(),
             clock=_AdvancingClock(start, timedelta(seconds=1)),
         )
         result = _service(
@@ -2800,6 +2873,7 @@ def test_backtest_accepts_advancing_clock_ahead_of_replay_time() -> None:
             series=_series(),
             strategy=_buy_once_strategy(instrument, _context()),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
         return result, engine.captured
 
@@ -2835,6 +2909,7 @@ def test_backtest_rejects_system_clock_for_replay() -> None:
     store = _RecordingIdempotencyStore()
     repository = _RecordingReceiptRepository()
     engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
         clock=SystemClock(),
         idempotency_store=store,
         receipt_repository=repository,
@@ -2849,6 +2924,7 @@ def test_backtest_rejects_system_clock_for_replay() -> None:
             series=_series(),
             strategy=_buy_once_strategy(instrument, _context()),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     assert store.reserve_calls == []
@@ -2879,7 +2955,9 @@ def test_backtest_rejects_clock_without_determinism_declaration() -> None:
     """
     instrument = _instrument()
     frame_time = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
-    engine = PaperExecutionEngine(clock=_UndeclaredClock(frame_time))
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(), clock=_UndeclaredClock(frame_time)
+    )
 
     with pytest.raises(ValueError, match="must be deterministic for replay"):
         _service(
@@ -2890,6 +2968,7 @@ def test_backtest_rejects_clock_without_determinism_declaration() -> None:
             series=_series(),
             strategy=_buy_once_strategy(instrument, _context()),
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     assert engine.events() == ()
@@ -2993,6 +3072,7 @@ def test_backtest_timer_snapshot_excludes_same_timestamp_mark_and_history() -> N
         strategy=StrategyEvaluationService(strategy),
         strategy_ir=strategy_ir,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert len(strategy.timer_contexts) == 1
@@ -3045,6 +3125,7 @@ def test_strategy_context_uses_tracker_snapshot_not_financial_state_input() -> N
         strategy=StrategyEvaluationService(_AccountSnapshotObserver()),
         strategy_ir=_runtime_ir("tracker-account-snapshot"),
         financial_state=financial_state,
+        market_registry=default_market_registry(),
     )
 
     context = contexts[0]
@@ -3116,6 +3197,7 @@ def test_backtest_resolves_omitted_product_before_risk_approval() -> None:
         series=_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 1
@@ -3182,6 +3264,7 @@ def test_backtest_resolves_auto_effect_before_risk_approval() -> None:
         financial_state=_financial_state(),
         position_evidence=evidence,
         position_evidence_max_age=timedelta(minutes=5),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 1
@@ -3232,6 +3315,7 @@ def test_backtest_resolution_failure_prevents_risk_and_execution() -> None:
             series=_series(),
             strategy=strategy,
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     assert risk.contexts == []
@@ -3281,6 +3365,7 @@ def test_backtest_resolves_absent_effect_through_the_market_pack_policy() -> Non
         series=_series(),
         strategy=strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
 
     assert result.executed_count == 1
@@ -3335,6 +3420,71 @@ def test_backtest_absent_effect_without_versioned_rule_prevents_risk() -> None:
             series=_series(),
             strategy=strategy,
             financial_state=_financial_state(),
+            market_registry=default_market_registry(),
         )
 
     assert risk.contexts == []
+
+
+def test_backtest_rejects_unsupported_market_context() -> None:
+    from quantx.markets import MarketRegistry, UnsupportedMarketError
+
+    service = _service(instrument_registry=InMemoryInstrumentRegistry((_instrument(),)))
+    with pytest.raises(UnsupportedMarketError):
+        service.run(
+            series=_series(),
+            strategy=lambda frame: None,
+            financial_state=_financial_state(),
+            execution_context=_context(),
+            market_registry=MarketRegistry(),
+        )
+
+
+def test_backtest_passes_caller_market_registry_to_composed_paper_engine(monkeypatch) -> None:
+    import quantx.application.backtest as backtest_module
+    from quantx.markets import default_market_registry
+
+    original_engine = backtest_module.PaperExecutionEngine
+    engines: list[PaperExecutionEngine] = []
+
+    def capture_engine(**kwargs) -> PaperExecutionEngine:
+        engine = original_engine(**kwargs)
+        engines.append(engine)
+        return engine
+
+    monkeypatch.setattr(backtest_module, "PaperExecutionEngine", capture_engine)
+    market_registry = default_market_registry()
+    service = _service(
+        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
+    )
+
+    service.run(
+        series=_series(),
+        strategy=_hold_all("market-registry-propagation"),
+        financial_state=_financial_state(),
+        market_registry=market_registry,
+    )
+
+    assert len(engines) == 1
+    assert engines[0]._market_registry is market_registry
+
+
+def test_backtest_requires_explicit_market_registry() -> None:
+    service = _service(instrument_registry=InMemoryInstrumentRegistry((_instrument(),)))
+    with pytest.raises(UnsupportedMarketError, match="market_registry is required"):
+        service.run(
+            series=_series(),
+            strategy=lambda frame: None,
+            financial_state=_financial_state(),
+            market_registry=None,
+        )
+
+
+def test_backtest_omitted_market_registry_fails_closed() -> None:
+    service = _service(instrument_registry=InMemoryInstrumentRegistry((_instrument(),)))
+    with pytest.raises(UnsupportedMarketError, match="market_registry is required"):
+        service.run(
+            series=_series(),
+            strategy=lambda frame: None,
+            financial_state=_financial_state(),
+        )

@@ -71,7 +71,8 @@ from quantx.execution.paper.profile import (
     OrderBookSnapshot,
     SlippageModel,
 )
-from quantx.india.market_pack import (
+from quantx.markets import default_market_registry
+from quantx.markets.india.market_pack import (
     INDIA_EQUITY_POSITION_EFFECT_POLICY,
     INDIA_EQUITY_PRODUCT_SELECTION,
 )
@@ -1199,6 +1200,7 @@ def test_backtest_paper_order_sequence_parity() -> None:
         series=_parity_series(),
         strategy=backtest_strategy,
         financial_state=_financial_state(),
+        market_registry=default_market_registry(),
     )
     backtest_sequence = tuple(
         (
@@ -1323,6 +1325,7 @@ def _buy_and_hold_driver_run():
         strategy_ir=_ir(),
         financial_state=_financial_state(),
         execution_context=_bound_context(),
+        market_registry=default_market_registry(),
     )
 
     rehearsal_strategy = _ObservedBuyAndHold()
@@ -1568,6 +1571,7 @@ def test_qx08_backtest_rejects_live_execution_context_for_bound_intents() -> Non
             strategy_ir=_ir(),
             financial_state=_financial_state(),
             execution_context=context,
+            market_registry=default_market_registry(),
         )
 
 
@@ -1582,6 +1586,7 @@ def test_qx08_accepted_without_fill_callback_and_order_inventory_parity() -> Non
         strategy_ir=_ir(),
         financial_state=_financial_state(),
         execution_context=_bound_context(),
+        market_registry=default_market_registry(),
     )
 
     rehearsal_strategy = _AcceptedWithoutFillObserver()
@@ -1635,6 +1640,7 @@ def test_qx08_accepted_without_fill_is_preserved_after_order_callback_error() ->
         strategy_ir=_ir(),
         financial_state=_financial_state(),
         execution_context=_bound_context(),
+        market_registry=default_market_registry(),
     )
 
     rehearsal_strategy = _AcceptedWithoutFillObserver(fail_order_update=True)

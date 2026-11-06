@@ -34,6 +34,7 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 | QX-08 StrategyContext/callback sequence (#196) | Completed | PR sequence recorded in `docs/STATUS.md` |
 | QX-09 market-pack pre-trade pipeline (#197) | Completed | PR #221 |
 | QX-13 finite Decimal-only Money (#201) | Implemented and merged | PR #310; validated feature HEAD `24e3a3bc6205c6d8d5f7733d63c79a2ce94b0617`; squash merge `a2007f6a04859368608a42cd3898244382151a5a` |
+| Market-module migration mainline (#309, bounded architecture slice) | In progress on ix/issue309-structural-marketmodule-p2-v1; does not resolve #267 or #266 | PR #309; original candidate 2e5a951bc3a6861d3f0d5c7754046288a3282ace; current mainline reconciliation in progress. |
 | LIVE trusted-clock freshness | Completed slice; not full evidence authority | PR #281; remaining work is #267 |
 | QX-06 multi-leg semantics (#195) | **Design only**; no multi-leg execution implementation or capability claim | ADR-010; keep partial-leg failure and exposure semantics explicit |
 
@@ -113,6 +114,20 @@ For every implementation slice:
 
 ## 6. Immediate next task
 
-**Proceed with #267, not another broad architecture rewrite.** Start by inspecting the current sanctioned LIVE composition and every call path that supplies `LiveRiskEvaluationInputs`. Map each required identity/evidence field to its authoritative source—or explicitly identify it as unavailable. Design the smallest application-owned composition and request-binding contract that cannot be self-authorized by a caller-shaped dataclass. Preserve trusted-clock freshness, India-only LIVE policy, durable disarmed gate, startup recovery, idempotency, UNKNOWN/quarantine, reconciliation and no-auto-retry invariants. If no authority-bearing evidence adapter exists, the accepted outcome is a tested block, not a fabricated adapter.
+**Bounded PR1 market-module migration on current main** is the selected
+implementation workstream. Rebuild the market-module migration as a bounded,
+reviewed slice: move the canonical India implementation to
+`quantx.markets.india`, add caller-populated `MarketRegistry`, common
+market-neutral contracts, the India module and digital-assets placeholder,
+trusted registration, MarketContext propagation into research/backtest/paper,
+legacy compatibility shims, and the required boundary/neutrality tests.
+Keep the migration specific to this approved slice; it is not a general
+authorization for broad structural rewrites.
 
-This plan records priorities and acceptance intent; it does not itself claim implementation, test, CI, sandbox, broker or LIVE results.
+#267 remains open and fail-closed. Dhan still declares no supported LIVE risk
+fields, `authoritative_evidence_available` remains false, and public LIVE
+dispatch remains blocked before reservation and broker submission. #266
+accounting semantics remain separate follow-up work.
+
+This plan records priorities and acceptance intent; it does not itself claim
+implementation, test, CI, sandbox, broker or LIVE results.
