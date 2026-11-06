@@ -670,3 +670,179 @@ reviewed. Preserve realized-only `daily_pnl`, current `max_drawdown`
 semantics and the #267 LIVE fail-closed boundary. No production code, schema,
 risk behavior, broker operation or LIVE authorization is changed by this
 documentation update.
+
+---
+
+## Issue #266 — session equity P&L accounting contract (2026-11-06)
+
+**Reviewed source baseline:** `main` at `41550505922a294daef4c6aa73fb4c8420b42ab8`.
+**Disposition:** accounting semantics defined for subsequent design and implementation planning; source feasibility and implementation remain blocked. This section supersedes the earlier suggestion in Priority 2 to add a bare `unrealized_pnl` value to `RiskSnapshot`. It does not approve a source adapter, persistence migration, risk API change, broker operation or LIVE authorization.
+
+### 1. Contract decisions
+
+1. Preserve `RiskSnapshot.daily_pnl` as **realized-only daily P&L**. Preserve `RiskLimits.max_daily_loss`, its comparison behavior and its existing tests.
+2. Preserve the existing `max_drawdown` / `equity` / `high_water_mark` contract unchanged. Session loss and peak-to-trough drawdown are distinct measurements.
+3. Define a separate signed metric named **session equity P&L**, represented conceptually as `session_equity_pnl`. The corresponding positive loss threshold is named **`max_session_equity_loss`**. These are design names, not implemented fields or a public API.
+4. Use complete, in-scope **net-liquidation equity change adjusted for external capital flows** as the canonical account-level session result. A sum of position rows, a lifetime unrealized P&L value, or an unverified broker daily-P&L figure is not a substitute.
+5. Keep realized and unrealized attribution as mutually exclusive explanatory components. Their reconciliation must agree with the equity-derived result; they must not be added to that result a second time.
+6. Do not add a standalone current `unrealized_pnl` to `RiskSnapshot` and call it session loss. A current/lifetime unrealized value does not identify the change since this session opened and can import overnight movement or double-count partial closes.
+7. The contract is account-risk-scope based. A broker account value is not automatically a strategy-portfolio value. Portfolio-level allocation requires a separate, explicit allocation and evidence contract.
+
+### 2. Definitions, signs and canonical formula
+
+All monetary amounts use exact finite Decimal values and one declared valuation currency.
+
+| Term | Definition |
+|---|---|
+| `E_open` | Complete net-liquidation equity for the selected account risk scope at the actual session-opening cut |
+| `E_t` | Complete net-liquidation equity for the same scope at observation cut `t` |
+| `F_ext(s,t]` | Signed net external capital entering the measured scope after the opening cut and through `t`; contribution in is positive, withdrawal/transfer out is negative |
+| `session_equity_pnl(t)` | Signed account return attributable to the session, after external-flow neutralization |
+| `max_session_equity_loss` | Positive loss threshold in the same valuation currency |
+
+Canonical calculation:
+
+```text
+session_equity_pnl(t) = E_t - E_open - F_ext(s,t]
+session_equity_loss(t) = max(0, -session_equity_pnl(t))
+```
+
+A positive result is a gain; a negative result is a loss. External contributions are positive when entering the measured scope and negative when leaving it. Therefore a deposit or asset transfer in does not create trading profit, and a withdrawal or asset transfer out does not create trading loss. A transfer wholly inside the measured scope is neutral.
+
+If later implemented, the new limit rejects when `session_equity_loss > max_session_equity_loss`, using a finite positive Money threshold in the same currency. Equality is not an exceeded limit, consistent with the current strict-greater-than daily-loss comparison. This definition does not change or alias `max_daily_loss`.
+
+### 3. Account risk scope and net-liquidation equity
+
+The measured scope is identified by the canonical account ID, broker-connection ID, explicit risk-scope ID, valuation currency, session/calendar identity and versioned accounting policy. Every asset, liability, flow, trade and mark must belong to that same scope. Do not silently use account equity for a strategy portfolio or combine two accounts because they share a client login.
+
+```text
+net_liquidation_equity
+    = sum(complete, non-duplicated asset values)
+    - sum(complete, non-duplicated liability values)
+```
+
+The asset/liability inventory must explicitly cover, where applicable:
+
+- settled and unsettled cash, with debit/credit and settlement state distinguished;
+- all open positions, including carry-forward and intraday quantities;
+- demat, delivered, T1 and other in-scope holdings;
+- collateral assets and receivables, only under a documented recognition and valuation basis;
+- MTF borrowing, financing, margin/debit liabilities, accrued interest, borrow costs, taxes, charges and other obligations;
+- unsettled trade payables/receivables and other account obligations;
+- every required currency conversion under a named, timestamped FX source and policy.
+
+Count each economic asset or liability exactly once. Pledged securities remain the same asset; a collateral label does not create a second asset. Cash, collateral, receivables and broker fund-limit fields must not be added together unless their source semantics prove they are disjoint. Holdings and position rows must be reconciled to avoid counting the same instrument quantity twice. Derivatives require the correct instrument-specific valuation and settlement basis, contract multiplier and currency; notional exposure is not automatically an asset value.
+
+The valuation basis is net liquidation value, not available cash, buying power, margin limit, gross exposure, average cost or start-of-day funds limit. Each asset class and venue requires an explicit mark-selection rule appropriate to its liquidation side, quote type, size/depth assumptions, contract/settlement conventions and freshness bound. Missing/unmapped assets, unsupported liabilities, absent marks, stale marks, unknown FX, or an unverified equity basis make the entire required equity observation unavailable. A partial aggregate must never be promoted to complete.
+
+### 4. Session boundary, observation time and baseline
+
+The session is defined by an explicit market calendar and policy, not by civil midnight. For the initial India implementation, use an explicit Asia/Kolkata exchange-session identity, including holidays, special sessions and the selected exchange/segment. An account spanning markets with different session calendars must use a deliberate composite-session policy or be partitioned into separately measured scopes; do not assume one universal opening instant.
+
+Each relevant observation retains at least:
+
+- source/provider `observed_at` (the instant the source says the value represents);
+- trusted host `captured_at` (when QuantX received it);
+- effective/event time where a trade, charge or capital flow occurred;
+- account, connection, scope, currency and source identity;
+- source record references/fingerprint and pagination/cursor or snapshot identity.
+
+A recent local capture does not make an old source value current. Components must represent a coherent observation cut or have a documented bounded alignment policy. The baseline must represent the actual session opening; the first observation obtained after trading has begun is not a substitute. If a provider can supply a historical/as-of opening cut, its semantics and completeness must be verified. Otherwise the baseline is unavailable.
+
+The durable baseline is write-once per key: account, connection, risk scope, calendar/session ID, valuation currency and accounting-policy version. It retains the baseline equity, source observation/cut identity, source observation time, trusted capture time and provenance. Repeated identical capture is idempotent; a conflicting baseline is an integrity failure. Restart must reload the same baseline, never silently reset it. Starting after the session boundary without recoverable opening evidence means UNKNOWN/unavailable.
+
+Current SQLite schema v8 has no account-equity observation, external-capital-flow or session-baseline persistence contract. No schema shape or migration is approved by this document. A separate persistence design, migration review, rollback/restart tests and repository boundary are prerequisites.
+
+### 5. Realized, unrealized and other component attribution
+
+The equity-derived formula is canonical. A component ledger is used to explain and reconcile it, not to replace it with partial aggregates:
+
+```text
+component_session_result
+    = realized_session_trading_pnl
+    + unrealized_session_mtm_change
+    + recognized_distributions_and_other_income
+    + documented_non-capital_accounting_adjustments
+    - transaction_charges
+    - financing_and_borrow_costs
+    - other_recognized_expenses
+```
+
+The component result must reconcile to `session_equity_pnl` after the same external-flow treatment. Every component declares whether it is gross or net and whether costs are already embedded. A fee, tax or charge reflected in net execution proceeds, cash/equity or another component must not be subtracted again. No unexplained balancing residual is permitted. Reconciliation outside a documented source-precision bound makes the result unavailable; no tolerance may be invented to make a sample pass.
+
+**Realized session trading P&L** is the session movement recognized on quantities closed during the session, not lifetime realized P&L or an undocumented broker row total. For a carried position, the session-opening mark/settlement is the basis for the quantity closed during this session; prior-session gains/losses are not re-attributed to today. For a position opened intraday, execution price is its opening basis. Use an explicit, versioned market/product lot-matching and settlement policy; do not assume one universal FIFO or average-cost rule.
+
+**Unrealized session MTM change** is the mark movement on quantities still open at observation cut `t`, relative to their session-opening mark for carried inventory or execution basis for intraday-opened inventory. Use signed quantity and the correct contract multiplier/settlement semantics. Recompute against the same fixed baseline on each observation; never accumulate successive snapshots. The current lifetime unrealized P&L of a carried position is not the session change.
+
+For partial closes, allocate the closed quantity to realized session P&L using the same opening basis and retain only the remaining quantity in unrealized MTM. For a full close, retain the realized session result even though the position no longer appears in the current open-position response. For a reversal, split the fill into closing the old side and opening the new side, each with its correct basis. Missing trade events, ambiguous lot allocation or incomplete closed-position coverage makes the component reconciliation unavailable.
+
+**Other items:** recognized dividends/distributions/interest are recorded as income at the documented entitlement/effective basis, not as external contributions. Splits, bonuses, mergers, product conversions, expiry/settlement, exercise/assignment and IPO allotments are explicit accounting events with source identity and quantity/basis transformations. They are not automatically external capital flows. Cash-in-lieu, withholding and other associated amounts are recognized once. If the event cannot be classified and reconciled, the result is unavailable.
+
+### 6. External capital flows and charges
+
+A capital flow is external only relative to the chosen measured scope:
+
+- cash or securities entering the scope: positive signed contribution;
+- cash or securities leaving the scope: negative signed contribution;
+- transfer between accounts wholly inside the measured scope: zero net flow;
+- transfer to/from an account outside the scope: external flow, valued at its effective instant.
+
+Non-cash transfers require canonical asset identity, quantity, valuation currency, effective time and an evidenced transfer-time valuation. A voucher date without intraday timing is insufficient when the flow must be aligned to an intraday equity cut. Unknown flow classification or missing pages makes `F_ext` incomplete.
+
+Brokerage, exchange charges, taxes, stamp duty, financing, MTF interest, borrow costs and other expenses are trading/account expenses, not capital contributions. Recognize each exactly once at the policy-defined effective/accrual time. If the selected equity snapshot already includes an expense, the component ledger marks it included; it must not be deducted again. If a required expense is accrued but absent from the equity/source view and cannot be measured, the session result is unavailable.
+
+Corporate actions are not automatically flows. Splits/bonuses normally transform quantity and reference basis; dividends and distributions are income; cash-in-lieu and settlements are explicit realized/adjustment events. IPO allotments, share transfers, mergers and product conversions require event-level classification based on whether value crossed the measured account boundary. Never classify by narration text alone or infer economic meaning from a label.
+
+### 7. Temporal, price and numeric integrity
+
+- Every held/position instrument must map to a canonical instrument and applicable market/product rule version.
+- Marks require source identity, source observation time, selected time, price type and the segment-specific selection/freshness policy. A stale last trade, missing quote, absent quote size where required, or non-tradable price basis is unavailable.
+- The same observation cut must include positions, holdings, cash, liabilities, trades, charges, flows and marks. Complete pagination and stable snapshot/cursor boundaries must be proven. Missing or duplicated pages, repeated trade/flow identities, unmapped rows or contradictory totals fail closed.
+- Cross-currency equity requires fresh, source-identified FX observations and an explicit conversion policy at the relevant times. Otherwise the account is not completely valued in the selected currency.
+- Parse and calculate with exact finite Decimal values. Source precision loss, float-origin values, rounding, contract multipliers and currency minor-unit treatment require explicit bounds and policy. `Decimal(str(parsed_float))` does not recover precision already lost upstream.
+- Provider timestamps and local capture times are never interchangeable. Future-dated observations, inconsistent windows and stale marks make the metric unavailable.
+
+### 8. High-water mark and drawdown remain separate
+
+The existing `RiskSnapshot.equity`, `high_water_mark` and `max_drawdown` behavior is unchanged by #266. Session equity P&L compares this session's opening equity with current equity after neutralizing external flows; drawdown measures decline from a peak over a separately configured horizon.
+
+For a future flow-adjusted account HWM, the preferred design is a unitized/flow-neutralized equity series: external contributions issue units and withdrawals redeem units at the pre-flow unit value, so a deposit or withdrawal alone does not create a new performance peak or drawdown. The HWM is the maximum observed unit value over the configured horizon. Its sampling cadence and the possibility of an unsampled intraperiod peak must be reported. This requires complete, timestamped flow and equity evidence and durable restart-safe state. It is a separate future contract; it must not be smuggled into #266's session metric or used to reinterpret the current raw `max_drawdown` inputs.
+
+### 9. Enforcement and mode boundaries
+
+A pre-trade session-equity loss check can only block a new dispatch when a complete, fresh and authoritative session result is available at that evaluation cut. It is not a continuous MTM monitor, does not retroactively cancel an accepted order and does not liquidate or flatten an existing position. Continuous monitoring, durable mid-session gate trips, reduce-only/flatten capability and lifecycle/recovery behavior require separate designs and authorization.
+
+The economic definitions should be mode-neutral across backtest, paper, sandbox and LIVE. The evidence provenance is not interchangeable: simulation modes use deterministic, explicitly model/version-tagged fills and marks; LIVE requires application-owned, account/connection/request-bound broker evidence. Simulated or caller-supplied observations can validate accounting logic but cannot authorize LIVE. Keep the existing single accounting path (`FillAccounting`, `CashLedger`, valuation and account-state building blocks); do not create a parallel P&L engine. A policy consumer must explicitly state whether it evaluates pre-trade, post-trade or projected state; those evaluation moments are not interchangeable.
+
+### 10. Required test acceptance matrix for a later implementation
+
+| Area | Required deterministic acceptance evidence |
+|---|---|
+| Formula/signs | Gain, loss, deposit, withdrawal, securities transfer in/out, internal transfer and zero-flow cases; exact Decimal arithmetic and currency rejection |
+| Threshold | Positive Money threshold; below/equal/above boundary; disabled policy leaves existing behavior unchanged |
+| Legacy contracts | Existing realized-only `daily_pnl` / `max_daily_loss` tests unchanged; existing `max_drawdown` tests unchanged |
+| Attribution | Profitable realized result with larger negative session MTM; carry-forward basis; intraday open/close; partial close; full close absent from open book; reversal; repeat snapshot recomputation |
+| Costs/income | Fees, taxes, brokerage, financing and charges included once; dividends/distributions and withholding; no charge duplication between trade, ledger and equity |
+| Corporate actions | Split/bonus, merger/conversion, expiry/settlement, exercise/assignment and cash-in-lieu; unknown event remains unavailable |
+| Scope/coverage | Account/connection/scope mismatch; complete holdings + positions; collateral counted once; MTF/liabilities and unsettled obligations; missing/unmapped asset |
+| Marks/time | Stale, future, missing and inconsistent marks; session holiday/special session; source time vs capture time; mixed-calendar policy; FX missing/stale |
+| Completeness | Missing/duplicate trade or ledger page; unstable cursor; incomplete flow history; duplicate event IDs; contradictory balances; unexplained component residual |
+| Baseline/persistence | True session-open baseline; late start without baseline; duplicate identical baseline; conflicting baseline; restart reload; migration rollback/failure |
+| Safety boundary | Missing/UNKNOWN evidence rejects before reservation and submit; no automatic retry, flatten or broker call |
+| Mode provenance | Same economic result from equivalent deterministic simulation inputs; simulation evidence cannot satisfy LIVE source authority |
+
+### 11. Implementation prerequisites and current evidence disposition
+
+The accounting contract does not make the source problem feasible. Before any account/session metric can be implemented for LIVE, require:
+
+1. A coherent, lawfully obtained, redacted fixture set preserving source fields, timestamps, page continuity, pseudonymous identity and cross-file joins. The 2026-11-03 issue comment reported 0 of 7 required fixtures; verify the present local inventory before relying on that historical report.
+2. A source-backed account-equity identity covering every in-scope asset and liability, with no double counting and an explicitly supported valuation currency.
+3. Complete and timestamped cash and non-cash external-flow history, including effective times and classifications.
+4. Complete trade/closed-position history, lot/settlement semantics, charge attribution and complete marks for the full instrument universe.
+5. An authoritative session-opening baseline and a coherent current observation cut.
+6. A separately reviewed durable repository/schema migration and restart/rollback contract for baselines (and, later, HWM state).
+7. End-to-end evidence authority and request/account/connection/scope binding under #267, with regression proof that every unavailable or contradictory value blocks before reservation and submission.
+
+The recent #267 feasibility audit reports that the current Dhan adapter cannot legitimately supply any of its 12 required LIVE risk-evidence fields; `_SUPPORTED_FIELDS` must remain empty. That result is consistent with this #266 contract: the #267 field list is not a substitute for session-accounting inputs, and no Dhan funds, position, trade-history or ledger field may be relabelled as complete account equity or session P&L. A different broker/source may be evaluated only against this full contract; do not assume feasibility.
+
+**Current disposition: ACCOUNTING SEMANTICS DEFINED; SOURCE FEASIBILITY NOT ESTABLISHED; IMPLEMENTATION NOT AUTHORIZED.** Keep #266 open. Keep #267 open, Dhan LIVE fields unsupported and the sanctioned LIVE path blocked. No source, tests, schema, migration, broker adapter, issue state or LIVE behavior is changed by this design addendum.
