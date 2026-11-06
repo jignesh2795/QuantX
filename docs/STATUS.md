@@ -14,6 +14,30 @@
 - **PR #313 — #266 fixture blocker:** merged at `d8af6f6d5bb562fbff3f8232edf4a1f19445d312`. The read-only inventory at the documented baseline found **0/7 required** Dhan fixtures and the optional diary absent. Source feasibility remains unestablished; no static reconciliation or account-equity implementation is justified.
 - **Human contributor/onboarding baseline:** issues #187 and #204 are closed. `CONTRIBUTING.md`, `ARCHITECTURE.md`, and a credential-free `examples/paper_smoke.py` are present. The example is local/paper-only and does not prove broker or LIVE behavior.
 
+### Reproduction command reference for historical PR #309 / #307 validation
+
+The PR records preserve the exact candidate SHAs and reported results, but the GitHub-visible summaries do **not** preserve the original raw command `argv` records or the local evidence JSON. The commands below are the repository's **canonical reproduction commands**, derived from the current `quantx-validation-gate` and `quantx-release-gate` scripts; they are not represented as a recovered transcript of the historical runs. Run them only in a detached worktree at the named candidate and use that PR's exact base.
+
+PR #309 candidate `a3e52478e4cceef05e42d424048c51289f435020`, base `41550505922a294daef4c6aa73fb4c8420b42ab8`:
+
+```powershell
+uv sync --dev
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8 --output <default-validation-json>
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence <default-validation-json> --expected-head a3e52478e4cceef05e42d424048c51289f435020
+
+uv sync --dev --extra dhan
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8 --output <dhan-validation-json>
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence <dhan-validation-json> --expected-head a3e52478e4cceef05e42d424048c51289f435020
+
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --self-test
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --self-test
+python .opencode/skills/quantx-skills-maintainer/scripts/skill_integrity.py --check
+```
+
+PR #307 candidate `11c1ec4959771755d6262a23bd1ed24f71cc6bbb`, base `ecbb202b8864688b521b1836f5dd9b36ca1d929f`: run the same command sequence with those two SHAs substituted. The validation runner itself executes canonical `uv run pytest`, changed-file `uv run ruff check` and `uv run ruff format --check`, `uv run mypy`, package coverage, `git diff --check`, and `git status --porcelain`; the release checker then verifies the recorded command scope and exact HEAD binding.
+
+These commands document reproducibility for future reruns. They do not upgrade the historical owner-reported counts into CI evidence or imply that the old raw argv has been recovered.
+
 ### Current safety disposition
 
 - **#267 remains OPEN and fail-closed.** Trusted-clock freshness, application-owned source composition, exact request binding, identity/provenance checks and pre-reservation rejection are implemented. PR #285 adds supplemental broker-reported position-row P&L; PR #307 adds read-only ledger/trade-history transport. Neither supplies complete account risk evidence. Dhan still declares no supported LIVE risk fields (`_SUPPORTED_FIELDS` empty); required account-financial values, marked exposure, account/day `DAILY_PNL`, `EQUITY` and `HIGH_WATER_MARK` remain unavailable. Public LIVE dispatch remains blocked before reservation and broker submission. The Dhan field-by-field feasibility matrix is already recorded in the #267 issue history (2026-11-05), and a current-main provider inventory audit (2026-11-06) confirms the only plugin adapters are Dhan and Reference Broker; Reference Broker does not implement the LIVE evidence-source provider contract. Dhan `_SUPPORTED_FIELDS` remains empty. No existing registered provider can satisfy the mandatory field set. #267 is therefore **blocked pending selection of a credible alternative provider or materially new source evidence**; do not repeat the Dhan matrix or add Dhan-specific wrapper/transport layers absent a new source capability.
