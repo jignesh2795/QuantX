@@ -1,11 +1,13 @@
 # QuantX Roadmap
 
 
-## Current work programme — 2026-10-27
+## Current work programme — 2026-11-06
 
-Use [the QuantX Master Work Programme](../planning/quantx-work-program-2026-10.md) as the current cross-workstream sequencing record. It reconciles the former P0 work, QX-04/05/07/08/09 implementation state, remaining LIVE safety issues, regression gates, India charges, and global/crypto proposals. The milestone history below is not a substitute for checking current issue state and exact-SHA validation evidence.
+**Verified main:** `8fd82b52e47cfaedd60f7df8aa30553636fa9d82`. PR #309 completed the India market-module migration: `quantx.markets.india` is canonical, the legacy `quantx.india` shim remains, and India is still the only implemented market. The digital-assets module is a placeholder, not connector support.
 
-The master roadmap is grouped into milestones rather than treating every feature as an independent project.
+Use [the QuantX Master Work Programme](../planning/quantx-work-program-2026-10.md) as the current cross-workstream sequencing record. The next bounded safety deliverable is the #267 authoritative evidence-source feasibility matrix; #266 remains blocked by missing fixtures. Global comparative architecture research is unfinished and must proceed without waiting indefinitely on unavailable LIVE evidence. Public-readiness work remains open (#190 and #199); Actions/paid CI is not part of the validation plan.
+
+The milestone history below is not a substitute for checking current issue state and exact-SHA validation evidence. The master roadmap is grouped into milestones rather than treating every feature as an independent project.
 
 ## M0 — Architecture
 Core contracts, event model, ports/adapters, plugin model, capability negotiation, dependency rules and ADRs.
