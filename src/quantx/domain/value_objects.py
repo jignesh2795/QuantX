@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import NotImplementedType
 
 
 def canonical_decimal(value: Decimal) -> str:
@@ -39,21 +40,23 @@ class Money:
             raise TypeError("amount must be a Decimal")
         if not self.amount.is_finite():
             raise ValueError("amount must be finite")
-        if not self.currency:
-            raise ValueError("currency must not be empty")
+        if not isinstance(self.currency, str):
+            raise TypeError("currency must be a string")
+        if not self.currency.strip():
+            raise ValueError("currency must not be empty or whitespace")
 
     @classmethod
     def zero(cls, currency: str) -> "Money":
         return cls(Decimal("0"), currency)
 
-    def __add__(self, other: object) -> "Money":
+    def __add__(self, other: object) -> "Money | NotImplementedType":
         if not isinstance(other, Money):
             return NotImplemented
         if self.currency != other.currency:
             raise ValueError(f"currency mismatch: {self.currency} vs {other.currency}")
         return Money(self.amount + other.amount, self.currency)
 
-    def __sub__(self, other: object) -> "Money":
+    def __sub__(self, other: object) -> "Money | NotImplementedType":
         if not isinstance(other, Money):
             return NotImplemented
         if self.currency != other.currency:

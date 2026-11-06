@@ -29,6 +29,8 @@ def test_money_rejects_non_finite_decimal() -> None:
         Money(Decimal("Infinity"), "INR")
     with pytest.raises(ValueError, match="finite"):
         Money(Decimal("-Infinity"), "INR")
+    with pytest.raises(ValueError, match="finite"):
+        Money(Decimal("sNaN"), "INR")
 
 
 def test_money_accepts_valid_finite_decimal() -> None:
@@ -71,6 +73,24 @@ def test_money_add_non_money_raises_type_error() -> None:
         a + 5
     with pytest.raises(TypeError):
         a - 5
+
+
+def test_money_rejects_non_string_currency() -> None:
+    with pytest.raises(TypeError):
+        Money(Decimal("10"), 123)
+    with pytest.raises(TypeError):
+        Money(Decimal("10"), None)
+
+
+def test_money_rejects_whitespace_only_currency() -> None:
+    with pytest.raises(ValueError, match="currency must not be empty or whitespace"):
+        Money(Decimal("10"), "   ")
+    with pytest.raises(ValueError, match="currency must not be empty or whitespace"):
+        Money(Decimal("10"), "\t")
+    with pytest.raises(ValueError, match="currency must not be empty or whitespace"):
+        Money(Decimal("10"), "\n")
+    with pytest.raises(ValueError, match="currency must not be empty or whitespace"):
+        Money(Decimal("10"), "  \t\n  ")
 
 
 def test_quantity_rejects_negative_values() -> None:
