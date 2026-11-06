@@ -1,24 +1,22 @@
-# QuantX Master Work Programme — October 2026
+# QuantX Master Work Programme — October/November 2026
 
 **Status:** Active cross-workstream sequencing and reconciliation record
 
 **Snapshot date:** 2026-11-06
 
-**Baseline reviewed:** `main` at `a2007f6a04859368608a42cd3898244382151a5a` (PR #310, QX-13 finite Decimal-only Money closeout)
+**Baseline reviewed:** `main` at `8fd82b52e47cfaedd60f7df8aa30553636fa9d82` (PR #309 India market-module migration merged).
 
-**Purpose:** Keep prior architecture, safety, India-market realism, global-market research, and release-readiness work in one progressable plan.
+**Purpose:** Keep prior architecture, safety, India-market realism, global-market research, strategy/research delivery, and release-readiness work in one progressable plan.
 
 This is the canonical **active sequencing** document. GitHub issues remain the canonical individual acceptance/checklist records; `docs/STATUS.md` remains the implementation/evidence ledger; `docs/roadmap/README.md` remains the capability and milestone history. When an older status snapshot or planning note conflicts with the current issue acceptance criteria or this priority order, reconcile it before implementing. Do not infer completion from a branch name, documentation, or an old test count.
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline verified during this reconciliation: `a2007f6a04859368608a42cd3898244382151a5a`.
-- Open PRs: **4** at snapshot time (#309, #308, #306 and #295).
-- Open issues: **10** at snapshot time.
-- Active branch for this documentation reconciliation: `docs/issue201-merge-closeout-v1`, based on `main`. This change is documentation-only.
-- No new test suite, CI run, broker call, sandbox run, or LIVE operation was performed as part of this tracker update.
+- Latest `main` baseline verified during this reconciliation: `8fd82b52e47cfaedd60f7df8aa30553636fa9d82`.
+- PR #309 is merged; PR #295 is a stale superseded migration candidate; PR #308 is a stale draft whose useful facts are incorporated in the current status; PR #306 remains a draft public-API candidate and is not validated on current main.
+- This reconciliation updates the canonical status and roadmap after PRs #307, #312, #313 and #309. It does not claim a new test suite, hosted CI, broker call, sandbox run, or LIVE operation.
 
-**Work rules:** use one coherent branch/PR per implementation slice; record exact base and candidate SHAs; keep validation evidence tied to its tested SHA; run the declared local validation gates with Dhan extra both enabled and disabled where applicable; distinguish local/operator-reported results from GitHub Actions; do not merge production code without exact-SHA evidence and required review. UNKNOWN and missing authoritative evidence are never PASS.
+**Work rules:** use one coherent branch/PR per implementation slice; record exact base and candidate SHAs; keep validation evidence tied to its tested SHA; run the declared local validation gates with Dhan extra both enabled and disabled where applicable; distinguish local/operator-reported results from GitHub Actions; do not merge implementation without exact-SHA evidence and required review. UNKNOWN and missing authoritative evidence are never PASS.
 
 ## 2. Completed work — do not redo without a new finding
 
@@ -34,8 +32,10 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 | QX-08 StrategyContext/callback sequence (#196) | Completed | PR sequence recorded in `docs/STATUS.md` |
 | QX-09 market-pack pre-trade pipeline (#197) | Completed | PR #221 |
 | QX-13 finite Decimal-only Money (#201) | Implemented and merged | PR #310; validated feature HEAD `24e3a3bc6205c6d8d5f7733d63c79a2ce94b0617`; squash merge `a2007f6a04859368608a42cd3898244382151a5a` |
-| Market-module migration mainline (#309, bounded architecture slice) | In progress on ix/issue309-structural-marketmodule-p2-v1; does not resolve #267 or #266 | PR #309; original candidate 2e5a951bc3a6861d3f0d5c7754046288a3282ace; current mainline reconciliation in progress. |
-| LIVE trusted-clock freshness | Completed slice; not full evidence authority | PR #281; remaining work is #267 |
+| Open-source onboarding overview (#187/#204) | **Completed** | `CONTRIBUTING.md`, `ARCHITECTURE.md`, and credential-free `examples/paper_smoke.py`; issues #187 and #204 closed. |
+| PR #307 Dhan statement observations | **Merged; supplemental/read-only only** | Merge `93ae5d0be0dec94308d85856c58a5e2f7be0eca2`; ledger/trade-history transport is not account/day P&L or LIVE authority. |
+| Market-module migration (#309, bounded architecture slice) | **Implemented and merged** | PR #309; validated candidate `a3e52478e4cceef05e42d424048c51289f435020`; squash merge `8fd82b52e47cfaedd60f7df8aa30553636fa9d82`. India is the only implemented module; digital assets remains a placeholder; LIVE unchanged. |
+| LIVE trusted-clock freshness and request-bound authority foundation | Implemented; evidence-source feasibility remains open | PR #281 plus #267 composition/request-binding controls; PRs #285/#307 add supplemental/read-only Dhan observations only. |
 | QX-06 multi-leg semantics (#195) | **Design only**; no multi-leg execution implementation or capability claim | ADR-010; keep partial-leg failure and exposure semantics explicit |
 
 QX-07 closure is a current update that supersedes the pre-merge snapshot still preserved in historical sections of `docs/STATUS.md`. The final slice's recorded local candidate validation was default **2,695 passed / 1 skipped** and Dhan-enabled **2,696 passed**, with Ruff/format, strict mypy, and independent review recorded as passing. These results belong to candidate SHA `a5219cf7616f34483e3c596d3feb47ac4c00673f`; they are local evidence, not GitHub Actions evidence, and do not establish production-broker or LIVE readiness.
@@ -48,24 +48,24 @@ Use the waves below as sequence, not as a commitment to implement every issue in
 
 | Rank | Issue | State / next required outcome |
 |---|---|---|
-| **A1 — next** | [#267 LIVE risk evaluator authority and request-bound evidence](https://github.com/jignesh2795/QuantX/issues/267) | Highest priority. Block arbitrary/unapproved evaluator composition; bind risk inputs to the exact order, account, portfolio, broker connection and market context; require typed evidence with verifiable authority, observation time, freshness, completeness and explicit unavailable states. Missing/stale/foreign/contradictory evidence must block before reservation and submit. If a trustworthy adapter is absent, keep the sanctioned LIVE path unavailable/blocked. |
+| **A1 — bounded next** | [#267 LIVE risk evaluator authority and request-bound evidence](https://github.com/jignesh2795/QuantX/issues/267) | The application-owned composition, trusted clock, exact request/account/portfolio/connection binding, provenance checks and pre-reservation fail-closed rejection are implemented. Remaining task: produce one source-backed feasibility matrix for every field in `required_live_risk_evidence_fields` (six account-financial values, enabled exposure values, and conditional `DAILY_PNL`, `EQUITY`, `HIGH_WATER_MARK`). Record endpoint/field, economic meaning, identity binding, completeness/pagination, timestamp/freshness, precision, contradictions and regression evidence. Do not build another Dhan wrapper unless the source proves it can supply the complete configured set. If mandatory fields remain unavailable, retain the tested block and close this bounded investigation as source-infeasible; do not keep safety remediation open-ended. |
 | A2 — contract defined; source feasibility blocked | [#266 LIVE daily-loss limit only sees realized P&L](https://github.com/jignesh2795/QuantX/issues/266) | Accounting semantics are documented in [PR #312](https://github.com/jignesh2795/QuantX/pull/312), merged at `71e407f8847d6866d4c893da271441f1adeaf2ed`. The 2026-11-06 read-only inventory at that main SHA found **0/7 required** Dhan fixtures, with optional `traders_diary_summary.json` also absent; cross-file completeness and source feasibility are not established. Do not attempt static reconciliation or implement account/session equity from absent evidence. Revisit only when a coherent, lawfully obtained, redacted fixture set or a separately evaluated authoritative source becomes available. Preserve realized-only `daily_pnl`, current `max_drawdown`, and #267's fail-closed LIVE boundary; #266 remains open. |
 | Completed | [#280 preserve operator block reason at startup](https://github.com/jignesh2795/QuantX/issues/280) — [PR #287](https://github.com/jignesh2795/QuantX/pull/287) | Merged at `b290802f4331d4137d3bda407d12a95750d7e6b4`. Preserves existing disabled reasons; durably disarms enabled/fresh states; fails closed on gate-state read or required persistence failures. Exact-SHA default and Dhan validation plus both release gates passed. |
-| A3 | [#189 Dhan startup/shutdown cleanup audit](https://github.com/jignesh2795/QuantX/issues/189) | Ensure cleanup errors remain observable and the primary startup failure is preserved; no network calls or adapter UNKNOWN-semantic changes. |
+| Completed | [#189 Dhan startup/shutdown cleanup audit](https://github.com/jignesh2795/QuantX/issues/189) | Closed after cleanup-failure visibility and primary-exception preservation work. Do not repeat without a new defect. |
 
 ### Wave B — Strict boundary and deterministic-time hardening
 
 | Rank | Issue | Next required outcome |
 |---|---|---|
-| B1 | [#271 exact UUID and Order runtime invariants](https://github.com/jignesh2795/QuantX/issues/271) | Enforce actual runtime contracts without coercion; audit affected paper/replay/backtest fixtures; preserve fingerprints, persistence and wire semantics. |
-| B2 | [#269 exact LIVE broker-probe validation](https://github.com/jignesh2795/QuantX/issues/269) | `health()` only passes on exact `True`; connection/instrument/capability results must have exact expected shapes; malformed values return fixed fail-closed reasons. Issue records this as lower priority than the main authority/control-path gaps. |
-| B3 | [#198 complete clock injection](https://github.com/jignesh2795/QuantX/issues/198) | Compare current call sites against architecture record 53; inject clocks where time changes behavior, preserve justified system/transport/audit timestamps, and add deterministic replay guards. |
+| Completed | [#271 exact UUID and Order runtime invariants](https://github.com/jignesh2795/QuantX/issues/271) | Closed after exact runtime-type enforcement and regression coverage; do not reintroduce coercion. |
+| Completed | [#269 exact LIVE broker-probe validation](https://github.com/jignesh2795/QuantX/issues/269) | Closed; exact boolean/object probe validation and fixed fail-closed reasons are complete. |
+| Completed | [#198 complete clock injection](https://github.com/jignesh2795/QuantX/issues/198) | Closed; behaviorally significant clock boundaries and deterministic replay requirements are addressed. |
 
 ### Wave C — Regression assurance
 
 | Rank | Issue | Next required outcome |
 |---|---|---|
-| C1 | [#182 measured package-specific coverage floors](https://github.com/jignesh2795/QuantX/issues/182) | Measure the exact-base line and branch coverage for domain, execution and persistence, choose evidence-based floors, wire the local gate, and demonstrate both fail and pass behavior. |
+| Completed | [#182 measured package-specific coverage floors](https://github.com/jignesh2795/QuantX/issues/182) | Domain, execution and persistence line/branch floors and the local validation/release gates are implemented; thresholds and methodology are recorded in `docs/implementation/package-coverage-floors.md`. |
 | C2 | [#202 dead-module and Dhan transport coverage audit](https://github.com/jignesh2795/QuantX/issues/202) | Re-measure usage and line/branch coverage first; remove or justify suspected unused seams; improve deterministic transport tests without network access or inferred submit/cancel outcomes. |
 
 ### Wave D — India-market realism and public contract
@@ -84,24 +84,40 @@ The charges contract/design is available in `docs/planning/india-market-charges-
 |---|---|---|
 | E1 | [#203 Dhan sandbox lifecycle evidence](https://github.com/jignesh2795/QuantX/issues/203) | Only when sandbox access is safely available; produce replayable evidence fixtures and preserve a strict no-real-capital boundary. |
 | E2 | [#206 broker/market-data conformance and schemas](https://github.com/jignesh2795/QuantX/issues/206) | Reusable contract suites and versioned schemas; keep provider capabilities explicit. |
-| E3 | [#188 StrategySignal confidence contract](https://github.com/jignesh2795/QuantX/issues/188) | Settle semantics before Strategy SDK exposure; don't imply calibrated probability where none is measured. |
-| E4 | [#190 security reporting policy](https://github.com/jignesh2795/QuantX/issues/190) | Publish only a real private disclosure route or record/configure the required repository setting; invent no email, SLA or bounty. |
-| E5 | [#204 architecture overview and quickstart](https://github.com/jignesh2795/QuantX/issues/204), [#187 CONTRIBUTING.md](https://github.com/jignesh2795/QuantX/issues/187) | Align public wording with implemented/validated/supported distinctions and the actual local workflow. |
-| E6 | [#205 Python 3.13 validation](https://github.com/jignesh2795/QuantX/issues/205) | Conditional on reliable CI/local infrastructure before widening the supported Python range. |
+| Completed | [#188 StrategySignal confidence contract](https://github.com/jignesh2795/QuantX/issues/188) | Confidence remains a bounded strategy score, not a calibrated probability absent calibration evidence. Issue closed. |
+| E3 | [#190 security reporting policy](https://github.com/jignesh2795/QuantX/issues/190) | Add a truthful private disclosure path only after confirming/configuring GitHub private vulnerability reporting or another real channel. Until then, do not invent contact details, SLA, bounty or supported-version policy; complete before broad public contributor recruitment. |
+| Completed | [#204 architecture overview and quickstart](https://github.com/jignesh2795/QuantX/issues/204), [#187 CONTRIBUTING.md](https://github.com/jignesh2795/QuantX/issues/187) | `ARCHITECTURE.md`, `CONTRIBUTING.md` and a credential-free local paper smoke example are present; both issues closed. A dedicated `docs/GETTING_STARTED.md` remains a presentation-plan follow-up. |
+| E5 | [#205 Python 3.13 validation](https://github.com/jignesh2795/QuantX/issues/205) | **Blocked/deferred:** keep `requires-python >=3.12,<3.13` until a reliable, actually executing validation runner exists. No GitHub Actions or paid CI under current project constraints. |
 
 Issue [#207](https://github.com/jignesh2795/QuantX/issues/207) remains the meta review tracker; keep it updated as these workstreams move.
 
 ## 4. Global market and crypto work — retained, not yet implementation-ready
 
-The product direction is globally architected; India is the initial trader and implementation focus, not the permanent architecture boundary. Digital assets—including evaluation of Delta Exchange India and Binance venue/product scopes—remain strategic targets, not claims of implemented, supported, or LIVE-eligible connectors.
+The market-module migration is now merged. QuantX has the intended extension seam, but India is still the only implemented market. The digital-assets package is interface-only; Delta Exchange India, Binance and other international venues are not implemented or LIVE-eligible.
 
-- [The global architecture proposal branch](https://github.com/jignesh2795/QuantX/tree/docs/global-architecture-proposal-2026-10) remains docs-only with three documents under `docs/proposals/`: global product vision, staged global market-support roadmap, and comparative architecture audit plan. It is not merged into `main`.
-- [The crypto market extension proposal branch](https://github.com/jignesh2795/QuantX/tree/docs/crypto-market-extension-plan) remains unmerged, with the crypto extension plan and global-market-separation updates.
-- The comparative architecture audit is **not finished**: the existing document defines the research method and preliminary hypotheses; it is not yet a fully evidenced comparison against pinned source revisions of LEAN, NautilusTrader, Hummingbot, OpenAlgo, and relevant Indian-market projects.
-- The next global-research deliverable is a source-backed comparison matrix: exact reference revision; inspected source/test paths; equivalent QuantX path; observed difference; practical consequence; adopt/adapt/defer/reject decision; test/migration requirements; confidence. Then update the market-support matrix and select **one** next data/research vertical based on demand, data/API access, legal/regulatory constraints and scope.
-- Do not merge stale proposal branches wholesale, split the repo, broaden India-only LIVE policy, or infer crypto support from a region/asset-class enum. A new market requires explicit data/rule provenance, contract/conformance tests, paper/sandbox evidence and a separate LIVE eligibility review.
+- The global architecture proposal branch remains docs-only, with global product vision, staged support roadmap and comparative audit plan; it is not merged into `main`.
+- The crypto extension proposal remains unmerged. Neither proposal establishes connector, data, regulatory or LIVE support.
+- The comparative architecture audit is **not complete**: it still needs pinned source revisions and source/test inspection for LEAN, NautilusTrader, Hummingbot, OpenAlgo and relevant Indian-market projects.
+- Produce a source-backed matrix: exact upstream revision; inspected source/test paths; equivalent QuantX path; observed difference and consequence; adopt/adapt/defer/reject decision; required tests/migration; confidence. Then update the market-support matrix and select one next research/data vertical based on user demand, data/API access, legal/regulatory constraints and scope.
+- Do not merge stale proposal branches wholesale, split the repo, broaden India-only LIVE policy, or infer crypto support from a region/asset-class enum. A new market requires explicit data/rule provenance, contract/conformance tests, paper evidence and a separate LIVE eligibility review.
 
-## 5. Progress protocol
+## 5. Project presentation and public readiness
+
+The presentation plan is **partially complete**. Separate implementation from public claims:
+
+| Area | Current state | Remaining action |
+|---|---|---|
+| Human contributor and architecture entry | **Completed** — #187/#204 closed; `CONTRIBUTING.md`, `ARCHITECTURE.md` and `examples/paper_smoke.py` exist. | Keep paths/commands aligned with current code; a dedicated `docs/GETTING_STARTED.md` is still useful but not a release blocker. |
+| Curated Python API | **Open** — #199; PR #306 is draft, based on an older main and has no exact-head local validation. | Reconcile the branch on current main after the market migration, review the proposed exports and stability tiers, then run exact-SHA default/Dhan validation. Do not merge or claim public API stability yet. |
+| Security disclosure | **Open** — #190; `SECURITY.md` absent. | Verify/configure a real private vulnerability-reporting path before publishing a policy. Never invent an email, SLA, bounty or supported-version statement. |
+| Community files | `CODE_OF_CONDUCT.md` and `CHANGELOG.md` are absent. | Add only as part of an intentional contributor/release-preparation slice; the changelog must reflect actual release history. |
+| README and package metadata | Current text still says Indian markets; `pyproject.toml` still has the India-market description. | Reconcile product wording to “India-first, market-neutral architecture” without implying global connectors. Verify links and supported Python range. |
+| Status history/navigation | `docs/STATUS.md` remains over 1,000 lines; it contains useful history. | Later split into concise current status plus `docs/STATUS_HISTORY.md`, preserving all historical entries, anchors and links. Do not delete history or perform a mass docs move. |
+| CI presentation | GitHub Actions/paid CI remains unavailable by project policy. | Do not add badges or claim CI is green. Use local exact-SHA validation. |
+
+Issue #206 conformance tests and versioned schemas should follow #199's stability policy so test helpers and schema compatibility do not become an accidental public API. #203 remains conditional on safe sandbox access; #205 remains blocked pending a reliable validation runner.
+
+## 6. Progress protocol
 
 For every implementation slice:
 
@@ -112,22 +128,17 @@ For every implementation slice:
 5. Obtain adversarial review for execution, persistence, risk, time or market-rule changes. Validation results attach only to the exact tested candidate SHA. GitHub Actions/CI is mentioned only when an actual relevant run exists.
 6. After merge, reconcile the issue, update the appropriate section in `docs/STATUS.md`, record exact merge/candidate SHAs, and update this programme's status/next step. Keep dated historical snapshots but label them historical; do not leave a pre-merge “current” snapshot unqualified.
 
-## 6. Immediate next task
+## 7. Immediate next task
 
-**Bounded PR1 market-module migration on current main** is the selected
-implementation workstream. Rebuild the market-module migration as a bounded,
-reviewed slice: move the canonical India implementation to
-`quantx.markets.india`, add caller-populated `MarketRegistry`, common
-market-neutral contracts, the India module and digital-assets placeholder,
-trusted registration, MarketContext propagation into research/backtest/paper,
-legacy compatibility shims, and the required boundary/neutrality tests.
-Keep the migration specific to this approved slice; it is not a general
-authorization for broad structural rewrites.
+**First: finish #267's bounded source-feasibility decision.** Inspect the current main source/adapter capability and complete the field-by-field matrix for every mandatory LIVE risk value. The deliverable is evidence, not necessarily code. Do not infer authority from Dhan balance labels, cost basis, ledger `runbal`, position-row P&L or one trade-history page. Preserve the tested fail-closed block. If any mandatory field cannot be supplied with correct economics, identity binding, completeness, freshness and precision, explicitly record source-infeasible and stop adding Dhan-specific layers.
 
-#267 remains open and fail-closed. Dhan still declares no supported LIVE risk
-fields, `authoritative_evidence_available` remains false, and public LIVE
-dispatch remains blocked before reservation and broker submission. #266
-accounting semantics remain separate follow-up work.
+**In parallel, restore product-delivery balance:** complete the pinned-source comparative architecture matrix and select one next data/research vertical. Strategy/research progress must not wait indefinitely for unavailable LIVE evidence.
 
-This plan records priorities and acceptance intent; it does not itself claim
-implementation, test, CI, sandbox, broker or LIVE results.
+After those two bounded steps, sequence public readiness:
+1. Rebase/reconcile #199 / PR #306 onto current main and locally validate the curated provisional API.
+2. Resolve #190's real private-disclosure path before broad contributor recruitment.
+3. Finish the lightweight getting-started/community/release docs, then #206 conformance tooling once the public testing/API tier is defined.
+
+#266 remains blocked on missing authoritative fixtures/source evidence. Preserve realized-only `daily_pnl`, existing `max_drawdown`, and the documented session-equity contract; do not implement account/session equity from absent data. #203 remains conditional on genuine safe sandbox availability. #205 remains blocked while reliable Python 3.13 validation infrastructure is unavailable.
+
+This plan records priorities and acceptance intent; it does not itself claim implementation, test, CI, sandbox, broker or LIVE results.
