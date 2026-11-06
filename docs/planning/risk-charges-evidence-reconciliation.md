@@ -675,7 +675,7 @@ documentation update.
 
 ## Issue #266 — session equity P&L accounting contract (2026-11-06)
 
-**Reviewed source baseline:** `main` at `41550505922a294daef4c6aa73fb4c8420b42ab8`.  
+**Reviewed source baseline:** `main` at `41550505922a294daef4c6aa73fb4c8420b42ab8`.
 **Disposition:** accounting semantics defined for subsequent design and implementation planning; source feasibility and implementation remain blocked. This section supersedes the earlier suggestion in Priority 2 to add a bare `unrealized_pnl` value to `RiskSnapshot`. It does not approve a source adapter, persistence migration, risk API change, broker operation or LIVE authorization.
 
 ### 1. Contract decisions
