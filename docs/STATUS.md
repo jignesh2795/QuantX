@@ -1067,4 +1067,3 @@ merge or release.
 ## Market-module migration mainline reconciliation (2026-11-06)
 
 Reconciled with current main at 41550505922a294daef4c6aa73fb4c8420b42ab8. The structural MarketModule registry correction allows non-MarketModuleBase implementations to register while preserving all field, context, duplicate and fail-closed validations. #267 remains Wave A1 and is not resolved by this migration.
-
