@@ -1,5 +1,45 @@
 # QuantX Status
 
+## Issue #201 — finite Decimal-only Money and currency-safe arithmetic (2026-11-06)
+
+PR [#310](https://github.com/jignesh2795/QuantX/pull/310) was squash-merged
+into `main` at `a2007f6a04859368608a42cd3898244382151a5a`. The validated
+feature candidate was `24e3a3bc6205c6d8d5f7733d63c79a2ce94b0617`, based on
+`93ae5d0be0dec94308d85856c58a5e2f7be0eca2`. GitHub closed issue #201 as
+completed.
+
+The final feature diff was exactly two files (+105 / -2):
+`src/quantx/domain/value_objects.py` and
+`tests/unit/domain/test_value_objects.py`. `Money` now rejects non-Decimal
+and non-finite amounts, enforces string/non-whitespace currency values without
+normalizing currency spelling, and supports same-currency addition/subtraction
+with explicit cross-currency rejection. Unsupported operands return
+`NotImplemented` with an accurate `NotImplementedType` annotation.
+
+**Owner-reported local validation at the exact feature candidate SHA
+`24e3a3bc6205c6d8d5f7733d63c79a2ce94b0617`:** default full suite
+**3,414 passed / 3 skipped**; Dhan-extra full suite **3,417 passed**; changed-file
+Ruff check and format passed; Ruff format check passed across 417 files; strict
+mypy passed across 205 source files; domain, execution and persistence package
+coverage floors passed; validation and release gates passed in both default and
+Dhan configurations; validation self-test **37/37** and release self-test
+**113/113** passed; diff and tracked-worktree integrity checks passed.
+
+The independent adversarial review of that exact feature SHA returned
+**PASS WITH FINDINGS**, with no P0/P1/P2 findings. Its two P3 observations were
+non-blocking: extreme Decimal arithmetic may raise `decimal.InvalidOperation`
+rather than a domain-specific `ValueError`, and mixed-content whitespace
+currency strings are deliberately preserved rather than normalized. Neither
+changes the accepted fail-closed behavior or currency-identity contract.
+
+These are local/operator-reported results, not GitHub Actions/CI evidence and
+not cryptographically attested by GitHub. The validation evidence remains
+outside the repository. No broker, sandbox, production or LIVE operation was
+performed. The squash merge preserves the validated two-file implementation;
+the validation counts above belong to the feature candidate SHA, not a claim
+that the squash commit itself was separately rerun.
+
+## Issue #182 — package coverage floors (2026-10-31)
 
 ## Issue #182 — package coverage floors (2026-10-31)
 

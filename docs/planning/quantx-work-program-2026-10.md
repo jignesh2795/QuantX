@@ -2,9 +2,9 @@
 
 **Status:** Active cross-workstream sequencing and reconciliation record
 
-**Snapshot date:** 2026-10-27
+**Snapshot date:** 2026-11-06
 
-**Baseline reviewed:** `main` at `a34ec73b3f9457079882ca99b895a8efeae23d73` (PR #281, trusted-clock freshness slice)
+**Baseline reviewed:** `main` at `a2007f6a04859368608a42cd3898244382151a5a` (PR #310, QX-13 finite Decimal-only Money closeout)
 
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, and release-readiness work in one progressable plan.
 
@@ -12,10 +12,10 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline verified during this reconciliation: `a34ec73b3f9457079882ca99b895a8efeae23d73`.
-- Open PRs: **0** at snapshot time.
-- Open issues: **20** after issue #181 was reconciled and closed on 2026-10-27.
-- Active branch for this documentation reconciliation: `docs/quantx-master-work-program-2026-10`, based on `main`. This change is documentation-only.
+- Latest `main` baseline verified during this reconciliation: `a2007f6a04859368608a42cd3898244382151a5a`.
+- Open PRs: **4** at snapshot time (#309, #308, #306 and #295).
+- Open issues: **10** at snapshot time.
+- Active branch for this documentation reconciliation: `docs/issue201-merge-closeout-v1`, based on `main`. This change is documentation-only.
 - No new test suite, CI run, broker call, sandbox run, or LIVE operation was performed as part of this tracker update.
 
 **Work rules:** use one coherent branch/PR per implementation slice; record exact base and candidate SHAs; keep validation evidence tied to its tested SHA; run the declared local validation gates with Dhan extra both enabled and disabled where applicable; distinguish local/operator-reported results from GitHub Actions; do not merge production code without exact-SHA evidence and required review. UNKNOWN and missing authoritative evidence are never PASS.
@@ -33,6 +33,7 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 | QX-07 dependency ownership (#181) | Slices 1, 2A and 2B merged; issue #181 closed on 2026-10-27 after verification | PRs #257, #259, #261; Slice 2B merge `8f86f8f8893261c414874bac09f75185f5ed5dd5` |
 | QX-08 StrategyContext/callback sequence (#196) | Completed | PR sequence recorded in `docs/STATUS.md` |
 | QX-09 market-pack pre-trade pipeline (#197) | Completed | PR #221 |
+| QX-13 finite Decimal-only Money (#201) | Implemented and merged | PR #310; validated feature HEAD `24e3a3bc6205c6d8d5f7733d63c79a2ce94b0617`; squash merge `a2007f6a04859368608a42cd3898244382151a5a` |
 | LIVE trusted-clock freshness | Completed slice; not full evidence authority | PR #281; remaining work is #267 |
 | QX-06 multi-leg semantics (#195) | **Design only**; no multi-leg execution implementation or capability claim | ADR-010; keep partial-leg failure and exposure semantics explicit |
 
@@ -71,7 +72,7 @@ Use the waves below as sequence, not as a commitment to implement every issue in
 | Rank | Issue | Next required outcome |
 |---|---|---|
 | D1 | [#200 effective-dated India charges schedule](https://github.com/jignesh2795/QuantX/issues/200) | Implement the approved **contract-only** slice behind the current charge interface. Keep all fixtures synthetic and clearly labelled. Do not populate unverified production tariff values or wire the schedule into paper execution yet. GST and stamp-duty applicability/effective dates are still data gates. |
-| D2 | [#201 finite Decimal-only Money](https://github.com/jignesh2795/QuantX/issues/201) | Reject bool/float/string/non-finite amounts; enforce same-currency arithmetic only where needed; test consumer compatibility. |
+| Completed | [#201 finite Decimal-only Money](https://github.com/jignesh2795/QuantX/issues/201) | PR #310; validated candidate `24e3a3bc6205c6d8d5f7733d63c79a2ce94b0617`; squash merge `a2007f6a04859368608a42cd3898244382151a5a`. |
 | D3 | [#199 curated provisional public API](https://github.com/jignesh2795/QuantX/issues/199) | Define a small `quantx.api` with explicit stability tiers; don't mass re-export internals or import optional Dhan SDKs at import time. |
 
 The charges contract/design is available in `docs/planning/india-market-charges-design.md`; source and unresolved rule evidence are recorded in `docs/planning/risk-charges-evidence-reconciliation.md`. These documents are design/research inputs only. The original risk/charges note proposed a different ordering; its final sequence is now explicitly superseded here. Do not treat a label such as `BROKER` or `RECONCILED` as proof of authority.
