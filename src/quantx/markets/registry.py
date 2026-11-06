@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from quantx.domain.instruments import MarketContext, MarketRegion
 
-from .common.module_base import MarketModuleBase
 from .common.protocol import MarketModule
 
 
@@ -26,8 +25,6 @@ class MarketRegistry:
         self._modules: dict[MarketRegion, MarketModule] = {}
 
     def register(self, module: MarketModule) -> None:
-        if not isinstance(module, MarketModuleBase):
-            raise ValueError("module must be a MarketModuleBase")
         if not hasattr(module, "region") or not hasattr(module, "market_contexts"):
             raise ValueError("module must satisfy MarketModule")
         region = getattr(module, "region", None)

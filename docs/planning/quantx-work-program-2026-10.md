@@ -34,6 +34,7 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 | QX-08 StrategyContext/callback sequence (#196) | Completed | PR sequence recorded in `docs/STATUS.md` |
 | QX-09 market-pack pre-trade pipeline (#197) | Completed | PR #221 |
 | QX-13 finite Decimal-only Money (#201) | Implemented and merged | PR #310; validated feature HEAD `24e3a3bc6205c6d8d5f7733d63c79a2ce94b0617`; squash merge `a2007f6a04859368608a42cd3898244382151a5a` |
+| Market-module migration mainline (#309, bounded architecture slice) | In progress on ix/issue309-structural-marketmodule-p2-v1; does not resolve #267 or #266 | PR #309; original candidate 2e5a951bc3a6861d3f0d5c7754046288a3282ace; current mainline reconciliation in progress. |
 | LIVE trusted-clock freshness | Completed slice; not full evidence authority | PR #281; remaining work is #267 |
 | QX-06 multi-leg semantics (#195) | **Design only**; no multi-leg execution implementation or capability claim | ADR-010; keep partial-leg failure and exposure semantics explicit |
 

@@ -142,3 +142,18 @@ def test_digital_assets_placeholder_not_implemented() -> None:
 
 def test_unsupported_market_error_is_value_error() -> None:
     assert issubclass(UnsupportedMarketError, ValueError)
+
+
+class StructuralOnlyModule:
+    region = MarketRegion.INDIA
+    market_contexts = frozenset({INDIA_CONTEXT})
+    market_pack_id = "pack"
+    rule_version = "version"
+
+
+def test_structural_only_module_registers_without_market_module_base() -> None:
+    registry = MarketRegistry()
+    module = StructuralOnlyModule()
+    registry.register(module)
+    assert registry.get(module.region) is module
+    assert registry.get_for_context(INDIA_CONTEXT) is module
