@@ -11,6 +11,88 @@ def test_money_is_currency_aware() -> None:
     assert money.currency == "INR"
 
 
+def test_money_rejects_non_decimal_amount() -> None:
+    with pytest.raises(TypeError):
+        Money(1.5, "INR")  # float
+    with pytest.raises(TypeError):
+        Money(True, "INR")  # bool
+    with pytest.raises(TypeError):
+        Money("10.50", "INR")  # str
+    with pytest.raises(TypeError):
+        Money(10, "INR")  # int
+
+
+def test_money_rejects_non_finite_decimal() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        Money(Decimal("NaN"), "INR")
+    with pytest.raises(ValueError, match="finite"):
+        Money(Decimal("Infinity"), "INR")
+    with pytest.raises(ValueError, match="finite"):
+        Money(Decimal("-Infinity"), "INR")
+    with pytest.raises(ValueError, match="finite"):
+        Money(Decimal("sNaN"), "INR")
+
+
+def test_money_accepts_valid_finite_decimal() -> None:
+    assert Money(Decimal("0"), "INR").amount == Decimal("0")
+    assert Money(Decimal("10.50"), "INR").amount == Decimal("10.50")
+    assert Money(Decimal("-5.25"), "USD").amount == Decimal("-5.25")
+
+
+def test_money_add_same_currency() -> None:
+    a = Money(Decimal("10"), "INR")
+    b = Money(Decimal("5"), "INR")
+    result = a + b
+    assert result == Money(Decimal("15"), "INR")
+
+
+def test_money_sub_same_currency() -> None:
+    a = Money(Decimal("10"), "INR")
+    b = Money(Decimal("3"), "INR")
+    result = a - b
+    assert result == Money(Decimal("7"), "INR")
+
+
+def test_money_add_different_currency_raises() -> None:
+    a = Money(Decimal("10"), "INR")
+    b = Money(Decimal("5"), "USD")
+    with pytest.raises(ValueError, match="currency mismatch"):
+        a + b
+
+
+def test_money_sub_different_currency_raises() -> None:
+    a = Money(Decimal("10"), "INR")
+    b = Money(Decimal("3"), "USD")
+    with pytest.raises(ValueError, match="currency mismatch"):
+        a - b
+
+
+def test_money_add_non_money_raises_type_error() -> None:
+    a = Money(Decimal("10"), "INR")
+    with pytest.raises(TypeError):
+        a + 5
+    with pytest.raises(TypeError):
+        a - 5
+
+
+def test_money_rejects_non_string_currency() -> None:
+    with pytest.raises(TypeError):
+        Money(Decimal("10"), 123)
+    with pytest.raises(TypeError):
+        Money(Decimal("10"), None)
+
+
+def test_money_rejects_whitespace_only_currency() -> None:
+    with pytest.raises(ValueError, match="currency must not be empty or whitespace"):
+        Money(Decimal("10"), "   ")
+    with pytest.raises(ValueError, match="currency must not be empty or whitespace"):
+        Money(Decimal("10"), "\t")
+    with pytest.raises(ValueError, match="currency must not be empty or whitespace"):
+        Money(Decimal("10"), "\n")
+    with pytest.raises(ValueError, match="currency must not be empty or whitespace"):
+        Money(Decimal("10"), "  \t\n  ")
+
+
 def test_quantity_rejects_negative_values() -> None:
     with pytest.raises(ValueError, match="quantity cannot be negative"):
         Quantity(Decimal("-1"))
