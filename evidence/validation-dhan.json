@@ -2,8 +2,8 @@
   "schema": "quantx.validation-evidence.v1",
   "generated_at": "2026-11-06T05:11:33+00:00",
   "repo": "C:\\Users\\Jignesh Bhirud\\AppData\\Local\\Temp\\opencode\\issue201-finite-money-v1\\wt",
-  "head_sha": "9021c94935ab00f362aaa684a889bef100859192",
-  "expected_head": "9021c94935ab00f362aaa684a889bef100859192",
+  "head_sha": "20de4542b7a066d52e5559c028f201240f3d1700",
+  "expected_head": "20de4542b7a066d52e5559c028f201240f3d1700",
   "base_rev": "93ae5d0be0dec94308d85856c58a5e2f7be0eca2",
   "checks": [
     {
