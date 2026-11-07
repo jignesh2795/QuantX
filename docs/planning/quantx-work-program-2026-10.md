@@ -4,7 +4,7 @@
 
 **Snapshot date:** 2026-11-07
 
-**Baseline reviewed:** `main` at `99d64996214482a8443ca673f11fbb3b61bdc519` (PR #314 status/roadmap reconciliation merged).
+**Baseline reviewed:** `main` at `0f4214e482c682fe99d133381cd1ef8d62b1492f` (PR #315 pinned-source architecture comparison merged).
 
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, strategy/research delivery, and release-readiness work in one progressable plan.
 
@@ -12,10 +12,10 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline verified during this research/reconciliation: `99d64996214482a8443ca673f11fbb3b61bdc519`.
-- PR #314 merged as `99d64996214482a8443ca673f11fbb3b61bdc519`; it reconciles status, work programme and roadmap after PR #309.
+- Latest `main` baseline verified after PR #315: `0f4214e482c682fe99d133381cd1ef8d62b1492f`.
+- PR #314 merged as `99d64996214482a8443ca673f11fbb3b61bdc519`; PR #315 then merged the pinned global architecture comparison as `0f4214e482c682fe99d133381cd1ef8d62b1492f`.
 - PR #309 is merged; PR #295 is a stale superseded migration candidate; PR #308 is a stale draft whose useful facts are incorporated in the current status; PR #306 remains a draft public-API candidate and is not validated on current main.
-- This reconciliation updates the canonical status and roadmap after PRs #307, #312, #313 and #309. It does not claim a new test suite, hosted CI, broker call, sandbox run, or LIVE operation.
+- This programme was refreshed after PRs #307, #312, #313, #309, #314 and #315. The active M4.5 F4.5.1 implementation is tracked separately in issue #316. This refresh does not claim validation of that implementation candidate, hosted CI, broker calls, sandbox runs, or LIVE operations.
 
 **Work rules:** use one coherent branch/PR per implementation slice; record exact base and candidate SHAs; keep validation evidence tied to its tested SHA; run the declared local validation gates with Dhan extra both enabled and disabled where applicable; distinguish local/operator-reported results from GitHub Actions; do not merge implementation without exact-SHA evidence and required review. UNKNOWN and missing authoritative evidence are never PASS.
 
@@ -38,13 +38,25 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 | Market-module migration (#309, bounded architecture slice) | **Implemented and merged** | PR #309; validated candidate `a3e52478e4cceef05e42d424048c51289f435020`; squash merge `8fd82b52e47cfaedd60f7df8aa30553636fa9d82`. India is the only implemented module; digital assets remains a placeholder; LIVE unchanged. |
 | LIVE trusted-clock freshness and request-bound authority foundation | Implemented; evidence-source feasibility remains open | PR #281 plus #267 composition/request-binding controls; PRs #285/#307 add supplemental/read-only Dhan observations only. |
 | QX-06 multi-leg semantics (#195) | **Design only**; no multi-leg execution implementation or capability claim | ADR-010; keep partial-leg failure and exposure semantics explicit |
-| Pinned global architecture comparison | **Research deliverable complete in this PR** | `docs/research/2026-11-global-architecture-comparison.md`; exact LEAN, NautilusTrader, Hummingbot, OpenAlgo, CCXT and Indian SDK source revisions and source/test paths recorded. |
+| Pinned global architecture comparison | **Completed and merged** | PR #315; merge `0f4214e482c682fe99d133381cd1ef8d62b1492f`; final validated candidate `4fc030d41ba8767a64b2133acd6888b1b0d08c3f`. Exact upstream revisions and source/test paths are recorded in `docs/research/2026-11-global-architecture-comparison.md`. |
 
 QX-07 closure is a current update that supersedes the pre-merge snapshot still preserved in historical sections of `docs/STATUS.md`. The final slice's recorded local candidate validation was default **2,695 passed / 1 skipped** and Dhan-enabled **2,696 passed**, with Ruff/format, strict mypy, and independent review recorded as passing. These results belong to candidate SHA `a5219cf7616f34483e3c596d3feb47ac4c00673f`; they are local evidence, not GitHub Actions evidence, and do not establish production-broker or LIVE readiness.
 
 ## 3. Active priority order
 
 Use the waves below as sequence, not as a commitment to implement every issue in one PR. Each issue retains its own acceptance criteria and scope.
+
+### Strategy Platform — M4.5 (active vertical)
+
+| Slice | State | Next required outcome |
+|---|---|---|
+| **F4.5.1 — Flow definition and graph validation** | **In progress; [issue #316](https://github.com/jignesh2795/QuantX/issues/316)** | Implement the immutable typed/versioned Flow contract, canonical identity, closed v1 node/port catalogue and pure validator. No interpreter or strategy adapter is claimed. Exact local validation is required at the candidate SHA before merge. |
+| F4.5.2 — deterministic interpreter | Not started | Compile/evaluate the validated closed node set purely and deterministically; keep unavailable values explicit and use no arbitrary code or I/O. |
+| F4.5.3 — existing runtime adapter and parity | Not started | Conform to `ExecutableStrategy` and use `StrategyRuntime`; add equivalent Python/Flow context/result/intent tests. |
+| F4.5.4 — offline paper/backtest rehearsal | Not started | Reuse existing deployment, risk/policy preparation and canonical offline consumers; no broker/LIVE path. |
+
+QX-08 M1–M4 and its T1–T8/G1–G3 acceptance reconciliation remain complete. M4.5 is a separate parent-M4 product vertical; do not reopen QX-08 or duplicate the Python runtime.
+
 
 ### Wave A — LIVE risk authority and loss correctness
 
@@ -103,7 +115,7 @@ The comparison does **not** establish global-market, crypto or additional broker
 
 The data/research/provenance spine is complete through R1-C14. The Strategy Platform parent M4 remains active because Python/Flow runtime parity is still an exit criterion. QX-08 M1–M4 and M4.1 paper rehearsal prove the Python strategy path, not a Flow authoring/compiler path.
 
-**Recommended next implementation: M4.5 — minimal declarative Flow-to-existing-runtime parity.** Implement a typed/versioned Flow definition, graph validation and a deterministic compiler/runtime adapter that conforms to the existing `ExecutableStrategy` protocol and is invoked through `StrategyRuntime`. Preserve deployment-owned context, `StrategyExecutionPreparer`, risk/policy checks and the canonical paper/backtest consumers. The Flow graph must describe strategy intent only; no direct broker/REST/order actions, account writes, LIVE capability, scheduler, webhook, arbitrary Python, UI or AI nodes in the first slice. The source-backed rationale, proposed node subset, four implementation batches and acceptance matrix are in the research report.
+**Active implementation: M4.5 — minimal declarative Flow-to-existing-runtime parity.** F4.5.1 is tracked by [issue #316](https://github.com/jignesh2795/QuantX/issues/316), based on main `0f4214e482c682fe99d133381cd1ef8d62b1492f`. The first slice defines the immutable typed/versioned Flow graph, canonical identity, closed v1 node/port catalogue and pure validator. It does not implement the interpreter or strategy adapter. Preserve the existing `ExecutableStrategy` / `StrategyRuntime` path, deployment-owned context, `StrategyExecutionPreparer`, risk/policy checks and canonical paper/backtest consumers. The Flow graph describes strategy intent only; no direct broker/REST/order actions, account writes, LIVE capability, scheduler, webhook, arbitrary Python, UI or AI nodes are in scope. The source-backed rationale, proposed node subset, four implementation batches and acceptance matrix are in the research report.
 
 ### Still blocked or deferred
 
@@ -141,7 +153,7 @@ For every implementation slice:
 
 ## 7. Immediate next task
 
-**Next active product milestone: M4.5 — minimal declarative Flow-to-existing-runtime parity.** Start with the versioned domain contract and graph validator, not a visual editor or new execution engine. The compiled Flow must implement the existing `ExecutableStrategy` contract and pass through `StrategyRuntime` with the same identity, event-time, HOLD/BUY/SELL and intent checks as Python strategies. It must not expose broker, network, filesystem, scheduler, webhook or LIVE capabilities. The downstream deployment, context binding, risk/policy preparation and paper/backtest execution path remains canonical.
+**Active product milestone: M4.5 — minimal declarative Flow-to-existing-runtime parity; current slice F4.5.1 is issue #316.** Start with the versioned domain contract and graph validator, not a visual editor or new execution engine. The current contract/validator slice does not execute strategies. A later compiled Flow adapter must implement the existing `ExecutableStrategy` protocol and pass through `StrategyRuntime` with the same identity, event-time, HOLD/BUY/SELL and intent checks as Python strategies. It must not expose broker, network, filesystem, scheduler, webhook or LIVE capabilities. The downstream deployment, context binding, risk/policy preparation and paper/backtest execution path remains canonical.
 
 Keep each implementation batch bounded:
 1. versioned Flow graph definition, immutable node/edge types and deterministic canonical identity;
