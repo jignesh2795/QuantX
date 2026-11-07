@@ -19,9 +19,16 @@ src/quantx/
 ├── plugins/
 ├── ports/
 └── strategy/
+    └── flow/  # immutable declarative graph contract and pure validator
 ```
 
 These are current implementation areas; this is not a claim that every long-term package boundary has already been materialized.
+
+### Current strategy / Flow boundary
+
+`strategy/flow/` owns the M4.5.1 declarative authoring contract: immutable versioned Flow definitions, typed node/port catalogue, canonical graph identity and pure graph validation. Graph structure is separate from `StrategyIR.parameters`; the existing sorted `(str, str)` tuple remains the canonical parameter contract. The v1 catalogue is closed and has no arbitrary-code, broker, HTTP/REST, filesystem, scheduler, webhook, account-write or LIVE capability. Missing market/history or engine facts are explicitly optional; callers must use typed availability/require nodes rather than treating missing evidence as zero.
+
+A Flow `strategy_result` describes the same domain `StrategyResult` and optional `TradeIntent` consumed by the existing strategy pipeline. This contract does not itself execute a graph or provide an `ExecutableStrategy` adapter. Later interpreter/adapter work must use the existing `StrategyContext` and `StrategyRuntime`, followed by deployment-owned binding, risk/policy preparation and the canonical paper/backtest path. No second runtime, lifecycle, accounting or execution path is permitted. The v1 schema intentionally has no indicator node because no existing deterministic indicator implementation/test contract was found in the current source tree. MarketContext metadata is not proof of implementation support for every region/family; India remains the only implemented market.
 
 ### Current execution/recovery boundaries
 

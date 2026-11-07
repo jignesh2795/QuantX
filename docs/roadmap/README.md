@@ -2,9 +2,9 @@
 
 ## Current work programme — 2026-11-07
 
-**Verified main:** `99d64996214482a8443ca673f11fbb3b61bdc519` (PR #314 merged). The India market-module migration is complete, with `quantx.markets.india` canonical and the legacy `quantx.india` shim retained. India remains the only implemented market; digital assets remains an interface-only placeholder.
+**Verified main baseline:** `0f4214e482c682fe99d133381cd1ef8d62b1492f` (PR #315 pinned architecture comparison merged). The India market-module migration is complete, with `quantx.markets.india` canonical and the legacy `quantx.india` shim retained. India remains the only implemented market; digital assets remains an interface-only placeholder.
 
-Use the [QuantX Master Work Programme](../planning/quantx-work-program-2026-10.md) as the current cross-workstream sequencing record. The pinned-source comparison is documented in [Global Trading Architecture Comparison — 2026-11-07](../research/2026-11-global-architecture-comparison.md). It recommends M4.5, a bounded declarative Flow-to-existing-runtime parity slice. #267 remains blocked pending a credible alternative authoritative provider/source; #266 remains blocked by the missing 0/7 required fixtures. Public-readiness work (#190 and #199) remains open. Actions/paid CI is not part of the validation plan.
+Use the [QuantX Master Work Programme](../planning/quantx-work-program-2026-10.md) as the current cross-workstream sequencing record. The pinned-source comparison is documented in [Global Trading Architecture Comparison — 2026-11-07](../research/2026-11-global-architecture-comparison.md) and merged in PR #315. M4.5, a bounded declarative Flow-to-existing-runtime parity slice, is now the active Strategy Platform vertical; F4.5.1 is tracked in [issue #316](https://github.com/jignesh2795/QuantX/issues/316). #267 remains blocked pending a credible alternative authoritative provider/source; #266 remains blocked by the missing 0/7 required fixtures. Public-readiness work (#190 and #199) remains open. Actions/paid CI is not part of the validation plan.
 
 The milestone history below is not a substitute for checking current issue state and exact-SHA validation evidence. The master roadmap is grouped into milestones rather than treating every feature as an independent project.
 
@@ -83,15 +83,22 @@ Execution/recovery internals are frozen unless the acceptance audit finds a conc
 
 M4.1 proves the existing Python strategy definition/IR/runtime path through deployment-owned context binding, risk/policy preparation, and the canonical paper executor. It is offline and PAPER-only; it does not complete M4 overall, add a Flow authoring path, or establish Python/Flow runtime parity.
 
-**Parent M4 exit criterion remains:** Python strategies and a first Flow path compile to the same runtime semantics. That Flow authoring/runtime-parity slice remains separate parent Strategy Platform roadmap work and is not part of QX-08 scope. Issue #197 is complete in PR #221. The normative QX-08 v3.2.0 brief settles G1 timer causality/cohort ordering, G2 commit-preserving callback failures, G3 shared evidence projection, and standalone T8 no-LIVE boundary coverage. QX-08 implementation under issue #196 has completed M1 in PR #224, M2 in PR #226 (validated feature HEAD `75f8b0e2858d1ba11d1e7cd3c32f2fc6a6c2df1e`, merge commit `e150350ce747f88845227a70c35a9f94c8e7cd83`), M3 in PR #229 (validated feature HEAD `ebc67365ce589e50b0477de1b790885b4916c3e7`; merge commit `6f84259b8e6281576eead0831082067283baddeb`), and M4 in PR #232 (validated feature HEAD `40559841bc94e3b4c1c7482b21528300c895d7e4`; merge commit `f13249f3b15dd4ab720225f1af5b2b8341d3e6a4`). The next QX-08 step is acceptance-matrix reconciliation of its in-scope v3.2.0 criteria before closing issue #196. The first callback-enabled vertical rejects nonzero execution-latency profiles unless a future event-time execution integration is separately approved; no scheduler or execution/recovery redesign is included.
+**Parent M4 exit criterion remains:** Python strategies and a first Flow path compile to the same runtime semantics. That Flow authoring/runtime-parity slice remains separate parent Strategy Platform roadmap work and is not part of QX-08 scope. Issue #197 is complete in PR #221. The normative QX-08 v3.2.0 brief settles G1 timer causality/cohort ordering, G2 commit-preserving callback failures, G3 shared evidence projection, and standalone T8 no-LIVE boundary coverage. QX-08 implementation under issue #196 has completed M1 in PR #224, M2 in PR #226 (validated feature HEAD `75f8b0e2858d1ba11d1e7cd3c32f2fc6a6c2df1e`, merge commit `e150350ce747f88845227a70c35a9f94c8e7cd83`), M3 in PR #229 (validated feature HEAD `ebc67365ce589e50b0477de1b790885b4916c3e7`; merge commit `6f84259b8e6281576eead0831082067283baddeb`), and M4 in PR #232 (validated feature HEAD `40559841bc94e3b4c1c7482b21528300c895d7e4`; merge commit `f13249f3b15dd4ab720225f1af5b2b8341d3e6a4`). The normative QX-08 v3.2.0 T1–T8/G1–G3 acceptance reconciliation is complete in PR #234 and issue #196 is closed. Do not reopen QX-08 or describe M2/M3/M4 as pending. The first callback-enabled vertical rejects nonzero execution-latency profiles unless a future event-time execution integration is separately approved; no scheduler or execution/recovery redesign is included.
 
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals remain the broader M4/platform roadmap.
 
-### M4.5 — First declarative Flow-to-existing-runtime parity (recommended next slice)
+### M4.5 — First declarative Flow-to-existing-runtime parity (active; F4.5.1 issue #316)
 
-The recommended next product slice is the smallest declarative Flow compiler/runtime adapter that implements the existing `ExecutableStrategy` protocol and runs through `StrategyRuntime`. The comparison report at `docs/research/2026-11-global-architecture-comparison.md` records the evidence and acceptance matrix.
+The active product vertical is the smallest declarative Flow compiler/runtime adapter that implements the existing `ExecutableStrategy` protocol and runs through `StrategyRuntime`. The comparison report at `docs/research/2026-11-global-architecture-comparison.md` records the source-backed rationale and acceptance matrix.
 
-The first slice is offline and deterministic. It defines a typed/versioned graph, validates nodes/edges/cycles/types and market context, compiles a limited pure program, and proves semantic parity with an equivalent Python strategy under identical `StrategyContext`. The output continues through existing deployment-owned binding, risk/policy preparation and paper/backtest consumers.
+The four bounded implementation slices are:
+
+1. **F4.5.1 — issue #316:** immutable typed/versioned Flow graph contract, canonical identity, closed v1 node/port catalogue and pure graph validator. This slice does not execute a graph.
+2. **F4.5.2:** pure deterministic compiler/interpreter for the validated minimal node set.
+3. **F4.5.3:** adapter implementing the existing `ExecutableStrategy` protocol, invoked through `StrategyRuntime`, with Python/Flow result and intent parity tests.
+4. **F4.5.4:** offline paper/backtest rehearsal through existing deployment-owned binding, risk/policy preparation and canonical consumers.
+
+At the current F4.5.1 stage, graph structure is separate from `StrategyIR.parameters`; optional/missing inputs stay explicit, and history remains bounded, same-instrument and strictly prior.
 
 Do not introduce direct order/broker/REST nodes, arbitrary Python, scheduler, webhooks, streaming, AI nodes, cloud workers, cross-market support, UI or LIVE capabilities. A visual editor and workflow persistence are later slices after the language/runtime contract is stable.
 

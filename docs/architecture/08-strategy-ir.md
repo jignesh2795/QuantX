@@ -212,6 +212,84 @@ This table is the authoritative record of the validation change. Any future
 change to accepted types, normalization, or error semantics must add a row here
 and update the tests in `tests/unit/domain/test_strategy.py`.
 
+## Declarative Flow contract boundary (M4.5.1)
+
+The M4.5.1 implementation introduces the `quantx.strategy.flow` domain for a
+closed, typed, versioned declarative graph contract. `FlowDefinition`,
+`FlowNode` and `FlowEdge` are immutable tuple-backed values. Canonical JSON
+and a SHA-256 fingerprint include the schema/compiler contract version,
+strategy identity/version/name, market contexts and all graph content.
+Equivalent ordering of nodes, edges and market-context records yields the same
+identity. Flow graph structure is not serialized into or hidden inside
+`StrategyIR.parameters`; those remain the existing sorted unique
+`(str, str)` parameter tuples.
+
+The v1 node catalogue is closed. It includes explicit event and prior-candle
+inputs, position/open-order evidence inputs, typed constants, pure
+Decimal/boolean/comparison operations, explicit availability/require
+operations, a declarative TradeIntent value node, and one terminal
+`strategy_result` node. Market/history/engine facts are typed as optional
+where evidence may be absent or incomplete. The graph must explicitly test or
+require such a value; missing evidence is not converted to zero or false.
+Prior-candle access is bounded (1–512) and is intended to consume only the
+existing same-instrument, strictly prior `StrategyContext.history`. The
+`bars_ago` index is defined against the canonical driver-ordered history
+tuple, where `1` is the most recent available candle. The later adapter must
+fail closed if the supplied tuple does not meet that ordering contract; Flow
+does not silently sort, synthesize or request additional history. No
+look-ahead, cross-instrument fan-out, or independent data source is introduced.
+Confidence constants use canonical fixed-point text for stable graph identity
+and the inclusive `[0, 1]` bound; the later adapter must map that
+non-financial score to the existing `StrategySignal.confidence` Python
+`float` contract, not to `Money` or another financial Decimal field.
+
+The pure validator rejects unsupported schema/compiler versions, unknown node
+kinds and parameters, duplicate identities, invalid node/edge IDs, unresolved
+endpoints/ports, port-type mismatches, missing/duplicate required inputs,
+invalid parameter lexemes, cycles, orphan nodes, and a missing/multiple or
+non-terminal strategy-result node. Financial Decimal parameters use canonical
+finite fixed-point strings; no float financial representation is allowed.
+These are static definition contracts only.
+
+The v1 source-node semantics are bound to the existing context. `event_field`
+reads only the named field from the current `MarketDataEvent` payload; a
+missing quote field or absent event remains unavailable. The position-quantity
+node reads the signed quantity for the current event instrument: known-empty
+available inventory is zero, but incomplete/unavailable inventory is absent.
+The active-order node reads the current instrument's unresolved or
+non-terminal order inventory; UNKNOWN status is unresolved, not terminal.
+Incomplete or unavailable order evidence yields an absent value, never
+`false`.
+
+The TradeIntent node creates only the existing domain intent value, using the
+current event instrument and Flow strategy identity/version, a finite
+positive quantity, BUY/SELL side, MARKET order type and DAY time-in-force. It
+does not submit or reserve an order. The terminal strategy-result node creates
+the existing `StrategyResult` / `StrategySignal` shape using the current
+event instrument and event timestamp, Flow strategy identity/version, selected
+action, bounded confidence and reason; the optional intent is an existing
+domain TradeIntent value and timers remain empty. These mappings are semantic
+contracts for the later interpreter/adapter, not executable behavior in
+F4.5.1.
+
+**M4.5.1 is not a Flow execution implementation.** It provides no interpreter,
+compiler plan, `ExecutableStrategy` adapter, UI, scheduler, webhook, streaming,
+AI, arbitrary Python, filesystem/network access, direct broker/order/REST node,
+account write, new market/connector, or LIVE capability. The later adapter must
+build the existing `StrategyResult` / `StrategySignal` from the graph result
+and the current `StrategyContext`, bind signal time to the market event, and
+leave `StrategyResult.timers` empty because timers are not part of Flow v1.
+When separately implemented, the Flow interpreter/adapter must implement the
+existing `ExecutableStrategy` protocol and be invoked through
+`StrategyRuntime`, then continue through the existing deployment-owned
+context, validation, `StrategyExecutionPreparer`, risk/policy and offline
+paper/backtest consumers.
+No parallel strategy runtime, lifecycle, accounting or execution path is
+permitted. No indicator node is included because the reviewed current source
+tree had no existing deterministic indicator implementation and test contract.
+India remains the only implemented market; declared `MarketContext` metadata
+does not imply universal market support.
+
 ## Benefits
 
 - one strategy lifecycle

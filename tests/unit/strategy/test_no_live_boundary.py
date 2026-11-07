@@ -6,6 +6,10 @@ import ast
 from pathlib import Path
 
 _SEAM_FILES = (
+    "src/quantx/strategy/flow/__init__.py",
+    "src/quantx/strategy/flow/definition.py",
+    "src/quantx/strategy/flow/catalog.py",
+    "src/quantx/strategy/flow/validation.py",
     "src/quantx/strategy/context.py",
     "src/quantx/domain/strategy.py",
     "src/quantx/strategy/timers.py",
@@ -28,6 +32,23 @@ _FORBIDDEN_CALLS = {
     "broker_submit",
     "execute_live_order",
     "create_order",
+    "open",
+    "urlopen",
+    "request",
+    "connect",
+    "read_text",
+    "write_text",
+    "read_bytes",
+    "write_bytes",
+    "unlink",
+    "remove",
+    "rename",
+    "mkdir",
+    "rmdir",
+    "eval",
+    "exec",
+    "__import__",
+    "import_module",
     "sleep",
     "call_later",
     "call_at",
@@ -71,6 +92,34 @@ _FORBIDDEN_IMPORT_PREFIXES = (
     "apscheduler",
     "schedule",
     "threading",
+    "os",
+    "pathlib",
+    "io",
+    "socket",
+    "urllib",
+    "http",
+    "requests",
+    "httpx",
+    "urllib3",
+    "aiohttp",
+    "websockets",
+    "subprocess",
+    "multiprocessing",
+    "tempfile",
+    "shutil",
+    "sqlite3",
+    "ftplib",
+    "telnetlib",
+    "ssl",
+    "pickle",
+    "openai",
+    "anthropic",
+    "google.generativeai",
+    "transformers",
+    "torch",
+    "grpc",
+    "importlib",
+    "builtins",
 )
 _GRANDFATHERED_WALL_CLOCK_DEFAULTS = {
     (
@@ -137,7 +186,7 @@ def _audit_source(source: str, relative_path: str) -> list[str]:
         if isinstance(node, ast.Call):
             function = node.func
             if isinstance(function, ast.Name):
-                if function.id in _FORBIDDEN_CALLS | _WALL_CLOCK_BARE_CALLS:
+                if function.id in _FORBIDDEN_CALLS | _WALL_CLOCK_BARE_CALLS | {"compile"}:
                     observed.append(f"{relative_path}:call {function.id}")
             elif isinstance(function, ast.Attribute):
                 dotted = _canonical_dotted_name(function, aliases)
@@ -214,6 +263,34 @@ def unsafe(broker):
     assert "sentinel.py:call create_task" in observed
     assert "sentinel.py:call Timer" in observed
     assert "sentinel.py:call submit" in observed
+    assert "sentinel.py:call compile" in _audit_source(
+        "compile('1 + 1', '<flow>', 'eval')", "sentinel.py"
+    )
+    assert _audit_source("\n".join(("import re", "re.compile('^safe$')")), "safe_module.py") == []
+
+    unsafe_flow = "\n".join(
+        (
+            "import pathlib",
+            "import requests",
+            "import socket",
+            "from urllib.request import urlopen",
+            "def unsafe():",
+            "    open('output.txt')",
+            "    pathlib.Path('output.txt').read_text()",
+            "    socket.socket().connect(('127.0.0.1', 80))",
+            "    urlopen('https://example.invalid')",
+            "    requests.get('https://example.invalid')",
+        )
+    )
+    flow_violations = _audit_source(unsafe_flow, "flow_sentinel.py")
+    assert "flow_sentinel.py:import pathlib" in flow_violations
+    assert "flow_sentinel.py:import requests" in flow_violations
+    assert "flow_sentinel.py:import socket" in flow_violations
+    assert "flow_sentinel.py:import urllib.request" in flow_violations
+    assert "flow_sentinel.py:call open" in flow_violations
+    assert "flow_sentinel.py:call read_text" in flow_violations
+    assert "flow_sentinel.py:call connect" in flow_violations
+    assert "flow_sentinel.py:call urlopen" in flow_violations
     assert "sentinel.py:LIVE attribute" in observed
 
     # Relative timer imports and similar module names are not the "time" module.
