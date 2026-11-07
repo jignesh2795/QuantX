@@ -115,7 +115,14 @@ def _decimal_token(value: Decimal, *, node_id: str | None = None) -> str:
         )
     if value.is_zero():
         return "0"
-    sign, digits, exponent = value.as_tuple()
+    sign, digits, exponent_value = value.as_tuple()
+    if not isinstance(exponent_value, int):
+        raise FlowEvaluationError(
+            "invalid_decimal_exponent",
+            "finite Decimal values must have an integer exponent",
+            node_id=node_id,
+        )
+    exponent: int = exponent_value
     normalized = list(digits)
     while normalized and normalized[-1] == 0:
         normalized.pop()
@@ -293,7 +300,7 @@ class FlowInterpreter:
         ):
             raise FlowEvaluationError(
                 "event_payload_type_mismatch",
-                "MarketDataEvent must contain a canonical MarketDataType and Quote or Candle payload",
+                "MarketDataEvent must contain a canonical MarketDataType and payload",
             )
         if event.timestamp.astimezone(UTC) > context.as_of:
             raise FlowEvaluationError(
@@ -323,7 +330,11 @@ class FlowInterpreter:
             return
         if event.data_type is MarketDataType.CANDLE and isinstance(event.payload, Candle):
             for name in ("open", "high", "low", "close", "volume"):
-                _checked_decimal(getattr(event.payload, name), node_id="event", source=f"candle {name}")
+                _checked_decimal(
+                    getattr(event.payload, name),
+                    node_id="event",
+                    source=f"candle {name}",
+                )
             return
         raise FlowEvaluationError(
             "event_payload_type_mismatch",
@@ -331,7 +342,11 @@ class FlowInterpreter:
         )
 
     @staticmethod
-    def _validate_history(instrument: InstrumentId, event_time: datetime, context: StrategyContext) -> None:
+    def _validate_history(
+        instrument: InstrumentId,
+        event_time: datetime,
+        context: StrategyContext,
+    ) -> None:
         if len(context.history) > 512:
             raise FlowEvaluationError(
                 "history_limit_exceeded",
@@ -394,10 +409,14 @@ class FlowInterpreter:
                 "ask": None if event.payload.ask is None else _decimal_token(event.payload.ask),
                 "last": None if event.payload.last is None else _decimal_token(event.payload.last),
                 "bid_size": (
-                    None if event.payload.bid_size is None else _decimal_token(event.payload.bid_size)
+                    None
+                    if event.payload.bid_size is None
+                    else _decimal_token(event.payload.bid_size)
                 ),
                 "ask_size": (
-                    None if event.payload.ask_size is None else _decimal_token(event.payload.ask_size)
+                    None
+                    if event.payload.ask_size is None
+                    else _decimal_token(event.payload.ask_size)
                 ),
             }
         else:
@@ -454,14 +473,23 @@ class FlowInterpreter:
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _position_identity(context: StrategyContext, instrument: InstrumentId) -> dict[str, object]:
+    def _position_identity(
+        context: StrategyContext,
+        instrument: InstrumentId,
+    ) -> dict[str, object]:
         collection = context.engine.positions
         if not isinstance(collection.availability, EvidenceAvailability):
-            raise FlowEvaluationError("invalid_position_availability", "position availability is invalid")
+            raise FlowEvaluationError(
+                "invalid_position_availability",
+                "position availability is invalid",
+            )
         items: list[dict[str, object]] = []
         for fact in collection.items:
             if not isinstance(fact, PositionFact):
-                raise FlowEvaluationError("invalid_position_fact", "position evidence has an invalid item")
+                raise FlowEvaluationError(
+                    "invalid_position_fact",
+                    "position evidence has an invalid item",
+                )
             if fact.instrument != instrument:
                 continue
             items.append(
@@ -494,15 +522,24 @@ class FlowInterpreter:
     def _order_identity(context: StrategyContext, instrument: InstrumentId) -> dict[str, object]:
         collection = context.engine.orders
         if not isinstance(collection.availability, EvidenceAvailability):
-            raise FlowEvaluationError("invalid_order_availability", "order availability is invalid")
+            raise FlowEvaluationError(
+                "invalid_order_availability",
+                "order availability is invalid",
+            )
         items: list[dict[str, object]] = []
         for fact in collection.items:
             if not isinstance(fact, OpenOrderFact):
-                raise FlowEvaluationError("invalid_open_order_fact", "order evidence has an invalid item")
+                raise FlowEvaluationError(
+                    "invalid_open_order_fact",
+                    "order evidence has an invalid item",
+                )
             if fact.instrument != instrument:
                 continue
             if not isinstance(fact.status, OrderStatus):
-                raise FlowEvaluationError("invalid_order_status", "order evidence status is invalid")
+                raise FlowEvaluationError(
+                    "invalid_order_status",
+                    "order evidence status is invalid",
+                )
             items.append(
                 {
                     "client_order_id": fact.client_order_id,
@@ -510,7 +547,9 @@ class FlowInterpreter:
                     "status": fact.status.value,
                     "order_quantity": _decimal_token(fact.order_quantity),
                     "filled_quantity": (
-                        None if fact.filled_quantity is None else _decimal_token(fact.filled_quantity)
+                        None
+                        if fact.filled_quantity is None
+                        else _decimal_token(fact.filled_quantity)
                     ),
                     "remaining_quantity": (
                         None
@@ -556,7 +595,11 @@ class FlowInterpreter:
         kind = FlowNodeKind(node.kind)
         event = context.event
         if event is None:
-            raise FlowEvaluationError("missing_market_event", "node evaluation requires a market event", node_id=node.node_id)
+            raise FlowEvaluationError(
+                "missing_market_event",
+                "node evaluation requires a market event",
+                node_id=node.node_id,
+            )
 
         if kind is FlowNodeKind.EVENT_FIELD:
             return self._event_field(parameters["field"], event.payload, node.node_id)
@@ -613,17 +656,26 @@ class FlowInterpreter:
         if kind is FlowNodeKind.BOOLEAN_NOT:
             return not self._input_boolean(inputs, "value", node.node_id)
         if kind is FlowNodeKind.IS_AVAILABLE_DECIMAL:
-            value = inputs["value"]
-            if value is not None and not isinstance(value, Decimal):
-                raise FlowEvaluationError("invalid_optional_decimal", "optional value is not Decimal", node_id=node.node_id)
-            if isinstance(value, Decimal) and not value.is_finite():
-                raise FlowEvaluationError("invalid_optional_decimal", "optional Decimal must be finite", node_id=node.node_id)
-            return value is not None
+            optional_decimal = inputs["value"]
+            if optional_decimal is None:
+                return False
+            _checked_decimal(
+                optional_decimal,
+                node_id=node.node_id,
+                source="optional Decimal",
+            )
+            return True
         if kind is FlowNodeKind.IS_AVAILABLE_BOOLEAN:
-            value = inputs["value"]
-            if value is not None and type(value) is not bool:
-                raise FlowEvaluationError("invalid_optional_boolean", "optional value is not Boolean", node_id=node.node_id)
-            return value is not None
+            optional_boolean = inputs["value"]
+            if optional_boolean is None:
+                return False
+            if not isinstance(optional_boolean, bool):
+                raise FlowEvaluationError(
+                    "invalid_optional_boolean",
+                    "optional value is not Boolean",
+                    node_id=node.node_id,
+                )
+            return True
         if kind is FlowNodeKind.REQUIRE_DECIMAL:
             return self._input_decimal(inputs, "value", node.node_id)
         if kind is FlowNodeKind.REQUIRE_BOOLEAN:
@@ -636,7 +688,11 @@ class FlowInterpreter:
             condition = self._input_boolean(inputs, "condition", node.node_id)
             selected = inputs["when_true"] if condition else inputs["when_false"]
             if not isinstance(selected, SignalAction):
-                raise FlowEvaluationError("invalid_selected_action", "selected value is not a SignalAction", node_id=node.node_id)
+                raise FlowEvaluationError(
+                    "invalid_selected_action",
+                    "selected value is not a SignalAction",
+                    node_id=node.node_id,
+                )
             return selected
         if kind is FlowNodeKind.TRADE_INTENT:
             quantity = self._input_decimal(inputs, "quantity", node.node_id)
@@ -662,7 +718,11 @@ class FlowInterpreter:
         if kind is FlowNodeKind.STRATEGY_RESULT:
             action = inputs["action"]
             if not isinstance(action, SignalAction):
-                raise FlowEvaluationError("invalid_result_action", "result action is not a SignalAction", node_id=node.node_id)
+                raise FlowEvaluationError(
+                    "invalid_result_action",
+                    "result action is not a SignalAction",
+                    node_id=node.node_id,
+                )
             confidence_decimal = self._input_decimal(inputs, "confidence", node.node_id)
             if confidence_decimal < 0 or confidence_decimal > 1:
                 raise FlowEvaluationError(
@@ -672,10 +732,18 @@ class FlowInterpreter:
                 )
             reason = inputs["reason"]
             if not isinstance(reason, str):
-                raise FlowEvaluationError("invalid_result_reason", "result reason must be a string", node_id=node.node_id)
+                raise FlowEvaluationError(
+                    "invalid_result_reason",
+                    "result reason must be a string",
+                    node_id=node.node_id,
+                )
             intent = inputs.get("intent")
             if intent is not None and not isinstance(intent, TradeIntent):
-                raise FlowEvaluationError("invalid_result_intent", "result intent is not a TradeIntent", node_id=node.node_id)
+                raise FlowEvaluationError(
+                    "invalid_result_intent",
+                    "result intent is not a TradeIntent",
+                    node_id=node.node_id,
+                )
             signal = StrategySignal(
                 strategy_id=context.ir.strategy_id,
                 strategy_version=context.ir.version,
@@ -717,13 +785,25 @@ class FlowInterpreter:
                     ) from exc
                 return _checked_decimal(result, node_id=node_id, source="quote midpoint")
             value = getattr(payload, name)
-            return None if value is None else _checked_decimal(value, node_id=node_id, source=f"quote {name}")
+            return (
+                None
+                if value is None
+                else _checked_decimal(value, node_id=node_id, source=f"quote {name}")
+            )
         if field.startswith("candle."):
             if not isinstance(payload, Candle):
                 return None
             name = field.split(".", maxsplit=1)[1]
-            return _checked_decimal(getattr(payload, name), node_id=node_id, source=f"candle {name}")
-        raise FlowEvaluationError("unsupported_event_field", "event field is not part of Flow v1", node_id=node_id)
+            return _checked_decimal(
+                getattr(payload, name),
+                node_id=node_id,
+                source=f"candle {name}",
+            )
+        raise FlowEvaluationError(
+            "unsupported_event_field",
+            "event field is not part of Flow v1",
+            node_id=node_id,
+        )
 
     @staticmethod
     def _position_quantity(
@@ -747,7 +827,7 @@ class FlowInterpreter:
         if len(matches) != 1:
             raise FlowEvaluationError(
                 "ambiguous_position_evidence",
-                "complete position evidence contains more than one fact for the current instrument",
+                "complete position evidence has multiple facts for the current instrument",
                 node_id=node_id,
             )
         return _checked_decimal(matches[0].quantity, node_id=node_id, source="position quantity")

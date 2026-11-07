@@ -2,7 +2,7 @@
 
 ## Scope and runtime boundary
 
-F4.5.2 compiles the validated, closed Flow v1 catalogue into an immutable execution plan and evaluates that plan against one existing immutable `StrategyContext`. Compilation validates the full definition before producing instructions. A min-heap topological traversal gives a stable node-ID tie-break when multiple nodes are ready. The plan fingerprint binds the canonical definition, compiler contract and Decimal contract versions to the ordered instruction/binding sequence.
+F4.5.2 compiles the validated, closed Flow v1 catalogue into an immutable execution plan and evaluates that plan against one existing immutable `StrategyContext`. Compilation validates the full definition before producing instructions. A min-heap topological traversal gives a stable node-ID tie-break when multiple nodes are ready. The compiler retains a canonicalized `FlowDefinition` (nodes and edges sorted by stable identifiers) in the plan, so reordered but equivalent input tuples produce equal plan values. The plan fingerprint binds that canonical definition, compiler contract and Decimal contract versions to the ordered instruction/binding sequence.
 
 The interpreter revalidates a supplied plan by recompiling its retained definition and comparing the complete immutable value. Constructing or editing a plan object is therefore not a way to bypass graph validation.
 

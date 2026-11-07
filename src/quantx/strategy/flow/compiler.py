@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import heapq
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .definition import (
     FLOW_COMPILER_CONTRACT_VERSION,
@@ -86,14 +86,37 @@ class FlowCompiler:
         validation = FlowDefinitionValidator().validate(definition)
         validation.raise_for_errors()
 
-        node_map = {node.node_id: node for node in definition.nodes}
+        # Keep a canonical definition in the plan, not only a canonical
+        # fingerprint, so equivalent input tuple orders produce equal values.
+        canonical_definition = replace(
+            definition,
+            nodes=tuple(
+                sorted(
+                    definition.nodes,
+                    key=lambda node: (node.node_id, node.kind, node.parameters),
+                )
+            ),
+            edges=tuple(
+                sorted(
+                    definition.edges,
+                    key=lambda edge: (
+                        edge.edge_id,
+                        edge.source_node_id,
+                        edge.source_port,
+                        edge.target_node_id,
+                        edge.target_port,
+                    ),
+                )
+            ),
+        )
+        node_map = {node.node_id: node for node in canonical_definition.nodes}
         adjacency: dict[str, set[str]] = {node_id: set() for node_id in node_map}
         indegree = {node_id: 0 for node_id in node_map}
         bindings: dict[str, list[FlowInputBinding]] = {
             node_id: [] for node_id in node_map
         }
 
-        for edge in definition.edges:
+        for edge in canonical_definition.edges:
             bindings[edge.target_node_id].append(
                 FlowInputBinding(
                     input_port=edge.target_port,
@@ -131,7 +154,7 @@ class FlowCompiler:
         payload = {
             "compiler_contract_version": FLOW_COMPILER_CONTRACT_VERSION,
             "decimal_contract_version": FLOW_DECIMAL_CONTRACT_VERSION,
-            "definition_fingerprint": definition.fingerprint,
+            "definition_fingerprint": canonical_definition.fingerprint,
             "instructions": [
                 {
                     "node_id": instruction.node.node_id,
@@ -157,7 +180,7 @@ class FlowCompiler:
         )
         fingerprint = f"sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
         return FlowExecutionPlan(
-            definition=definition,
+            definition=canonical_definition,
             instructions=instructions,
             fingerprint=fingerprint,
         )

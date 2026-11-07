@@ -244,7 +244,11 @@ def test_compiler_plan_and_bindings_reject_mutable_inputs() -> None:
     with pytest.raises(TypeError, match="immutable tuple"):
         FlowInstruction(node=node, inputs=[])  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="immutable tuple"):
-        FlowExecutionPlan(definition=_flow(), instructions=[], fingerprint="sha256:x")  # type: ignore[arg-type]
+        FlowExecutionPlan(
+            definition=_flow(),
+            instructions=[],
+            fingerprint="sha256:x",
+        )  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="FlowNode"):
         FlowInstruction(node="not-a-node", inputs=())  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="unique sorted ports"):
@@ -688,23 +692,63 @@ def test_prior_history_insufficiency_remains_unavailable() -> None:
     [
         (
             (
-                Candle(_INSTRUMENT, "1m", _NOW - timedelta(minutes=1), Decimal("1"), Decimal("2"), Decimal("1"), Decimal("1")),
-                Candle(_INSTRUMENT, "1m", _NOW - timedelta(minutes=2), Decimal("1"), Decimal("2"), Decimal("1"), Decimal("1")),
+                Candle(
+                    _INSTRUMENT,
+                    "1m",
+                    _NOW - timedelta(minutes=1),
+                    Decimal("1"),
+                    Decimal("2"),
+                    Decimal("1"),
+                    Decimal("1"),
+                ),
+                Candle(
+                    _INSTRUMENT,
+                    "1m",
+                    _NOW - timedelta(minutes=2),
+                    Decimal("1"),
+                    Decimal("2"),
+                    Decimal("1"),
+                    Decimal("1"),
+                ),
             ),
             "history_not_chronological",
             _NOW,
         ),
         (
             (
-                Candle(_INSTRUMENT, "1m", _NOW - timedelta(minutes=1), Decimal("1"), Decimal("2"), Decimal("1"), Decimal("1")),
-                Candle(_INSTRUMENT, "1m", _NOW - timedelta(minutes=1), Decimal("1"), Decimal("2"), Decimal("1"), Decimal("1")),
+                Candle(
+                    _INSTRUMENT,
+                    "1m",
+                    _NOW - timedelta(minutes=1),
+                    Decimal("1"),
+                    Decimal("2"),
+                    Decimal("1"),
+                    Decimal("1"),
+                ),
+                Candle(
+                    _INSTRUMENT,
+                    "1m",
+                    _NOW - timedelta(minutes=1),
+                    Decimal("1"),
+                    Decimal("2"),
+                    Decimal("1"),
+                    Decimal("1"),
+                ),
             ),
             "duplicate_history_timestamp",
             _NOW,
         ),
         (
             (
-                Candle(_INSTRUMENT, "1m", _NOW + timedelta(minutes=1), Decimal("1"), Decimal("2"), Decimal("1"), Decimal("1")),
+                Candle(
+                    _INSTRUMENT,
+                    "1m",
+                    _NOW + timedelta(minutes=1),
+                    Decimal("1"),
+                    Decimal("2"),
+                    Decimal("1"),
+                    Decimal("1"),
+                ),
             ),
             "history_lookahead",
             _NOW + timedelta(minutes=2),
@@ -1139,7 +1183,12 @@ def test_strategy_identity_and_version_must_match_context_ir() -> None:
     wrong_version_ir = replace(_ir(), version="2")
     base = _context()
     wrong_id = StrategyContext(base.event, wrong_id_ir, as_of=base.as_of, engine=base.engine)
-    wrong_version = StrategyContext(base.event, wrong_version_ir, as_of=base.as_of, engine=base.engine)
+    wrong_version = StrategyContext(
+        base.event,
+        wrong_version_ir,
+        as_of=base.as_of,
+        engine=base.engine,
+    )
 
     with pytest.raises(FlowEvaluationError, match="strategy_identity_mismatch"):
         _evaluate(_flow(), wrong_id)
@@ -1228,5 +1277,3 @@ def test_plan_execution_has_no_wall_clock_random_or_io_capability_imports() -> N
     assert len(float_calls) == 1
     assert isinstance(float_calls[0].args[0], ast.Name)
     assert float_calls[0].args[0].id == "confidence_decimal"
-
-
