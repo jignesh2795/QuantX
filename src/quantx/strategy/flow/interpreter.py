@@ -4,8 +4,8 @@ Decimal arithmetic contract v1:
 - precision: 34 significant digits;
 - rounding: ROUND_HALF_EVEN;
 - exponent range: Emin=-6143, Emax=6144, clamp=0;
-- InvalidOperation, DivisionByZero, Overflow, Underflow and FloatOperation trap;
-- Inexact/Rounded are permitted and follow the pinned precision/rounding rule.
+- Clamped, InvalidOperation, DivisionByZero, Overflow, Underflow and FloatOperation trap;
+- Inexact, Rounded and exact Subnormal results are permitted under the pinned rule.
 
 Every arithmetic operation runs in a fresh local Decimal context. It is independent
 of the calling thread's ambient Decimal context. Values remain Decimal throughout

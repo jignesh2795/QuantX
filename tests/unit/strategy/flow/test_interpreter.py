@@ -766,6 +766,7 @@ def test_require_decimal_rejects_unavailable_event_value() -> None:
     assert caught.value.code == "required_decimal_unavailable"
     assert caught.value.node_id == "required"
 
+
 def test_require_boolean_rejects_unavailable_order_evidence() -> None:
     definition = _flow(
         extra_nodes=(
