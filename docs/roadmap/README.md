@@ -2,9 +2,9 @@
 
 ## Current work programme — 2026-11-07
 
-**Verified main baseline:** `521fb6ed76dffc30d23d89333923dd6b81c6b293` (PR #317 F4.5.1 Flow contract/validator merged). The India market-module migration is complete, with `quantx.markets.india` canonical and the legacy `quantx.india` shim retained. India remains the only implemented market; digital assets remains an interface-only placeholder.
+**Verified main baseline:** `a27b93f56f978b56a9d3a3373d8221d40ad6fd81` (PR #321 F4.5.3 Flow runtime adapter merged). The India market-module migration is complete, with `quantx.markets.india` canonical and the legacy `quantx.india` shim retained. India remains the only implemented market; digital assets remains an interface-only placeholder.
 
-Use the [QuantX Master Work Programme](../planning/quantx-work-program-2026-10.md) as the current cross-workstream sequencing record. The pinned-source comparison is documented in [Global Trading Architecture Comparison — 2026-11-07](../research/2026-11-global-architecture-comparison.md) and merged in PR #315. M4.5, a bounded declarative Flow-to-existing-runtime parity slice, is the active Strategy Platform vertical. F4.5.1 is complete in [PR #317](https://github.com/jignesh2795/QuantX/pull/317), merged at `521fb6ed76dffc30d23d89333923dd6b81c6b293` from candidate `97d1647194405dbd778c51d38b6b92ee3190e154`; issue #316 is closed. F4.5.2, the pure deterministic interpreter, is next. #267 remains blocked pending a credible alternative authoritative provider/source; #266 remains blocked by the missing 0/7 required fixtures. Public-readiness work (#190 and #199) remains open. Actions/paid CI is not part of the validation plan.
+Use the [QuantX Master Work Programme](../planning/quantx-work-program-2026-10.md) as the current cross-workstream sequencing record. The pinned-source comparison is documented in [Global Trading Architecture Comparison — 2026-11-07](../research/2026-11-global-architecture-comparison.md) and merged in PR #315. M4.5, a bounded declarative Flow-to-existing-runtime parity slice, is the active Strategy Platform vertical. F4.5.1, F4.5.2 and F4.5.3 are complete in PRs [#317](https://github.com/jignesh2795/QuantX/pull/317), [#320](https://github.com/jignesh2795/QuantX/pull/320) and [#321](https://github.com/jignesh2795/QuantX/pull/321). F4.5.4 — offline PAPER rehearsal and deterministic BACKTEST integration — is next under [issue #322](https://github.com/jignesh2795/QuantX/issues/322). #267 remains blocked pending a credible alternative authoritative provider/source; #266 remains blocked by the missing 0/7 required fixtures. Public-readiness work (#190 and #199) remains open. Actions/paid CI is not part of the validation plan.
 
 The milestone history below is not a substitute for checking current issue state and exact-SHA validation evidence. The master roadmap is grouped into milestones rather than treating every feature as an independent project.
 
@@ -87,18 +87,18 @@ M4.1 proves the existing Python strategy definition/IR/runtime path through depl
 
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals remain the broader M4/platform roadmap.
 
-### M4.5 — First declarative Flow-to-existing-runtime parity (active; F4.5.1 complete, F4.5.2 next)
+### M4.5 — Declarative Flow-to-existing-runtime parity (F4.5.1–F4.5.3 complete; F4.5.4 active)
 
 The active product vertical is the smallest declarative Flow compiler/runtime adapter that implements the existing `ExecutableStrategy` protocol and runs through `StrategyRuntime`. The comparison report at `docs/research/2026-11-global-architecture-comparison.md` records the source-backed rationale and acceptance matrix.
 
-The four bounded implementation slices are:
+The bounded implementation sequence is:
 
-1. **F4.5.1 — complete in [PR #317](https://github.com/jignesh2795/QuantX/pull/317):** immutable typed/versioned Flow graph contract, canonical identity, closed v1 node/port catalogue and pure graph validator. Exact validated candidate `97d1647194405dbd778c51d38b6b92ee3190e154`; merge `521fb6ed76dffc30d23d89333923dd6b81c6b293`; issue #316 closed. This slice does not execute a graph.
-2. **F4.5.2:** pure deterministic compiler/interpreter for the validated minimal node set.
-3. **F4.5.3:** adapter implementing the existing `ExecutableStrategy` protocol, invoked through `StrategyRuntime`, with Python/Flow result and intent parity tests.
-4. **F4.5.4:** offline paper/backtest rehearsal through existing deployment-owned binding, risk/policy preparation and canonical consumers.
+1. **F4.5.1 — complete in [PR #317](https://github.com/jignesh2795/QuantX/pull/317):** immutable typed/versioned Flow graph contract, canonical identity, closed v1 node/port catalogue and pure graph validator. Validated candidate `97d1647194405dbd778c51d38b6b92ee3190e154`; merge `521fb6ed76dffc30d23d89333923dd6b81c6b293`; issue #316 closed.
+2. **F4.5.2 — complete in [PR #320](https://github.com/jignesh2795/QuantX/pull/320):** pure deterministic compiler/interpreter for the validated minimal node set. Validated candidate `cea48214db4089efa0361fb5e3bc05e5818aeb5f`; merge `c659d4eb3d5aee74b78003cc9dfd112287bb78d6`; issue #319 closed.
+3. **F4.5.3 — complete in [PR #321](https://github.com/jignesh2795/QuantX/pull/321):** adapter implementing the existing `ExecutableStrategy` protocol, invoked through `StrategyRuntime`, with Python/Flow semantic parity tests. Validated candidate `966fce2d32d4b9609aeb0d88ed2250e6af301881`, based on `c659d4eb3d5aee74b78003cc9dfd112287bb78d6`; merged at `a27b93f56f978b56a9d3a3373d8221d40ad6fd81`.
+4. **F4.5.4 — active in [issue #322](https://github.com/jignesh2795/QuantX/issues/322):** prove Flow strategies through existing offline PAPER rehearsal and deterministic BACKTEST consumers, retaining deployment binding, `StrategyExecutionPreparer`, risk/policy and canonical simulated execution.
 
-F4.5.1 keeps graph structure separate from `StrategyIR.parameters`; optional/missing inputs stay explicit, and history remains bounded, same-instrument and strictly prior. The merged contract does not execute graphs; F4.5.2 must add only the pure deterministic interpreter before a separately reviewed adapter.
+Flow graph structure remains separate from `StrategyIR.parameters`; optional/missing inputs stay explicit, and history remains bounded, same-instrument and strictly prior. The adapter does not add another runtime or strategy-result model. F4.5.4 must prove that Flow can use the existing downstream paths without bypassing deployment, risk, policy or preparation boundaries.
 
 Do not introduce direct order/broker/REST nodes, arbitrary Python, scheduler, webhooks, streaming, AI nodes, cloud workers, cross-market support, UI or LIVE capabilities. A visual editor and workflow persistence are later slices after the language/runtime contract is stable.
 
