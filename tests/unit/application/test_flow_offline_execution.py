@@ -493,14 +493,12 @@ def test_flow_backtest_repeat_runs_preserve_semantics_and_flow_identifiers() -> 
     assert first_step.strategy_result is not None
     assert second_step.strategy_result is not None
     assert (
-        first_step.strategy_result.signal.signal_id
-        == second_step.strategy_result.signal.signal_id
+        first_step.strategy_result.signal.signal_id == second_step.strategy_result.signal.signal_id
     )
     assert first_step.strategy_result.intent is not None
     assert second_step.strategy_result.intent is not None
     assert (
-        first_step.strategy_result.intent.intent_id
-        == second_step.strategy_result.intent.intent_id
+        first_step.strategy_result.intent.intent_id == second_step.strategy_result.intent.intent_id
     )
     assert first_step.disposition is second_step.disposition
     assert first_step.risk_result == second_step.risk_result
@@ -564,8 +562,7 @@ def test_flow_and_python_strategies_have_same_paper_rehearsal_semantics() -> Non
     assert python_step.evaluation.result.intent is not None
     assert flow_step.evaluation.result.intent.side is python_step.evaluation.result.intent.side
     assert (
-        flow_step.evaluation.result.intent.quantity
-        == python_step.evaluation.result.intent.quantity
+        flow_step.evaluation.result.intent.quantity == python_step.evaluation.result.intent.quantity
     )
     assert flow_step.preparation is not None and python_step.preparation is not None
     assert flow_step.preparation.risk_result == python_step.preparation.risk_result
@@ -585,8 +582,7 @@ def test_flow_and_python_strategies_have_same_backtest_semantics() -> None:
     assert python_step.strategy_result is not None
     assert flow_step.strategy_result.signal.action is python_step.strategy_result.signal.action
     assert (
-        flow_step.strategy_result.signal.confidence
-        == python_step.strategy_result.signal.confidence
+        flow_step.strategy_result.signal.confidence == python_step.strategy_result.signal.confidence
     )
     assert flow_step.strategy_result.signal.reason == python_step.strategy_result.signal.reason
     assert (
@@ -594,8 +590,7 @@ def test_flow_and_python_strategies_have_same_backtest_semantics() -> None:
         == python_step.strategy_result.signal.generated_at
     )
     assert (
-        flow_step.strategy_result.signal.instrument
-        == python_step.strategy_result.signal.instrument
+        flow_step.strategy_result.signal.instrument == python_step.strategy_result.signal.instrument
     )
     assert flow_step.strategy_result.intent is not None
     assert python_step.strategy_result.intent is not None
