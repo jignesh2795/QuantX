@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -123,9 +124,11 @@ def _execution_context() -> ExecutionContext:
     )
 
 
-def _financial_state() -> AccountFinancialState:
+def _financial_state(
+    capital_source: CapitalSourceType = CapitalSourceType.PAPER_CONFIGURED,
+) -> AccountFinancialState:
     return AccountFinancialState(
-        CapitalSourceType.PAPER_CONFIGURED,
+        capital_source,
         Money(Decimal("100000"), "INR"),
         Money(Decimal("100000"), "INR"),
         Money(Decimal("0"), "INR"),
@@ -250,13 +253,14 @@ def _rehearsal_session(
     accounting: _CountingAccounting | None = None,
     deployment: StrategyDeployment | None = None,
     policy_engine: ExecutionPolicyEngine | None = None,
+    instrument_registry: InMemoryInstrumentRegistry | None = None,
 ) -> tuple[StrategyRehearsalSession, _CountingAccounting]:
     held = accounting or _CountingAccounting()
     session = StrategyRehearsalSession(
         registry=_registry(plan),
         strategy_ir=_ir(),
         deployment=deployment or _deployment(),
-        instrument_registry=InMemoryInstrumentRegistry((_instrument(),)),
+        instrument_registry=instrument_registry or InMemoryInstrumentRegistry((_instrument(),)),
         paper_executor=_paper_executor(held),
         financial_state=_financial_state(),
         policy_engine=policy_engine,
@@ -283,7 +287,7 @@ def _backtest(
         strategy=StrategyEvaluationService(strategy_instance),
         strategy_ir=_ir(),
         execution_context=_execution_context(),
-        financial_state=_financial_state(),
+        financial_state=_financial_state(CapitalSourceType.BACKTEST_CONFIGURED),
         market_registry=default_market_registry(),
     )
     return result
@@ -327,6 +331,51 @@ def test_flow_paper_rehearsal_uses_deployment_preparation_risk_policy_and_paper(
     assert step.paper_outcome.fill.quantity == Decimal("2")
     assert step.note == "paper executed"
     assert accounting.applications == [step.paper_outcome.fill]
+
+
+
+def test_flow_paper_rehearsal_rejects_deployment_identity_or_version_mismatch() -> None:
+    plan = _flow_plan()
+    mismatched_id = replace(_deployment(), strategy_id="different-strategy")
+    with pytest.raises(ValueError, match="strategy id"):
+        _rehearsal_session(plan, deployment=mismatched_id)
+
+    mismatched_version = replace(_deployment(), strategy_version="2")
+    with pytest.raises(ValueError, match="strategy version"):
+        _rehearsal_session(plan, deployment=mismatched_version)
+
+
+def test_flow_paper_rehearsal_venue_mismatch_blocks_before_preparation() -> None:
+    foreign_market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "BSE", "IN")
+    deployment = replace(_deployment(), market=foreign_market)
+    session, accounting = _rehearsal_session(_flow_plan(), deployment=deployment)
+
+    result = session.run((RehearsalInput(_event(), _market_snapshot()),))
+
+    step = result.steps[0]
+    assert step.evaluation is None
+    assert step.preparation is None
+    assert step.paper_outcome is None
+    assert step.faults
+    assert "venue" in step.faults[0].message
+    assert accounting.applications == []
+
+
+def test_flow_paper_rehearsal_missing_instrument_metadata_blocks_preparation() -> None:
+    session, accounting = _rehearsal_session(
+        _flow_plan(),
+        instrument_registry=InMemoryInstrumentRegistry(()),
+    )
+
+    result = session.run((RehearsalInput(_event(), _market_snapshot()),))
+
+    step = result.steps[0]
+    assert step.evaluation is not None
+    assert step.preparation is None
+    assert step.paper_outcome is None
+    assert step.faults
+    assert "instrument metadata unavailable" in step.faults[0].message
+    assert accounting.applications == []
 
 
 def test_flow_paper_rehearsal_risk_rejection_never_reaches_paper_executor() -> None:
