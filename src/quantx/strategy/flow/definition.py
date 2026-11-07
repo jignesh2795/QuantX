@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from enum import StrEnum
 
-from quantx.domain.instruments import MarketContext
+from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.strategy import StrategyId
 
 
