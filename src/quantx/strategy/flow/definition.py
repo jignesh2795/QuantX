@@ -88,8 +88,8 @@ class FlowNode:
                 raise TypeError("flow node parameter values must be strings")
             if len(value) > MAX_FLOW_PARAMETER_LENGTH:
                 raise ValueError(
-                    "flow node parameter values must not exceed "
-                    f"{MAX_FLOW_PARAMETER_LENGTH} characters"
+                    "flow node parameter values exceed maximum length "
+                    f"of {MAX_FLOW_PARAMETER_LENGTH} characters"
                 )
             keys.append(name)
         if keys != sorted(keys):
@@ -194,6 +194,16 @@ class FlowDefinition:
                     country_code=country_code,
                 )
             )
+        region_order = {region: index for index, region in enumerate(MarketRegion)}
+        family_order = {family: index for index, family in enumerate(MarketFamily)}
+        normalized_contexts.sort(
+            key=lambda item: (
+                region_order[item.region],
+                family_order[item.family],
+                item.venue,
+                "" if item.country_code is None else item.country_code,
+            )
+        )
         object.__setattr__(self, "market_contexts", tuple(normalized_contexts))
         if not isinstance(self.nodes, tuple):
             raise TypeError("flow nodes must be an immutable tuple")
