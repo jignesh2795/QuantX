@@ -40,7 +40,7 @@ from quantx.domain.policy import (
     PolicyDecision,
     PolicyResult,
 )
-from quantx.domain.risk import RiskDecision
+from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
@@ -252,6 +252,7 @@ def _rehearsal_session(
     *,
     accounting: _CountingAccounting | None = None,
     deployment: StrategyDeployment | None = None,
+    risk_engine: PreTradeRiskEngine | None = None,
     policy_engine: ExecutionPolicyEngine | None = None,
     instrument_registry: InMemoryInstrumentRegistry | None = None,
 ) -> tuple[StrategyRehearsalSession, _CountingAccounting]:
@@ -263,6 +264,7 @@ def _rehearsal_session(
         instrument_registry=instrument_registry or InMemoryInstrumentRegistry((_instrument(),)),
         paper_executor=_paper_executor(held),
         financial_state=_financial_state(),
+        risk_engine=risk_engine,
         policy_engine=policy_engine,
         product_selection=INDIA_EQUITY_PRODUCT_SELECTION,
         position_effect_policy=INDIA_EQUITY_POSITION_EFFECT_POLICY,
@@ -324,8 +326,13 @@ def test_flow_paper_rehearsal_uses_deployment_preparation_risk_policy_and_paper(
     assert step.preparation.policy_result is not None
     assert step.preparation.policy_result.approved
     assert step.preparation.request is not None
-    assert step.preparation.request.execution_context == _execution_context()
-    assert step.preparation.request.execution_context.broker_connection_id is None
+    bound_context = step.preparation.request.execution_context
+    assert bound_context.account_id == _execution_context().account_id
+    assert bound_context.portfolio_id == _execution_context().portfolio_id
+    assert bound_context.deployment_id == _execution_context().deployment_id
+    assert bound_context.market == _execution_context().market
+    assert bound_context.broker_connection_id is None
+    assert bound_context.execution_mode is ExecutionMode.PAPER
     assert step.paper_outcome is not None
     assert step.paper_outcome.fill is not None
     assert step.paper_outcome.fill.quantity == Decimal("2")
@@ -378,9 +385,16 @@ def test_flow_paper_rehearsal_missing_instrument_metadata_blocks_preparation() -
     assert accounting.applications == []
 
 
+class _RejectingRiskEngine(PreTradeRiskEngine):
+    def evaluate(self, intent: TradeIntent, context: RiskContext) -> RiskResult:
+        return RiskResult(RiskDecision.REJECT, "integration test risk rejection")
+
+
 def test_flow_paper_rehearsal_risk_rejection_never_reaches_paper_executor() -> None:
-    plan = _flow_plan(quantity="2000")
-    session, accounting = _rehearsal_session(plan)
+    session, accounting = _rehearsal_session(
+        _flow_plan(),
+        risk_engine=_RejectingRiskEngine(),
+    )
 
     result = session.run((RehearsalInput(_event(), _market_snapshot()),))
 
