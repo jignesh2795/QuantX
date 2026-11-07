@@ -419,6 +419,19 @@ class _RejectingPolicyEngine(ExecutionPolicyEngine):
         return PolicyResult(PolicyDecision.REJECT, "integration test policy rejection")
 
 
+class _ApprovalRequiredFlowStrategy:
+    """Test-only decorator that marks a Flow-produced intent for manual approval."""
+
+    def __init__(self, plan: FlowExecutionPlan) -> None:
+        self._delegate = FlowExecutableStrategy(plan)
+
+    def on_market_data(self, context: StrategyContext) -> StrategyResult:
+        result = self._delegate.on_market_data(context)
+        if result.intent is None:
+            return result
+        return replace(result, intent=replace(result.intent, approval_required=True))
+
+
 def test_flow_paper_rehearsal_policy_rejection_never_reaches_paper_executor() -> None:
     session, accounting = _rehearsal_session(
         _flow_plan(),
@@ -433,6 +446,33 @@ def test_flow_paper_rehearsal_policy_rejection_never_reaches_paper_executor() ->
     assert step.preparation.risk_result.decision is RiskDecision.APPROVE
     assert step.preparation.policy_result is not None
     assert step.preparation.policy_result.decision is PolicyDecision.REJECT
+    assert step.preparation.request is None
+    assert step.paper_outcome is None
+    assert accounting.applications == []
+
+
+def test_flow_paper_rehearsal_manual_approval_required_never_reaches_paper_executor() -> None:
+    plan = _flow_plan()
+    registry = StrategyRegistry()
+    registry.register(
+        _STRATEGY_ID.value,
+        _VERSION,
+        lambda: _ApprovalRequiredFlowStrategy(plan),
+    )
+    session, accounting = _rehearsal_session(plan, registry=registry)
+
+    result = session.run((RehearsalInput(_event(), _market_snapshot()),))
+
+    step = result.steps[0]
+    assert step.evaluation is not None
+    assert step.evaluation.result.intent is not None
+    assert step.evaluation.result.intent.approval_required
+    assert step.preparation is not None
+    assert step.preparation.risk_result is not None
+    assert step.preparation.risk_result.decision is RiskDecision.APPROVE
+    assert step.preparation.policy_result is not None
+    assert step.preparation.policy_result.decision is PolicyDecision.APPROVAL_REQUIRED
+    assert not step.preparation.policy_result.approved
     assert step.preparation.request is None
     assert step.paper_outcome is None
     assert accounting.applications == []
