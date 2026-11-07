@@ -31,6 +31,7 @@ from .interpreter import (
     FlowEvaluationError,
     FlowInterpreter,
 )
+from .runtime_adapter import FlowExecutableStrategy
 from .validation import (
     FlowDefinitionValidationError,
     FlowDefinitionValidator,
@@ -59,6 +60,7 @@ __all__ = [
     "FlowEdge",
     "FlowEvaluationError",
     "FlowExecutionPlan",
+    "FlowExecutableStrategy",
     "FlowInputBinding",
     "FlowInstruction",
     "FlowInterpreter",
