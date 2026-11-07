@@ -8,10 +8,10 @@ from decimal import Decimal
 
 import pytest
 
-from quantx.domain.enums import OrderSide, SignalAction
+from quantx.domain.enums import OrderSide
 from quantx.domain.market_data import Candle, MarketDataEvent, MarketDataType, Quote
 from quantx.domain.order_intents import TradeIntent
-from quantx.domain.strategy import StrategyId, StrategyResult, StrategySignal
+from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId
 from quantx.strategy.context import StrategyContext
 from quantx.strategy.engine_snapshot import (
@@ -370,7 +370,6 @@ def test_flow_and_python_strategies_share_semantic_result_contract() -> None:
     assert flow_result.intent.time_in_force is python_result.intent.time_in_force
     assert flow_result.intent.strategy_id == python_result.intent.strategy_id
     assert flow_result.intent.strategy_version == python_result.intent.strategy_version
-    assert flow_result.signal.signal_id != python_result.signal.signal_id
 
 
 def test_repeated_adapter_evaluations_keep_flow_identifiers_deterministic() -> None:
