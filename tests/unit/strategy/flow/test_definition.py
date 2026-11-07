@@ -105,6 +105,8 @@ def test_flow_definition_is_frozen_and_canonical_identity_ignores_graph_order() 
 
     assert first.canonical_json() == second.canonical_json()
     assert first.fingerprint == second.fingerprint
+    assert second.market_contexts[0].venue == "NSE"
+    assert second.market_contexts[0].country_code == "IN"
     with pytest.raises(FrozenInstanceError):
         first.name = "mutated"  # type: ignore[misc]
 

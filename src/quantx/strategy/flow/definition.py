@@ -174,15 +174,27 @@ class FlowDefinition:
             for item in self.market_contexts
         ):
             raise TypeError("flow market contexts must use MarketRegion and MarketFamily enums")
+        normalized_contexts: list[MarketContext] = []
         for item in self.market_contexts:
-            if item.country_code is not None:
-                country_code = item.country_code.strip()
-                if (
-                    len(country_code) != 2
-                    or not country_code.isascii()
-                    or not country_code.isalpha()
-                ):
-                    raise ValueError("flow country_code must be a two-letter ASCII alpha-2 code")
+            venue = item.venue.strip()
+            country_code = (
+                None if item.country_code is None else item.country_code.strip().upper()
+            )
+            if country_code is not None and (
+                len(country_code) != 2
+                or not country_code.isascii()
+                or not country_code.isalpha()
+            ):
+                raise ValueError("flow country_code must be a two-letter ASCII alpha-2 code")
+            normalized_contexts.append(
+                MarketContext(
+                    region=item.region,
+                    family=item.family,
+                    venue=venue,
+                    country_code=country_code,
+                )
+            )
+        object.__setattr__(self, "market_contexts", tuple(normalized_contexts))
         if not isinstance(self.nodes, tuple):
             raise TypeError("flow nodes must be an immutable tuple")
         if any(not isinstance(item, FlowNode) for item in self.nodes):
