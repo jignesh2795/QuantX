@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
-from quantx.application.backtest import BacktestDisposition, DeterministicBacktestService
+from quantx.application.backtest import (
+    BacktestDisposition,
+    BacktestResult,
+    DeterministicBacktestService,
+)
 from quantx.application.strategy_rehearsal import RehearsalInput, StrategyRehearsalSession
 from quantx.domain.accounts import AccountId
 from quantx.domain.deployment import (
@@ -28,6 +31,7 @@ from quantx.domain.instruments import (
     MarketRegion,
 )
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
+from quantx.domain.orders import Fill
 from quantx.domain.order_intents import TradeIntent
 from quantx.domain.policy import (
     ExecutionPolicyEngine,
@@ -35,7 +39,6 @@ from quantx.domain.policy import (
     PolicyDecision,
     PolicyResult,
 )
-from quantx.domain.product_selection import ProductSelectionPolicy
 from quantx.domain.risk import RiskDecision
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
@@ -57,11 +60,12 @@ from quantx.strategy.flow import (
     FlowDefinition,
     FlowEdge,
     FlowExecutableStrategy,
+    FlowExecutionPlan,
     FlowNode,
 )
 from quantx.strategy.ir import StrategyIR
 from quantx.strategy.registry import StrategyRegistry
-from quantx.strategy.runtime import StrategyRuntime
+from quantx.strategy.runtime import ExecutableStrategy
 
 _NOW = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
 _STRATEGY_ID = StrategyId("flow-offline-integration")
@@ -154,6 +158,7 @@ def _market_snapshot() -> MarketSnapshot:
 
 def _history() -> HistoricalDataSeries:
     quote = _event().payload
+    assert isinstance(quote, Quote)
     return HistoricalDataSeries(
         (HistoricalObservation(quote, "flow-offline-test", "1", 0, dataset_id="nse-eq"),)
     )
@@ -162,11 +167,11 @@ def _history() -> HistoricalDataSeries:
 class _CountingAccounting(FillAccounting):
     def __init__(self) -> None:
         super().__init__()
-        self.applications = []
+        self.applications: list[Fill] = []
 
     def apply(
         self,
-        fill,
+        fill: Fill,
         *,
         fee: Decimal = Decimal("0"),
     ) -> PositionLedgerEntry:
@@ -189,7 +194,7 @@ def _flow_plan(
     action: str = "BUY",
     side: str | None = "BUY",
     quantity: str = "2",
-):
+) -> FlowExecutionPlan:
     nodes = [
         FlowNode("action", "signal_action_constant", (("value", action),)),
         FlowNode("confidence", "confidence_constant", (("value", "0.75"),)),
@@ -229,7 +234,7 @@ def _flow_plan(
     return FlowCompiler().compile(definition)
 
 
-def _registry(plan) -> StrategyRegistry:
+def _registry(plan: FlowExecutionPlan) -> StrategyRegistry:
     registry = StrategyRegistry()
     registry.register(
         _STRATEGY_ID.value,
@@ -240,12 +245,12 @@ def _registry(plan) -> StrategyRegistry:
 
 
 def _rehearsal_session(
-    plan,
+    plan: FlowExecutionPlan,
     *,
     accounting: _CountingAccounting | None = None,
     deployment: StrategyDeployment | None = None,
     policy_engine: ExecutionPolicyEngine | None = None,
-):
+) -> tuple[StrategyRehearsalSession, _CountingAccounting]:
     held = accounting or _CountingAccounting()
     session = StrategyRehearsalSession(
         registry=_registry(plan),
@@ -262,10 +267,10 @@ def _rehearsal_session(
 
 
 def _backtest(
-    plan,
+    plan: FlowExecutionPlan,
     *,
-    strategy=None,
-):
+    strategy: ExecutableStrategy | None = None,
+) -> BacktestResult:
     registry = _registry(plan)
     strategy_instance = strategy or registry.resolve(_ir())
     service = DeterministicBacktestService(
