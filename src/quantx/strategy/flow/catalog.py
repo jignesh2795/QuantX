@@ -48,11 +48,7 @@ class FlowParameterSpec:
             raise TypeError("Flow parameter minimum must be an integer or None")
         if self.maximum is not None and type(self.maximum) is not int:
             raise TypeError("Flow parameter maximum must be an integer or None")
-        if (
-            self.minimum is not None
-            and self.maximum is not None
-            and self.minimum > self.maximum
-        ):
+        if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
             raise ValueError("Flow parameter minimum must not exceed maximum")
 
 
@@ -203,21 +199,25 @@ _specs: dict[str, FlowNodeSpec] = {
     ),
     FlowNodeKind.SIGNAL_ACTION_CONSTANT.value: FlowNodeSpec(
         FlowNodeKind.SIGNAL_ACTION_CONSTANT,
-        (_parameter(
-            "value",
-            FlowParameterType.CHOICE,
-            choices=("BUY", "CLOSE", "HOLD", "SELL"),
-        ),),
+        (
+            _parameter(
+                "value",
+                FlowParameterType.CHOICE,
+                choices=("BUY", "CLOSE", "HOLD", "SELL"),
+            ),
+        ),
         (),
         (_output("value", FlowValueType.SIGNAL_ACTION),),
     ),
     FlowNodeKind.DECIMAL_BINARY.value: FlowNodeSpec(
         FlowNodeKind.DECIMAL_BINARY,
-        (_parameter(
-            "operator",
-            FlowParameterType.CHOICE,
-            choices=("ADD", "DIVIDE", "MULTIPLY", "SUBTRACT"),
-        ),),
+        (
+            _parameter(
+                "operator",
+                FlowParameterType.CHOICE,
+                choices=("ADD", "DIVIDE", "MULTIPLY", "SUBTRACT"),
+            ),
+        ),
         (
             _input("left", FlowValueType.DECIMAL),
             _input("right", FlowValueType.DECIMAL),
@@ -226,11 +226,13 @@ _specs: dict[str, FlowNodeSpec] = {
     ),
     FlowNodeKind.DECIMAL_COMPARE.value: FlowNodeSpec(
         FlowNodeKind.DECIMAL_COMPARE,
-        (_parameter(
-            "operator",
-            FlowParameterType.CHOICE,
-            choices=("EQ", "GT", "GTE", "LT", "LTE", "NE"),
-        ),),
+        (
+            _parameter(
+                "operator",
+                FlowParameterType.CHOICE,
+                choices=("EQ", "GT", "GTE", "LT", "LTE", "NE"),
+            ),
+        ),
         (
             _input("left", FlowValueType.DECIMAL),
             _input("right", FlowValueType.DECIMAL),

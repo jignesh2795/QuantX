@@ -266,9 +266,7 @@ def unsafe(broker):
     assert "sentinel.py:call compile" in _audit_source(
         "compile('1 + 1', '<flow>', 'eval')", "sentinel.py"
     )
-    assert _audit_source(
-        "\n".join(("import re", "re.compile('^safe$')")), "safe_module.py"
-    ) == []
+    assert _audit_source("\n".join(("import re", "re.compile('^safe$')")), "safe_module.py") == []
 
     unsafe_flow = "\n".join(
         (

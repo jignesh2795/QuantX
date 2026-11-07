@@ -10,7 +10,6 @@ from enum import StrEnum
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.strategy import StrategyId
 
-
 FLOW_SCHEMA_VERSION = 1
 FLOW_COMPILER_CONTRACT_VERSION = "1"
 MAX_FLOW_PARAMETER_LENGTH = 512
@@ -169,21 +168,16 @@ class FlowDefinition:
         if any(not isinstance(item, MarketContext) for item in self.market_contexts):
             raise TypeError("flow market_contexts must contain MarketContext values")
         if any(
-            not isinstance(item.region, MarketRegion)
-            or not isinstance(item.family, MarketFamily)
+            not isinstance(item.region, MarketRegion) or not isinstance(item.family, MarketFamily)
             for item in self.market_contexts
         ):
             raise TypeError("flow market contexts must use MarketRegion and MarketFamily enums")
         normalized_contexts: list[MarketContext] = []
         for item in self.market_contexts:
             venue = item.venue.strip()
-            country_code = (
-                None if item.country_code is None else item.country_code.strip().upper()
-            )
+            country_code = None if item.country_code is None else item.country_code.strip().upper()
             if country_code is not None and (
-                len(country_code) != 2
-                or not country_code.isascii()
-                or not country_code.isalpha()
+                len(country_code) != 2 or not country_code.isascii() or not country_code.isalpha()
             ):
                 raise ValueError("flow country_code must be a two-letter ASCII alpha-2 code")
             normalized_contexts.append(
@@ -239,9 +233,7 @@ class FlowDefinition:
             {
                 "node_id": item.node_id,
                 "kind": item.kind,
-                "parameters": [
-                    {"name": name, "value": value} for name, value in item.parameters
-                ],
+                "parameters": [{"name": name, "value": value} for name, value in item.parameters],
             }
             for item in self.nodes
         ]

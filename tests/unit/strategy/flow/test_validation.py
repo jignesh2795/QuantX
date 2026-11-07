@@ -73,7 +73,6 @@ def _codes(definition: FlowDefinition) -> set[str]:
     return {issue.code for issue in result.issues}
 
 
-
 def test_public_catalogue_specs_are_deeply_immutable_and_use_closed_types() -> None:
     with pytest.raises(TypeError, match="immutable tuple"):
         FlowParameterSpec("mode", FlowParameterType.CHOICE, ["BUY"])  # type: ignore[arg-type]
@@ -212,8 +211,7 @@ def test_boolean_constants_accept_only_lowercase_boolean_lexemes(value: str) -> 
     result = FlowDefinitionValidator().validate(_definition(nodes=nodes))
 
     assert any(
-        issue.code == "invalid_parameter" and issue.node_id == "gate"
-        for issue in result.issues
+        issue.code == "invalid_parameter" and issue.node_id == "gate" for issue in result.issues
     )
 
 
@@ -312,7 +310,6 @@ def test_unknown_nodes_and_ports_are_rejected() -> None:
     assert "unknown_target_port" in codes
 
 
-
 def test_invalid_node_and_edge_identifier_lexemes_are_rejected() -> None:
     invalid_node = FlowNode("bad id", "decimal_constant", (("value", "1"),))
     nodes = (*_base_nodes(), invalid_node)
@@ -383,10 +380,7 @@ def test_flow_requires_exactly_one_terminal_strategy_result() -> None:
 def test_duplicate_market_contexts_are_rejected_after_canonical_text_normalization() -> None:
     market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
     equivalent = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, " NSE ", "in")
-    assert "duplicate_market_context" in _codes(
-        _definition(contexts=(market, equivalent))
-    )
-
+    assert "duplicate_market_context" in _codes(_definition(contexts=(market, equivalent)))
 
 
 @pytest.mark.parametrize(
@@ -415,9 +409,7 @@ def test_graph_resource_limits_fail_closed_without_graph_traversal(
     edges: tuple[FlowEdge, ...],
     expected_code: str,
 ) -> None:
-    result = FlowDefinitionValidator().validate(
-        _definition(nodes=nodes, edges=edges)
-    )
+    result = FlowDefinitionValidator().validate(_definition(nodes=nodes, edges=edges))
 
     assert {issue.code for issue in result.issues} == {expected_code}
 

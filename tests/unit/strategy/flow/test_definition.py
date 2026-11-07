@@ -73,9 +73,7 @@ def test_flow_edge_rejects_empty_endpoint_identity() -> None:
 def test_flow_definition_requires_immutable_typed_collections() -> None:
     with pytest.raises(TypeError, match="immutable tuple"):
         _definition(
-            nodes=[
-                FlowNode("action", "signal_action_constant", (("value", "BUY"),))
-            ]  # type: ignore[arg-type]
+            nodes=[FlowNode("action", "signal_action_constant", (("value", "BUY"),))]  # type: ignore[arg-type]
         )
 
     with pytest.raises(TypeError, match="MarketContext"):
@@ -110,8 +108,6 @@ def test_flow_definition_is_frozen_and_canonical_identity_ignores_graph_order() 
     assert second.market_contexts[0].country_code == "IN"
     with pytest.raises(FrozenInstanceError):
         first.name = "mutated"  # type: ignore[misc]
-
-
 
 
 def test_market_context_rejects_non_ascii_alpha2_country_code() -> None:
@@ -149,7 +145,6 @@ def test_canonical_identity_changes_for_behavior_or_contract_version_changes() -
         changed_compiler.fingerprint,
     }
     assert len(fingerprints) == 4
-
 
 
 def test_duplicate_node_identity_fingerprints_are_order_independent_even_when_invalid() -> None:

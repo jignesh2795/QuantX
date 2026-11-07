@@ -177,9 +177,7 @@ class FlowDefinitionValidator:
                 )
 
         node_map: dict[str, FlowNode] = {
-            node.node_id: node
-            for node in definition.nodes
-            if node_counts[node.node_id] == 1
+            node.node_id: node for node in definition.nodes if node_counts[node.node_id] == 1
         }
         node_specs: dict[str, FlowNodeSpec] = {}
         for node in sorted(definition.nodes, key=lambda item: (item.node_id, item.kind)):
@@ -326,9 +324,7 @@ class FlowDefinitionValidator:
                     )
 
         result_nodes = sorted(
-            node.node_id
-            for node in definition.nodes
-            if node.kind == "strategy_result"
+            node.node_id for node in definition.nodes if node.kind == "strategy_result"
         )
         if not result_nodes:
             add("missing_strategy_result", "flow must contain exactly one strategy_result node")
