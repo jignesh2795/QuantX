@@ -217,11 +217,15 @@ def _flow_plan(
     if side is not None:
         nodes.extend(
             (
-                FlowNode("intent", "trade_intent", (
-                    ("order_type", "MARKET"),
-                    ("side", side),
-                    ("time_in_force", "DAY"),
-                )),
+                FlowNode(
+                    "intent",
+                    "trade_intent",
+                    (
+                        ("order_type", "MARKET"),
+                        ("side", side),
+                        ("time_in_force", "DAY"),
+                    ),
+                ),
                 FlowNode("quantity", "decimal_constant", (("value", quantity),)),
             )
         )
@@ -344,7 +348,6 @@ def test_flow_paper_rehearsal_uses_deployment_preparation_risk_policy_and_paper(
     assert step.paper_outcome.fill.quantity == Decimal("2")
     assert step.note == "paper executed"
     assert accounting.applications == [step.paper_outcome.fill]
-
 
 
 def test_flow_paper_rehearsal_rejects_deployment_identity_or_version_mismatch() -> None:
@@ -533,7 +536,6 @@ class _PythonEquivalentStrategy:
                 strategy_version=context.ir.version,
             ),
         )
-
 
 
 def test_flow_and_python_strategies_have_same_paper_rehearsal_semantics() -> None:
