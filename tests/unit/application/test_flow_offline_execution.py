@@ -257,13 +257,14 @@ def _rehearsal_session(
     *,
     accounting: _CountingAccounting | None = None,
     deployment: StrategyDeployment | None = None,
+    registry: StrategyRegistry | None = None,
     risk_engine: PreTradeRiskEngine | None = None,
     policy_engine: ExecutionPolicyEngine | None = None,
     instrument_registry: InMemoryInstrumentRegistry | None = None,
 ) -> tuple[StrategyRehearsalSession, _CountingAccounting]:
     held = accounting or _CountingAccounting()
     session = StrategyRehearsalSession(
-        registry=_registry(plan),
+        registry=registry or _registry(plan),
         strategy_ir=_ir(),
         deployment=deployment or _deployment(),
         instrument_registry=instrument_registry or InMemoryInstrumentRegistry((_instrument(),)),
@@ -532,6 +533,52 @@ class _PythonEquivalentStrategy:
                 strategy_version=context.ir.version,
             ),
         )
+
+
+
+def test_flow_and_python_strategies_have_same_paper_rehearsal_semantics() -> None:
+    plan = _flow_plan()
+    flow_session, _ = _rehearsal_session(plan)
+    python_registry = StrategyRegistry()
+    python_registry.register(
+        _STRATEGY_ID.value,
+        _VERSION,
+        _PythonEquivalentStrategy,
+    )
+    python_session, _ = _rehearsal_session(plan, registry=python_registry)
+    inputs = (RehearsalInput(_event(), _market_snapshot()),)
+
+    flow_step = flow_session.run(inputs).steps[0]
+    python_step = python_session.run(inputs).steps[0]
+
+    assert flow_step.evaluation is not None
+    assert python_step.evaluation is not None
+    assert (
+        flow_step.evaluation.result.signal.action
+        is python_step.evaluation.result.signal.action
+    )
+    assert (
+        flow_step.evaluation.result.signal.confidence
+        == python_step.evaluation.result.signal.confidence
+    )
+    assert (
+        flow_step.evaluation.result.signal.generated_at
+        == python_step.evaluation.result.signal.generated_at
+    )
+    assert flow_step.evaluation.result.intent is not None
+    assert python_step.evaluation.result.intent is not None
+    assert flow_step.evaluation.result.intent.side is python_step.evaluation.result.intent.side
+    assert (
+        flow_step.evaluation.result.intent.quantity
+        == python_step.evaluation.result.intent.quantity
+    )
+    assert flow_step.preparation is not None and python_step.preparation is not None
+    assert flow_step.preparation.risk_result == python_step.preparation.risk_result
+    assert flow_step.preparation.policy_result == python_step.preparation.policy_result
+    assert flow_step.paper_outcome is not None and python_step.paper_outcome is not None
+    assert flow_step.paper_outcome.fill is not None and python_step.paper_outcome.fill is not None
+    assert flow_step.paper_outcome.fill.quantity == python_step.paper_outcome.fill.quantity
+    assert flow_step.paper_outcome.fill.price == python_step.paper_outcome.fill.price
 
 
 def test_flow_and_python_strategies_have_same_backtest_semantics() -> None:
