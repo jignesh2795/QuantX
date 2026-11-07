@@ -6,6 +6,7 @@
 - `local-release-validation-playbook.md` — operator sequence for producing exact-head validation and release-gate evidence locally.
 - `package-coverage-floors.md` — measured line/branch floors for `quantx.domain`, `quantx.execution` and `quantx.persistence`, with the baseline SHA, commands, new-module policy and revision policy.
 - `p0-canonical-contracts.md` — stable internal vocabulary and invariants.
+- `flow-v1-interpreter.md` — F4.5.2 Flow v1 compiler, deterministic Decimal contract and pure interpreter semantics.
 - `quarantine-evidence-worklist.md` — read-only operator view of unresolved quarantined submission evidence.
 - `v0.1-repository-tree.md` — historical v0.1 target tree; it is not the current source tree.
 
