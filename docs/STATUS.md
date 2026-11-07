@@ -1,10 +1,10 @@
 # QuantX Status
 
-## Strategic roadmap reconciliation — 2026-11-06
+## Strategic roadmap reconciliation — 2026-11-07
 
-**Verified main HEAD:** `8fd82b52e47cfaedd60f7df8aa30553636fa9d82` (PR #309 market-module migration merged).
+**Verified main HEAD:** `99d64996214482a8443ca673f11fbb3b61bdc519` (PR #314 status/roadmap reconciliation merged).
 
-**Overall alignment:** **YELLOW — architecture remains aligned; delivery focus needs rebalancing.** QuantX remains an India-first product built on a vendor-neutral, market-neutral core. The India market-module boundary is now implemented. Global/crypto extensibility is a design goal, not evidence of additional market support. Safety remediation remains necessary, but it must be bounded so strategy/research delivery and source-backed global architecture research continue.
+**Overall alignment:** **YELLOW — architecture remains aligned; delivery focus needs rebalancing.** QuantX remains an India-first product built on a vendor-neutral, market-neutral core. The India market-module boundary is now implemented. Global/crypto extensibility is a design goal, not evidence of additional market support. Safety remediation remains necessary but bounded. The pinned-source architecture comparison is now prepared in PR #315, and the next proposed product vertical is the minimal M4.5 Flow-to-existing-runtime parity slice.
 
 ### Completed since the previous roadmap snapshot
 
@@ -13,6 +13,8 @@
 - **PR #307 — Dhan statement observations:** merged at `93ae5d0be0dec94308d85856c58a5e2f7be0eca2` from validated candidate `11c1ec4959771755d6262a23bd1ed24f71cc6bbb`. It adds read-only ledger and page-scoped trade-history transport observations. These are not wired into `DhanRiskEvidenceSource`; one page is not proof of complete trade history, and ledger `runbal` is not account equity or session P&L. Candidate validation was default **3,404 passed / 3 skipped**, Dhan-extra **3,407 passed**, focused set **100 passed**, plus Ruff, strict mypy, package coverage, diff/worktree checks, both release gates, and self-tests **37/37** and **113/113**. These are candidate-local results, not a post-merge rerun or CI evidence.
 - **PR #313 — #266 fixture blocker:** merged at `d8af6f6d5bb562fbff3f8232edf4a1f19445d312`. The read-only inventory at the documented baseline found **0/7 required** Dhan fixtures and the optional diary absent. Source feasibility remains unestablished; no static reconciliation or account-equity implementation is justified.
 - **Human contributor/onboarding baseline:** issues #187 and #204 are closed. `CONTRIBUTING.md`, `ARCHITECTURE.md`, and a credential-free `examples/paper_smoke.py` are present. The example is local/paper-only and does not prove broker or LIVE behavior.
+- **PR #314 — status/roadmap reconciliation:** merged to `main` at `99d64996214482a8443ca673f11fbb3b61bdc519`; the migration and LIVE-source feasibility records are reconciled.
+- **PR #315 — pinned global architecture comparison:** draft candidate `23d60db5002acaff223521eb025855fa6509194d`, based on `99d64996214482a8443ca673f11fbb3b61bdc519`. The report pins and compares LEAN, NautilusTrader, Hummingbot, OpenAlgo, CCXT, Kite Connect, DhanHQ and Upstox, records source/test paths and adoption decisions, and recommends M4.5 Flow-to-existing-runtime parity. Exact-SHA local documentation validation is pending; this is not a merge or implementation claim.
 
 ### Reproduction command reference for historical PR #309 / #307 validation
 
@@ -52,7 +54,11 @@ These commands document reproducibility for future reruns. They do not upgrade t
 
 ### Global architecture and strategy/research direction
 
-The market-module migration establishes the intended extension seam, but it does not finish the comparative architecture research or implement crypto/international markets. The global architecture and crypto proposals remain separate, unmerged, docs-only proposals. The next research deliverable is a pinned-source comparison of LEAN, NautilusTrader, Hummingbot, OpenAlgo and relevant Indian-market projects, recording inspected revisions/source/tests, QuantX equivalents, practical differences, adopt/adapt/defer/reject decisions, required tests/migrations and confidence. Use that evidence to choose **one** next data/research vertical. Do not start another broad rewrite or add a connector merely because a proposal names it.
+The pinned-source architecture comparison is documented in [`docs/research/2026-11-global-architecture-comparison.md`](research/2026-11-global-architecture-comparison.md) on PR #315 (candidate `23d60db5002acaff223521eb025855fa6509194d`; exact-SHA documentation validation pending). It inspects source and test paths for LEAN, NautilusTrader, Hummingbot, OpenAlgo, CCXT and the official Kite Connect, DhanHQ and Upstox SDKs, then records QuantX equivalents and adopt/adapt/defer/reject decisions.
+
+The comparison recommends **M4.5 — minimal declarative Flow-to-existing-runtime parity** as the next bounded Strategy Platform slice: a typed/versioned Flow definition, graph validator and deterministic adapter implementing the existing `ExecutableStrategy` contract through `StrategyRuntime`, followed by the existing deployment-owned context, risk/policy and offline paper/backtest consumers. It does not propose direct-order nodes, arbitrary Python, UI, scheduler, webhooks, AI, cloud execution, new markets or LIVE capability.
+
+The comparison does not implement crypto/international markets or change broker/LIVE eligibility. The global architecture and crypto proposals remain separate, unmerged, docs-only references.
 
 ---
 

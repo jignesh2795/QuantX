@@ -16,7 +16,7 @@ The comparison supports these decisions:
 
 - **LEAN:** adapt the separation of brokerage policy from transaction orchestration, plus concurrency and transaction-handler test patterns.
 - **NautilusTrader:** adapt execution/client/reconciliation separation and property-based reconciliation tests.
-- **Hummingbot:** adapt connector-owned lifecycle, order tracking and throttling tests. Reject converting invalid financial values to zero and do not assume its backtest simulator is identical to the live path.
+- **Hummingbot:** adapt connector-owned lifecycle, order tracking and throttling tests. Preserve non-finite values as explicit invalid/sentinel values rather than treating them as financial zero, and do not assume its backtest simulator is identical to the live path.
 - **OpenAlgo:** use as an India-focused product/control-plane and broker-service reference. Reject its direct-order Flow nodes as a QuantX strategy model.
 - **CCXT and Indian broker SDKs:** use as transport/API contract references only, not as strategy engines or risk authorities.
 
@@ -45,7 +45,7 @@ All commits below were read from GitHub on 2026-11-07 and pinned for this compar
 |---|---|---|---|---|
 | LEAN | Full research/backtest/live engine | Brokerage policy is separate from transaction handling | Large .NET engine and broad domain would duplicate QuantX | Adapt selected seams/tests |
 | NautilusTrader | Event-driven trading engine | Explicit execution/client/reconciliation modules and property tests | Rust/Python scale and runtime structures are not drop-in durability guarantees | Adapt seams/tests |
-| Hummingbot | Exchange connector and strategy/executor platform | Active/cached/lost order tracking; connector throttling and stream lifecycle | Crypto-centric contracts and distinct DataFrame simulator path | Adapt selectively; reject unsafe numeric fallback |
+| Hummingbot | Exchange connector and strategy/executor platform | Active/cached/lost order tracking; connector throttling and stream lifecycle | Crypto-centric contracts and distinct DataFrame simulator path | Adapt selectively; keep non-finite values invalid |
 | OpenAlgo | India-first broker/API control plane | Route/service/adapter layering and unanswered-write handling | Direct-order Flow graph differs from QuantX strategy-intent boundary | Adapt product/transport ideas; reject direct-order Flow |
 | CCXT | Unified exchange API client | Common exchange methods and market metadata | No strategy lifecycle, durable execution, risk authority or research provenance | Defer until justified crypto scope |
 | Kite, Dhan, Upstox SDKs | Broker API wrappers | Concrete endpoint parameters, status vocabularies and stream payloads | SDK methods do not prove completeness or authority | Reference only |
@@ -109,7 +109,7 @@ QuantX has a canonical lifecycle reducer, durable persistence, pending/recovery 
 
 The order tracker distinguishes in-flight, cached and lost orders; connector bases own throttling, time synchronization and stream trackers. Strategy V2 separates controllers from reusable executor lifecycles. The inspected backtest implementation uses separate executor simulators and tabular historical snapshots; that source does not prove exact live/backtest path parity.
 
-One unsafe helper converts non-finite numeric values to Decimal zero. QuantX must not copy this: invalid or missing money, P&L, quantity or exposure must remain invalid/incomplete, never become a plausible zero.
+The inspected executor helper uses `Decimal("NaN")` as its default price sentinel; that is an explicit non-finite value, not a valid price. QuantX should keep non-finite or missing financial inputs invalid/incomplete at the domain boundary and must never reinterpret an unknown price as zero.
 
 **QuantX mapping and decision**
 
