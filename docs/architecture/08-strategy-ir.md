@@ -232,8 +232,11 @@ operations, a declarative TradeIntent value node, and one terminal
 where evidence may be absent or incomplete. The graph must explicitly test or
 require such a value; missing evidence is not converted to zero or false.
 Prior-candle access is bounded (1–512) and is intended to consume only the
-existing same-instrument, strictly prior `StrategyContext.history`. No
-look-ahead, cross-instrument fan-out, or independent data source is introduced.
+existing same-instrument, strictly prior `StrategyContext.history`. The
+`bars_ago` index addresses the driver's chronologically ordered history tuple,
+where `1` is the most recent available candle; Flow does not sort, synthesize
+or request additional history. No look-ahead, cross-instrument fan-out, or
+independent data source is introduced.
 Confidence constants use canonical fixed-point text for stable graph identity
 and the inclusive `[0, 1]` bound; the later adapter must map that
 non-financial score to the existing `StrategySignal.confidence` Python
@@ -246,6 +249,27 @@ invalid parameter lexemes, cycles, orphan nodes, and a missing/multiple or
 non-terminal strategy-result node. Financial Decimal parameters use canonical
 finite fixed-point strings; no float financial representation is allowed.
 These are static definition contracts only.
+
+The v1 source-node semantics are bound to the existing context. `event_field`
+reads only the named field from the current `MarketDataEvent` payload; a
+missing quote field or absent event remains unavailable. The position-quantity
+node reads the signed quantity for the current event instrument: known-empty
+available inventory is zero, but incomplete/unavailable inventory is absent.
+The active-order node reads the current instrument's unresolved or
+non-terminal order inventory; UNKNOWN status is unresolved, not terminal.
+Incomplete or unavailable order evidence yields an absent value, never
+`false`.
+
+The TradeIntent node creates only the existing domain intent value, using the
+current event instrument and Flow strategy identity/version, a finite
+positive quantity, BUY/SELL side, MARKET order type and DAY time-in-force. It
+does not submit or reserve an order. The terminal strategy-result node creates
+the existing `StrategyResult` / `StrategySignal` shape using the current
+event instrument and event timestamp, Flow strategy identity/version, selected
+action, bounded confidence and reason; the optional intent is an existing
+domain TradeIntent value and timers remain empty. These mappings are semantic
+contracts for the later interpreter/adapter, not executable behavior in
+F4.5.1.
 
 **M4.5.1 is not a Flow execution implementation.** It provides no interpreter,
 compiler plan, `ExecutableStrategy` adapter, UI, scheduler, webhook, streaming,

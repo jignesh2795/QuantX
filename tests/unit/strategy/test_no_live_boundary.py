@@ -47,7 +47,6 @@ _FORBIDDEN_CALLS = {
     "rmdir",
     "eval",
     "exec",
-    "compile",
     "__import__",
     "sleep",
     "call_later",
@@ -184,7 +183,7 @@ def _audit_source(source: str, relative_path: str) -> list[str]:
         if isinstance(node, ast.Call):
             function = node.func
             if isinstance(function, ast.Name):
-                if function.id in _FORBIDDEN_CALLS | _WALL_CLOCK_BARE_CALLS:
+                if function.id in _FORBIDDEN_CALLS | _WALL_CLOCK_BARE_CALLS | {"compile"}:
                     observed.append(f"{relative_path}:call {function.id}")
             elif isinstance(function, ast.Attribute):
                 dotted = _canonical_dotted_name(function, aliases)
@@ -261,6 +260,13 @@ def unsafe(broker):
     assert "sentinel.py:call create_task" in observed
     assert "sentinel.py:call Timer" in observed
     assert "sentinel.py:call submit" in observed
+    assert "sentinel.py:call compile" in _audit_source(
+        "compile('1 + 1', '<flow>', 'eval')", "sentinel.py"
+    )
+    assert _audit_source(
+        "\n".join(("import re", "re.compile('^safe$')")), "safe_module.py"
+    ) == []
+
     unsafe_flow = "\n".join(
         (
             "import pathlib",

@@ -15,6 +15,10 @@ from quantx.strategy.flow import (
     FlowEdge,
     FlowNode,
     FlowNodeKind,
+    FlowNodeSpec,
+    FlowParameterSpec,
+    FlowParameterType,
+    FlowPortSpec,
     FlowValueType,
 )
 
@@ -296,12 +300,29 @@ def test_unknown_nodes_and_ports_are_rejected() -> None:
     edges = (
         *_base_edges(),
         FlowEdge("e-missing-source", "absent", "value", "result", "reason"),
-        FlowEdge("e-missing-port", "action", "missing", "result", "action"),
+        FlowEdge("e-missing-source-port", "action", "missing", "result", "action"),
+        FlowEdge("e-missing-target-port", "confidence", "value", "result", "missing"),
     )
     codes = _codes(_definition(edges=edges))
 
     assert "unknown_source_node" in codes
     assert "unknown_source_port" in codes
+    assert "unknown_target_port" in codes
+
+
+
+def test_invalid_node_and_edge_identifier_lexemes_are_rejected() -> None:
+    invalid_node = FlowNode("bad id", "decimal_constant", (("value", "1"),))
+    nodes = (*_base_nodes(), invalid_node)
+    edges = (
+        *_base_edges(),
+        FlowEdge("bad edge", "quantity", "value", "intent", "quantity"),
+    )
+
+    codes = _codes(_definition(nodes=nodes, edges=edges))
+
+    assert "invalid_node_id" in codes
+    assert "invalid_edge_id" in codes
 
 
 def test_duplicate_node_and_edge_identities_are_rejected() -> None:
