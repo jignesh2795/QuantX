@@ -148,6 +148,23 @@ class FlowDefinitionValidator:
         if not definition.nodes:
             add("missing_nodes", "flow must contain at least one node", field="nodes")
 
+        # Stop graph construction when a declared resource bound is exceeded.
+        # The limit diagnostic is sufficient; traversal would defeat the bound.
+        if len(definition.nodes) > MAX_FLOW_NODES or len(definition.edges) > MAX_FLOW_EDGES:
+            ordered_issues = tuple(
+                sorted(
+                    issues,
+                    key=lambda item: (
+                        item.code,
+                        item.node_id or "",
+                        item.edge_id or "",
+                        item.field or "",
+                        item.message,
+                    ),
+                )
+            )
+            return FlowValidationResult(ordered_issues)
+
         node_counts: dict[str, int] = defaultdict(int)
         for node in definition.nodes:
             node_counts[node.node_id] += 1

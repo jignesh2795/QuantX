@@ -109,6 +109,17 @@ def test_flow_definition_is_frozen_and_canonical_identity_ignores_graph_order() 
         first.name = "mutated"  # type: ignore[misc]
 
 
+
+def test_market_context_fingerprint_uses_canonical_venue_and_country_text() -> None:
+    canonical = _context()
+    equivalent = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, " NSE ", "in")
+
+    first = _definition(contexts=(canonical,))
+    second = _definition(contexts=(equivalent,))
+
+    assert first.fingerprint == second.fingerprint
+
+
 def test_canonical_identity_changes_for_behavior_or_contract_version_changes() -> None:
     base = _definition()
     changed_node = _definition(

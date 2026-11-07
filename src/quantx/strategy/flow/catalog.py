@@ -59,7 +59,7 @@ class FlowParameterSpec:
 @dataclass(frozen=True, slots=True)
 class FlowPortSpec:
     name: str
-    value_type: str
+    value_type: FlowValueType
     required: bool = True
 
     def __post_init__(self) -> None:
@@ -67,18 +67,7 @@ class FlowPortSpec:
             raise ValueError("Flow port name must not be empty")
         if len(self.name) > 64:
             raise ValueError("Flow port name must not exceed 64 characters")
-        valid_types = {
-            FlowValueType.DECIMAL,
-            FlowValueType.OPTIONAL_DECIMAL,
-            FlowValueType.BOOLEAN,
-            FlowValueType.OPTIONAL_BOOLEAN,
-            FlowValueType.STRING,
-            FlowValueType.SIGNAL_ACTION,
-            FlowValueType.CONFIDENCE,
-            FlowValueType.TRADE_INTENT,
-            FlowValueType.STRATEGY_RESULT,
-        }
-        if not isinstance(self.value_type, str) or self.value_type not in valid_types:
+        if not isinstance(self.value_type, FlowValueType):
             raise ValueError("Flow port value_type is not a supported FlowValueType")
         if type(self.required) is not bool:
             raise TypeError("Flow port required flag must be a bool")
@@ -86,16 +75,14 @@ class FlowPortSpec:
 
 @dataclass(frozen=True, slots=True)
 class FlowNodeSpec:
-    kind: str
+    kind: FlowNodeKind
     parameters: tuple[FlowParameterSpec, ...]
     inputs: tuple[FlowPortSpec, ...]
     outputs: tuple[FlowPortSpec, ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, str) or not self.kind.strip():
-            raise ValueError("Flow node specification kind must not be empty")
-        if len(self.kind) > 64:
-            raise ValueError("Flow node specification kind must not exceed 64 characters")
+        if not isinstance(self.kind, FlowNodeKind):
+            raise TypeError("Flow node specification kind must be a FlowNodeKind")
         if not isinstance(self.parameters, tuple):
             raise TypeError("Flow node specification parameters must be an immutable tuple")
         if any(not isinstance(item, FlowParameterSpec) for item in self.parameters):
@@ -129,11 +116,11 @@ def _parameter(
     return FlowParameterSpec(name, value_type, choices, minimum, maximum)
 
 
-def _input(name: str, value_type: str, *, required: bool = True) -> FlowPortSpec:
+def _input(name: str, value_type: FlowValueType, *, required: bool = True) -> FlowPortSpec:
     return FlowPortSpec(name, value_type, required)
 
 
-def _output(name: str, value_type: str) -> FlowPortSpec:
+def _output(name: str, value_type: FlowValueType) -> FlowPortSpec:
     return FlowPortSpec(name, value_type)
 
 

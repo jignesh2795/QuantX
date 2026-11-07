@@ -48,6 +48,7 @@ _FORBIDDEN_CALLS = {
     "eval",
     "exec",
     "__import__",
+    "import_module",
     "sleep",
     "call_later",
     "call_at",
@@ -117,6 +118,8 @@ _FORBIDDEN_IMPORT_PREFIXES = (
     "transformers",
     "torch",
     "grpc",
+    "importlib",
+    "builtins",
 )
 _GRANDFATHERED_WALL_CLOCK_DEFAULTS = {
     (

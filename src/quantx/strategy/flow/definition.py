@@ -160,6 +160,8 @@ class FlowDefinition:
             or not self.compiler_contract_version.strip()
         ):
             raise ValueError("flow compiler contract version must not be empty")
+        if len(self.compiler_contract_version) > 32:
+            raise ValueError("flow compiler contract version must not exceed 32 characters")
         if not isinstance(self.market_contexts, tuple):
             raise TypeError("flow market_contexts must be an immutable tuple")
         if len(self.market_contexts) > 16:
@@ -187,8 +189,10 @@ class FlowDefinition:
             {
                 "region": item.region.value,
                 "family": item.family.value,
-                "venue": item.venue,
-                "country_code": item.country_code,
+                "venue": item.venue.strip(),
+                "country_code": (
+                    None if item.country_code is None else item.country_code.strip().upper()
+                ),
             }
             for item in self.market_contexts
         ]

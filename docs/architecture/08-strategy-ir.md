@@ -233,9 +233,10 @@ where evidence may be absent or incomplete. The graph must explicitly test or
 require such a value; missing evidence is not converted to zero or false.
 Prior-candle access is bounded (1–512) and is intended to consume only the
 existing same-instrument, strictly prior `StrategyContext.history`. The
-`bars_ago` index addresses the driver's chronologically ordered history tuple,
-where `1` is the most recent available candle; Flow does not sort, synthesize
-or request additional history. No look-ahead, cross-instrument fan-out, or
+`bars_ago` index is defined against the canonical driver-ordered history
+tuple, where `1` is the most recent available candle. The later adapter must
+fail closed if the supplied tuple does not meet that ordering contract; Flow
+does not silently sort, synthesize or request additional history. No look-ahead, cross-instrument fan-out, or
 independent data source is introduced.
 Confidence constants use canonical fixed-point text for stable graph identity
 and the inclusive `[0, 1]` bound; the later adapter must map that

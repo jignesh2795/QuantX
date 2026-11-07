@@ -79,18 +79,19 @@ def test_public_catalogue_specs_are_deeply_immutable_and_use_closed_types() -> N
         FlowParameterSpec("mode", FlowParameterType.CHOICE, ["BUY"])  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="supported FlowValueType"):
-        FlowPortSpec("output", "ARBITRARY")
+        FlowPortSpec("output", "ARBITRARY")  # type: ignore[arg-type]
 
     with pytest.raises(TypeError, match="immutable tuple"):
-        FlowNodeSpec("sample", [], (), ())  # type: ignore[arg-type]
+        FlowNodeSpec(FlowNodeKind.BOOLEAN_NOT, [], (), ())  # type: ignore[arg-type]
 
     valid = FlowNodeSpec(
-        "sample",
-        (FlowParameterSpec("mode", FlowParameterType.CHOICE, ("BUY", "SELL")),),
-        (FlowPortSpec("source", FlowValueType.DECIMAL),),
-        (FlowPortSpec("result", FlowValueType.BOOLEAN),),
+        FlowNodeKind.BOOLEAN_NOT,
+        (),
+        (FlowPortSpec("value", FlowValueType.BOOLEAN),),
+        (FlowPortSpec("value", FlowValueType.BOOLEAN),),
     )
-    assert valid.kind == "sample"
+    assert valid.kind is FlowNodeKind.BOOLEAN_NOT
+
 
 def test_closed_catalogue_accepts_minimal_typed_strategy_result_graph() -> None:
     result = FlowDefinitionValidator().validate(_definition())
@@ -378,9 +379,46 @@ def test_flow_requires_exactly_one_terminal_strategy_result() -> None:
     assert "strategy_result_has_outgoing_edge" in _codes(_definition(edges=edges))
 
 
-def test_duplicate_market_contexts_are_rejected() -> None:
+def test_duplicate_market_contexts_are_rejected_after_canonical_text_normalization() -> None:
     market = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "IN")
-    assert "duplicate_market_context" in _codes(_definition(contexts=(market, market)))
+    equivalent = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, " NSE ", "in")
+    assert "duplicate_market_context" in _codes(
+        _definition(contexts=(market, equivalent))
+    )
+
+
+
+@pytest.mark.parametrize(
+    ("nodes", "edges", "expected_code"),
+    [
+        (
+            tuple(
+                FlowNode(f"node-{index}", "decimal_constant", (("value", "1"),))
+                for index in range(257)
+            ),
+            (),
+            "node_limit_exceeded",
+        ),
+        (
+            _base_nodes(),
+            tuple(
+                FlowEdge(f"edge-{index}", "quantity", "value", "intent", "quantity")
+                for index in range(1025)
+            ),
+            "edge_limit_exceeded",
+        ),
+    ],
+)
+def test_graph_resource_limits_fail_closed_without_graph_traversal(
+    nodes: tuple[FlowNode, ...],
+    edges: tuple[FlowEdge, ...],
+    expected_code: str,
+) -> None:
+    result = FlowDefinitionValidator().validate(
+        _definition(nodes=nodes, edges=edges)
+    )
+
+    assert {issue.code for issue in result.issues} == {expected_code}
 
 
 def test_validation_result_raises_with_stable_issues() -> None:
