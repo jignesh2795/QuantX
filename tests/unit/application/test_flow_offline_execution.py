@@ -32,15 +32,20 @@ from quantx.domain.instruments import (
     MarketRegion,
 )
 from quantx.domain.market_data import MarketDataEvent, MarketDataType, Quote
-from quantx.domain.orders import Fill
 from quantx.domain.order_intents import TradeIntent
+from quantx.domain.orders import Fill
 from quantx.domain.policy import (
     ExecutionPolicyEngine,
     PolicyContext,
     PolicyDecision,
     PolicyResult,
 )
-from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
+from quantx.domain.risk import (
+    PreTradeRiskEngine,
+    RiskContext,
+    RiskDecision,
+    RiskResult,
+)
 from quantx.domain.strategy import SignalAction, StrategyId, StrategyResult, StrategySignal
 from quantx.domain.value_objects import InstrumentId, Money
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
