@@ -23,18 +23,18 @@ PR #309 candidate `a3e52478e4cceef05e42d424048c51289f435020`, base `41550505922a
 ```powershell
 uv sync --dev
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8 --output <default-validation-json>
-python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence <default-validation-json> --expected-head a3e52478e4cceef05e42d424048c51289f435020
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence <default-validation-json> --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8
 
 uv sync --dev --extra dhan
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8 --output <dhan-validation-json>
-python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence <dhan-validation-json> --expected-head a3e52478e4cceef05e42d424048c51289f435020
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence <dhan-validation-json> --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8
 
 python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --self-test
 python .opencode/skills/quantx-release-gate/scripts/release_check.py --self-test
 python .opencode/skills/quantx-skills-maintainer/scripts/skill_integrity.py --check
 ```
 
-PR #307 candidate `11c1ec4959771755d6262a23bd1ed24f71cc6bbb`, base `ecbb202b8864688b521b1836f5dd9b36ca1d929f`: run the same command sequence with those two SHAs substituted. The validation runner itself executes canonical `uv run pytest`, changed-file `uv run ruff check` and `uv run ruff format --check`, `uv run mypy`, package coverage, `git diff --check`, and `git status --porcelain`; the release checker then verifies the recorded command scope and exact HEAD binding.
+PR #307 candidate `11c1ec4959771755d6262a23bd1ed24f71cc6bbb`, base `ecbb202b8864688b521b1836f5dd9b36ca1d929f`: run the same command sequence with those two SHAs substituted. When substituting, pass `--base ecbb202b8864688b521b1836f5dd9b36ca1d929f` to **both** `release_check.py` invocations (default and Dhan-extra), alongside the substituted candidate SHA. The validation runner itself executes canonical `uv run pytest`, changed-file `uv run ruff check` and `uv run ruff format --check`, `uv run mypy`, package coverage, `git diff --check`, and `git status --porcelain`; the release checker then verifies the recorded command scope and exact HEAD binding.
 
 These commands document reproducibility for future reruns. They do not upgrade the historical owner-reported counts into CI evidence or imply that the old raw argv has been recovered.
 
