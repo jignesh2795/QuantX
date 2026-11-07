@@ -27,12 +27,12 @@ from decimal import (
     FloatOperation,
     Inexact,
     InvalidOperation,
+    localcontext,
     Overflow,
     ROUND_HALF_EVEN,
     Rounded,
     Subnormal,
     Underflow,
-    localcontext,
 )
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -52,7 +52,7 @@ from ..engine_snapshot import (
 )
 from .catalog import FLOW_NODE_SPECS
 from .compiler import FlowCompiler, FlowExecutionPlan, FlowInstruction
-from .definition import FLOW_DECIMAL_CONTRACT_VERSION, FlowNode, FlowNodeKind
+from .definition import FLOW_DECIMAL_CONTRACT_VERSION, FlowNodeKind
 
 
 FLOW_DECIMAL_PRECISION = 34

@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, ROUND_DOWN, localcontext
+from decimal import Decimal, localcontext, ROUND_DOWN
 from pathlib import Path
 
 import pytest
@@ -107,11 +107,7 @@ def _context(
     orders: EvidenceCollection[OpenOrderFact] | None = None,
 ) -> StrategyContext:
     selected_event = _event() if event is None else event
-    logical_time = (
-        as_of
-        if as_of is not None
-        else selected_event.timestamp
-    )
+    logical_time = as_of if as_of is not None else selected_event.timestamp
     return StrategyContext(
         event=selected_event,
         ir=_ir(),
