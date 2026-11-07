@@ -541,15 +541,33 @@ def test_flow_and_python_strategies_have_same_backtest_semantics() -> None:
     flow_step, python_step = flow.steps[0], python.steps[0]
     assert flow_step.strategy_result is not None
     assert python_step.strategy_result is not None
-    assert flow_step.strategy_result.signal.action is python_step.strategy_result.signal.action
-    assert flow_step.strategy_result.signal.confidence == python_step.strategy_result.signal.confidence
-    assert flow_step.strategy_result.signal.reason == python_step.strategy_result.signal.reason
-    assert flow_step.strategy_result.signal.generated_at == python_step.strategy_result.signal.generated_at
-    assert flow_step.strategy_result.signal.instrument == python_step.strategy_result.signal.instrument
+    assert (
+        flow_step.strategy_result.signal.action
+        is python_step.strategy_result.signal.action
+    )
+    assert (
+        flow_step.strategy_result.signal.confidence
+        == python_step.strategy_result.signal.confidence
+    )
+    assert (
+        flow_step.strategy_result.signal.reason
+        == python_step.strategy_result.signal.reason
+    )
+    assert (
+        flow_step.strategy_result.signal.generated_at
+        == python_step.strategy_result.signal.generated_at
+    )
+    assert (
+        flow_step.strategy_result.signal.instrument
+        == python_step.strategy_result.signal.instrument
+    )
     assert flow_step.strategy_result.intent is not None
     assert python_step.strategy_result.intent is not None
     assert flow_step.strategy_result.intent.side is python_step.strategy_result.intent.side
-    assert flow_step.strategy_result.intent.quantity == python_step.strategy_result.intent.quantity
+    assert (
+        flow_step.strategy_result.intent.quantity
+        == python_step.strategy_result.intent.quantity
+    )
     assert flow_step.risk_result is not None and python_step.risk_result is not None
     assert flow_step.risk_result.decision is python_step.risk_result.decision
     assert flow_step.policy_result is not None and python_step.policy_result is not None
