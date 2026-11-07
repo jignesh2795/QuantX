@@ -1,11 +1,10 @@
 # QuantX Roadmap
 
+## Current work programme — 2026-11-07
 
-## Current work programme — 2026-11-06
+**Verified main:** `99d64996214482a8443ca673f11fbb3b61bdc519` (PR #314 merged). The India market-module migration is complete, with `quantx.markets.india` canonical and the legacy `quantx.india` shim retained. India remains the only implemented market; digital assets remains an interface-only placeholder.
 
-**Verified main:** `8fd82b52e47cfaedd60f7df8aa30553636fa9d82`. PR #309 completed the India market-module migration: `quantx.markets.india` is canonical, the legacy `quantx.india` shim remains, and India is still the only implemented market. The digital-assets module is a placeholder, not connector support.
-
-Use [the QuantX Master Work Programme](../planning/quantx-work-program-2026-10.md) as the current cross-workstream sequencing record. The Dhan feasibility matrix and current-main provider inventory for #267 are complete; no registered provider presently supplies the required LIVE evidence set, so #267 remains blocked pending a credible alternative provider or materially new source. #266 remains blocked by missing fixtures. The next active research deliverable is the pinned-source global architecture comparison, followed by selection of one next data/research vertical. Public-readiness work remains open (#190 and #199); Actions/paid CI is not part of the validation plan.
+Use the [QuantX Master Work Programme](../planning/quantx-work-program-2026-10.md) as the current cross-workstream sequencing record. The pinned-source comparison is documented in [Global Trading Architecture Comparison — 2026-11-07](../research/2026-11-global-architecture-comparison.md). It recommends M4.5, a bounded declarative Flow-to-existing-runtime parity slice. #267 remains blocked pending a credible alternative authoritative provider/source; #266 remains blocked by the missing 0/7 required fixtures. Public-readiness work (#190 and #199) remains open. Actions/paid CI is not part of the validation plan.
 
 The milestone history below is not a substitute for checking current issue state and exact-SHA validation evidence. The master roadmap is grouped into milestones rather than treating every feature as an independent project.
 
@@ -87,6 +86,14 @@ M4.1 proves the existing Python strategy definition/IR/runtime path through depl
 **Parent M4 exit criterion remains:** Python strategies and a first Flow path compile to the same runtime semantics. That Flow authoring/runtime-parity slice remains separate parent Strategy Platform roadmap work and is not part of QX-08 scope. Issue #197 is complete in PR #221. The normative QX-08 v3.2.0 brief settles G1 timer causality/cohort ordering, G2 commit-preserving callback failures, G3 shared evidence projection, and standalone T8 no-LIVE boundary coverage. QX-08 implementation under issue #196 has completed M1 in PR #224, M2 in PR #226 (validated feature HEAD `75f8b0e2858d1ba11d1e7cd3c32f2fc6a6c2df1e`, merge commit `e150350ce747f88845227a70c35a9f94c8e7cd83`), M3 in PR #229 (validated feature HEAD `ebc67365ce589e50b0477de1b790885b4916c3e7`; merge commit `6f84259b8e6281576eead0831082067283baddeb`), and M4 in PR #232 (validated feature HEAD `40559841bc94e3b4c1c7482b21528300c895d7e4`; merge commit `f13249f3b15dd4ab720225f1af5b2b8341d3e6a4`). The next QX-08 step is acceptance-matrix reconciliation of its in-scope v3.2.0 criteria before closing issue #196. The first callback-enabled vertical rejects nonzero execution-latency profiles unless a future event-time execution integration is separately approved; no scheduler or execution/recovery redesign is included.
 
 Python SDK, Strategy IR, visual Flow, scheduling, webhooks and external signals remain the broader M4/platform roadmap.
+
+### M4.5 — First declarative Flow-to-existing-runtime parity (recommended next slice)
+
+The recommended next product slice is the smallest declarative Flow compiler/runtime adapter that implements the existing `ExecutableStrategy` protocol and runs through `StrategyRuntime`. The comparison report at `docs/research/2026-11-global-architecture-comparison.md` records the evidence and acceptance matrix.
+
+The first slice is offline and deterministic. It defines a typed/versioned graph, validates nodes/edges/cycles/types and market context, compiles a limited pure program, and proves semantic parity with an equivalent Python strategy under identical `StrategyContext`. The output continues through existing deployment-owned binding, risk/policy preparation and paper/backtest consumers.
+
+Do not introduce direct order/broker/REST nodes, arbitrary Python, scheduler, webhooks, streaming, AI nodes, cloud workers, cross-market support, UI or LIVE capabilities. A visual editor and workflow persistence are later slices after the language/runtime contract is stable.
 
 ## M5 — Control Plane
 REST, WebSocket, strategy registry, Action Center, monitoring, audit and operations.

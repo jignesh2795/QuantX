@@ -2,6 +2,10 @@
 
 This directory records comparative research used to make architecture decisions.
 
+## Pinned architecture comparison
+
+- [Global Trading Architecture Comparison — 2026-11-07](./2026-11-global-architecture-comparison.md) — source-backed review of pinned LEAN, NautilusTrader, Hummingbot, OpenAlgo, CCXT and Indian broker SDK revisions. Recommends the bounded M4.5 Flow-to-existing-runtime parity slice; does not authorize additional markets or LIVE changes.
+
 Current reference families:
 
 - QuantumTrade v1.6 — event-driven trading core, safety, execution, session/API design
