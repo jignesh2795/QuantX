@@ -38,6 +38,7 @@ The initial product focus is Indian markets, including equities, futures and opt
 The canonical documentation entry points are:
 
 - `docs/STATUS.md` — current implementation and validation baseline.
+- `docs/public-api.md` — curated Python import surface and pre-1.0 stability policy.
 - `docs/architecture/README.md` — architecture records and current canonical boundaries.
 - `docs/implementation/README.md` — implementation discipline and build sequence.
 - `docs/roadmap/README.md` — future milestones and decision gates.
