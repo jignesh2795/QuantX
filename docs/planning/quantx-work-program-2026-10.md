@@ -2,9 +2,9 @@
 
 **Status:** Active cross-workstream sequencing and reconciliation record
 
-**Snapshot date:** 2026-11-06
+**Snapshot date:** 2026-11-07
 
-**Baseline reviewed:** `main` at `8fd82b52e47cfaedd60f7df8aa30553636fa9d82` (PR #309 India market-module migration merged).
+**Baseline reviewed:** `main` at `99d64996214482a8443ca673f11fbb3b61bdc519` (PR #314 status/roadmap reconciliation merged).
 
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, strategy/research delivery, and release-readiness work in one progressable plan.
 
@@ -12,7 +12,8 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline verified during this reconciliation: `8fd82b52e47cfaedd60f7df8aa30553636fa9d82`.
+- Latest `main` baseline verified during this research/reconciliation: `99d64996214482a8443ca673f11fbb3b61bdc519`.
+- PR #314 merged as `99d64996214482a8443ca673f11fbb3b61bdc519`; it reconciles status, work programme and roadmap after PR #309.
 - PR #309 is merged; PR #295 is a stale superseded migration candidate; PR #308 is a stale draft whose useful facts are incorporated in the current status; PR #306 remains a draft public-API candidate and is not validated on current main.
 - This reconciliation updates the canonical status and roadmap after PRs #307, #312, #313 and #309. It does not claim a new test suite, hosted CI, broker call, sandbox run, or LIVE operation.
 
@@ -37,6 +38,7 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 | Market-module migration (#309, bounded architecture slice) | **Implemented and merged** | PR #309; validated candidate `a3e52478e4cceef05e42d424048c51289f435020`; squash merge `8fd82b52e47cfaedd60f7df8aa30553636fa9d82`. India is the only implemented module; digital assets remains a placeholder; LIVE unchanged. |
 | LIVE trusted-clock freshness and request-bound authority foundation | Implemented; evidence-source feasibility remains open | PR #281 plus #267 composition/request-binding controls; PRs #285/#307 add supplemental/read-only Dhan observations only. |
 | QX-06 multi-leg semantics (#195) | **Design only**; no multi-leg execution implementation or capability claim | ADR-010; keep partial-leg failure and exposure semantics explicit |
+| Pinned global architecture comparison | **Research deliverable complete in this PR** | `docs/research/2026-11-global-architecture-comparison.md`; exact LEAN, NautilusTrader, Hummingbot, OpenAlgo, CCXT and Indian SDK source revisions and source/test paths recorded. |
 
 QX-07 closure is a current update that supersedes the pre-merge snapshot still preserved in historical sections of `docs/STATUS.md`. The final slice's recorded local candidate validation was default **2,695 passed / 1 skipped** and Dhan-enabled **2,696 passed**, with Ruff/format, strict mypy, and independent review recorded as passing. These results belong to candidate SHA `a5219cf7616f34483e3c596d3feb47ac4c00673f`; they are local evidence, not GitHub Actions evidence, and do not establish production-broker or LIVE readiness.
 
@@ -91,15 +93,24 @@ The charges contract/design is available in `docs/planning/india-market-charges-
 
 Issue [#207](https://github.com/jignesh2795/QuantX/issues/207) remains the meta review tracker; keep it updated as these workstreams move.
 
-## 4. Global market and crypto work — retained, not yet implementation-ready
+## 4. Global market and crypto work — research completed; implementation remains deferred
 
-The market-module migration is now merged. QuantX has the intended extension seam, but India is still the only implemented market. The digital-assets package is interface-only; Delta Exchange India, Binance and other international venues are not implemented or LIVE-eligible.
+The pinned-source comparison in [`docs/research/2026-11-global-architecture-comparison.md`](../research/2026-11-global-architecture-comparison.md) completes this research deliverable. It records source revisions, implementation/test paths, QuantX equivalents and adopt/adapt/defer/reject decisions for LEAN, NautilusTrader, Hummingbot, OpenAlgo, CCXT and official Indian broker SDKs.
 
-- The global architecture proposal branch remains docs-only, with global product vision, staged support roadmap and comparative audit plan; it is not merged into `main`.
-- The crypto extension proposal remains unmerged. Neither proposal establishes connector, data, regulatory or LIVE support.
-- The comparative architecture audit is **not complete**: it still needs pinned source revisions and source/test inspection for LEAN, NautilusTrader, Hummingbot, OpenAlgo and relevant Indian-market projects.
-- Produce a source-backed matrix: exact upstream revision; inspected source/test paths; equivalent QuantX path; observed difference and consequence; adopt/adapt/defer/reject decision; required tests/migration; confidence. Then update the market-support matrix and select one next research/data vertical based on user demand, data/API access, legal/regulatory constraints and scope.
-- Do not merge stale proposal branches wholesale, split the repo, broaden India-only LIVE policy, or infer crypto support from a region/asset-class enum. A new market requires explicit data/rule provenance, contract/conformance tests, paper evidence and a separate LIVE eligibility review.
+The comparison does **not** establish global-market, crypto or additional broker support. The market-module migration remains merged; India is still the only implemented market and the digital-assets module remains interface-only. The global architecture and crypto proposals remain unmerged design references. Do not merge them wholesale, split the repository or broaden India-only LIVE policy.
+
+### Research conclusion and next bounded vertical
+
+The data/research/provenance spine is complete through R1-C14. The Strategy Platform parent M4 remains active because Python/Flow runtime parity is still an exit criterion. QX-08 M1–M4 and M4.1 paper rehearsal prove the Python strategy path, not a Flow authoring/compiler path.
+
+**Recommended next implementation: M4.5 — minimal declarative Flow-to-existing-runtime parity.** Implement a typed/versioned Flow definition, graph validation and a deterministic compiler/runtime adapter that conforms to the existing `ExecutableStrategy` protocol and is invoked through `StrategyRuntime`. Preserve deployment-owned context, `StrategyExecutionPreparer`, risk/policy checks and the canonical paper/backtest consumers. The Flow graph must describe strategy intent only; no direct broker/REST/order actions, account writes, LIVE capability, scheduler, webhook, arbitrary Python, UI or AI nodes in the first slice. The source-backed rationale, proposed node subset, four implementation batches and acceptance matrix are in the research report.
+
+### Still blocked or deferred
+
+- **#267:** blocked pending credible alternative authoritative source/provider evidence; keep the existing pre-collection/no-reservation/no-submit boundary.
+- **#266:** blocked on the missing 0/7 required Dhan fixture set; do not infer account/session equity.
+- **CCXT / digital assets / international venues:** deferred until a specific product demand, market scope, data/API access and separate market/LIVE eligibility review exist.
+- **#206 conformance suites and schemas:** after #199 defines the public API/testing stability policy; do not duplicate provider contract definitions.
 
 ## 5. Project presentation and public readiness
 
@@ -130,15 +141,16 @@ For every implementation slice:
 
 ## 7. Immediate next task
 
-**Current #267 disposition: blocked pending a credible alternative provider or materially new source.** The Dhan field-by-field feasibility matrix is already documented in the issue history, and the current-main plugin inventory contains only Dhan and Reference Broker; Reference Broker has no LIVE evidence-source provider. Dhan declares zero supported fields. Keep the existing pre-collection/no-reservation/no-submit block. Do not repeat the same Dhan audit or add another Dhan wrapper until a candidate source can plausibly supply every configured mandatory field with correct economics, identity binding, completeness, observation time/freshness and precision.
+**Next active product milestone: M4.5 — minimal declarative Flow-to-existing-runtime parity.** Start with the versioned domain contract and graph validator, not a visual editor or new execution engine. The compiled Flow must implement the existing `ExecutableStrategy` contract and pass through `StrategyRuntime` with the same identity, event-time, HOLD/BUY/SELL and intent checks as Python strategies. It must not expose broker, network, filesystem, scheduler, webhook or LIVE capabilities. The downstream deployment, context binding, risk/policy preparation and paper/backtest execution path remains canonical.
 
-**Next active product/research task:** complete the pinned-source comparative architecture matrix for LEAN, NautilusTrader, Hummingbot, OpenAlgo and relevant Indian-market projects. Record exact upstream revisions, inspected source/test paths, QuantX equivalents, observed differences/consequences, adopt/adapt/defer/reject decisions, tests/migration required and confidence. Use the evidence to select one next data/research vertical and define a bounded milestone. Keep strategy/research delivery moving while LIVE remains safely blocked.
+Keep each implementation batch bounded:
+1. versioned Flow graph definition, immutable node/edge types and deterministic canonical identity;
+2. graph/schema/cycle/type/context validation with stable errors and fail-before-side-effects;
+3. pure deterministic compile/interpreter adapter to the existing strategy protocol;
+4. Python-vs-Flow semantic parity and offline paper/backtest rehearsal tests.
 
-After that research deliverable, sequence public readiness:
-1. Rebase/reconcile #199 / PR #306 onto current main and locally validate the curated provisional API.
-2. Resolve #190's real private-disclosure path before broad contributor recruitment.
-3. Finish the lightweight getting-started/community/release docs, then #206 conformance tooling once the public testing/API tier is defined.
+Do not expand the first Flow slice into React UI, scheduling, webhook triggers, generic scripting, AI nodes, cross-market support, cloud execution, direct order nodes or a new strategy runtime. Public API #199 remains open; complete it as a separate bounded slice after the Flow contract stabilizes. Resolve #190's real private-disclosure path before broad contributor recruitment; sequence #206 after the #199 API stability policy. #203 remains conditional on safe sandbox access and #205 remains deferred while reliable Python 3.13 validation infrastructure is unavailable.
 
-#266 remains blocked on missing authoritative fixtures/source evidence. Preserve realized-only `daily_pnl`, existing `max_drawdown`, and the documented session-equity contract; do not implement account/session equity from absent data. #203 remains conditional on genuine safe sandbox availability. #205 remains blocked while reliable Python 3.13 validation infrastructure is unavailable.
+#267 remains blocked pending credible alternative authoritative evidence; preserve the pre-collection/no-reservation/no-submit block. #266 remains blocked on missing fixtures; preserve realized-only `daily_pnl`, current `max_drawdown` and the documented session-equity contract. No broker, sandbox, production or LIVE operation is part of M4.5.
 
-This plan records priorities and acceptance intent; it does not itself claim implementation, test, CI, sandbox, broker or LIVE results.
+This plan records prioritization and acceptance intent; it does not itself claim Flow implementation, tests, CI, sandbox, broker or LIVE results.
