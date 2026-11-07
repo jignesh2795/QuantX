@@ -26,8 +26,8 @@ from quantx.strategy.flow import (
     FlowEvaluationError,
     FlowExecutableStrategy,
     FlowExecutionPlan,
-    FlowNode,
     FlowInterpreter,
+    FlowNode,
 )
 from quantx.strategy.ir import StrategyIR
 from quantx.strategy.registry import StrategyRegistry
@@ -119,11 +119,15 @@ def _definition(
     if intent_side is not None:
         nodes.extend(
             (
-                FlowNode("intent", "trade_intent", (
-                    ("order_type", "MARKET"),
-                    ("side", intent_side),
-                    ("time_in_force", "DAY"),
-                )),
+                FlowNode(
+                    "intent",
+                    "trade_intent",
+                    (
+                        ("order_type", "MARKET"),
+                        ("side", intent_side),
+                        ("time_in_force", "DAY"),
+                    ),
+                ),
                 FlowNode("quantity", "decimal_constant", (("value", "2"),)),
             )
         )
