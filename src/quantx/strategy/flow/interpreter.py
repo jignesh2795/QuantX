@@ -19,6 +19,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from decimal import (
+    ROUND_HALF_EVEN,
     Clamped,
     Context,
     Decimal,
@@ -27,12 +28,11 @@ from decimal import (
     FloatOperation,
     Inexact,
     InvalidOperation,
-    localcontext,
     Overflow,
-    ROUND_HALF_EVEN,
     Rounded,
     Subnormal,
     Underflow,
+    localcontext,
 )
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -53,7 +53,6 @@ from ..engine_snapshot import (
 from .catalog import FLOW_NODE_SPECS
 from .compiler import FlowCompiler, FlowExecutionPlan, FlowInstruction
 from .definition import FLOW_DECIMAL_CONTRACT_VERSION, FlowNodeKind
-
 
 FLOW_DECIMAL_PRECISION = 34
 FLOW_DECIMAL_ROUNDING = ROUND_HALF_EVEN
@@ -424,9 +423,7 @@ class FlowInterpreter:
             payload = {
                 "kind": "candle",
                 "timeframe": candle.timeframe,
-                "timestamp": candle.timestamp.astimezone(UTC).isoformat(
-                    timespec="microseconds"
-                ),
+                "timestamp": candle.timestamp.astimezone(UTC).isoformat(timespec="microseconds"),
                 "open": _decimal_token(candle.open),
                 "high": _decimal_token(candle.high),
                 "low": _decimal_token(candle.low),
@@ -440,9 +437,7 @@ class FlowInterpreter:
             {
                 "instrument": candle.instrument.to_payload(),
                 "timeframe": candle.timeframe,
-                "timestamp": candle.timestamp.astimezone(UTC).isoformat(
-                    timespec="microseconds"
-                ),
+                "timestamp": candle.timestamp.astimezone(UTC).isoformat(timespec="microseconds"),
                 "open": _decimal_token(candle.open),
                 "high": _decimal_token(candle.high),
                 "low": _decimal_token(candle.low),
@@ -459,9 +454,7 @@ class FlowInterpreter:
             "as_of": context.as_of.isoformat(timespec="microseconds"),
             "event": {
                 "data_type": event.data_type.value,
-                "timestamp": event.timestamp.astimezone(UTC).isoformat(
-                    timespec="microseconds"
-                ),
+                "timestamp": event.timestamp.astimezone(UTC).isoformat(timespec="microseconds"),
                 "instrument": event.instrument.to_payload(),
                 "payload": payload,
             },
@@ -505,9 +498,7 @@ class FlowInterpreter:
                     "evidence_time": (
                         None
                         if fact.evidence_time is None
-                        else fact.evidence_time.astimezone(UTC).isoformat(
-                            timespec="microseconds"
-                        )
+                        else fact.evidence_time.astimezone(UTC).isoformat(timespec="microseconds")
                     ),
                 }
             )
@@ -562,16 +553,12 @@ class FlowInterpreter:
                     "evidence_time": (
                         None
                         if fact.evidence_time is None
-                        else fact.evidence_time.astimezone(UTC).isoformat(
-                            timespec="microseconds"
-                        )
+                        else fact.evidence_time.astimezone(UTC).isoformat(timespec="microseconds")
                     ),
                     "effective_at": (
                         None
                         if fact.effective_at is None
-                        else fact.effective_at.astimezone(UTC).isoformat(
-                            timespec="microseconds"
-                        )
+                        else fact.effective_at.astimezone(UTC).isoformat(timespec="microseconds")
                     ),
                     "reason": fact.reason,
                 }

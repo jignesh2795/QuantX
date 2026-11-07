@@ -112,9 +112,7 @@ class FlowCompiler:
         node_map = {node.node_id: node for node in canonical_definition.nodes}
         adjacency: dict[str, set[str]] = {node_id: set() for node_id in node_map}
         indegree = {node_id: 0 for node_id in node_map}
-        bindings: dict[str, list[FlowInputBinding]] = {
-            node_id: [] for node_id in node_map
-        }
+        bindings: dict[str, list[FlowInputBinding]] = {node_id: [] for node_id in node_map}
 
         for edge in canonical_definition.edges:
             bindings[edge.target_node_id].append(

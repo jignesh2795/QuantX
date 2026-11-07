@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, localcontext, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal, localcontext
 from pathlib import Path
 
 import pytest
@@ -40,7 +40,6 @@ from quantx.strategy.flow import (
     FlowNode,
 )
 from quantx.strategy.ir import StrategyIR
-
 
 _NOW = datetime(2026, 11, 7, 9, 30, tzinfo=UTC)
 _INSTRUMENT = InstrumentId("NSE", "FLOWTEST")
@@ -983,9 +982,7 @@ def test_duplicate_complete_position_facts_fail_closed() -> None:
         intent_source="intent",
     )
     context = _context(
-        positions=EvidenceCollection.known(
-            (_position(Decimal("1")), _position(Decimal("2")))
-        )
+        positions=EvidenceCollection.known((_position(Decimal("1")), _position(Decimal("2"))))
     )
 
     with pytest.raises(FlowEvaluationError, match="ambiguous_position_evidence"):
@@ -1012,9 +1009,7 @@ def _order_action_graph() -> FlowDefinition:
 
 
 def test_engine_active_order_exists_treats_unknown_as_nonterminal() -> None:
-    context = _context(
-        orders=EvidenceCollection.known((_order(OrderStatus.UNKNOWN),))
-    )
+    context = _context(orders=EvidenceCollection.known((_order(OrderStatus.UNKNOWN),)))
 
     assert _evaluate(_order_action_graph(), context).signal.action is SignalAction.BUY
 
@@ -1032,9 +1027,7 @@ def test_incomplete_order_collection_with_a_witnessed_active_order_proves_true()
 
 def test_known_empty_orders_prove_false_but_incomplete_absence_does_not() -> None:
     available = _context(orders=EvidenceCollection.known(()))
-    incomplete = _context(
-        orders=EvidenceCollection.incomplete((), "partial order inventory")
-    )
+    incomplete = _context(orders=EvidenceCollection.incomplete((), "partial order inventory"))
     optional_graph = _flow(
         extra_nodes=(
             FlowNode("orders", "engine_active_order_exists"),
