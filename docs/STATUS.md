@@ -1,5 +1,61 @@
 # QuantX Status
 
+## Strategic roadmap reconciliation — 2026-11-06
+
+**Verified main HEAD:** `8fd82b52e47cfaedd60f7df8aa30553636fa9d82` (PR #309 market-module migration merged).
+
+**Overall alignment:** **YELLOW — architecture remains aligned; delivery focus needs rebalancing.** QuantX remains an India-first product built on a vendor-neutral, market-neutral core. The India market-module boundary is now implemented. Global/crypto extensibility is a design goal, not evidence of additional market support. Safety remediation remains necessary, but it must be bounded so strategy/research delivery and source-backed global architecture research continue.
+
+### Completed since the previous roadmap snapshot
+
+- **PR #309 — India market-module migration:** squash-merged to `main` at `8fd82b52e47cfaedd60f7df8aa30553636fa9d82`; validated candidate `a3e52478e4cceef05e42d424048c51289f435020`. The canonical India implementation now lives under `quantx.markets.india`; the caller-populated `MarketRegistry`, market-neutral contracts, explicit registry composition for research/backtest/paper, trusted-check registration, and deprecated `quantx.india` compatibility shims are in place. India remains the only implemented market. Digital assets is a placeholder only. No FX, additional connector, new LIVE venue or LIVE authorization was added.
+- **PR #309 candidate validation:** default full suite **3,465 passed / 3 skipped**; Dhan-extra **3,468 passed**; Ruff check (82 changed Python files), Ruff format, strict mypy, domain/execution/persistence package coverage, both release gates, validation self-test **37/37**, release self-test **113/113**, skill integrity **35/35**, and `git diff --check` passed. Codex reviewed the exact candidate and reported no major issues. Independent review was **PASS WITH NON-BLOCKING FINDINGS** (three P3 observations: shared India pack/version naming, additional compatibility-shim side-effect assertions, and inherited documentation formatting). These results belong to candidate `a3e5247...`; the squash merge commit was not separately rerun through the full suite. No Actions, broker, sandbox, production or LIVE operation is claimed.
+- **PR #307 — Dhan statement observations:** merged at `93ae5d0be0dec94308d85856c58a5e2f7be0eca2` from validated candidate `11c1ec4959771755d6262a23bd1ed24f71cc6bbb`. It adds read-only ledger and page-scoped trade-history transport observations. These are not wired into `DhanRiskEvidenceSource`; one page is not proof of complete trade history, and ledger `runbal` is not account equity or session P&L. Candidate validation was default **3,404 passed / 3 skipped**, Dhan-extra **3,407 passed**, focused set **100 passed**, plus Ruff, strict mypy, package coverage, diff/worktree checks, both release gates, and self-tests **37/37** and **113/113**. These are candidate-local results, not a post-merge rerun or CI evidence.
+- **PR #313 — #266 fixture blocker:** merged at `d8af6f6d5bb562fbff3f8232edf4a1f19445d312`. The read-only inventory at the documented baseline found **0/7 required** Dhan fixtures and the optional diary absent. Source feasibility remains unestablished; no static reconciliation or account-equity implementation is justified.
+- **Human contributor/onboarding baseline:** issues #187 and #204 are closed. `CONTRIBUTING.md`, `ARCHITECTURE.md`, and a credential-free `examples/paper_smoke.py` are present. The example is local/paper-only and does not prove broker or LIVE behavior.
+
+### Reproduction command reference for historical PR #309 / #307 validation
+
+The PR records preserve the exact candidate SHAs and reported results, but the GitHub-visible summaries do **not** preserve the original raw command `argv` records or the local evidence JSON. The commands below are the repository's **canonical reproduction commands**, derived from the current `quantx-validation-gate` and `quantx-release-gate` scripts; they are not represented as a recovered transcript of the historical runs. Run them only in a detached worktree at the named candidate and use that PR's exact base.
+
+PR #309 candidate `a3e52478e4cceef05e42d424048c51289f435020`, base `41550505922a294daef4c6aa73fb4c8420b42ab8`:
+
+```powershell
+uv sync --dev
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8 --output <default-validation-json>
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence <default-validation-json> --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8
+
+uv sync --dev --extra dhan
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8 --output <dhan-validation-json>
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --evidence <dhan-validation-json> --expected-head a3e52478e4cceef05e42d424048c51289f435020 --base 41550505922a294daef4c6aa73fb4c8420b42ab8
+
+python .opencode/skills/quantx-validation-gate/scripts/run_validation.py --self-test
+python .opencode/skills/quantx-release-gate/scripts/release_check.py --self-test
+python .opencode/skills/quantx-skills-maintainer/scripts/skill_integrity.py --check
+```
+
+PR #307 candidate `11c1ec4959771755d6262a23bd1ed24f71cc6bbb`, base `ecbb202b8864688b521b1836f5dd9b36ca1d929f`: run the same command sequence with those two SHAs substituted. When substituting, pass `--base ecbb202b8864688b521b1836f5dd9b36ca1d929f` to **both** `release_check.py` invocations (default and Dhan-extra), alongside the substituted candidate SHA. The validation runner itself executes canonical `uv run pytest`, changed-file `uv run ruff check` and `uv run ruff format --check`, `uv run mypy`, package coverage, `git diff --check`, and `git status --porcelain`; the release checker then verifies the recorded command scope and exact HEAD binding.
+
+These commands document reproducibility for future reruns. They do not upgrade the historical owner-reported counts into CI evidence or imply that the old raw argv has been recovered.
+
+### Current safety disposition
+
+- **#267 remains OPEN and fail-closed.** Trusted-clock freshness, application-owned source composition, exact request binding, identity/provenance checks and pre-reservation rejection are implemented. PR #285 adds supplemental broker-reported position-row P&L; PR #307 adds read-only ledger/trade-history transport. Neither supplies complete account risk evidence. Dhan still declares no supported LIVE risk fields (`_SUPPORTED_FIELDS` empty); required account-financial values, marked exposure, account/day `DAILY_PNL`, `EQUITY` and `HIGH_WATER_MARK` remain unavailable. Public LIVE dispatch remains blocked before reservation and broker submission. The Dhan field-by-field feasibility matrix is already recorded in the #267 issue history (2026-11-05), and a current-main provider inventory audit (2026-11-06) confirms the only plugin adapters are Dhan and Reference Broker; Reference Broker does not implement the LIVE evidence-source provider contract. Dhan `_SUPPORTED_FIELDS` remains empty. No existing registered provider can satisfy the mandatory field set. #267 is therefore **blocked pending selection of a credible alternative provider or materially new source evidence**; do not repeat the Dhan matrix or add Dhan-specific wrapper/transport layers absent a new source capability.
+- **#266 remains OPEN and blocked.** PR #312 documents the accounting contract. Preserve realized-only `daily_pnl` and existing `max_drawdown`; do not implement account/session equity from absent fixtures. Revisit only with a coherent, lawfully obtained, redacted fixture set or a separately evaluated authoritative source.
+- Completed controls remain complete: #239/#240/#241, #280, #189, #198, #269, #271 and #197. Do not re-open or reimplement them without a new reproduced defect.
+
+### Product and public-readiness disposition
+
+- **Open:** #199 curated provisional public API (PR #306 remains draft, on an older base, and without exact-SHA local validation); #190 security reporting policy (no verified private reporting path is recorded; do not invent one); #200 effective-dated India charges schedule; #202 Dhan transport/dead-module audit; #206 reusable conformance tests and versioned schemas; #207 review tracker.
+- **Conditional/deferred:** #203 sandbox lifecycle evidence only if a safe broker sandbox is actually available; #205 Python 3.13 support remains blocked until a reliable validation runner exists. GitHub Actions/paid CI remains unavailable by project policy.
+- The presentation plan is **partially complete**, not complete: `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, and `docs/GETTING_STARTED.md` are absent; README/package metadata still describe Indian markets; `docs/STATUS.md` remains a long historical ledger (1,000+ lines) and has not yet been split into a concise current status plus preserved history. Do this as separate documentation work, preserving history and all links.
+
+### Global architecture and strategy/research direction
+
+The market-module migration establishes the intended extension seam, but it does not finish the comparative architecture research or implement crypto/international markets. The global architecture and crypto proposals remain separate, unmerged, docs-only proposals. The next research deliverable is a pinned-source comparison of LEAN, NautilusTrader, Hummingbot, OpenAlgo and relevant Indian-market projects, recording inspected revisions/source/tests, QuantX equivalents, practical differences, adopt/adapt/defer/reject decisions, required tests/migrations and confidence. Use that evidence to choose **one** next data/research vertical. Do not start another broad rewrite or add a connector merely because a proposal names it.
+
+---
+
 ## Issue #201 — finite Decimal-only Money and currency-safe arithmetic (2026-11-06)
 
 PR [#310](https://github.com/jignesh2795/QuantX/pull/310) was squash-merged
@@ -1051,20 +1107,34 @@ C14 explicitly defers scheduling, retry orchestration, streaming, production his
 
 GitHub Actions is not a repository validation gate while billing is disabled; OpenCode/local validation remains the execution gate. No production-broker end-to-end execution has been performed.
 
-## Market-module migration mainline (in progress)
+## Market-module migration — completed (2026-11-06)
 
-A bounded market-module migration is being rebuilt on current main through
-`feat/market-module-migration-mainline-v1`. It moves the canonical India
-implementation to `quantx.markets.india`, adds caller-populated
-`MarketRegistry`, common market-neutral contracts, the India module and
-digital-assets placeholder, trusted registration, MarketContext propagation
-into research/backtest/paper execution, legacy compatibility shims, and the
-required boundary and neutrality tests. It does not alter
-`application/live_execution.py`, add LIVE execution paths, or change broker
-authorization. #267 remains open and fail-closed; #266 accounting semantics
-remain separate follow-up work. This entry records in-progress work, not a
-merge or release.
+PR [#309](https://github.com/jignesh2795/QuantX/pull/309) was squash-merged
+into `main` at `8fd82b52e47cfaedd60f7df8aa30553636fa9d82` from validated
+candidate `a3e52478e4cceef05e42d424048c51289f435020` on branch
+`feat/market-module-migration-mainline-v1`. The candidate was built on the
+then-current implementation baseline `41550505922a294daef4c6aa73fb4c8420b42ab8`;
+two later documentation-only main commits were incorporated by the merge.
+Candidate validation results are recorded above and apply to the candidate,
+not a separate full-suite run of the squash commit.
 
-## Market-module migration mainline reconciliation (2026-11-06)
+The migration moves the canonical India implementation to
+`quantx.markets.india`, adds a caller-populated `MarketRegistry` and
+market-neutral common contracts, adds explicit MarketContext-based selection
+for research/backtest/paper, adds the India module and interface-only digital
+assets placeholder, and retains deprecated `quantx.india` compatibility
+shims. Registration remains structural (does not require subclassing
+`MarketModuleBase`) and validates context/region, required metadata and
+duplicate registrations. Research/backtest/paper callers must explicitly
+supply a registry; missing or unsupported market context fails closed.
 
-Reconciled with current main at 41550505922a294daef4c6aa73fb4c8420b42ab8. The structural MarketModule registry correction allows non-MarketModuleBase implementations to register while preserving all field, context, duplicate and fail-closed validations. #267 remains Wave A1 and is not resolved by this migration.
+**Scope boundary:** India is the only implemented market. The digital-assets
+module is not implemented. No other market, FX, connector, broker SDK behavior
+or LIVE venue was added. `application/live_execution.py` remains unchanged;
+LIVE stays India-only and #267's source-evidence block remains in force.
+
+Non-blocking follow-up observations from the independent final review:
+shared India pack/version identifiers remain equity-named across the two
+registered contexts; compatibility shims could gain more direct no-broker/
+no-network/no-LIVE side-effect assertions; inherited documentation formatting
+can be cleaned separately. None was assessed as a P0/P1/P2 blocker.
