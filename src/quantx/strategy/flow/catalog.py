@@ -124,8 +124,8 @@ def _output(name: str, value_type: FlowValueType) -> FlowPortSpec:
     return FlowPortSpec(name, value_type)
 
 
-_specs = {
-    FlowNodeKind.EVENT_FIELD: FlowNodeSpec(
+_specs: dict[str, FlowNodeSpec] = {
+    FlowNodeKind.EVENT_FIELD.value: FlowNodeSpec(
         FlowNodeKind.EVENT_FIELD,
         (
             _parameter(
@@ -147,7 +147,7 @@ _specs = {
         (),
         (_output("value", FlowValueType.OPTIONAL_DECIMAL),),
     ),
-    FlowNodeKind.PRIOR_CANDLE_FIELD: FlowNodeSpec(
+    FlowNodeKind.PRIOR_CANDLE_FIELD.value: FlowNodeSpec(
         FlowNodeKind.PRIOR_CANDLE_FIELD,
         (
             _parameter(
@@ -165,43 +165,43 @@ _specs = {
         (),
         (_output("value", FlowValueType.OPTIONAL_DECIMAL),),
     ),
-    FlowNodeKind.ENGINE_POSITION_QUANTITY: FlowNodeSpec(
+    FlowNodeKind.ENGINE_POSITION_QUANTITY.value: FlowNodeSpec(
         FlowNodeKind.ENGINE_POSITION_QUANTITY,
         (),
         (),
         (_output("value", FlowValueType.OPTIONAL_DECIMAL),),
     ),
-    FlowNodeKind.ENGINE_ACTIVE_ORDER_EXISTS: FlowNodeSpec(
+    FlowNodeKind.ENGINE_ACTIVE_ORDER_EXISTS.value: FlowNodeSpec(
         FlowNodeKind.ENGINE_ACTIVE_ORDER_EXISTS,
         (),
         (),
         (_output("value", FlowValueType.OPTIONAL_BOOLEAN),),
     ),
-    FlowNodeKind.DECIMAL_CONSTANT: FlowNodeSpec(
+    FlowNodeKind.DECIMAL_CONSTANT.value: FlowNodeSpec(
         FlowNodeKind.DECIMAL_CONSTANT,
         (_parameter("value", FlowParameterType.DECIMAL),),
         (),
         (_output("value", FlowValueType.DECIMAL),),
     ),
-    FlowNodeKind.CONFIDENCE_CONSTANT: FlowNodeSpec(
+    FlowNodeKind.CONFIDENCE_CONSTANT.value: FlowNodeSpec(
         FlowNodeKind.CONFIDENCE_CONSTANT,
         (_parameter("value", FlowParameterType.CONFIDENCE),),
         (),
         (_output("value", FlowValueType.CONFIDENCE),),
     ),
-    FlowNodeKind.BOOLEAN_CONSTANT: FlowNodeSpec(
+    FlowNodeKind.BOOLEAN_CONSTANT.value: FlowNodeSpec(
         FlowNodeKind.BOOLEAN_CONSTANT,
         (_parameter("value", FlowParameterType.BOOLEAN),),
         (),
         (_output("value", FlowValueType.BOOLEAN),),
     ),
-    FlowNodeKind.STRING_CONSTANT: FlowNodeSpec(
+    FlowNodeKind.STRING_CONSTANT.value: FlowNodeSpec(
         FlowNodeKind.STRING_CONSTANT,
         (_parameter("value", FlowParameterType.STRING),),
         (),
         (_output("value", FlowValueType.STRING),),
     ),
-    FlowNodeKind.SIGNAL_ACTION_CONSTANT: FlowNodeSpec(
+    FlowNodeKind.SIGNAL_ACTION_CONSTANT.value: FlowNodeSpec(
         FlowNodeKind.SIGNAL_ACTION_CONSTANT,
         (_parameter(
             "value",
@@ -211,7 +211,7 @@ _specs = {
         (),
         (_output("value", FlowValueType.SIGNAL_ACTION),),
     ),
-    FlowNodeKind.DECIMAL_BINARY: FlowNodeSpec(
+    FlowNodeKind.DECIMAL_BINARY.value: FlowNodeSpec(
         FlowNodeKind.DECIMAL_BINARY,
         (_parameter(
             "operator",
@@ -224,7 +224,7 @@ _specs = {
         ),
         (_output("value", FlowValueType.DECIMAL),),
     ),
-    FlowNodeKind.DECIMAL_COMPARE: FlowNodeSpec(
+    FlowNodeKind.DECIMAL_COMPARE.value: FlowNodeSpec(
         FlowNodeKind.DECIMAL_COMPARE,
         (_parameter(
             "operator",
@@ -237,7 +237,7 @@ _specs = {
         ),
         (_output("value", FlowValueType.BOOLEAN),),
     ),
-    FlowNodeKind.BOOLEAN_BINARY: FlowNodeSpec(
+    FlowNodeKind.BOOLEAN_BINARY.value: FlowNodeSpec(
         FlowNodeKind.BOOLEAN_BINARY,
         (_parameter("operator", FlowParameterType.CHOICE, choices=("AND", "OR")),),
         (
@@ -246,37 +246,37 @@ _specs = {
         ),
         (_output("value", FlowValueType.BOOLEAN),),
     ),
-    FlowNodeKind.BOOLEAN_NOT: FlowNodeSpec(
+    FlowNodeKind.BOOLEAN_NOT.value: FlowNodeSpec(
         FlowNodeKind.BOOLEAN_NOT,
         (),
         (_input("value", FlowValueType.BOOLEAN),),
         (_output("value", FlowValueType.BOOLEAN),),
     ),
-    FlowNodeKind.IS_AVAILABLE_DECIMAL: FlowNodeSpec(
+    FlowNodeKind.IS_AVAILABLE_DECIMAL.value: FlowNodeSpec(
         FlowNodeKind.IS_AVAILABLE_DECIMAL,
         (),
         (_input("value", FlowValueType.OPTIONAL_DECIMAL),),
         (_output("value", FlowValueType.BOOLEAN),),
     ),
-    FlowNodeKind.IS_AVAILABLE_BOOLEAN: FlowNodeSpec(
+    FlowNodeKind.IS_AVAILABLE_BOOLEAN.value: FlowNodeSpec(
         FlowNodeKind.IS_AVAILABLE_BOOLEAN,
         (),
         (_input("value", FlowValueType.OPTIONAL_BOOLEAN),),
         (_output("value", FlowValueType.BOOLEAN),),
     ),
-    FlowNodeKind.REQUIRE_DECIMAL: FlowNodeSpec(
+    FlowNodeKind.REQUIRE_DECIMAL.value: FlowNodeSpec(
         FlowNodeKind.REQUIRE_DECIMAL,
         (),
         (_input("value", FlowValueType.OPTIONAL_DECIMAL),),
         (_output("value", FlowValueType.DECIMAL),),
     ),
-    FlowNodeKind.REQUIRE_BOOLEAN: FlowNodeSpec(
+    FlowNodeKind.REQUIRE_BOOLEAN.value: FlowNodeSpec(
         FlowNodeKind.REQUIRE_BOOLEAN,
         (),
         (_input("value", FlowValueType.OPTIONAL_BOOLEAN),),
         (_output("value", FlowValueType.BOOLEAN),),
     ),
-    FlowNodeKind.SELECT_DECIMAL: FlowNodeSpec(
+    FlowNodeKind.SELECT_DECIMAL.value: FlowNodeSpec(
         FlowNodeKind.SELECT_DECIMAL,
         (),
         (
@@ -286,7 +286,7 @@ _specs = {
         ),
         (_output("value", FlowValueType.DECIMAL),),
     ),
-    FlowNodeKind.ACTION_SELECT: FlowNodeSpec(
+    FlowNodeKind.ACTION_SELECT.value: FlowNodeSpec(
         FlowNodeKind.ACTION_SELECT,
         (),
         (
@@ -296,7 +296,7 @@ _specs = {
         ),
         (_output("value", FlowValueType.SIGNAL_ACTION),),
     ),
-    FlowNodeKind.TRADE_INTENT: FlowNodeSpec(
+    FlowNodeKind.TRADE_INTENT.value: FlowNodeSpec(
         FlowNodeKind.TRADE_INTENT,
         (
             _parameter("order_type", FlowParameterType.CHOICE, choices=("MARKET",)),
@@ -306,7 +306,7 @@ _specs = {
         (_input("quantity", FlowValueType.DECIMAL),),
         (_output("intent", FlowValueType.TRADE_INTENT),),
     ),
-    FlowNodeKind.STRATEGY_RESULT: FlowNodeSpec(
+    FlowNodeKind.STRATEGY_RESULT.value: FlowNodeSpec(
         FlowNodeKind.STRATEGY_RESULT,
         (),
         (

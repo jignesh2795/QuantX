@@ -102,6 +102,7 @@ def test_closed_catalogue_accepts_minimal_typed_strategy_result_graph() -> None:
 
 def test_catalogue_is_closed_and_trade_intent_is_not_an_order_action() -> None:
     assert FlowNodeKind.STRATEGY_RESULT in FLOW_NODE_SPECS
+    assert all(type(kind) is str for kind in FLOW_NODE_SPECS)
     assert FlowNodeKind.TRADE_INTENT in FLOW_NODE_SPECS
     assert "place_order" not in FLOW_NODE_SPECS
     assert "submit_order" not in FLOW_NODE_SPECS
