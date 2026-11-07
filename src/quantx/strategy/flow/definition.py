@@ -174,6 +174,15 @@ class FlowDefinition:
             for item in self.market_contexts
         ):
             raise TypeError("flow market contexts must use MarketRegion and MarketFamily enums")
+        for item in self.market_contexts:
+            if item.country_code is not None:
+                country_code = item.country_code.strip()
+                if (
+                    len(country_code) != 2
+                    or not country_code.isascii()
+                    or not country_code.isalpha()
+                ):
+                    raise ValueError("flow country_code must be a two-letter ASCII alpha-2 code")
         if not isinstance(self.nodes, tuple):
             raise TypeError("flow nodes must be an immutable tuple")
         if any(not isinstance(item, FlowNode) for item in self.nodes):
@@ -214,7 +223,12 @@ class FlowDefinition:
             }
             for item in self.nodes
         ]
-        nodes.sort(key=lambda item: str(item["node_id"]))
+        nodes.sort(
+            key=lambda item: (
+                str(item["node_id"]),
+                json.dumps(item, sort_keys=True, separators=(",", ":")),
+            )
+        )
         edges = [
             {
                 "edge_id": item.edge_id,

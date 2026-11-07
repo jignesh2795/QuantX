@@ -110,6 +110,14 @@ def test_flow_definition_is_frozen_and_canonical_identity_ignores_graph_order() 
 
 
 
+
+def test_market_context_rejects_non_ascii_alpha2_country_code() -> None:
+    invalid = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, "NSE", "1!")
+
+    with pytest.raises(ValueError, match="two-letter ASCII alpha-2"):
+        _definition(contexts=(invalid,))
+
+
 def test_market_context_fingerprint_uses_canonical_venue_and_country_text() -> None:
     canonical = _context()
     equivalent = MarketContext(MarketRegion.INDIA, MarketFamily.EQUITY, " NSE ", "in")
@@ -138,6 +146,18 @@ def test_canonical_identity_changes_for_behavior_or_contract_version_changes() -
         changed_compiler.fingerprint,
     }
     assert len(fingerprints) == 4
+
+
+
+def test_duplicate_node_identity_fingerprints_are_order_independent_even_when_invalid() -> None:
+    buy = FlowNode("action", "signal_action_constant", (("value", "BUY"),))
+    sell = FlowNode("action", "signal_action_constant", (("value", "SELL"),))
+    confidence = FlowNode("confidence", "confidence_constant", (("value", "0.75"),))
+
+    first = _definition(nodes=(buy, sell, confidence))
+    second = _definition(nodes=(confidence, sell, buy))
+
+    assert first.fingerprint == second.fingerprint
 
 
 def test_canonical_payload_is_a_fresh_mutable_copy_not_definition_state() -> None:
