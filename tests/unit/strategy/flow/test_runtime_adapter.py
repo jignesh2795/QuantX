@@ -350,11 +350,8 @@ def test_flow_and_python_strategies_share_semantic_result_contract() -> None:
                 ),
             )
 
-    flow_result = (
-        StrategyRuntime(FlowExecutableStrategy(_plan(intent_side="BUY"))).evaluate(
-            _event(), _ir(), engine=_engine()
-        )
-    )
+    flow_strategy = FlowExecutableStrategy(_plan(intent_side="BUY"))
+    flow_result = StrategyRuntime(flow_strategy).evaluate(_event(), _ir(), engine=_engine())
     python_result = StrategyRuntime(PythonEquivalentStrategy()).evaluate(
         _event(),
         _ir(),
