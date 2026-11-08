@@ -248,9 +248,7 @@ def test_exercise_nonzero_unsupported_component_basis_fails_closed() -> None:
 
 
 def test_sell_side_stamp_duty_requires_explicit_sourced_zero() -> None:
-    model = _model(
-        _entry(side=IndiaTradeSide.SELL, rate_set=_rates(stamp_duty_rate=D("0.00015")))
-    )
+    model = _model(_entry(side=IndiaTradeSide.SELL, rate_set=_rates(stamp_duty_rate=D("0.00015"))))
     with pytest.raises(IndiaChargeRuleUnavailable, match="explicit zero rule"):
         model.calculate(_context(trade_side=IndiaTradeSide.SELL))
 
@@ -323,9 +321,7 @@ def test_unsupported_exchange_and_currency_fail_closed() -> None:
 
 def test_missing_effective_schedule_coverage_fails_closed() -> None:
     with pytest.raises(IndiaChargeRuleUnavailable, match="no charge schedule covers"):
-        _model().calculate(
-            _context(effective_at=datetime(2025, 12, 31, 23, 59, tzinfo=IST))
-        )
+        _model().calculate(_context(effective_at=datetime(2025, 12, 31, 23, 59, tzinfo=IST)))
 
 
 def test_empty_schedule_is_rejected() -> None:

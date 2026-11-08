@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -390,8 +390,10 @@ class IndiaMarketChargeModel:
 
         if context.pass_through_policy is None:
             raise IndiaChargeInputUnavailable("pass-through policy is required")
-        if context.brokerage is None or context.dp_charges is None or (
-            context.other_taxable_service_charges is None
+        if (
+            context.brokerage is None
+            or context.dp_charges is None
+            or (context.other_taxable_service_charges is None)
         ):
             raise IndiaChargeInputUnavailable(
                 "complete brokerage, DP and other-service inputs are required"
@@ -493,8 +495,7 @@ class IndiaMarketChargeModel:
                 taxable_base += client_amounts[component]
         if (
             incidence["stt"] is IndiaChargeIncidence.CLIENT_PASSTHROUGH
-            and context.stt_gst_treatment
-            is IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE
+            and context.stt_gst_treatment is IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE
         ):
             taxable_base += client_amounts["stt"]
         if (

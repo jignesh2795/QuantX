@@ -17,6 +17,7 @@ from quantx.ports.charges import (
     ChargeModel,
 )
 
+
 @dataclass(frozen=True, slots=True)
 class PercentageBpsChargeModel:
     """Configured percentage charge model expressed in basis points."""
