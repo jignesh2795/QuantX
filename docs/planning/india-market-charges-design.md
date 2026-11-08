@@ -1,7 +1,7 @@
 # QX-12 / #200 — India Market Charges: Source Inventory and Design
 
 **Branch:** `docs/quantx-master-work-program-2026-10` (documentation-only reconciliation branch)
-**Phase:** research + design only. No production source code changed. This document is tracked by the current master programme at `docs/planning/quantx-work-program-2026-10.md`. Source research and design assertions are retained from the prior review branch; test/runtime evidence remains uncollected for this revision.
+**Phase:** design and contract implementation. The first contract-only implementation slice is being introduced in `quantx.markets.india.charges`; no production tariff schedule or execution wiring is included. Source research and tariff-applicability gates below remain design/research inputs until independently verified.
 **Scope:** effective-dated Indian equity delivery, intraday, futures, and options transaction charges.
 **Related (tracked separately, not reopened):** #267 risk-evidence authority, #266 daily-loss semantics, #196/#197.
 
@@ -182,10 +182,10 @@ configuration, not embedded in the India schedule.
 1. `execution/charges.py` provides only `PercentageBpsChargeModel` — a single
    configured percentage. No effective date, no side/product awareness, no
    multi-component breakdown for Indian statutory charges.
-2. No India-specific charge module exists under `india/`.
+2. No India-specific charge module exists under `markets/india/`.
 3. `ChargeCalculationContext` carries only transaction value and optional currency; it lacks exchange scope, explicit equity product, client trade side, event kind, separate premium/exercise bases, client pass-through policy and bill-specific GST inputs/treatment.
 4. No effective-dated schedule selection mechanism for charges (the venue-rule
-   snapshot pattern in `india/rule_data.py` is the reusable template).
+   snapshot pattern in `markets/india/rule_data.py` is the reusable template).
 5. No charge-specific golden tests for statutory Indian charges.
 6. Paper/research execution uses `fee_bps` → `PercentageBpsChargeModel`; Indian
    statutory charges are not applied anywhere today.
@@ -216,7 +216,7 @@ configuration, not embedded in the India schedule.
 
 ## 5. Proposed contract (design only — not implemented)
 
-### 5.1 New module: `src/quantx/india/charges.py`
+### 5.1 New module: `src/quantx/markets/india/charges.py`
 
 Reuse existing infrastructure; do not modify `execution/charges.py`.
 
@@ -295,8 +295,8 @@ The first implementation slice is the contract plus synthetic test schedules onl
 ## 6. Implementation sequence
 
 1. **This document** — research/design; corrections in this branch remain docs-only.
-2. Create `src/quantx/india/charges.py` with the contract above. No hardcoded production rates; rates are supplied schedule data.
-3. Add unit tests at `tests/unit/india/test_market_charges.py` using clearly named synthetic schedule fixtures for arithmetic, effective dates, provenance, event-specific bases, rounding and fail-closed behavior. Synthetic fixtures do not prove tariff correctness.
+2. Create `src/quantx/markets/india/charges.py` with the contract above. No hardcoded production rates; rates are supplied schedule data.
+3. Add unit tests at `tests/unit/markets/india/test_charges.py` using clearly named synthetic schedule fixtures for arithmetic, effective dates, provenance, event-specific bases, rounding and fail-closed behavior. Synthetic fixtures do not prove tariff correctness.
 4. In a separate slice, add versioned schedule data and a loader. Populate a component/date/product only after its rate, basis, liability, effective date and source are verified. Stamp-duty and GST production entries remain unavailable until source gates in §4 are closed.
 5. In a separate slice, wire into paper/research execution only when the India model is explicitly selected and a complete supported schedule exists. For an India context, missing/unverified rules raise `IndiaChargeRuleUnavailable`; never fall back silently to `PercentageBpsChargeModel`. The generic model may be explicitly selected for a clearly labelled generic simulation, not used as an India-rule fallback.
 6. Update docs/architecture/52-transaction-cost-and-charges.md and the India skill only after implementation is accepted and verified.
@@ -361,7 +361,7 @@ The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T1
 ## 9. Unresolved questions
 
 1. Who owns and validates the caller-supplied GST/billing policy, including pure-agent treatment and the components billed to the client? This is an explicit input contract, not a legal determination by QuantX.
-2. Should schedule data be loaded from a Python module or versioned JSON/YAML? (Proposed: Python module, consistent with `india/rule_data.py`.)
+2. Should schedule data be loaded from a Python module or versioned JSON/YAML? (Proposed: Python module, consistent with `markets/india/rule_data.py`.)
 3. Keep IPFT separate for auditability, even though it participates in the published NSE member outflow.
 4. BSE support remains separate scope; NSE first.
 5. Pre-Oct-1-2024 slab-wise exchange charges remain unsupported until a separate volume-tiered design is justified.
@@ -373,7 +373,7 @@ The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T1
 ## 10. Evidence status
 
 - **Structural inspection:** `execution/charges.py`, `india/execution_rules.py`,
-  `india/rule_data.py`, `india/domain.py`, `research/provenance.py`,
+  `markets/india/rule_data.py`, `india/domain.py`, `research/provenance.py`,
   `research/point_in_time.py`, `tests/unit/execution/test_charges.py`,
   `docs/architecture/52-transaction-cost-and-charges.md` — all read.
 - **Runtime/test/CI evidence:** none collected for this design revision. No tests run and no production source code changed; the branch contains documentation only. The previously reported skill-library integrity checks are unrelated to this revision and do not validate tariff calculations.
