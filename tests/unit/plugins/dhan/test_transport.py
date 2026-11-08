@@ -2707,9 +2707,7 @@ def test_sdk_candles_uses_daily_historical_data_branch(
 def test_sdk_candles_uses_intraday_interval_for_historical_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    transport, calls = _sdk_transport_with_fake_historical_data(
-        monkeypatch, _candle_response()
-    )
+    transport, calls = _sdk_transport_with_fake_historical_data(monkeypatch, _candle_response())
     start = datetime(2026, 1, 1, tzinfo=UTC)
     end = datetime(2026, 1, 2, tzinfo=UTC)
     try:
