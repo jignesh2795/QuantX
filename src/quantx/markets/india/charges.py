@@ -100,8 +100,10 @@ class IndiaChargePassThroughPolicy:
             value = getattr(self, name)
             if not isinstance(value, IndiaChargeIncidence):
                 raise TypeError(f"{name} must be an IndiaChargeIncidence")
-        _require_text(self.version, "pass-through policy version")
-        _require_text(self.source_ref, "pass-through policy source_ref")
+        if not isinstance(self.version, str) or not self.version.strip():
+            raise IndiaChargeInputUnavailable("pass-through policy version is required")
+        if not isinstance(self.source_ref, str) or not self.source_ref.strip():
+            raise IndiaChargeInputUnavailable("pass-through policy source_ref is required")
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,8 +396,13 @@ class IndiaMarketChargeModel:
             raise IndiaChargeInputUnavailable("complete brokerage, DP and other-service inputs are required")
         if context.stt_gst_treatment is None or context.stamp_duty_gst_treatment is None:
             raise IndiaChargeInputUnavailable("STT and stamp-duty GST treatment are required")
-        _require_text(context.gst_policy_version, "GST policy version")
-        _require_text(context.gst_policy_source_ref, "GST policy source_ref")
+        if not isinstance(context.gst_policy_version, str) or not context.gst_policy_version.strip():
+            raise IndiaChargeInputUnavailable("GST policy version is required")
+        if (
+            not isinstance(context.gst_policy_source_ref, str)
+            or not context.gst_policy_source_ref.strip()
+        ):
+            raise IndiaChargeInputUnavailable("GST policy source_ref is required")
 
         entry = self.schedule.select(context.effective_at)
         rate_set = entry.rates_for(context.product, context.trade_side, context.event)
@@ -508,15 +515,24 @@ class IndiaMarketChargeModel:
             f"schedule:{entry.version}",
             f"effective_interval:{entry.effective_from.isoformat()}.."
             f"{entry.effective_to.isoformat() if entry.effective_to else 'open'}",
+            (
+                f"calculation_scope:{context.exchange.value}:"
+                f"{context.product.value}:{context.trade_side.value}:{context.event.value}"
+            ),
         ]
         for name, source_ref, rule_version in rate_set.component_sources:
             provenance.append(f"component:{name}:{rule_version}:{source_ref}")
+        for name, value in incidence.items():
+            provenance.append(f"incidence:{name}:{value.value}")
         provenance.extend(
             (
                 f"pass_through_policy:{policy.version}:{policy.source_ref}",
                 f"stt_gst_treatment:{context.stt_gst_treatment.value}",
                 f"stamp_duty_gst_treatment:{context.stamp_duty_gst_treatment.value}",
                 f"gst_policy:{context.gst_policy_version}:{context.gst_policy_source_ref}",
+                "caller_supplied_component:brokerage",
+                "caller_supplied_component:dp_charges",
+                "caller_supplied_component:other_taxable_service_charges",
                 "amount_convention:ROUND_HALF_UP_to_INR_paise_per_component_per_trade",
             )
         )

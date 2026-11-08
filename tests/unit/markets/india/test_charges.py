@@ -291,7 +291,7 @@ def test_gst_requires_all_caller_supplied_service_inputs() -> None:
 def test_gst_requires_both_recovery_treatments_and_policy_identity() -> None:
     with pytest.raises(IndiaChargeInputUnavailable, match="GST treatment"):
         _model().calculate(_context(stt_gst_treatment=None))
-    with pytest.raises(ValueError, match="GST policy version"):
+    with pytest.raises(IndiaChargeInputUnavailable, match="GST policy version is required"):
         _model().calculate(_context(gst_policy_version=" "))
 
 
@@ -483,9 +483,14 @@ def test_rounding_is_half_up_per_component() -> None:
 def test_breakdown_provenance_retains_schedule_component_and_policy_versions() -> None:
     result = _model().calculate(_context())
     assert "schedule:synthetic-schedule-v1" in result.provenance
+    assert "calculation_scope:NSE:EQUITY_DELIVERY:BUY:TRADE" in result.provenance
     assert "component:stt:synthetic-v1:synthetic://india-charges/stt" in result.provenance
+    assert "incidence:stt:CLIENT_PASSTHROUGH" in result.provenance
     assert "pass_through_policy:synthetic-billing-v1:synthetic://billing-policy/v1" in result.provenance
     assert "gst_policy:synthetic-gst-policy-v1:synthetic://gst-policy/v1" in result.provenance
+    assert "caller_supplied_component:brokerage" in result.provenance
+    assert "caller_supplied_component:dp_charges" in result.provenance
+    assert "caller_supplied_component:other_taxable_service_charges" in result.provenance
 
 
 
