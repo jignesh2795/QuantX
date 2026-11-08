@@ -2499,7 +2499,9 @@ def test_dhan_trade_history_entry_docstring_contains_precision_note() -> None:
 
     assert "Decimal(str(value))" in (DhanTradeHistoryEntry.__doc__ or "")
     assert "cannot reconstruct" in (DhanTradeHistoryEntry.__doc__ or "")
-{3}# Direct SDK transport coverage for market data and read-only observations.
+
+
+# Direct SDK transport coverage for market data and read-only observations.
 
 
 def _sdk_transport_with_fake_market_feed(
