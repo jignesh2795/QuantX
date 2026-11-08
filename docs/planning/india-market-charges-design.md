@@ -1,7 +1,7 @@
 # QX-12 / #200 — India Market Charges: Source Inventory and Design
 
-**Branch:** `docs/quantx-master-work-program-2026-10` (documentation-only reconciliation branch)
-**Phase:** design and contract implementation. The first contract-only implementation slice is being introduced in `quantx.markets.india.charges`; no production tariff schedule or execution wiring is included. Source research and tariff-applicability gates below remain design/research inputs until independently verified.
+**Implementation branch:** `feat/issue200-india-charge-contract-v1` (PR #329)
+**Phase:** design and contract implementation. The contract-only calculator and synthetic tests are implemented in `quantx.markets.india.charges`; exact-HEAD validation remains pending after the initial candidate failed. No production tariff schedule or execution wiring is included. Source research and tariff-applicability gates below remain design/research inputs until independently verified.
 **Scope:** effective-dated Indian equity delivery, intraday, futures, and options transaction charges.
 **Related (tracked separately, not reopened):** #267 risk-evidence authority, #266 daily-loss semantics, #196/#197.
 
@@ -297,7 +297,7 @@ The first implementation slice is the contract plus synthetic test schedules onl
 4. **Paper/research execution integration — separate future slice.** Wire only when the India model is explicitly selected and a complete supported schedule exists. For an India context, missing/unverified rules raise `IndiaChargeRuleUnavailable`; never fall back silently to `PercentageBpsChargeModel`. The generic model may be explicitly selected for a clearly labelled generic simulation, not used as an India-rule fallback.
 5. **India skill documentation** — update the India skill only after this implementation slice is accepted and verified. The architecture charge-contract document is updated with the ownership correction in this slice.
 
-Do not bundle production schedule/loader or execution wiring into the contract-only slice. Do not change `execution/charges.py`, accounting or risk behavior.
+Do not bundle production schedule/loader or execution wiring into the contract-only slice. `execution/charges.py` now serves as an identity-preserving compatibility facade for neutral charge contracts and retains the generic percentage model; do not add India tariff or accounting/risk behavior there.
 
 ## 7. Acceptance matrix
 
