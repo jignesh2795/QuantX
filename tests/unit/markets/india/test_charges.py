@@ -1,11 +1,9 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from quantx.execution.charges import ChargeBreakdown
-from quantx.markets.india.domain import IndianExchange
 from quantx.markets.india.charges import (
     IndiaChargeCalculationContext,
     IndiaChargeEvent,
@@ -22,6 +20,8 @@ from quantx.markets.india.charges import (
     IndiaRecoveryTaxTreatment,
     IndiaTradeSide,
 )
+from quantx.markets.india.domain import IndianExchange
+from quantx.ports.charges import ChargeBreakdown
 
 D = Decimal
 IST = ZoneInfo("Asia/Kolkata")
@@ -82,7 +82,8 @@ def _entry(
 
 
 def _model(*entries: IndiaChargeScheduleEntry) -> IndiaMarketChargeModel:
-    return IndiaMarketChargeModel(IndiaChargeSchedule(tuple(entries)))
+    schedule_entries = entries or (_entry(),)
+    return IndiaMarketChargeModel(IndiaChargeSchedule(schedule_entries))
 
 
 def _context(**overrides: object) -> IndiaChargeCalculationContext:
@@ -256,7 +257,8 @@ def test_sell_side_stamp_duty_requires_explicit_sourced_zero() -> None:
 
 def test_sell_side_stamp_duty_accepts_explicit_zero_rule() -> None:
     model = _model(_entry(side=IndiaTradeSide.SELL, rate_set=_rates(stamp_duty_rate=D("0"))))
-    assert _amounts(model.calculate(_context(trade_side=IndiaTradeSide.SELL)))["stamp_duty"] == D("0")
+    result = model.calculate(_context(trade_side=IndiaTradeSide.SELL))
+    assert _amounts(result)["stamp_duty"] == D("0")
 
 
 def test_not_applicable_incidence_requires_explicit_zero_rate() -> None:
@@ -278,7 +280,7 @@ def test_broker_absorbed_components_do_not_enter_client_total_or_gst_base() -> N
     result = _model().calculate(_context(pass_through_policy=policy))
 
     amounts = _amounts(result)
-    assert all(amounts[name] == D("0") for name in _SOURCE_NAMES[:-1])
+    assert all(amounts[name] == D("0") for name in SOURCE_NAMES[:-1])
     assert amounts["gst"] == D("0.18")
     assert result.total == D("1.18")
 
@@ -326,12 +328,17 @@ def test_missing_effective_schedule_coverage_fails_closed() -> None:
         )
 
 
+def test_empty_schedule_is_rejected() -> None:
+    with pytest.raises(ValueError, match="charge schedule must contain at least one entry"):
+        IndiaChargeSchedule(())
+
+
 def test_schedule_selection_uses_inclusive_start_and_exclusive_end() -> None:
     first = _entry(effective_from=START, effective_to=SPLIT)
     second = _entry(effective_from=SPLIT)
     schedule = IndiaChargeSchedule((first, second))
-    before = datetime(2026, 3, 31, 18, 29, 59, tzinfo=timezone.utc)
-    at = datetime(2026, 3, 31, 18, 30, tzinfo=timezone.utc)
+    before = datetime(2026, 3, 31, 18, 29, 59, tzinfo=UTC)
+    at = datetime(2026, 3, 31, 18, 30, tzinfo=UTC)
 
     assert schedule.select(before) == first
     assert schedule.select(at) == second
@@ -368,8 +375,14 @@ def test_schedule_rate_keys_are_unique_and_sorted() -> None:
         effective_to=None,
         version="synthetic",
         rates=(
-            ((IndiaChargeProduct.EQUITY_OPTIONS, IndiaTradeSide.BUY, IndiaChargeEvent.TRADE), options),
-            ((IndiaChargeProduct.EQUITY_DELIVERY, IndiaTradeSide.BUY, IndiaChargeEvent.TRADE), delivery),
+            (
+                (IndiaChargeProduct.EQUITY_OPTIONS, IndiaTradeSide.BUY, IndiaChargeEvent.TRADE),
+                options,
+            ),
+            (
+                (IndiaChargeProduct.EQUITY_DELIVERY, IndiaTradeSide.BUY, IndiaChargeEvent.TRADE),
+                delivery,
+            ),
         ),
     )
     assert tuple(key[0] for key, _ in entry.rates) == (
@@ -486,12 +499,14 @@ def test_breakdown_provenance_retains_schedule_component_and_policy_versions() -
     assert "calculation_scope:NSE:EQUITY_DELIVERY:BUY:TRADE" in result.provenance
     assert "component:stt:synthetic-v1:synthetic://india-charges/stt" in result.provenance
     assert "incidence:stt:CLIENT_PASSTHROUGH" in result.provenance
-    assert "pass_through_policy:synthetic-billing-v1:synthetic://billing-policy/v1" in result.provenance
+    assert (
+        "pass_through_policy:synthetic-billing-v1:synthetic://billing-policy/v1"
+        in result.provenance
+    )
     assert "gst_policy:synthetic-gst-policy-v1:synthetic://gst-policy/v1" in result.provenance
     assert "caller_supplied_component:brokerage" in result.provenance
     assert "caller_supplied_component:dp_charges" in result.provenance
     assert "caller_supplied_component:other_taxable_service_charges" in result.provenance
-
 
 
 def test_gst_rejects_tax_treatment_that_includes_a_non_client_recovery() -> None:

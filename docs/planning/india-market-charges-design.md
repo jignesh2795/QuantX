@@ -211,11 +211,11 @@ The universal `execution/charges.py` contract remains unchanged.
 
 ---
 
-## 5. Proposed contract (design only — not implemented)
+## 5. Implemented contract
 
 ### 5.1 New module: `src/quantx/markets/india/charges.py`
 
-Reuse existing infrastructure; do not modify `execution/charges.py`.
+Reuse the vendor- and market-neutral charge contracts in `quantx.ports.charges`. Preserve the existing `quantx.execution.charges` import path as an identity-preserving compatibility facade; keep the generic percentage model execution-owned.
 
 1. **`IndiaTradeSide`** enum: `BUY`, `SELL`, representing the client's side of one transaction.
 2. **Assignment boundary:** `OPTION_ASSIGNMENT` is intentionally unsupported in the first slice. It must raise `IndiaChargeRuleUnavailable`; do not infer assignment from `OPTION_EXERCISE` or a normal SELL trade. Add a distinct event only after source-backed payer, turnover-basis and component rules are specified.
@@ -274,7 +274,7 @@ Reuse existing infrastructure; do not modify `execution/charges.py`.
 
 ### 5.5 What stays in the universal core
 
-`execution/charges.py` is NOT modified. The India module imports `ChargeModel`, `ChargeBreakdown`, `ChargeComponent` and `ChargeCalculationContext` from the universal core and adds India-specific logic on top. This preserves the no-Indian-tariffs-in-universal-core boundary (ADR-010, doc 52).
+`ports/charges.py` owns the neutral `ChargeModel`, `ChargeBreakdown`, `ChargeComponent` and `ChargeCalculationContext` contracts. `execution/charges.py` re-exports those same objects for compatibility and retains `PercentageBpsChargeModel`; the India module imports directly from `ports.charges`. No India-specific tariff or rule is added to the neutral port layer.
 
 The first implementation slice is the contract plus synthetic test schedules only. No unverified production rates are embedded as defaults. A caller must explicitly select the India model; a missing India rule never falls back silently to a generic percentage model.
 
@@ -292,10 +292,10 @@ The first implementation slice is the contract plus synthetic test schedules onl
 ## 6. Implementation sequence
 
 1. **Research/design** — source inventory, unresolved applicability gates and contract specification in this document.
-2. **Contract + synthetic tests — implemented in the current branch.** The canonical paths are `src/quantx/markets/india/charges.py` and `tests/unit/markets/india/test_charges.py`. The implementation reuses the existing universal `ChargeModel` and does not embed production rates.
+2. **Contract + synthetic tests — implemented in the current branch.** The India calculator and synthetic tests live at `src/quantx/markets/india/charges.py` and `tests/unit/markets/india/test_charges.py`. Their neutral shared contracts are canonical in `src/quantx/ports/charges.py`; `src/quantx/execution/charges.py` preserves the prior import path and generic percentage model. No production rates are embedded.
 3. **Versioned production schedule and loader — separate future slice.** Populate a component/date/product only after its rate, basis, liability, effective date and source are verified. Stamp-duty and GST production entries remain unavailable until §4 source gates are closed.
 4. **Paper/research execution integration — separate future slice.** Wire only when the India model is explicitly selected and a complete supported schedule exists. For an India context, missing/unverified rules raise `IndiaChargeRuleUnavailable`; never fall back silently to `PercentageBpsChargeModel`. The generic model may be explicitly selected for a clearly labelled generic simulation, not used as an India-rule fallback.
-5. **Architecture and skill documentation** — update `docs/architecture/52-transaction-cost-and-charges.md` and the India skill only after the implementation slice is accepted and verified.
+5. **India skill documentation** — update the India skill only after this implementation slice is accepted and verified. The architecture charge-contract document is updated with the ownership correction in this slice.
 
 Do not bundle production schedule/loader or execution wiring into the contract-only slice. Do not change `execution/charges.py`, accounting or risk behavior.
 
@@ -372,7 +372,7 @@ The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T1
   `markets/india/rule_data.py`, `india/domain.py`, `research/provenance.py`,
   `research/point_in_time.py`, `tests/unit/execution/test_charges.py`,
   `docs/architecture/52-transaction-cost-and-charges.md` — all read.
-- **Runtime/test/CI evidence:** none collected for this design revision. No tests run and no production source code changed; the branch contains documentation only. The previously reported skill-library integrity checks are unrelated to this revision and do not validate tariff calculations.
+- **Runtime/test/CI evidence:** the initial exact-HEAD validation at `2746bb4c307e462da2f67f1528fa387be8217267` was reported FAIL by the local validation operator: both locked full-suite runs had 17 failures; changed-file Ruff lint/format failed; strict mypy passed; package coverage was UNKNOWN because pytest aborted; both release gates correctly failed closed. The failures included the `markets → execution` dependency/cycle, broken synthetic test fixtures, and Ruff findings. This record applies only to that pre-remediation SHA. The remediation candidate requires a fresh exact-HEAD validation; no post-remediation test or coverage result is claimed here.
 - **Source research:** web search + primary-source review (P1–P8 above); S1–S4 are secondary cross-checks/guidance and do not establish every primary rate or effective date.
   Rates marked UNRESOLVED are not verified and must not be used in
   implementation until resolved.

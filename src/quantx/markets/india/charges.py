@@ -12,12 +12,12 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
-from quantx.execution.charges import (
+from quantx.markets.india.domain import IndianExchange
+from quantx.ports.charges import (
     ChargeBreakdown,
     ChargeCalculationContext,
     ChargeComponent,
 )
-from quantx.markets.india.domain import IndianExchange
 
 INR = "INR"
 _PAISE = Decimal("0.01")
@@ -326,7 +326,7 @@ class IndiaChargeSchedule:
             raise TypeError("schedule entries must be IndiaChargeScheduleEntry values")
 
         ordered = tuple(sorted(self.entries, key=lambda entry: entry.effective_from))
-        for previous, current in zip(ordered, ordered[1:]):
+        for previous, current in zip(ordered, ordered[1:], strict=False):
             if previous.effective_to is None or previous.effective_to > current.effective_from:
                 raise ValueError("charge schedule effective intervals must not overlap")
         object.__setattr__(self, "entries", ordered)
@@ -393,10 +393,15 @@ class IndiaMarketChargeModel:
         if context.brokerage is None or context.dp_charges is None or (
             context.other_taxable_service_charges is None
         ):
-            raise IndiaChargeInputUnavailable("complete brokerage, DP and other-service inputs are required")
+            raise IndiaChargeInputUnavailable(
+                "complete brokerage, DP and other-service inputs are required"
+            )
         if context.stt_gst_treatment is None or context.stamp_duty_gst_treatment is None:
             raise IndiaChargeInputUnavailable("STT and stamp-duty GST treatment are required")
-        if not isinstance(context.gst_policy_version, str) or not context.gst_policy_version.strip():
+        if (
+            not isinstance(context.gst_policy_version, str)
+            or not context.gst_policy_version.strip()
+        ):
             raise IndiaChargeInputUnavailable("GST policy version is required")
         if (
             not isinstance(context.gst_policy_source_ref, str)
@@ -549,13 +554,17 @@ class IndiaMarketChargeModel:
         if context.product is not IndiaChargeProduct.EQUITY_OPTIONS:
             raise IndiaChargeRuleUnavailable("OPTION_EXERCISE is only supported for equity options")
         if context.trade_side is not IndiaTradeSide.BUY:
-            raise IndiaChargeRuleUnavailable("OPTION_EXERCISE must represent the exercising purchaser")
+            raise IndiaChargeRuleUnavailable(
+                "OPTION_EXERCISE must represent the exercising purchaser"
+            )
         if context.option_type is None:
             raise IndiaChargeInputUnavailable("option_type is required for exercise")
         if context.quantity is None or context.quantity <= _ZERO:
             raise IndiaChargeInputUnavailable("positive exercise quantity is required")
         if context.settlement_price is None or context.strike is None:
-            raise IndiaChargeInputUnavailable("settlement_price and strike are required for exercise")
+            raise IndiaChargeInputUnavailable(
+                "settlement_price and strike are required for exercise"
+            )
         if context.exercise_notional_value is None:
             raise IndiaChargeInputUnavailable("exercise_notional_value is required")
 
@@ -576,7 +585,9 @@ class IndiaMarketChargeModel:
         try:
             return cls._round(base * rate)
         except InvalidOperation as exc:
-            raise IndiaChargeInputUnavailable("charge arithmetic is outside Decimal limits") from exc
+            raise IndiaChargeInputUnavailable(
+                "charge arithmetic is outside Decimal limits"
+            ) from exc
 
     @staticmethod
     def _round(value: Decimal) -> Decimal:
