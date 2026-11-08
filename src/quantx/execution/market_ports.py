@@ -1,6 +1,6 @@
 """Compatibility boundary for the market-data execution port.
 
-The canonical protocol is ``ExecutionPort.MarketDataExecutionPort`` in
+The canonical protocol is ``MarketDataExecutionPort`` in
 ``execution.ports``. This module remains temporarily for existing imports.
 """
 
