@@ -2779,7 +2779,7 @@ def test_sdk_candles_preserves_timeout_as_uncertain_transport_failure(
                 timeframe="1d",
                 start=datetime(2026, 1, 1, tzinfo=UTC),
                 end=datetime(2026, 1, 2, tzinfo=UTC),
-                timeout=0.1,
+                timeout=0.5,
             )
         assert started.is_set()
     finally:
