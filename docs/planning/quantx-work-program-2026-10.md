@@ -4,7 +4,7 @@
 
 **Snapshot date:** 2026-11-08
 
-**Baseline reviewed:** `main` at `4a1a5f7629fff832dcec74471dae096f2d231733` (PR #324 F4.5.4 offline Flow PAPER/BACKTEST integration merged).
+**Baseline reviewed for this closeout:** `main` at `d2442bbbafab3eca91f27a8c3d8fdd65e3f61b80` (PR #325 documentation reconciliation merged; PR #324 remains the F4.5.4 implementation merge).
 
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, strategy/research delivery, and release-readiness work in one progressable plan.
 
@@ -12,10 +12,10 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline verified after PR #324: `4a1a5f7629fff832dcec74471dae096f2d231733`.
-- PR #314 merged as `99d64996214482a8443ca673f11fbb3b61bdc519`; PR #315 merged the pinned global architecture comparison as `0f4214e482c682fe99d133381cd1ef8d62b1492f`; PR #317 merged F4.5.1, PR #320 merged F4.5.2, PR #321 merged F4.5.3, and PR #324 merged F4.5.4 (merge `4a1a5f7629fff832dcec74471dae096f2d231733`; validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`).
+- Latest `main` baseline used for this programme update: `d2442bbbafab3eca91f27a8c3d8fdd65e3f61b80` (PR #325 merged).
+- PR #314 merged as `99d64996214482a8443ca673f11fbb3b61bdc519`; PR #315 merged the pinned global architecture comparison as `0f4214e482c682fe99d133381cd1ef8d62b1492f`; PR #317 merged F4.5.1, PR #320 merged F4.5.2, PR #321 merged F4.5.3, and PR #324 merged F4.5.4 (merge `4a1a5f7629fff832dcec74471dae096f2d231733`; validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`); PR #325 merged the subsequent documentation reconciliation at `d2442bbbafab3eca91f27a8c3d8fdd65e3f61b80`.
 - PR #309 is merged; PR #295 is a stale superseded migration candidate; PR #308 is a stale draft whose useful facts are incorporated in the current status; PR #306 remains a draft public-API candidate and is not validated on current main.
-- This programme was refreshed after PR #324. F4.5.1–F4.5.4 are complete; issue #322 is closed. The exact candidate validation and the two unchanged Markdown Ruff-format baseline findings are recorded in PR #324. These are local/operator-reported results, not hosted CI. No broker call, sandbox run or LIVE operation is claimed.
+- This programme is refreshed after PR #325. F4.5.1–F4.5.4 are complete and issue #322 is closed. The parent M4 exit criterion is now reconciled as met; M4 is complete at the milestone level. The exact candidate validation and two unchanged Markdown Ruff-format baseline findings are recorded in PR #324 as local/operator-reported results, not hosted CI. No broker call, sandbox run or LIVE operation is claimed.
 
 **Work rules:** use one coherent branch/PR per implementation slice; record exact base and candidate SHAs; keep validation evidence tied to its tested SHA; run the declared local validation gates with Dhan extra both enabled and disabled where applicable; distinguish local/operator-reported results from GitHub Actions; do not merge implementation without exact-SHA evidence and required review. UNKNOWN and missing authoritative evidence are never PASS.
 
@@ -39,7 +39,7 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 | LIVE trusted-clock freshness and request-bound authority foundation | Implemented; evidence-source feasibility remains open | PR #281 plus #267 composition/request-binding controls; PRs #285/#307 add supplemental/read-only Dhan observations only. |
 | QX-06 multi-leg semantics (#195) | **Design only**; no multi-leg execution implementation or capability claim | ADR-010; keep partial-leg failure and exposure semantics explicit |
 | Pinned global architecture comparison | **Completed and merged** | PR #315; merge `0f4214e482c682fe99d133381cd1ef8d62b1492f`; final validated candidate `4fc030d41ba8767a64b2133acd6888b1b0d08c3f`. Exact upstream revisions and source/test paths are recorded in `docs/research/2026-11-global-architecture-comparison.md`. |
-| M4.5 declarative Flow runtime slices F4.5.1–F4.5.4 |
+| M4 Strategy Platform parent milestone | **Complete against the single documented exit criterion** | M4.1 PR #218; QX-09/#197 PR #221; QX-08/#196 PRs #224/#226/#229/#232 and acceptance closeout #234; Flow parity/integration PRs #317/#320/#321/#324. |
 
 QX-07 closure is a current update that supersedes the pre-merge snapshot still preserved in historical sections of `docs/STATUS.md`. The final slice's recorded local candidate validation was default **2,695 passed / 1 skipped** and Dhan-enabled **2,696 passed**, with Ruff/format, strict mypy, and independent review recorded as passing. These results belong to candidate SHA `a5219cf7616f34483e3c596d3feb47ac4c00673f`; they are local evidence, not GitHub Actions evidence, and do not establish production-broker or LIVE readiness.
 
@@ -114,9 +114,9 @@ The comparison does **not** establish global-market, crypto or additional broker
 
 ### Research conclusion and next bounded vertical
 
-The data/research/provenance spine is complete through R1-C14. The Strategy Platform parent M4 remains active because Python/Flow runtime parity is still an exit criterion. QX-08 M1–M4 and M4.1 paper rehearsal prove the Python strategy path, not a Flow authoring/compiler path.
+The data/research/provenance spine is complete through R1-C14. The Strategy Platform parent M4 is now complete against the canonical exit criterion: the Python path from M4.1/QX-08 and the first Flow path from M4.5 share the same `StrategyRuntime`/`StrategyResult` semantics and have offline PAPER/BACKTEST integration evidence.
 
-**Current Strategy Platform disposition:** M4.5 is complete. F4.5.1–F4.5.4 are merged in PRs #317, #320, #321 and #324; PR #324 merged at `4a1a5f7629fff832dcec74471dae096f2d231733` from exact-SHA validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`, and issue #322 is closed. This bounded sequence proves the existing Flow contract/compiler/runtime adapter and offline PAPER/BACKTEST integration without a parallel runtime or LIVE/broker capability. The next planning activity is to reconcile parent-M4 exit criteria before selecting another implementation slice. Source-backed rationale and exact-SHA validation evidence are recorded in the corresponding PRs.
+**Current Strategy Platform disposition: M4 COMPLETE.** M4.5 F4.5.1–F4.5.4 are merged in PRs #317, #320, #321 and #324; PR #324 merged at `4a1a5f7629fff832dcec74471dae096f2d231733` from exact-SHA validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`, and issue #322 is closed. PR #321 supplies the shared-runtime adapter and Python/Flow semantic-result parity test; PR #324 proves deployment binding, preparation, risk/policy and the existing offline PAPER/BACKTEST consumers. This meets the sole M4 exit criterion in `docs/roadmap/milestones.md`. Visual Flow editing/persistence, external scheduling, webhooks/external signals, streaming, AI/cloud and cross-market/LIVE capabilities remain later/deferred platform work, not M4 blockers. No new F4.5.5 is proposed.
 
 ### Still blocked or deferred
 
@@ -152,21 +152,35 @@ For every implementation slice:
 5. Obtain adversarial review for execution, persistence, risk, time or market-rule changes. Validation results attach only to the exact tested candidate SHA. GitHub Actions/CI is mentioned only when an actual relevant run exists.
 6. After merge, reconcile the issue, update the appropriate section in `docs/STATUS.md`, record exact merge/candidate SHAs, and update this programme's status/next step. Keep dated historical snapshots but label them historical; do not leave a pre-merge “current” snapshot unqualified.
 
-## 7. Immediate next task
+## 7. Parent M4 exit reconciliation — complete
 
-**Next task: reconcile the parent M4 Strategy Platform exit criteria.** The bounded M4.5 sequence is complete: F4.5.1–F4.5.4 are merged in PRs #317, #320, #321 and #324. PR #324 merged to `main` at `4a1a5f7629fff832dcec74471dae096f2d231733` from exact-SHA validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`; issue #322 is closed. Its local validation results and known repository-wide Markdown formatting baseline findings are recorded in PR #324.
+### Canonical criterion
 
-Before creating another feature slice, perform a source-backed parent-M4 reconciliation:
-1. Retrieve the canonical parent-M4 objective and exit criteria from the current architecture, roadmap and issue records.
-2. Map each criterion to the current merged implementation, exact tests and existing acceptance evidence.
-3. Separate criteria that are satisfied by M4.5 from broader parent-M4 capabilities that remain open, deferred or blocked.
-4. Reconcile duplicate, stale or superseded issues and rank only evidence-backed remaining work.
-5. Update the work programme with the resulting next priority before implementation.
+The canonical M4 milestone definition in `docs/roadmap/milestones.md` has one exit criterion: **Python strategies and a first Flow path compile to the same runtime semantics.** This criterion is **MET**. It does not require every later strategy-platform surface to exist.
 
-Do not create an F4.5.5 issue or expand the Flow language, UI, persistence, scheduling, webhooks, AI nodes, cross-market support, cloud execution, direct-order nodes, broker/REST submission or LIVE capability as part of this reconciliation. Any new slice requires its own explicit acceptance boundary and evidence.
+### Evidence mapping
 
-Public API #199 remains a separate bounded workstream. Resolve #190's private-disclosure path before broad contributor recruitment; sequence #206 after #199's API stability policy. #203 remains conditional on safe sandbox access and #205 remains deferred while reliable Python 3.13 validation infrastructure is unavailable.
+| Criterion / prerequisite | Merged implementation and evidence | Disposition |
+|---|---|---|
+| Python strategy definition, IR, registry/runtime and offline PAPER path | M4.1 in PR #218; deterministic deployment-owned context binding, preparation, risk/policy and paper rehearsal. | Complete |
+| Engine-truth context, deterministic callbacks/timers, engine-derived BuyAndHold and paper/backtest driver parity | QX-08/#196 M1–M4 in PRs #224, #226, #229 and #232; normative T1–T8/G1–G3 acceptance closeout in PR #234; issue #196 closed. | Complete |
+| Market-pack pre-trade pipeline prerequisite | QX-09/#197 in PR #221; issue #197 closed. | Complete |
+| First Flow path and semantic parity | F4.5.1 contract/validator PR #317; F4.5.2 compiler/interpreter PR #320; F4.5.3 `FlowExecutableStrategy` adapter through the existing `ExecutableStrategy`/`StrategyRuntime` path in PR #321. `test_flow_and_python_strategies_share_semantic_result_contract` compares both strategies through `StrategyRuntime`. | Complete |
+| Same downstream offline execution semantics | F4.5.4 PR #324; `test_flow_paper_rehearsal_uses_deployment_preparation_risk_policy_and_paper` plus fail-closed and BACKTEST integration cases exercise deployment binding, preparation, risk/policy, PAPER and deterministic BACKTEST. Issue #322 closed. | Complete |
 
-#267 remains blocked pending credible alternative authoritative evidence; preserve the pre-collection/no-reservation/no-submit block. #266 remains blocked on missing fixtures; preserve realized-only `daily_pnl`, current `max_drawdown` and the documented session-equity contract. F4.5.4 itself was validated entirely through offline PAPER/BACKTEST paths; no broker, sandbox, production or LIVE operation was performed.
+The implementation and local validation evidence remain bound to the exact candidate SHAs and are recorded in the corresponding PRs. Those results are owner-reported local evidence, not hosted CI. F4.5.4 did not use broker I/O, a sandbox, production or LIVE execution.
 
-This programme records sequencing and source-backed completion status. F4.5.4 implementation and local validation evidence are recorded in PR #324; its merge is `4a1a5f7629fff832dcec74471dae096f2d231733`.
+### Scope disposition — not M4 exit blockers
+
+The following remain later/deferred platform work and are not part of the single documented M4 exit criterion: visual Flow editor/UI and workflow persistence, external scheduling, webhooks/external signals, streaming, AI nodes/agents, cloud workers, international/crypto markets, direct broker/order nodes and LIVE strategy execution. The curated public Python API (#199) is a separate adoption/stability workstream. Do not create F4.5.5 or broaden Flow v1 without a separately approved requirement and acceptance boundary.
+
+### Remaining work and next priority
+
+- **#267 and #266 remain blocked.** #267 requires a credible alternative authoritative risk-evidence provider/source; keep the pre-collection/no-reservation/no-submit boundary. #266 remains blocked on the missing 0/7 required fixtures; preserve realized-only `daily_pnl`, current `max_drawdown` and the documented session-equity contract.
+- **Next actionable work: #202, Wave C2 — dead-module and Dhan transport audit.** Start with a read-only audit at the current main baseline: remeasure import/call-site reachability and current line/branch coverage; determine whether the suspected modules are deliberate extension seams or dead code; establish the deterministic Dhan transport coverage baseline. Do not remove or wire modules, change adapter behavior, or assume the issue's originally reported percentages before measuring.
+- **#200** remains the India charges-schedule workstream; use authoritative effective-dated sources and do not populate guessed production rates.
+- **#199** remains open; PR #306 is still a draft based on an older main SHA (`ecbb202b8864688b521b1836f5dd9b36ca1d929f`) and has no exact-current-head validation. Reconcile it against current main before any promotion.
+- **#190** remains open until a real private disclosure path is configured/verified; resolve before broad public contributor recruitment. Sequence #206 after #199's public API/stability policy.
+- **#203** remains conditional on safe broker sandbox access. **#205** remains deferred until reliable Python 3.13 validation infrastructure exists.
+
+No CI, Actions, broker, sandbox, production or LIVE operation is part of this documentation reconciliation.
