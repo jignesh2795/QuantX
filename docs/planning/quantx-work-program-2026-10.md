@@ -2,9 +2,9 @@
 
 **Status:** Active cross-workstream sequencing and reconciliation record
 
-**Snapshot date:** 2026-11-07
+**Snapshot date:** 2026-11-08
 
-**Baseline reviewed:** `main` at `a27b93f56f978b56a9d3a3373d8221d40ad6fd81` (PR #321 F4.5.3 Flow runtime adapter merged).
+**Baseline reviewed:** `main` at `4a1a5f7629fff832dcec74471dae096f2d231733` (PR #324 F4.5.4 offline Flow PAPER/BACKTEST integration merged).
 
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, strategy/research delivery, and release-readiness work in one progressable plan.
 
@@ -12,10 +12,10 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline verified after PR #321: `a27b93f56f978b56a9d3a3373d8221d40ad6fd81`.
-- PR #314 merged as `99d64996214482a8443ca673f11fbb3b61bdc519`; PR #315 merged the pinned global architecture comparison as `0f4214e482c682fe99d133381cd1ef8d62b1492f`; PR #317 merged F4.5.1, PR #320 merged F4.5.2, and PR #321 merged F4.5.3.
+- Latest `main` baseline verified after PR #324: `4a1a5f7629fff832dcec74471dae096f2d231733`.
+- PR #314 merged as `99d64996214482a8443ca673f11fbb3b61bdc519`; PR #315 merged the pinned global architecture comparison as `0f4214e482c682fe99d133381cd1ef8d62b1492f`; PR #317 merged F4.5.1, PR #320 merged F4.5.2, PR #321 merged F4.5.3, and PR #324 merged F4.5.4 (merge `4a1a5f7629fff832dcec74471dae096f2d231733`; validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`).
 - PR #309 is merged; PR #295 is a stale superseded migration candidate; PR #308 is a stale draft whose useful facts are incorporated in the current status; PR #306 remains a draft public-API candidate and is not validated on current main.
-- This programme was refreshed after PR #320 and #321. F4.5.1–F4.5.3 are complete; issue #322 is the active F4.5.4 acceptance record. Exact candidate validation is recorded in the corresponding PRs and remains local/operator-reported evidence, not hosted CI. No broker call, sandbox run or LIVE operation is claimed.
+- This programme was refreshed after PR #324. F4.5.1–F4.5.4 are complete; issue #322 is closed. The exact candidate validation and the two unchanged Markdown Ruff-format baseline findings are recorded in PR #324. These are local/operator-reported results, not hosted CI. No broker call, sandbox run or LIVE operation is claimed.
 
 **Work rules:** use one coherent branch/PR per implementation slice; record exact base and candidate SHAs; keep validation evidence tied to its tested SHA; run the declared local validation gates with Dhan extra both enabled and disabled where applicable; distinguish local/operator-reported results from GitHub Actions; do not merge implementation without exact-SHA evidence and required review. UNKNOWN and missing authoritative evidence are never PASS.
 
@@ -39,7 +39,7 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 | LIVE trusted-clock freshness and request-bound authority foundation | Implemented; evidence-source feasibility remains open | PR #281 plus #267 composition/request-binding controls; PRs #285/#307 add supplemental/read-only Dhan observations only. |
 | QX-06 multi-leg semantics (#195) | **Design only**; no multi-leg execution implementation or capability claim | ADR-010; keep partial-leg failure and exposure semantics explicit |
 | Pinned global architecture comparison | **Completed and merged** | PR #315; merge `0f4214e482c682fe99d133381cd1ef8d62b1492f`; final validated candidate `4fc030d41ba8767a64b2133acd6888b1b0d08c3f`. Exact upstream revisions and source/test paths are recorded in `docs/research/2026-11-global-architecture-comparison.md`. |
-| M4.5 declarative Flow runtime slices F4.5.1–F4.5.3 | **Completed and merged** | PR #317 (Flow contract), PR #320 (deterministic compiler/interpreter), PR #321 (ExecutableStrategy adapter and Python/Flow parity). Validation evidence is recorded at exact candidate SHAs in those PRs. |
+| M4.5 declarative Flow runtime slices F4.5.1–F4.5.4 |
 
 QX-07 closure is a current update that supersedes the pre-merge snapshot still preserved in historical sections of `docs/STATUS.md`. The final slice's recorded local candidate validation was default **2,695 passed / 1 skipped** and Dhan-enabled **2,696 passed**, with Ruff/format, strict mypy, and independent review recorded as passing. These results belong to candidate SHA `a5219cf7616f34483e3c596d3feb47ac4c00673f`; they are local evidence, not GitHub Actions evidence, and do not establish production-broker or LIVE readiness.
 
@@ -47,14 +47,14 @@ QX-07 closure is a current update that supersedes the pre-merge snapshot still p
 
 Use the waves below as sequence, not as a commitment to implement every issue in one PR. Each issue retains its own acceptance criteria and scope.
 
-### Strategy Platform — M4.5 (active vertical)
+### Strategy Platform — M4.5 (completed bounded vertical)
 
 | Slice | State | Next required outcome |
 |---|---|---|
 | **F4.5.1 — Flow definition and graph validation** | **Complete; [PR #317](https://github.com/jignesh2795/QuantX/pull/317) merged** | Validated candidate `97d1647194405dbd778c51d38b6b92ee3190e154`; merge `521fb6ed76dffc30d23d89333923dd6b81c6b293`; issue #316 closed. Immutable typed/versioned contract, canonical identity, closed v1 catalogue and pure validator. |
 | **F4.5.2 — deterministic Flow compiler/interpreter** | **Complete; [PR #320](https://github.com/jignesh2795/QuantX/pull/320) merged** | Validated candidate `cea48214db4089efa0361fb5e3bc05e5818aeb5f`; merge `c659d4eb3d5aee74b78003cc9dfd112287bb78d6`; issue #319 closed. Immutable deterministic plans and pure Flow v1 evaluation. |
 | **F4.5.3 — existing runtime adapter and parity** | **Complete; [PR #321](https://github.com/jignesh2795/QuantX/pull/321) merged** | Validated candidate `966fce2d32d4b9609aeb0d88ed2250e6af301881`; merge `a27b93f56f978b56a9d3a3373d8221d40ad6fd81`. Reuses `ExecutableStrategy`, `StrategyRuntime` and the existing `StrategyRegistry`; exact-SHA local tests and candidate-specific Ruff gates passed. |
-| F4.5.4 — offline paper/backtest rehearsal | **Active; [issue #322](https://github.com/jignesh2795/QuantX/issues/322)** | Prove Flow strategies through the existing PAPER rehearsal and deterministic BACKTEST consumers, deployment binding, `StrategyExecutionPreparer`, risk/policy and canonical simulated execution. No broker/LIVE path. |
+| **F4.5.4 — offline PAPER/BACKTEST integration** | **Complete; [PR #324](https://github.com/jignesh2795/QuantX/pull/324) merged** | Validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`; merge `4a1a5f7629fff832dcec74471dae096f2d231733`; issue #322 closed. Test-only proof through canonical rehearsal and backtest consumers with fail-closed risk/policy outcomes and no LIVE path. |
 
 QX-08 M1–M4 and its T1–T8/G1–G3 acceptance reconciliation remain complete. M4.5 is a separate parent-M4 product vertical; do not reopen QX-08 or duplicate the Python runtime.
 
@@ -154,17 +154,19 @@ For every implementation slice:
 
 ## 7. Immediate next task
 
-**Active product milestone: M4.5 — minimal declarative Flow-to-existing-runtime parity. F4.5.1–F4.5.3 are complete** in PRs #317, #320 and #321. Current `main` is `a27b93f56f978b56a9d3a3373d8221d40ad6fd81`; the F4.5.3 validated candidate was `966fce2d32d4b9609aeb0d88ed2250e6af301881`. The next slice is **F4.5.4 — offline paper/backtest rehearsal**, tracked by [issue #322](https://github.com/jignesh2795/QuantX/issues/322). Prove that a Flow adapter resolved through the existing registry can traverse existing PAPER rehearsal and deterministic BACKTEST consumers. Reuse deployment-owned binding, `StrategyExecutionPreparer`, risk/policy, the canonical offline executors and existing result/fill/ledger contracts. Do not introduce a new runtime, registry or execution pipeline.
+**Next task: reconcile the parent M4 Strategy Platform exit criteria.** The bounded M4.5 sequence is complete: F4.5.1–F4.5.4 are merged in PRs #317, #320, #321 and #324. PR #324 merged to `main` at `4a1a5f7629fff832dcec74471dae096f2d231733` from exact-SHA validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`; issue #322 is closed. Its local validation results and known repository-wide Markdown formatting baseline findings are recorded in PR #324.
 
-Keep F4.5.4 bounded:
-1. Prove Flow strategies reach the existing PAPER rehearsal path through `StrategyRehearsalSession`, including PAPER-only deployment checks, `StrategyExecutionPreparer`, risk/policy, `PaperOrderExecutor` and accounting.
-2. Prove Flow strategies reach `DeterministicBacktestService` through `StrategyEvaluationService`, a separate `StrategyIR`, explicit simulated `ExecutionContext` and the required `MarketRegistry`.
-3. Cover approved and fail-closed/no-fill outcomes, exact Decimal quantities, event-time behavior and deterministic repeat runs.
-4. Add Python/Flow semantic parity at the offline-consumer boundary without comparing implementation-specific random UUIDs.
-5. Change production code only if an exact source-backed integration gap is demonstrated; reuse canonical seams rather than duplicating policy/risk/execution behavior.
+Before creating another feature slice, perform a source-backed parent-M4 reconciliation:
+1. Retrieve the canonical parent-M4 objective and exit criteria from the current architecture, roadmap and issue records.
+2. Map each criterion to the current merged implementation, exact tests and existing acceptance evidence.
+3. Separate criteria that are satisfied by M4.5 from broader parent-M4 capabilities that remain open, deferred or blocked.
+4. Reconcile duplicate, stale or superseded issues and rank only evidence-backed remaining work.
+5. Update the work programme with the resulting next priority before implementation.
 
-No UI, scheduling, webhooks, generic scripting, AI nodes, cross-market support, cloud execution, direct order nodes, broker/REST submission, or LIVE capability is in scope. Public API #199 remains a separate bounded workstream. Resolve #190's private-disclosure path before broad contributor recruitment; sequence #206 after #199's API stability policy. #203 remains conditional on safe sandbox access and #205 remains deferred while reliable Python 3.13 validation infrastructure is unavailable.
+Do not create an F4.5.5 issue or expand the Flow language, UI, persistence, scheduling, webhooks, AI nodes, cross-market support, cloud execution, direct-order nodes, broker/REST submission or LIVE capability as part of this reconciliation. Any new slice requires its own explicit acceptance boundary and evidence.
 
-#267 remains blocked pending credible alternative authoritative evidence; preserve the pre-collection/no-reservation/no-submit block. #266 remains blocked on missing fixtures; preserve realized-only `daily_pnl`, current `max_drawdown` and the documented session-equity contract. No broker, sandbox, production or LIVE operation is part of F4.5.4.
+Public API #199 remains a separate bounded workstream. Resolve #190's private-disclosure path before broad contributor recruitment; sequence #206 after #199's API stability policy. #203 remains conditional on safe sandbox access and #205 remains deferred while reliable Python 3.13 validation infrastructure is unavailable.
 
-This plan records prioritization and acceptance intent; it does not itself claim F4.5.4 implementation, tests, CI, sandbox, broker or LIVE results.
+#267 remains blocked pending credible alternative authoritative evidence; preserve the pre-collection/no-reservation/no-submit block. #266 remains blocked on missing fixtures; preserve realized-only `daily_pnl`, current `max_drawdown` and the documented session-equity contract. F4.5.4 itself was validated entirely through offline PAPER/BACKTEST paths; no broker, sandbox, production or LIVE operation was performed.
+
+This programme records sequencing and source-backed completion status. F4.5.4 implementation and local validation evidence are recorded in PR #324; its merge is `4a1a5f7629fff832dcec74471dae096f2d231733`.
