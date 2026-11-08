@@ -2673,9 +2673,7 @@ def test_sdk_quote_snapshot_does_not_invent_malformed_numeric_values(
 def test_sdk_candles_uses_daily_historical_data_branch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    transport, calls = _sdk_transport_with_fake_historical_data(
-        monkeypatch, _candle_response()
-    )
+    transport, calls = _sdk_transport_with_fake_historical_data(monkeypatch, _candle_response())
     start = datetime(2026, 1, 1, tzinfo=UTC)
     end = datetime(2026, 1, 2, tzinfo=UTC)
     try:
@@ -2743,11 +2741,18 @@ def test_sdk_candles_rejects_malformed_historical_payload(
     malformed = {
         "status": "success",
         "remarks": "",
-        "data": {"open": ["100"], "high": [], "low": ["99"]},
+        "data": {
+            "open": ["100"],
+            "high": ["101"],
+            "low": ["99"],
+            "close": ["100"],
+            "volume": [],
+            "start_Time": [1767239100],
+        },
     }
     transport, _ = _sdk_transport_with_fake_historical_data(monkeypatch, malformed)
     try:
-        with pytest.raises(ValueError, match="missing 'high'|lengths do not match"):
+        with pytest.raises(ValueError, match="lengths do not match"):
             transport.candles(
                 "1333",
                 "NSE_EQ",
@@ -2900,15 +2905,10 @@ def test_sdk_ledger_report_transport_failure_is_unavailable(
 def test_quote_snapshot_helper_rejects_missing_identity_and_malformed_depth() -> None:
     from quantx.plugins.dhan.transport import _depth_level, _quote_snapshot
 
-    envelope = {
-        "status": "success",
-        "remarks": "",
-        "data": {"NSE_EQ": {"different-security": {"last_price": "100"}}},
-    }
+    envelope = {"status": "success", "remarks": "", "data": {"NSE_EQ": {}}}
+    empty_data = {"status": "success", "remarks": "", "data": {}}
     assert _quote_snapshot(envelope, "1333", "NSE_EQ") is None
-    assert _quote_snapshot(
-        {"status": "success", "remarks": "", "data": {}}, "1333", "NSE_EQ"
-    ) is None
+    assert _quote_snapshot(empty_data, "1333", "NSE_EQ") is None
     assert _depth_level({}, "buy") == (None, None)
     assert _depth_level({"depth": {"buy": []}}, "buy") == (None, None)
     with pytest.raises(ValueError, match="depth level is malformed"):
