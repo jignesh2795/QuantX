@@ -2,7 +2,7 @@
 
 ## V0.1 scope — acceptance-complete under ADR-008
 
-The list below records the declared v0.1 scope; it is historical context, not the active implementation queue. The current milestone is M4 Strategy Platform; see `docs/roadmap/README.md`.
+The list below records the declared v0.1 scope; it is historical context, not the active implementation queue. M4 Strategy Platform is complete against its defined exit criterion; use `docs/planning/quantx-work-program-2026-10.md` for current work sequencing.
 
 - universal event-driven core
 - deterministic clock and replay
@@ -25,7 +25,7 @@ The list below records the declared v0.1 scope; it is historical context, not th
 - multi-broker
 - sandbox/analyzer
 - Historify-style scheduling and data management
-- Flow builder
+- Visual Flow editor/builder and workflow persistence (later platform surface; distinct from the completed minimal Flow runtime/parity path)
 - webhook/external signals
 - strategy registry and scheduler
 - Action Center
