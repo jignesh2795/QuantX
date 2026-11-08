@@ -376,11 +376,15 @@ class IndiaMarketChargeModel:
             self._validate_exercise_context(context)
             if context.premium_value is not None:
                 raise IndiaChargeInputUnavailable("premium_value is not valid for OPTION_EXERCISE")
+            trade_base = context.transaction_value
         elif context.product is IndiaChargeProduct.EQUITY_OPTIONS:
             if context.premium_value is None:
                 raise IndiaChargeInputUnavailable("premium_value is required for option trades")
-        elif context.premium_value is not None:
-            raise IndiaChargeInputUnavailable("premium_value is only valid for option trades")
+            trade_base = context.premium_value
+        else:
+            if context.premium_value is not None:
+                raise IndiaChargeInputUnavailable("premium_value is only valid for option trades")
+            trade_base = context.transaction_value
 
         if context.pass_through_policy is None:
             raise IndiaChargeInputUnavailable("pass-through policy is required")
@@ -421,6 +425,21 @@ class IndiaMarketChargeModel:
             "ipft": policy.ipft,
             "sebi_turnover_fee": policy.sebi_turnover_fee,
         }
+        if (
+            incidence["stt"] is not IndiaChargeIncidence.CLIENT_PASSTHROUGH
+            and context.stt_gst_treatment is IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE
+        ):
+            raise IndiaChargeInputUnavailable(
+                "STT cannot enter the GST base when it is not charged to the client"
+            )
+        if (
+            incidence["stamp_duty"] is not IndiaChargeIncidence.CLIENT_PASSTHROUGH
+            and context.stamp_duty_gst_treatment
+            is IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE
+        ):
+            raise IndiaChargeInputUnavailable(
+                "stamp duty cannot enter the GST base when it is not charged to the client"
+            )
         for component, value in incidence.items():
             if value is IndiaChargeIncidence.NOT_APPLICABLE and rates[component] != _ZERO:
                 raise IndiaChargeRuleUnavailable(
@@ -434,11 +453,7 @@ class IndiaMarketChargeModel:
                 raise IndiaChargeInputUnavailable("exercise_notional_value is required")
             other_base = _ZERO
         else:
-            other_base = (
-                context.premium_value
-                if context.product is IndiaChargeProduct.EQUITY_OPTIONS
-                else context.transaction_value
-            )
+            other_base = trade_base
             stt_base = other_base
             sebi_base = other_base
 

@@ -486,3 +486,26 @@ def test_breakdown_provenance_retains_schedule_component_and_policy_versions() -
     assert "component:stt:synthetic-v1:synthetic://india-charges/stt" in result.provenance
     assert "pass_through_policy:synthetic-billing-v1:synthetic://billing-policy/v1" in result.provenance
     assert "gst_policy:synthetic-gst-policy-v1:synthetic://gst-policy/v1" in result.provenance
+
+
+
+def test_gst_rejects_tax_treatment_that_includes_a_non_client_recovery() -> None:
+    model = _model()
+    with pytest.raises(IndiaChargeInputUnavailable, match="STT cannot enter the GST base"):
+        model.calculate(
+            _context(
+                pass_through_policy=_policy(stt=IndiaChargeIncidence.BROKER_ABSORBED),
+                stt_gst_treatment=IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE,
+            )
+        )
+    with pytest.raises(IndiaChargeInputUnavailable, match="stamp duty cannot enter the GST base"):
+        model.calculate(
+            _context(
+                pass_through_policy=_policy(stamp_duty=IndiaChargeIncidence.NOT_APPLICABLE),
+                stamp_duty_gst_treatment=IndiaRecoveryTaxTreatment.INCLUDE_IN_TAXABLE_VALUE,
+                # Use a zero, sourced stamp-duty rule for the N/A incidence.
+                # The default schedule rate is intentionally non-zero, so this
+                # first proves that contradictory GST treatment is rejected
+                # before the component applicability rule is evaluated.
+            )
+        )
