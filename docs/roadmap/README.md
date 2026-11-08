@@ -79,7 +79,7 @@ Execution/recovery internals are frozen unless the acceptance audit finds a conc
 
 ## M4 — Strategy Platform
 
-**Status:** Active at the parent Strategy Platform level pending exit-criteria reconciliation; the M4.5 Flow parity vertical is complete. 
+**Status:** Active at the parent Strategy Platform level pending exit-criteria reconciliation; the M4.5 Flow parity vertical is complete.
 
 M4.1 proves the existing Python strategy definition/IR/runtime path through deployment-owned context binding, risk/policy preparation, and the canonical paper executor. It is offline and PAPER-only; it does not complete M4 overall, add a Flow authoring path, or establish Python/Flow runtime parity.
 
