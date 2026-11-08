@@ -419,7 +419,7 @@ class _RejectingPolicyEngine(ExecutionPolicyEngine):
         return PolicyResult(PolicyDecision.REJECT, "integration test policy rejection")
 
 
-class _ApprovalRequiredFlowStrategy:
+class _RiskApprovalRequiredFlowStrategy:
     """Test-only decorator that marks a Flow-produced intent for manual approval."""
 
     def __init__(self, plan: FlowExecutionPlan) -> None:
@@ -451,13 +451,13 @@ def test_flow_paper_rehearsal_policy_rejection_never_reaches_paper_executor() ->
     assert accounting.applications == []
 
 
-def test_flow_paper_rehearsal_manual_approval_required_never_reaches_paper_executor() -> None:
+def test_flow_paper_rehearsal_risk_approval_required_never_reaches_paper_executor() -> None:
     plan = _flow_plan()
     registry = StrategyRegistry()
     registry.register(
         _STRATEGY_ID.value,
         _VERSION,
-        lambda: _ApprovalRequiredFlowStrategy(plan),
+        lambda: _RiskApprovalRequiredFlowStrategy(plan),
     )
     session, accounting = _rehearsal_session(plan, registry=registry)
 
@@ -469,10 +469,8 @@ def test_flow_paper_rehearsal_manual_approval_required_never_reaches_paper_execu
     assert step.evaluation.result.intent.approval_required
     assert step.preparation is not None
     assert step.preparation.risk_result is not None
-    assert step.preparation.risk_result.decision is RiskDecision.APPROVE
-    assert step.preparation.policy_result is not None
-    assert step.preparation.policy_result.decision is PolicyDecision.APPROVAL_REQUIRED
-    assert not step.preparation.policy_result.approved
+    assert step.preparation.risk_result.decision is RiskDecision.APPROVAL_REQUIRED
+    assert step.preparation.policy_result is None
     assert step.preparation.request is None
     assert step.paper_outcome is None
     assert accounting.applications == []
