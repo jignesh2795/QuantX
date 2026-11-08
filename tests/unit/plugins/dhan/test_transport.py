@@ -2542,6 +2542,8 @@ def _sdk_transport_with_fake_historical_data(
     *,
     daily_failure: Exception | None = None,
     intraday_failure: Exception | None = None,
+    daily_started: threading.Event | None = None,
+    daily_release: threading.Event | None = None,
 ) -> tuple[DhanSDKTransport, list[tuple[str, tuple[object, ...], dict[str, object]]]]:
     """Install a deterministic fake HistoricalData implementation."""
     import sys
@@ -2558,6 +2560,10 @@ def _sdk_transport_with_fake_historical_data(
 
         def historical_daily_data(self, *args: object) -> object:
             calls.append(("daily", args, {}))
+            if daily_started is not None:
+                daily_started.set()
+                if daily_release is None or not daily_release.wait(timeout=5.0):
+                    raise AssertionError("fake daily historical call was not released")
             if daily_failure is not None:
                 raise daily_failure
             return response
@@ -2757,10 +2763,13 @@ def test_sdk_candles_rejects_malformed_historical_payload(
 def test_sdk_candles_preserves_timeout_as_uncertain_transport_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    started = threading.Event()
+    release = threading.Event()
     transport, _ = _sdk_transport_with_fake_historical_data(
         monkeypatch,
         _candle_response(),
-        daily_failure=DhanTimeoutError("candles", 0.01),
+        daily_started=started,
+        daily_release=release,
     )
     try:
         with pytest.raises(DhanTimeoutError, match="candles"):
@@ -2770,9 +2779,11 @@ def test_sdk_candles_preserves_timeout_as_uncertain_transport_failure(
                 timeframe="1d",
                 start=datetime(2026, 1, 1, tzinfo=UTC),
                 end=datetime(2026, 1, 2, tzinfo=UTC),
-                timeout=5.0,
+                timeout=0.1,
             )
+        assert started.is_set()
     finally:
+        release.set()
         transport.close()
 
 
