@@ -2499,3 +2499,427 @@ def test_dhan_trade_history_entry_docstring_contains_precision_note() -> None:
 
     assert "Decimal(str(value))" in (DhanTradeHistoryEntry.__doc__ or "")
     assert "cannot reconstruct" in (DhanTradeHistoryEntry.__doc__ or "")
+
+
+
+# Direct SDK transport coverage for market data and read-only observations.
+
+
+def _sdk_transport_with_fake_market_feed(
+    monkeypatch: pytest.MonkeyPatch,
+    response: object,
+    *,
+    failure: Exception | None = None,
+) -> tuple[DhanSDKTransport, list[object]]:
+    """Install a deterministic fake MarketFeed module without importing the SDK."""
+    import sys
+
+    transport = _sdk_transport_without_sdk(
+        monkeypatch, _CancelEchoFakeDhanClient(correlation_echo=None)
+    )
+    parent = sys.modules["dhanhq"]
+    parent.__path__ = []  # type: ignore[attr-defined]
+    calls: list[object] = []
+    fake_module = types.ModuleType("dhanhq._market_feed")
+
+    class _FakeMarketFeed:
+        def __init__(self, context: object) -> None:
+            self.context = context
+
+        def quote_data(self, instruments: object) -> object:
+            calls.append(instruments)
+            if failure is not None:
+                raise failure
+            return response
+
+    fake_module.MarketFeed = _FakeMarketFeed  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dhanhq._market_feed", fake_module)
+    return transport, calls
+
+
+def _sdk_transport_with_fake_historical_data(
+    monkeypatch: pytest.MonkeyPatch,
+    response: object,
+    *,
+    daily_failure: Exception | None = None,
+    intraday_failure: Exception | None = None,
+) -> tuple[DhanSDKTransport, list[tuple[str, tuple[object, ...], dict[str, object]]]]:
+    """Install a deterministic fake HistoricalData implementation."""
+    import sys
+
+    transport = _sdk_transport_without_sdk(
+        monkeypatch, _CancelEchoFakeDhanClient(correlation_echo=None)
+    )
+    parent = sys.modules["dhanhq"]
+    calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+
+    class _FakeHistoricalData:
+        def __init__(self, context: object) -> None:
+            self.context = context
+
+        def historical_daily_data(self, *args: object) -> object:
+            calls.append(("daily", args, {}))
+            if daily_failure is not None:
+                raise daily_failure
+            return response
+
+        def intraday_minute_data(self, *args: object, **kwargs: object) -> object:
+            calls.append(("intraday", args, kwargs))
+            if intraday_failure is not None:
+                raise intraday_failure
+            return response
+
+    parent.HistoricalData = _FakeHistoricalData  # type: ignore[attr-defined]
+    return transport, calls
+
+
+def _candle_response(*, start_time: object = 1767239100) -> dict[str, object]:
+    return {
+        "status": "success",
+        "remarks": "",
+        "data": {
+            "open": ["100.25"],
+            "high": ["102.50"],
+            "low": ["99.75"],
+            "close": ["101.50"],
+            "volume": [1200],
+            "start_Time": [start_time],
+        },
+    }
+
+
+def test_sdk_quote_snapshot_uses_market_feed_and_normalizes_requested_packet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = {
+        "status": "success",
+        "remarks": "",
+        "data": {
+            "NSE_EQ": {
+                "1333": {
+                    "last_price": "101.25",
+                    "depth": {
+                        "buy": [{"price": "101.00", "quantity": "12"}],
+                        "sell": [{"price": "101.50", "quantity": "15"}],
+                    },
+                }
+            }
+        },
+    }
+    transport, calls = _sdk_transport_with_fake_market_feed(monkeypatch, response)
+    try:
+        snapshot = transport.quote_snapshot("1333", "NSE_EQ", timeout=5.0)
+
+        assert snapshot is not None
+        assert snapshot.security_id == "1333"
+        assert snapshot.exchange_segment == "NSE_EQ"
+        assert snapshot.last_price == Decimal("101.25")
+        assert snapshot.bid_price == Decimal("101.00")
+        assert snapshot.bid_size == Decimal("12")
+        assert snapshot.ask_price == Decimal("101.50")
+        assert snapshot.ask_size == Decimal("15")
+        assert calls == [{"NSE_EQ": ["1333"]}]
+    finally:
+        transport.close()
+
+
+def test_sdk_quote_snapshot_returns_unavailable_for_malformed_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport, calls = _sdk_transport_with_fake_market_feed(monkeypatch, ["not", "a", "mapping"])
+    try:
+        assert transport.quote_snapshot("1333", "NSE_EQ", timeout=5.0) is None
+        assert calls == [{"NSE_EQ": ["1333"]}]
+    finally:
+        transport.close()
+
+
+def test_sdk_quote_snapshot_returns_unavailable_for_vendor_transport_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport, calls = _sdk_transport_with_fake_market_feed(
+        monkeypatch,
+        {},
+        failure=RuntimeError("synthetic quote transport failure"),
+    )
+    try:
+        assert transport.quote_snapshot("1333", "NSE_EQ", timeout=5.0) is None
+        assert calls == [{"NSE_EQ": ["1333"]}]
+    finally:
+        transport.close()
+
+
+def test_sdk_quote_snapshot_does_not_invent_malformed_numeric_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = {
+        "status": "success",
+        "remarks": "",
+        "data": {"NSE_EQ": {"1333": {"last_price": "not-a-price"}}},
+    }
+    transport, _ = _sdk_transport_with_fake_market_feed(monkeypatch, response)
+    try:
+        with pytest.raises(ValueError, match="invalid Dhan decimal field"):
+            transport.quote_snapshot("1333", "NSE_EQ", timeout=5.0)
+    finally:
+        transport.close()
+
+
+def test_sdk_candles_uses_daily_historical_data_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport, calls = _sdk_transport_with_fake_historical_data(
+        monkeypatch, _candle_response()
+    )
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = datetime(2026, 1, 2, tzinfo=UTC)
+    try:
+        candles = transport.candles(
+            "1333",
+            "NSE_EQ",
+            timeframe="1d",
+            start=start,
+            end=end,
+            timeout=5.0,
+        )
+
+        assert len(candles) == 1
+        assert candles[0].timeframe == "1d"
+        assert candles[0].open == Decimal("100.25")
+        assert candles[0].high == Decimal("102.50")
+        assert candles[0].low == Decimal("99.75")
+        assert candles[0].close == Decimal("101.50")
+        assert candles[0].volume == Decimal("1200")
+        assert calls == [
+            (
+                "daily",
+                ("1333", "NSE_EQ", "EQUITY", "2026-01-01", "2026-01-02"),
+                {},
+            )
+        ]
+    finally:
+        transport.close()
+
+
+def test_sdk_candles_uses_intraday_interval_for_historical_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport, calls = _sdk_transport_with_fake_historical_data(
+        monkeypatch, _candle_response()
+    )
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = datetime(2026, 1, 2, tzinfo=UTC)
+    try:
+        candles = transport.candles(
+            "1333",
+            "NSE_EQ",
+            timeframe="5m",
+            start=start,
+            end=end,
+            timeout=5.0,
+        )
+
+        assert len(candles) == 1
+        assert candles[0].timeframe == "5m"
+        assert calls == [
+            (
+                "intraday",
+                ("1333", "NSE_EQ", "EQUITY", "2026-01-01", "2026-01-02"),
+                {"interval": 5},
+            )
+        ]
+    finally:
+        transport.close()
+
+
+def test_sdk_candles_rejects_malformed_historical_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    malformed = {
+        "status": "success",
+        "remarks": "",
+        "data": {"open": ["100"], "high": [], "low": ["99"]},
+    }
+    transport, _ = _sdk_transport_with_fake_historical_data(monkeypatch, malformed)
+    try:
+        with pytest.raises(ValueError, match="missing 'high'|lengths do not match"):
+            transport.candles(
+                "1333",
+                "NSE_EQ",
+                timeframe="1d",
+                start=datetime(2026, 1, 1, tzinfo=UTC),
+                end=datetime(2026, 1, 2, tzinfo=UTC),
+                timeout=5.0,
+            )
+    finally:
+        transport.close()
+
+
+def test_sdk_candles_preserves_timeout_as_uncertain_transport_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport, _ = _sdk_transport_with_fake_historical_data(
+        monkeypatch,
+        _candle_response(),
+        daily_failure=DhanTimeoutError("candles", 0.01),
+    )
+    try:
+        with pytest.raises(DhanTimeoutError, match="candles"):
+            transport.candles(
+                "1333",
+                "NSE_EQ",
+                timeframe="1d",
+                start=datetime(2026, 1, 1, tzinfo=UTC),
+                end=datetime(2026, 1, 2, tzinfo=UTC),
+                timeout=5.0,
+            )
+    finally:
+        transport.close()
+
+
+class _ReadOnlySDKFakeDhanClient:
+    def __init__(
+        self,
+        *,
+        positions_response: object | None = None,
+        positions_failure: Exception | None = None,
+        ledger_failure: Exception | None = None,
+    ) -> None:
+        self.positions_response = positions_response or {
+            "status": "success",
+            "remarks": "",
+            "data": [
+                {
+                    "securityId": "1333",
+                    "exchangeSegment": "NSE_EQ",
+                    "netQty": "2",
+                    "costPrice": "100.25",
+                }
+            ],
+        }
+        self.positions_failure = positions_failure
+        self.ledger_failure = ledger_failure
+
+    def get_fund_limits(self) -> object:
+        return {"status": "success", "remarks": "", "data": {}}
+
+    def get_positions(self) -> object:
+        if self.positions_failure is not None:
+            raise self.positions_failure
+        return self.positions_response
+
+    def ledger_report(self, from_date: str, to_date: str) -> object:
+        if self.ledger_failure is not None:
+            raise self.ledger_failure
+        return {"status": "success", "remarks": "", "data": []}
+
+    def place_order(self, **kwargs: object) -> object:
+        raise AssertionError("read-only transport test must not submit an order")
+
+    def cancel_order(self, order_id: str) -> object:
+        raise AssertionError("read-only transport test must not cancel an order")
+
+
+def test_sdk_health_success_path_uses_fund_limits_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _ReadOnlySDKFakeDhanClient()
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        assert transport.health(timeout=5.0) is True
+    finally:
+        transport.close()
+
+
+def test_sdk_positions_reads_and_normalizes_vendor_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _ReadOnlySDKFakeDhanClient()
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        positions = transport.positions(timeout=5.0)
+
+        assert positions.available is True
+        assert len(positions.positions) == 1
+        assert positions.positions[0].security_id == "1333"
+        assert positions.positions[0].exchange_segment == "NSE_EQ"
+        assert positions.positions[0].net_quantity == Decimal("2")
+        assert positions.positions[0].average_price == Decimal("100.25")
+    finally:
+        transport.close()
+
+
+def test_sdk_positions_transport_failure_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _ReadOnlySDKFakeDhanClient(
+        positions_failure=RuntimeError("synthetic positions transport failure")
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        positions = transport.positions(timeout=5.0)
+
+        assert positions.available is False
+        assert positions.positions == ()
+        assert "transport failure" in positions.message
+    finally:
+        transport.close()
+
+
+def test_sdk_ledger_report_transport_failure_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _ReadOnlySDKFakeDhanClient(
+        ledger_failure=RuntimeError("synthetic ledger transport failure")
+    )
+    transport = _sdk_transport_without_sdk(monkeypatch, client)
+    try:
+        snapshot = transport.ledger_report(
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 31, tzinfo=UTC),
+            timeout=5.0,
+        )
+
+        assert snapshot.available is False
+        assert snapshot.entries == ()
+        assert "transport failure" in snapshot.message
+    finally:
+        transport.close()
+
+
+def test_quote_snapshot_helper_rejects_missing_identity_and_malformed_depth() -> None:
+    from quantx.plugins.dhan.transport import _depth_level, _quote_snapshot
+
+    envelope = {
+        "status": "success",
+        "remarks": "",
+        "data": {"NSE_EQ": {"different-security": {"last_price": "100"}}},
+    }
+    assert _quote_snapshot(envelope, "1333", "NSE_EQ") is None
+    assert _quote_snapshot(
+        {"status": "success", "remarks": "", "data": {}}, "1333", "NSE_EQ"
+    ) is None
+    assert _depth_level({}, "buy") == (None, None)
+    assert _depth_level({"depth": {"buy": []}}, "buy") == (None, None)
+    with pytest.raises(ValueError, match="depth level is malformed"):
+        _depth_level({"depth": {"buy": ["malformed"]}}, "buy")
+
+
+def test_candle_snapshot_helper_rejects_failure_mismatched_and_invalid_entries() -> None:
+    from quantx.plugins.dhan.transport import _candle_snapshots
+
+    with pytest.raises(ValueError, match="reported failure"):
+        _candle_snapshots(
+            {"status": "failure", "remarks": "vendor rejected request", "data": ""},
+            timeframe="1m",
+        )
+
+    mismatched = _candle_response()
+    mismatched["data"]["volume"] = []  # type: ignore[index]
+    with pytest.raises(ValueError, match="lengths do not match"):
+        _candle_snapshots(mismatched, timeframe="1m")
+
+    invalid_decimal = _candle_response()
+    invalid_decimal["data"]["close"] = ["not-a-price"]  # type: ignore[index]
+    with pytest.raises(ValueError, match="candle entry is malformed"):
+        _candle_snapshots(invalid_decimal, timeframe="1m")
