@@ -569,7 +569,7 @@ def test_gst_rejects_tax_treatment_that_includes_a_non_client_recovery() -> None
     [IndiaTradeSide.BUY, IndiaTradeSide.SELL],
     ids=["buy-side", "sell-side"],
 )
-def test_t21_march_1_exchange_ipft_split_preserves_member_outflow_each_side(
+def test_t21_march_1_exchange_ipft_split_preserves_published_total_per_side(
     product: IndiaChargeProduct,
     side: IndiaTradeSide,
     old_transaction: Decimal,
@@ -577,7 +577,7 @@ def test_t21_march_1_exchange_ipft_split_preserves_member_outflow_each_side(
     new_transaction: Decimal,
     new_ipft: Decimal,
 ) -> None:
-    """T21: the March 1 split changes, but total member outflow does not."""
+    """T21 synthetic fixture: the published per-side member-fee total is unchanged."""
     crore = D("10000000")
     boundary = datetime(2026, 3, 1, 0, 0, tzinfo=IST)
 
@@ -607,6 +607,9 @@ def test_t21_march_1_exchange_ipft_split_preserves_member_outflow_each_side(
     model = IndiaMarketChargeModel(IndiaChargeSchedule((before_entry, from_boundary_entry)))
 
     # Options transaction charges use premium turnover, not underlying notional.
+    # The circular publishes Trading Member charges. This explicit pass-through
+    # fixture exposes those components in ChargeBreakdown for split testing; it
+    # does not establish a universal broker-to-client billing policy.
     context_values = {
         "trade_side": side,
         "product": product,
