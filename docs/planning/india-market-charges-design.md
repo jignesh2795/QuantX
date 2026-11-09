@@ -1,7 +1,7 @@
 # QX-12 / #200 — India Market Charges: Source Inventory and Design
 
 **Implementation branch:** `feat/issue200-india-charge-contract-v1` (PR #329)
-**Phase:** contract implementation and exact-HEAD validation complete for the current contract-only slice. The published PR head `58f3edffb5c46297837cfc99d8d19bf56a43ec0a` passed both canonical locked local validation configurations and both release gates, based on the retained operator report. No production tariff schedule or execution wiring is included. Source research and tariff-applicability gates below remain design/research inputs until independently verified.
+**Phase:** contract implementation. The implementation candidate `58f3edffb5c46297837cfc99d8d19bf56a43ec0a` passed both canonical locked local validation configurations and both release gates, based on the retained operator report. Later documentation-only status reconciliation commits record that evidence and clarify remaining scope; each new PR head still requires exact-SHA validation before its release gate can pass. No production tariff schedule or execution wiring is included. Source research and tariff-applicability gates below remain design/research inputs until independently verified.
 **Scope:** effective-dated Indian equity delivery, intraday, futures, and options transaction charges.
 **Related (tracked separately, not reopened):** #267 risk-evidence authority, #266 daily-loss semantics, #196/#197.
 
@@ -216,7 +216,7 @@ The public `quantx.execution.charges` compatibility import path and generic perc
 Reuse the vendor- and market-neutral charge contracts in `quantx.ports.charges`. Preserve the existing `quantx.execution.charges` import path as an identity-preserving compatibility facade; keep the generic percentage model execution-owned.
 
 1. **`IndiaTradeSide`** enum: `BUY`, `SELL`, representing the client's side of one transaction.
-2. **Assignment boundary:** `OPTION_ASSIGNMENT` is intentionally unsupported in the first slice. It must raise `IndiaChargeRuleUnavailable`; do not infer assignment from `OPTION_EXERCISE` or a normal SELL trade. Add a distinct event only after source-backed payer, turnover-basis and component rules are specified.
+2. **Assignment boundary:** `OPTION_ASSIGNMENT` is represented explicitly in the event enum but remains unsupported in the first slice. It raises `IndiaChargeRuleUnavailable`; do not infer assignment from `OPTION_EXERCISE` or a normal SELL trade. Support it only after source-backed payer, turnover-basis and component rules are specified.
 3. **`IndiaChargeProduct`** enum: `EQUITY_DELIVERY`, `EQUITY_INTRADAY`, `EQUITY_FUTURES`, `EQUITY_OPTIONS`. These names constrain the first schedule to NSE equity products; fund units, currency/commodity derivatives, BSE and MCX are not aliases.
 4. **`IndiaChargeEvent`** enum: `TRADE`, `OPTION_EXERCISE`, `OPTION_ASSIGNMENT`. Exercise is a separate event, not a Boolean variation of an ordinary option trade. `OPTION_ASSIGNMENT` is represented explicitly but remains unsupported and fails closed.
 5. **`IndiaOptionType`** enum: `CALL`, `PUT`.
