@@ -525,3 +525,126 @@ def test_gst_rejects_tax_treatment_that_includes_a_non_client_recovery() -> None
                 # before the component applicability rule is evaluated.
             )
         )
+
+
+@pytest.mark.parametrize(
+    ("product", "old_transaction", "old_ipft", "new_transaction", "new_ipft"),
+    [
+        pytest.param(
+            IndiaChargeProduct.EQUITY_DELIVERY,
+            D("297.00"),
+            D("10.00"),
+            D("306.99"),
+            D("0.01"),
+            id="cash-market",
+        ),
+        pytest.param(
+            IndiaChargeProduct.EQUITY_FUTURES,
+            D("173.00"),
+            D("10.00"),
+            D("182.99"),
+            D("0.01"),
+            id="equity-futures",
+        ),
+        pytest.param(
+            IndiaChargeProduct.EQUITY_OPTIONS,
+            D("3503.00"),
+            D("50.00"),
+            D("3552.99"),
+            D("0.01"),
+            id="equity-options-premium",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "side",
+    [IndiaTradeSide.BUY, IndiaTradeSide.SELL],
+    ids=["buy-side", "sell-side"],
+)
+def test_t21_march_1_exchange_ipft_split_preserves_member_outflow_each_side(
+    product: IndiaChargeProduct,
+    side: IndiaTradeSide,
+    old_transaction: Decimal,
+    old_ipft: Decimal,
+    new_transaction: Decimal,
+    new_ipft: Decimal,
+) -> None:
+    """T21: the March 1 split changes, but total member outflow does not."""
+    crore = D("10000000")
+    boundary = datetime(2026, 3, 1, 0, 0, tzinfo=IST)
+
+    def sourced_rates(transaction_charge: Decimal, ipft_charge: Decimal) -> IndiaChargeRateSet:
+        return _rates(
+            stt_rate=D("0"),
+            stamp_duty_rate=D("0"),
+            exchange_txn_rate=transaction_charge / crore,
+            ipft_rate=ipft_charge / crore,
+            sebi_turnover_rate=D("0"),
+            gst_rate=D("0"),
+        )
+
+    key = (product, side, IndiaChargeEvent.TRADE)
+    before_entry = IndiaChargeScheduleEntry(
+        effective_from=START,
+        effective_to=boundary,
+        version="synthetic-nse-pre-2026-03-01",
+        rates=((key, sourced_rates(old_transaction, old_ipft)),),
+    )
+    from_boundary_entry = IndiaChargeScheduleEntry(
+        effective_from=boundary,
+        effective_to=None,
+        version="synthetic-nse-from-2026-03-01",
+        rates=((key, sourced_rates(new_transaction, new_ipft)),),
+    )
+    model = IndiaMarketChargeModel(IndiaChargeSchedule((before_entry, from_boundary_entry)))
+
+    # Options transaction charges use premium turnover, not underlying notional.
+    context_values = {
+        "trade_side": side,
+        "product": product,
+        "transaction_value": D("123456789") if product is IndiaChargeProduct.EQUITY_OPTIONS else crore,
+        "premium_value": crore if product is IndiaChargeProduct.EQUITY_OPTIONS else None,
+        "pass_through_policy": _policy(
+            exchange_txn=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+            ipft=IndiaChargeIncidence.CLIENT_PASSTHROUGH,
+        ),
+        "brokerage": D("0"),
+        "dp_charges": D("0"),
+        "other_taxable_service_charges": D("0"),
+    }
+    before = model.calculate(
+        _context(
+            **context_values,
+            effective_at=datetime(2026, 2, 28, 23, 59, 59, tzinfo=IST),
+        )
+    )
+    at_boundary = model.calculate(
+        _context(**context_values, effective_at=boundary)
+    )
+
+    before_amounts = _amounts(before)
+    boundary_amounts = _amounts(at_boundary)
+
+    assert before_amounts["exchange_txn"] == old_transaction
+    assert before_amounts["ipft"] == old_ipft
+    assert boundary_amounts["exchange_txn"] == new_transaction
+    assert boundary_amounts["ipft"] == new_ipft
+    assert before_amounts["exchange_txn"] != boundary_amounts["exchange_txn"]
+    assert before_amounts["ipft"] != boundary_amounts["ipft"]
+
+    expected_total = {
+        IndiaChargeProduct.EQUITY_DELIVERY: D("307.00"),
+        IndiaChargeProduct.EQUITY_FUTURES: D("183.00"),
+        IndiaChargeProduct.EQUITY_OPTIONS: D("3553.00"),
+    }[product]
+    assert before_amounts["exchange_txn"] + before_amounts["ipft"] == expected_total
+    assert boundary_amounts["exchange_txn"] + boundary_amounts["ipft"] == expected_total
+    assert before.total == at_boundary.total == expected_total
+    assert before_amounts["stt"] == boundary_amounts["stt"] == D("0")
+    assert before_amounts["stamp_duty"] == boundary_amounts["stamp_duty"] == D("0")
+    assert before_amounts["sebi_turnover_fee"] == boundary_amounts["sebi_turnover_fee"] == D("0")
+    assert before_amounts["gst"] == boundary_amounts["gst"] == D("0")
+    assert (
+        "schedule:synthetic-nse-pre-2026-03-01" in before.provenance
+        and "schedule:synthetic-nse-from-2026-03-01" in at_boundary.provenance
+    )
