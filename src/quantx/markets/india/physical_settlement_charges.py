@@ -34,7 +34,7 @@ class IndiaPhysicalSettlementInputUnavailable(ValueError):
 
 class IndiaPhysicalSettlementCollectionDisposition(StrEnum):
     NCL_COLLECTION_APPLIES = "NCL_COLLECTION_APPLIES"
-    NOT_NCL_COLLECTION_APPLIES = "NOT_NCL_COLLECTION_APPLIES"
+    NCL_COLLECTION_EXCLUDED_FOR_SIKKIM = "NCL_COLLECTION_EXCLUDED_FOR_SIKKIM"
 
 
 class IndiaPhysicalSettlementJurisdictionSource(StrEnum):
@@ -398,11 +398,11 @@ class IndiaPhysicalSettlementStampDutyModel:
 
         if jurisdiction == "SIKKIM":
             base_provenance.append(
-                "collection_disposition:NOT_NCL_COLLECTION_APPLIES_FOR_SIKKIM"
+                "collection_disposition:NCL_COLLECTION_EXCLUDED_FOR_SIKKIM_FOR_SIKKIM"
             )
             return IndiaPhysicalSettlementStampDutyResult(
                 collection_disposition=(
-                    IndiaPhysicalSettlementCollectionDisposition.NOT_NCL_COLLECTION_APPLIES
+                    IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_EXCLUDED_FOR_SIKKIM
                 ),
                 jurisdiction_state_ut=jurisdiction,
                 jurisdiction_source=jurisdiction_source,
