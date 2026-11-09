@@ -116,7 +116,7 @@ def test_physical_stamp_duty_computes_delivery_and_non_delivery_components() -> 
     result = _model().calculate(_context())
 
     assert result.collection_disposition is (
-        IndiaPhysicalSettlementCollectionDisposition.COLLECTED_BY_NCL
+        IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_APPLIES
     )
     assert result.jurisdiction_state_ut == "MAHARASHTRA"
     assert result.jurisdiction_source is IndiaPhysicalSettlementJurisdictionSource.CLIENT_CODE
@@ -231,12 +231,12 @@ def test_sikkim_is_not_collected_by_ncl_and_is_not_a_zero_rate() -> None:
     )
 
     assert result.collection_disposition is (
-        IndiaPhysicalSettlementCollectionDisposition.NOT_COLLECTED_BY_NCL
+        IndiaPhysicalSettlementCollectionDisposition.NOT_NCL_COLLECTION_APPLIES
     )
     assert result.client_level_total is None
     assert result.schedule_version is None
     assert result.settlements == ()
-    assert "collection_disposition:NOT_COLLECTED_BY_NCL_FOR_SIKKIM" in result.provenance
+    assert "collection_disposition:NOT_NCL_COLLECTION_APPLIES_FOR_SIKKIM" in result.provenance
 
 
 def test_trading_member_state_is_used_only_when_client_state_is_unavailable() -> None:
@@ -276,7 +276,7 @@ def test_proprietary_transaction_uses_member_code_as_client_code() -> None:
     result = _model().calculate(context)
 
     assert result.collection_disposition is (
-        IndiaPhysicalSettlementCollectionDisposition.COLLECTED_BY_NCL
+        IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_APPLIES
     )
     assert "client_code_kind:TRADING_MEMBER_CODE" in result.provenance
     assert "TM-001" not in "|".join(result.provenance)

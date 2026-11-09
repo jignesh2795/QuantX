@@ -33,8 +33,8 @@ class IndiaPhysicalSettlementInputUnavailable(ValueError):
 
 
 class IndiaPhysicalSettlementCollectionDisposition(StrEnum):
-    COLLECTED_BY_NCL = "COLLECTED_BY_NCL"
-    NOT_COLLECTED_BY_NCL = "NOT_COLLECTED_BY_NCL"
+    NCL_COLLECTION_APPLIES = "NCL_COLLECTION_APPLIES"
+    NOT_NCL_COLLECTION_APPLIES = "NOT_NCL_COLLECTION_APPLIES"
 
 
 class IndiaPhysicalSettlementJurisdictionSource(StrEnum):
@@ -329,7 +329,7 @@ class IndiaPhysicalSettlementStampDutyResult:
             raise ValueError("provenance must contain non-empty strings")
         if (
             self.collection_disposition
-            is IndiaPhysicalSettlementCollectionDisposition.COLLECTED_BY_NCL
+            is IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_APPLIES
         ):
             _require_text(self.schedule_version, "schedule_version")
             if not self.settlements or self.client_level_total is None:
@@ -347,7 +347,7 @@ class IndiaPhysicalSettlementStampDutyResult:
                 or self.client_level_total is not None
             ):
                 raise ValueError(
-                    "NCL non-collection result must not carry a zero-valued charge calculation"
+                    "NCL-excluded result must not carry a zero-valued charge calculation"
                 )
 
 
@@ -398,11 +398,11 @@ class IndiaPhysicalSettlementStampDutyModel:
 
         if jurisdiction == "SIKKIM":
             base_provenance.append(
-                "collection_disposition:NOT_COLLECTED_BY_NCL_FOR_SIKKIM"
+                "collection_disposition:NOT_NCL_COLLECTION_APPLIES_FOR_SIKKIM"
             )
             return IndiaPhysicalSettlementStampDutyResult(
                 collection_disposition=(
-                    IndiaPhysicalSettlementCollectionDisposition.NOT_COLLECTED_BY_NCL
+                    IndiaPhysicalSettlementCollectionDisposition.NOT_NCL_COLLECTION_APPLIES
                 ),
                 jurisdiction_state_ut=jurisdiction,
                 jurisdiction_source=jurisdiction_source,
@@ -502,11 +502,11 @@ class IndiaPhysicalSettlementStampDutyModel:
                     "per_client_security_delivery_settlement"
                 ),
                 "rounding:ROUND_HALF_UP_to_nearest_INR_rupee_at_client_level_50_paise_up",
-                "collection_disposition:COLLECTED_BY_NCL",
+                "collection_disposition:NCL_COLLECTION_APPLIES",
             )
         )
         return IndiaPhysicalSettlementStampDutyResult(
-            collection_disposition=IndiaPhysicalSettlementCollectionDisposition.COLLECTED_BY_NCL,
+            collection_disposition=IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_APPLIES,
             jurisdiction_state_ut=jurisdiction,
             jurisdiction_source=jurisdiction_source,
             schedule_version=entry.version,
