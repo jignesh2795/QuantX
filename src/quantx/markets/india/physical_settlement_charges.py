@@ -398,7 +398,7 @@ class IndiaPhysicalSettlementStampDutyModel:
 
         if jurisdiction == "SIKKIM":
             base_provenance.append(
-                "collection_disposition:NCL_COLLECTION_EXCLUDED_FOR_SIKKIM_FOR_SIKKIM"
+                "collection_disposition:NCL_COLLECTION_EXCLUDED_FOR_SIKKIM"
             )
             return IndiaPhysicalSettlementStampDutyResult(
                 collection_disposition=(
@@ -506,7 +506,9 @@ class IndiaPhysicalSettlementStampDutyModel:
             )
         )
         return IndiaPhysicalSettlementStampDutyResult(
-            collection_disposition=IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_APPLIES,
+            collection_disposition=(
+                IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_APPLIES
+            ),
             jurisdiction_state_ut=jurisdiction,
             jurisdiction_source=jurisdiction_source,
             schedule_version=entry.version,

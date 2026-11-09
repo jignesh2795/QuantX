@@ -236,7 +236,7 @@ def test_sikkim_is_not_collected_by_ncl_and_is_not_a_zero_rate() -> None:
     assert result.client_level_total is None
     assert result.schedule_version is None
     assert result.settlements == ()
-    assert "collection_disposition:NCL_COLLECTION_EXCLUDED_FOR_SIKKIM_FOR_SIKKIM" in result.provenance
+    assert "collection_disposition:NCL_COLLECTION_EXCLUDED_FOR_SIKKIM" in result.provenance
 
 
 def test_trading_member_state_is_used_only_when_client_state_is_unavailable() -> None:
