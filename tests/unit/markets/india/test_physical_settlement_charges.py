@@ -7,7 +7,7 @@ import pytest
 from quantx.domain.value_objects import InstrumentId
 from quantx.markets.india.physical_settlement_charges import (
     IndiaPhysicalSettlementCollectionDisposition,
-    IndiaPhysicalSettlementContractInput,
+    IndiaPhysicalSettlementSecuritySettlementInput,
     IndiaPhysicalSettlementInputUnavailable,
     IndiaPhysicalSettlementJurisdictionSource,
     IndiaPhysicalSettlementStampDutyClientContext,
@@ -62,16 +62,17 @@ def _entry(
     )
 
 
-def _contract(
+def _security_group(
     settlement_id: str = "NCL-DELIVERY-001",
     *,
     buy: Decimal = D("100"),
     sell: Decimal = D("40"),
     price: Decimal = D("500"),
-) -> IndiaPhysicalSettlementContractInput:
-    return IndiaPhysicalSettlementContractInput(
+    security: str = "RELIANCE",
+) -> IndiaPhysicalSettlementSecuritySettlementInput:
+    return IndiaPhysicalSettlementSecuritySettlementInput(
         settlement_id=settlement_id,
-        security_id=InstrumentId("NSE", "RELIANCE"),
+        security_id=InstrumentId("NSE", security),
         buy_quantity=buy,
         sell_quantity=sell,
         final_settlement_price=price,
@@ -82,7 +83,7 @@ def _contract(
 
 
 def _context(
-    *settlements: IndiaPhysicalSettlementContractInput,
+    *settlements: IndiaPhysicalSettlementSecuritySettlementInput,
     **overrides: object,
 ) -> IndiaPhysicalSettlementStampDutyClientContext:
     values: dict[str, object] = {
@@ -95,13 +96,15 @@ def _context(
         "client_state_source_ref": "synthetic://kyc/client-state",
         "trading_member_state_ut": "MAHARASHTRA",
         "trading_member_state_source_ref": "synthetic://member/state",
-        "settlements": settlements or (_contract(),),
+        "settlements": settlements or (_security_group(),),
     }
     values.update(overrides)
     return IndiaPhysicalSettlementStampDutyClientContext(**values)  # type: ignore[arg-type]
 
 
-def _model(*entries: IndiaPhysicalSettlementStampDutyScheduleEntry) -> IndiaPhysicalSettlementStampDutyModel:
+def _model(
+    *entries: IndiaPhysicalSettlementStampDutyScheduleEntry,
+) -> IndiaPhysicalSettlementStampDutyModel:
     schedule_entries = entries or (_entry(),)
     return IndiaPhysicalSettlementStampDutyModel(
         IndiaPhysicalSettlementStampDutySchedule(schedule_entries)
@@ -131,7 +134,7 @@ def test_physical_stamp_duty_computes_delivery_and_non_delivery_components() -> 
 
 def test_physical_stamp_duty_handles_non_delivery_only() -> None:
     result = _model().calculate(
-        _context(_contract(buy=D("40"), sell=D("100")))
+        _context(_security_group(buy=D("40"), sell=D("100")))
     )
 
     line = result.settlements[0]
@@ -144,7 +147,7 @@ def test_physical_stamp_duty_handles_non_delivery_only() -> None:
 
 def test_physical_stamp_duty_handles_equal_receivable_and_deliverable_quantities() -> None:
     result = _model().calculate(
-        _context(_contract(buy=D("100"), sell=D("100")))
+        _context(_security_group(buy=D("100"), sell=D("100")))
     )
 
     line = result.settlements[0]
@@ -156,8 +159,8 @@ def test_physical_stamp_duty_handles_equal_receivable_and_deliverable_quantities
 
 
 def test_client_rounding_occurs_after_summing_each_contract_delivery_settlement() -> None:
-    first = _contract("NCL-DELIVERY-001", buy=D("1"), sell=D("0"), price=D("166.67"))
-    second = _contract("NCL-DELIVERY-002", buy=D("1"), sell=D("0"), price=D("166.67"))
+    first = _security_group("NCL-DELIVERY-001", buy=D("1"), sell=D("0"), price=D("1666.67"))
+    second = _security_group("NCL-DELIVERY-002", buy=D("1"), sell=D("0"), price=D("166.67"))
 
     result = _model().calculate(_context(first, second))
 
@@ -169,7 +172,7 @@ def test_client_rounding_occurs_after_summing_each_contract_delivery_settlement(
 
 
 def test_component_rounding_is_half_up_to_paise_before_client_rounding() -> None:
-    settlement = _contract(buy=D("1"), sell=D("0"), price=D("333.33"))
+    settlement = _security_group(buy=D("1"), sell=D("0"), price=D("3333.33"))
     model = _model(_entry(rates=_rates(non_delivery=D("0"))))
 
     result = model.calculate(_context(settlement))
@@ -273,7 +276,7 @@ def test_rates_require_source_evidence_for_both_components() -> None:
 
 def test_settlement_requires_price_and_obligation_provenance() -> None:
     with pytest.raises(ValueError, match="final_settlement_price_source_ref"):
-        IndiaPhysicalSettlementContractInput(
+        IndiaPhysicalSettlementSecuritySettlementInput(
             settlement_id="NCL-DELIVERY-001",
             security_id=InstrumentId("NSE", "RELIANCE"),
             buy_quantity=D("100"),
@@ -284,7 +287,7 @@ def test_settlement_requires_price_and_obligation_provenance() -> None:
             obligation_source_ref="synthetic://ncl/obligations",
         )
     with pytest.raises(ValueError, match="obligation_source_ref"):
-        IndiaPhysicalSettlementContractInput(
+        IndiaPhysicalSettlementSecuritySettlementInput(
             settlement_id="NCL-DELIVERY-001",
             security_id=InstrumentId("NSE", "RELIANCE"),
             buy_quantity=D("100"),
@@ -297,7 +300,7 @@ def test_settlement_requires_price_and_obligation_provenance() -> None:
 
 
 def test_duplicate_settlement_ids_are_rejected() -> None:
-    settlement = _contract()
+    settlement = _security_group()
     with pytest.raises(ValueError, match="settlement_id values must be unique"):
         _context(settlement, settlement)
 
@@ -343,12 +346,12 @@ def test_contract_decimal_inputs_reject_non_finite_or_negative_values(
     invalid: Decimal,
 ) -> None:
     with pytest.raises(ValueError):
-        _contract(buy=invalid)
+        _security_group(buy=invalid)
 
 
 def test_contract_decimal_inputs_reject_non_decimal_values() -> None:
     with pytest.raises(TypeError, match="buy_quantity must be a Decimal"):
-        _contract(buy=100)  # type: ignore[arg-type]
+        _security_group(buy=100)  # type: ignore[arg-type]
 
 
 def test_client_settlement_date_must_be_aware() -> None:

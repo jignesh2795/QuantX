@@ -149,12 +149,14 @@ class IndiaPhysicalSettlementStampDutySchedule:
 
 
 @dataclass(frozen=True, slots=True)
-class IndiaPhysicalSettlementContractInput:
-    """One clearing-defined client contract/delivery-settlement group.
+class IndiaPhysicalSettlementSecuritySettlementInput:
+    """One pre-aggregated client/security/delivery-settlement group.
 
-    BQTY/SQTY must come from authoritative clearing-recognized obligations,
-    not from a guessed net of local trading positions. The final settlement
-    price and its methodology identity are explicit, sourced inputs.
+    BQTY/SQTY must aggregate all clearing-recognized futures and options
+    delivery positions for this client/security/day. They must not be guessed
+    from local net positions or supplied as separate rows per derivative
+    contract. The final settlement price and its methodology are explicit,
+    sourced inputs.
     """
 
     settlement_id: str
@@ -170,6 +172,10 @@ class IndiaPhysicalSettlementContractInput:
         _require_text(self.settlement_id, "settlement_id")
         if not isinstance(self.security_id, InstrumentId):
             raise TypeError("security_id must be an InstrumentId")
+        if self.security_id.venue != "NSE":
+            raise IndiaPhysicalSettlementRuleUnavailable(
+                "only NSE physical-settlement securities are supported"
+            )
         _validate_decimal(self.buy_quantity, "buy_quantity", allow_none=False)
         _validate_decimal(self.sell_quantity, "sell_quantity", allow_none=False)
         _validate_decimal(
@@ -207,7 +213,7 @@ class IndiaPhysicalSettlementStampDutyClientContext:
     client_state_source_ref: str | None
     trading_member_state_ut: str | None
     trading_member_state_source_ref: str | None
-    settlements: tuple[IndiaPhysicalSettlementContractInput, ...]
+    settlements: tuple[IndiaPhysicalSettlementSecuritySettlementInput, ...]
 
     def __post_init__(self) -> None:
         if not isinstance(self.settlement_date, datetime) or not _is_aware(
@@ -246,13 +252,19 @@ class IndiaPhysicalSettlementStampDutyClientContext:
                 "settlements must be a non-empty immutable tuple"
             )
         if not all(
-            isinstance(item, IndiaPhysicalSettlementContractInput)
+            isinstance(item, IndiaPhysicalSettlementSecuritySettlementInput)
             for item in self.settlements
         ):
             raise TypeError("settlements must contain physical settlement contract inputs")
         settlement_ids = [item.settlement_id for item in self.settlements]
         if len(settlement_ids) != len(set(settlement_ids)):
             raise ValueError("settlement_id values must be unique per client settlement day")
+        security_ids = [item.security_id for item in self.settlements]
+        if len(security_ids) != len(set(security_ids)):
+            raise IndiaPhysicalSettlementInputUnavailable(
+                "settlement inputs must be pre-aggregated to one BQTY/SQTY group "
+                "per client/security/settlement day"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -540,7 +552,7 @@ def _validate_ist_midnight(value: datetime, name: str) -> None:
 
 __all__ = [
     "IndiaPhysicalSettlementCollectionDisposition",
-    "IndiaPhysicalSettlementContractInput",
+    "IndiaPhysicalSettlementSecuritySettlementInput",
     "IndiaPhysicalSettlementInputUnavailable",
     "IndiaPhysicalSettlementJurisdictionSource",
     "IndiaPhysicalSettlementStampDutyClientContext",
