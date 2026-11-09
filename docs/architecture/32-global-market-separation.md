@@ -110,12 +110,26 @@ The portfolio layer may eventually contain positions across multiple markets, bu
 ## v0.1
 
 India is the first complete market module. Other market packages may initially contain only interfaces, capability metadata, or placeholders until implemented. This keeps global separation in the architecture without forcing premature multi-market implementation.
-## Current implementation status
+## Current implementation status — verified on main at `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`
 
-The universal core now has a `quantx.markets` package with caller-populated
-`MarketRegistry`, common market-neutral contracts, an India module, and a
-minimal digital-assets placeholder. `quantx.india` remains a deprecated
-compatibility shim that re-exports `quantx.markets.india` and does not confer
-trusted-check identity. `application/live_execution.py` remains unchanged.
-This is a bounded migration slice, not a general authorization for future
-structural rewrites or new market implementations.
+The architecture above describes the intended market-neutral direction. The package names and future-market examples are **target-state**, not a claim that those markets, connectors, currencies or execution modes are implemented.
+
+### Implemented market-module contract
+
+- The canonical India implementation lives under `quantx.markets.india`; `quantx.india` is a deprecated compatibility shim that re-exports the canonical package.
+- `MarketModule` is a structural protocol. Its required identity is `region`, `market_contexts`, `market_pack_id` and `rule_version`. `MarketModuleBase` is a convenience implementation, not a subclassing requirement.
+- `MarketRegistry` is caller-populated. The current API is `register(module)`, with the region derived from the module; `get(region)` and `get_for_context(context)` provide lookup. Context lookup requires exact membership in the registered module's declared context set. Registration validates the region, non-empty context set, region/context consistency, required metadata and duplicate region.
+- The registry does not discover or import market packages automatically. Market selection is explicit composition at the application/research/backtest/paper boundary. A missing registry entry or unsupported context does not silently select another market.
+- Trusted market checks are not trusted through pack self-declaration. The core bootstrap pins the exact approved implementation object through its core-owned registrar; identity, region and stage must match the core-owned binding. Do not reintroduce a `ports`-side dynamic import/discovery mechanism as a way to grant trust.
+- Reusable session-calendar contracts (`MarketCalendar`, `SessionClassification`, `SessionStatus` and the fixed development calendar) live in `quantx.markets.common.calendar`. `HistoricalCalendar` remains the research-facing protocol in `quantx.research.calendar`, which re-exports the moved market calendar contracts.
+- `IndiaMarketModule` currently advertises NSE equity and NSE derivatives contexts. That registry declaration does not imply that every Indian venue, segment or product is implemented through the module.
+
+### Implemented markets and explicit limits
+
+- India is the only implemented market module.
+- `quantx.markets.digital_assets` is an unimplemented placeholder: `MARKET_IMPLEMENTED = False`, and its factory returns `None`.
+- North America, Europe, UK, Asia-Pacific and other market packages shown in the target structure are not implemented by this migration.
+- No cross-currency portfolio accounting, FX conversion, international venue support or additional market connector is delivered by the market-module migration. Cross-market portfolios and currency conversion remain future design topics requiring their own explicit rules and acceptance criteria.
+- The migration did not modify `application/live_execution.py` or widen LIVE eligibility. LIVE remains India-only under the existing controls; this document is not authorization to add a LIVE venue or production broker path.
+
+The migration is recorded in [PR #309](https://github.com/jignesh2795/QuantX/pull/309). The earlier PR #295 candidate is stale and remains historical; it was not retargeted or merged. The implementation-specific PR1 plan refines the earlier global plan where the two differed: use structural module registration, explicit context membership and core-owned trusted registration rather than the earlier proposed dynamic `ports` import path. No additional market scaffold or empty capability protocol is required merely to make the architecture diagram look complete.

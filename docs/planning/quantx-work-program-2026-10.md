@@ -2,9 +2,9 @@
 
 **Status:** Active cross-workstream sequencing and reconciliation record
 
-**Snapshot date:** 2026-11-08
+**Snapshot date:** 2026-11-09
 
-**Baseline reviewed for this closeout:** `main` at `d2442bbbafab3eca91f27a8c3d8fdd65e3f61b80` (PR #325 documentation reconciliation merged; PR #324 remains the F4.5.4 implementation merge).
+**Baseline reviewed for this closeout:** `main` at `a620b3b13f2cd10c9fee19f61e3afd3121f345ff` (current main; PR #329 is an open draft based on this exact commit and is not merged).
 
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, strategy/research delivery, and release-readiness work in one progressable plan.
 
@@ -12,10 +12,11 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline used for this programme update: `d2442bbbafab3eca91f27a8c3d8fdd65e3f61b80` (PR #325 merged).
+- Latest `main` baseline used for this programme update: `a620b3b13f2cd10c9fee19f61e3afd3121f345ff` (current main; PR #329 remains an open draft on a separate branch).
 - PR #314 merged as `99d64996214482a8443ca673f11fbb3b61bdc519`; PR #315 merged the pinned global architecture comparison as `0f4214e482c682fe99d133381cd1ef8d62b1492f`; PR #317 merged F4.5.1, PR #320 merged F4.5.2, PR #321 merged F4.5.3, and PR #324 merged F4.5.4 (merge `4a1a5f7629fff832dcec74471dae096f2d231733`; validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`); PR #325 merged the subsequent documentation reconciliation at `d2442bbbafab3eca91f27a8c3d8fdd65e3f61b80`.
 - PR #309 is merged; PR #295 is a stale superseded migration candidate; PR #308 is a stale draft whose useful facts are incorporated in the current status; PR #306 remains a draft public-API candidate and is not validated on current main.
 - This programme is refreshed after PR #325. F4.5.1–F4.5.4 are complete and issue #322 is closed. The parent M4 exit criterion is now reconciled as met; M4 is complete at the milestone level. The exact candidate validation and two unchanged Markdown Ruff-format baseline findings are recorded in PR #324 as local/operator-reported results, not hosted CI. No broker call, sandbox run or LIVE operation is claimed.
+- **Current #200 slice:** PR [#329](https://github.com/jignesh2795/QuantX/pull/329) is an open draft on `feat/issue200-india-charge-contract-v1`, based on `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`, with current HEAD `ce0f19ed046fb99e9bb45e248eda7ee6dad66367`. It contains a bounded India-specific contract implementation using synthetic schedules, not production tariffs or paper/research wiring. The PR body records full-suite, lint, type, coverage and release-gate results at parent code commit `58f3edffb5c46297837cfc99d8d19bf56a43ec0a` as operator-reported evidence; two documentation-only commits followed. The current HEAD still requires both canonical exact-SHA producer runs and both release gates. The March 1, 2026 transaction-charge/IPFT aggregate-preservation T21 acceptance test remains open. Issue #200 remains OPEN; the slice is not a completed issue.
 
 **Work rules:** use one coherent branch/PR per implementation slice; record exact base and candidate SHAs; keep validation evidence tied to its tested SHA; run the declared local validation gates with Dhan extra both enabled and disabled where applicable; distinguish local/operator-reported results from GitHub Actions; do not merge implementation without exact-SHA evidence and required review. UNKNOWN and missing authoritative evidence are never PASS.
 
@@ -46,6 +47,8 @@ QX-07 closure is a current update that supersedes the pre-merge snapshot still p
 ## 3. Active priority order
 
 Use the waves below as sequence, not as a commitment to implement every issue in one PR. Each issue retains its own acceptance criteria and scope.
+
+**Sequencing deviation — 2026-11-09:** The canonical order below placed Wave C2 / #202 ahead of Wave D / #200. Current activity advanced one bounded, contract-only #200 slice first in PR #329. Treat this as a limited work-order deviation, not a reprioritization of the programme and not a change to the full #200 acceptance criteria. Finish the exact-SHA validation and evidence-based disposition of PR #329 first; after that bounded slice is resolved, #202 resumes as the next programme priority. #200 must remain open while authoritative tariff sourcing, golden published-rate examples and other issue-level acceptance items remain incomplete.
 
 ### Strategy Platform — M4.5 (completed bounded vertical)
 
@@ -87,7 +90,7 @@ QX-08 M1–M4 and its T1–T8/G1–G3 acceptance reconciliation remain complete.
 
 | Rank | Issue | Next required outcome |
 |---|---|---|
-| D1 | [#200 effective-dated India charges schedule](https://github.com/jignesh2795/QuantX/issues/200) | Implement the approved **contract-only** slice behind the current charge interface. Keep all fixtures synthetic and clearly labelled. Do not populate unverified production tariff values or wire the schedule into paper execution yet. GST and stamp-duty applicability/effective dates are still data gates. |
+| D1 | [#200 effective-dated India charges schedule](https://github.com/jignesh2795/QuantX/issues/200) | **Contract-only slice in progress; [PR #329](https://github.com/jignesh2795/QuantX/pull/329) is draft and unmerged.** The bounded API/schedule implementation uses synthetic fixtures and explicit caller-supplied inputs; it does not establish production rates, a production schedule loader, golden published-rate examples, or PAPER/RESEARCH wiring. The current PR HEAD `ce0f19ed046fb99e9bb45e248eda7ee6dad66367` still needs exact-SHA default/Dhan validation and both release gates; earlier green evidence is operator-reported at parent code SHA `58f3edffb5c46297837cfc99d8d19bf56a43ec0a`. T21 aggregate-preservation acceptance remains open. Keep issue #200 OPEN; GST/stamp-duty applicability and source/effective-date evidence remain data gates. |
 | Completed | [#201 finite Decimal-only Money](https://github.com/jignesh2795/QuantX/issues/201) | PR #310; validated candidate `24e3a3bc6205c6d8d5f7733d63c79a2ce94b0617`; squash merge `a2007f6a04859368608a42cd3898244382151a5a`. |
 | D3 | [#199 curated provisional public API](https://github.com/jignesh2795/QuantX/issues/199) | Define a small `quantx.api` with explicit stability tiers; don't mass re-export internals or import optional Dhan SDKs at import time. |
 
@@ -177,8 +180,9 @@ The following remain later/deferred platform work and are not part of the single
 ### Remaining work and next priority
 
 - **#267 and #266 remain blocked.** #267 requires a credible alternative authoritative risk-evidence provider/source; keep the pre-collection/no-reservation/no-submit boundary. #266 remains blocked on the missing 0/7 required fixtures; preserve realized-only `daily_pnl`, current `max_drawdown` and the documented session-equity contract.
-- **Next actionable work: #202, Wave C2 — dead-module and Dhan transport audit.** Start with a read-only audit at the current main baseline: remeasure import/call-site reachability and current line/branch coverage; determine whether the suspected modules are deliberate extension seams or dead code; establish the deterministic Dhan transport coverage baseline. Do not remove or wire modules, change adapter behavior, or assume the issue's originally reported percentages before measuring.
-- **#200** remains the India charges-schedule workstream; use authoritative effective-dated sources and do not populate guessed production rates.
+- **Immediate gate (2026-11-09): PR #329 exact-SHA validation and disposition.** The current draft HEAD is `ce0f19ed046fb99e9bb45e248eda7ee6dad66367` on base `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`. Re-run the canonical default and Dhan-extra validation producers plus both release gates at that exact HEAD; passing evidence at parent `58f3edffb5c46297837cfc99d8d19bf56a43ec0a` does not transfer. Keep the PR draft/unmerged until the exact-SHA evidence and T21 disposition are reviewed.
+- **Next programme priority after that bounded slice: #202, Wave C2 — dead-module and Dhan transport audit.** Start read-only at the then-current main SHA: remeasure import/call-site reachability and current line/branch coverage; determine whether suspected modules are deliberate extension seams or dead code; establish deterministic Dhan transport coverage. Do not remove or wire modules, change adapter behavior, or assume the issue's originally reported percentages before measuring.
+- **#200 remains OPEN** after PR #329 unless and until its broader acceptance criteria are satisfied: authoritative effective-dated tariff sources, golden published-rate examples, and the remaining data/behavior gates. Do not populate guessed production rates.
 - **#199** remains open; PR #306 is still a draft based on an older main SHA (`ecbb202b8864688b521b1836f5dd9b36ca1d929f`) and has no exact-current-head validation. Reconcile it against current main before any promotion.
 - **#190** remains open until a real private disclosure path is configured/verified; resolve before broad public contributor recruitment. Sequence #206 after #199's public API/stability policy.
 - **#203** remains conditional on safe broker sandbox access. **#205** remains deferred until reliable Python 3.13 validation infrastructure exists.

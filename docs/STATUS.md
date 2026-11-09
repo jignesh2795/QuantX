@@ -1,6 +1,28 @@
 # QuantX Status
 
-## Strategic roadmap reconciliation — 2026-11-08 (updated after PR #325 and parent-M4 closeout)
+## Current repository snapshot — 2026-11-09
+
+**Verified main baseline:** `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`. PR #329 is not merged; its base is this exact main commit.
+
+**Overall alignment:** **YELLOW — architecture remains aligned; active delivery has one bounded sequencing deviation.** QuantX remains India-first with a market-neutral core. The market-module migration is complete as a bounded architecture change; India is the only implemented market module, digital assets remains a placeholder, and no FX, cross-currency portfolio behavior, additional LIVE venue or global broker support is established. See [architecture record 32](architecture/32-global-market-separation.md) for the current contract and explicit limits.
+
+### Current #200 / PR #329 state
+
+- Issue [#200](https://github.com/jignesh2795/QuantX/issues/200) remains **OPEN**. [PR #329](https://github.com/jignesh2795/QuantX/pull/329) is an open **draft**, branch `feat/issue200-india-charge-contract-v1`, base `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`, current HEAD `ce0f19ed046fb99e9bb45e248eda7ee6dad66367`.
+- The PR is a bounded contract-only slice: India-specific effective-dated charge schedule contracts and deterministic synthetic fixtures. It does not provide production tariff values, an authoritative production schedule/loader, golden published-rate examples for all issue products, or PAPER/RESEARCH execution integration.
+- The PR body records successful default/Dhan full-suite, lint, format, strict-mypy, package-coverage and release-gate evidence for parent code SHA `58f3edffb5c46297837cfc99d8d19bf56a43ec0a`. These results are **operator-reported** and belong only to that parent SHA. Two documentation-only commits followed; the current PR HEAD still needs both canonical exact-SHA validation runs and both release gates. Do not label the current HEAD validated until those gates are rerun.
+- T21 — the March 1, 2026 transaction-charge/IPFT aggregate-preservation acceptance test — remains open. It is not satisfied by the bounded contract-only slice.
+
+### Sequencing and next action
+
+The canonical work programme ranked #202 (Wave C2) ahead of #200 (Wave D D1). Work nevertheless advanced one bounded #200 contract-only slice first. Record this as a limited sequencing deviation, not architecture drift, not a reprioritization of all Wave D, and not completion of issue #200. The immediate gate is exact-SHA validation and disposition of PR #329. Once that bounded slice is resolved, #202 resumes as the next programme priority; its issue remains open and its audit must start read-only at the then-current main SHA.
+
+### Project presentation status
+
+The presentation plan remains **partially complete**. #187/#204 and their contributor/architecture/onboarding baseline are complete; #190 security-reporting and #199 curated public API remain open; CODE_OF_CONDUCT, CHANGELOG and a dedicated GETTING_STARTED guide remain pending; README/package metadata and status-history splitting remain future presentation work. Do not claim a public API stability tier or configured private disclosure channel until verified. GitHub Actions/paid CI remains unavailable under the standing project policy.
+
+The November 8 snapshot below is retained as historical context. The detailed milestone and validation records that follow remain history unless explicitly revalidated against current main.
+
 
 **Main baseline used for this parent-M4 exit review:** `d2442bbbafab3eca91f27a8c3d8fdd65e3f61b80` (PR #325 documentation reconciliation merged; M4.5.4 implementation remains anchored at merge `4a1a5f7629fff832dcec74471dae096f2d231733`, validated candidate `3b0566988ed336034b93d0782ec3a693aca3f153`).
 
