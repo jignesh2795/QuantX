@@ -35,7 +35,7 @@ src/quantx/domain/
 
 src/quantx/markets/
   common/              # cross-market reusable policies
-  india/               # NSE/BSE/MCX/NFO/BFO and Indian rules
+  india/               # India-specific rules; implemented venue scope is explicit
   north_america/       # future US/Canada modules
   europe/              # future EU modules
   uk/                  # future UK modules
@@ -110,6 +110,7 @@ The portfolio layer may eventually contain positions across multiple markets, bu
 ## v0.1
 
 India is the first complete market module. Other market packages may initially contain only interfaces, capability metadata, or placeholders until implemented. This keeps global separation in the architecture without forcing premature multi-market implementation.
+
 ## Current implementation status — verified on main at `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`
 
 The architecture above describes the intended market-neutral direction. The package names and future-market examples are **target-state**, not a claim that those markets, connectors, currencies or execution modes are implemented.
