@@ -602,7 +602,11 @@ def test_t21_march_1_exchange_ipft_split_preserves_member_outflow_each_side(
     context_values = {
         "trade_side": side,
         "product": product,
-        "transaction_value": D("123456789") if product is IndiaChargeProduct.EQUITY_OPTIONS else crore,
+        "transaction_value": (
+            D("123456789")
+            if product is IndiaChargeProduct.EQUITY_OPTIONS
+            else crore
+        ),
         "premium_value": crore if product is IndiaChargeProduct.EQUITY_OPTIONS else None,
         "pass_through_policy": _policy(
             exchange_txn=IndiaChargeIncidence.CLIENT_PASSTHROUGH,

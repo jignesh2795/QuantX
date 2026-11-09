@@ -118,7 +118,7 @@ outflow. It re-splits the existing total into transaction charges + IPFT
 contribution. Pre-March-1-2026: cash Rs 297 txn + Rs 10 IPFT = Rs 307 total.
 Post-March-1-2026: cash Rs 306.99 txn + Rs 0.01 IPFT = Rs 307 total.
 Same for futures (Rs 183.00 = 182.99 + 0.01) and options (₹3,552.99 + ₹0.01 =
-₹3,553.00). The schedule contract supports independently versioned transaction-charge and IPFT components. However, the current synthetic test set does not yet verify T21's March 1, 2026 aggregate-preservation scenario across cash, futures and options. Keep that acceptance case open for a dedicated source-backed test; this contract-only PR does not embed production tariff data.
+₹3,553.00). The schedule contract supports independently versioned transaction-charge and IPFT components. The dedicated T21 synthetic boundary test has since been added on the implementation follow-up branch. It covers cash delivery, equity futures, and equity options on premium for both BUY and SELL sides, and verifies the pre-boundary and at-boundary transaction-charge/IPFT split, preserved member outflow, and premium-turnover basis for options. Exact-HEAD test and release validation for that follow-up remain pending; do not claim runtime acceptance until those gates pass. No production tariff data are embedded.
 
 **Exact component values (P4):** equity options = ₹3,552.99 per crore of
 premium turnover per side (transaction charges) + ₹0.01 per crore (IPFT) =
@@ -199,7 +199,7 @@ The public `quantx.execution.charges` compatibility import path and generic perc
 | GST effective-date rule for production schedule | UNRESOLVED for production schedule | The 18% rate is identified, but the applicable notification/effective date for the modeled service/components is not bound to a complete effective-dated rule. No production GST entry is complete until evidence is added. |
 | GST calculation base | RESOLVED as explicit caller policy, not a universal hard-coded rule | §2.5 requires bill-specific treatment for STT/stamp recoveries, caller-supplied brokerage/DP/other taxable inputs, and client pass-through decisions for member fees. Missing inputs make GST incomplete. |
 | Exchange charges before Oct 1, 2024 | UNSUPPORTED (slab-wise) | Volume-dependent slabs; cannot be represented as a single rate. Fail closed for dates before Oct 1, 2024. |
-| March 2026 transaction-charge interpretation | RESOLVED (source interpretation); runtime acceptance test pending | P4 keeps total member outflow unchanged and re-splits it into transaction charges + IPFT. T21 remains unimplemented in the current synthetic test set; do not claim the aggregate-preservation scenario as tested. Applicability: cash + equity derivatives only. |
+| March 2026 transaction-charge interpretation | RESOLVED (source interpretation); T21 test added, exact-HEAD validation pending | P4 keeps total member outflow unchanged and re-splits it into transaction charges + IPFT. The synthetic T21 test covers the Mar 1 boundary for cash, futures, and options on premium, both sides; do not claim runtime acceptance until exact-HEAD validation passes. Applicability: cash + equity derivatives only. |
 | Brokerage rates | OUT OF SCOPE | Broker-specific, not regulated. |
 | DP charges | OUT OF SCOPE | DP/broker-specific. |
 | Currency/commodity derivatives charges | PARTIAL | Stamp duty rates listed (S1); exchange transaction charges for currency/commodity not in P3/P4. Mark unsupported until primary source added. |
