@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, DecimalException, ROUND_HALF_UP
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -312,19 +312,42 @@ class IndiaPhysicalSettlementStampDutyResult:
         _require_text(self.jurisdiction_state_ut, "jurisdiction_state_ut")
         if not isinstance(self.jurisdiction_source, IndiaPhysicalSettlementJurisdictionSource):
             raise TypeError("jurisdiction_source has an unsupported type")
-        if self.collection_disposition is IndiaPhysicalSettlementCollectionDisposition.COLLECTED_BY_NCL:
+        if self.jurisdiction_state_ut != self.jurisdiction_state_ut.strip().upper():
+            raise ValueError("jurisdiction_state_ut must be normalized")
+        if not isinstance(self.settlements, tuple):
+            raise TypeError("settlements must be an immutable tuple")
+        if not all(
+            isinstance(item, IndiaPhysicalSettlementStampDutyLine)
+            for item in self.settlements
+        ):
+            raise TypeError("settlements must contain physical stamp-duty lines")
+        if not isinstance(self.provenance, tuple) or not self.provenance or not all(
+            isinstance(item, str) and item.strip() for item in self.provenance
+        ):
+            raise ValueError("provenance must contain non-empty strings")
+        if (
+            self.collection_disposition
+            is IndiaPhysicalSettlementCollectionDisposition.COLLECTED_BY_NCL
+        ):
             if self.schedule_version is None or not self.schedule_version.strip():
                 raise ValueError("collected result requires a schedule version")
             if not self.settlements or self.client_level_total is None:
                 raise ValueError("collected result requires settlement lines and client total")
             _validate_decimal(self.client_level_total, "client_level_total", allow_none=False)
+            expected_total = _round_client_rupee(
+                sum((item.total for item in self.settlements), _ZERO)
+            )
+            if self.client_level_total != expected_total:
+                raise ValueError("client_level_total does not match the rounded settlement lines")
         else:
-            if self.schedule_version is not None or self.settlements or self.client_level_total is not None:
+            if (
+                self.schedule_version is not None
+                or self.settlements
+                or self.client_level_total is not None
+            ):
                 raise ValueError(
                     "NCL non-collection result must not carry a zero-valued charge calculation"
                 )
-        if not isinstance(self.provenance, tuple) or not self.provenance:
-            raise ValueError("provenance must be a non-empty immutable tuple")
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,7 +397,9 @@ class IndiaPhysicalSettlementStampDutyModel:
                 "collection_disposition:NOT_COLLECTED_BY_NCL_FOR_SIKKIM"
             )
             return IndiaPhysicalSettlementStampDutyResult(
-                collection_disposition=IndiaPhysicalSettlementCollectionDisposition.NOT_COLLECTED_BY_NCL,
+                collection_disposition=(
+                    IndiaPhysicalSettlementCollectionDisposition.NOT_COLLECTED_BY_NCL
+                ),
                 jurisdiction_state_ut=jurisdiction,
                 jurisdiction_source=jurisdiction_source,
                 schedule_version=None,
@@ -385,11 +410,13 @@ class IndiaPhysicalSettlementStampDutyModel:
 
         entry = self.schedule.select(context.settlement_date)
         rates = entry.rates
-        if rates.delivery_stamp_duty_rate is None:
+        delivery_rate = rates.delivery_stamp_duty_rate
+        non_delivery_rate = rates.non_delivery_stamp_duty_rate
+        if delivery_rate is None:
             raise IndiaPhysicalSettlementRuleUnavailable(
                 "delivery stamp-duty rate is unavailable"
             )
-        if rates.non_delivery_stamp_duty_rate is None:
+        if non_delivery_rate is None:
             raise IndiaPhysicalSettlementRuleUnavailable(
                 "non-delivery stamp-duty rate is unavailable"
             )
@@ -402,18 +429,19 @@ class IndiaPhysicalSettlementStampDutyModel:
             buy_non_deliverable_quantity = min(
                 settlement.buy_quantity, settlement.sell_quantity
             )
-            buy_deliverable_value = (
-                buy_deliverable_quantity * settlement.final_settlement_price
-            )
-            buy_non_deliverable_value = (
-                buy_non_deliverable_quantity * settlement.final_settlement_price
-            )
-            delivery_duty = _round_paise(
-                buy_deliverable_value * rates.delivery_stamp_duty_rate
-            )
-            non_delivery_duty = _round_paise(
-                buy_non_deliverable_value * rates.non_delivery_stamp_duty_rate
-            )
+            try:
+                buy_deliverable_value = (
+                    buy_deliverable_quantity * settlement.final_settlement_price
+                )
+                buy_non_deliverable_value = (
+                    buy_non_deliverable_quantity * settlement.final_settlement_price
+                )
+                delivery_duty = _round_paise(buy_deliverable_value * delivery_rate)
+                non_delivery_duty = _round_paise(buy_non_deliverable_value * non_delivery_rate)
+            except DecimalException as exc:
+                raise IndiaPhysicalSettlementInputUnavailable(
+                    "physical stamp-duty arithmetic is outside Decimal limits"
+                ) from exc
             lines.append(
                 IndiaPhysicalSettlementStampDutyLine(
                     settlement_id=settlement.settlement_id,
@@ -433,8 +461,16 @@ class IndiaPhysicalSettlementStampDutyModel:
                 (
                     f"settlement:{settlement.settlement_id}:security:{settlement.security_id}",
                     f"obligation_source:{settlement.settlement_id}:{settlement.obligation_source_ref}",
-                    f"final_settlement_price:{settlement.settlement_id}:{settlement.final_settlement_price_source_ref}",
-                    f"final_settlement_price_method:{settlement.settlement_id}:{settlement.final_settlement_price_method_version}",
+                    (
+                        "final_settlement_price:"
+                        f"{settlement.settlement_id}:"
+                        f"{settlement.final_settlement_price_source_ref}"
+                    ),
+                    (
+                        "final_settlement_price_method:"
+                        f"{settlement.settlement_id}:"
+                        f"{settlement.final_settlement_price_method_version}"
+                    ),
                 )
             )
 
@@ -514,7 +550,7 @@ def _round_paise(value: Decimal) -> Decimal:
                 "stamp-duty amount must be finite and non-negative"
             )
         return value.quantize(_PAISE, rounding=ROUND_HALF_UP)
-    except InvalidOperation as exc:
+    except DecimalException as exc:
         raise IndiaPhysicalSettlementInputUnavailable(
             "stamp-duty amount cannot be rounded to paise"
         ) from exc
@@ -527,7 +563,7 @@ def _round_client_rupee(value: Decimal) -> Decimal:
                 "client stamp-duty total must be finite and non-negative"
             )
         return value.quantize(_RUPEE, rounding=ROUND_HALF_UP)
-    except InvalidOperation as exc:
+    except DecimalException as exc:
         raise IndiaPhysicalSettlementInputUnavailable(
             "client stamp-duty total cannot be rounded to rupees"
         ) from exc

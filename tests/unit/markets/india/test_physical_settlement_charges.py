@@ -144,6 +144,17 @@ def test_physical_stamp_duty_handles_non_delivery_only() -> None:
     assert line.non_delivery_stamp_duty == D("0.60")
     assert result.client_level_total == D("1")
 
+def test_seller_without_security_receivable_has_zero_stamp_duty() -> None:
+    result = _model().calculate(
+        _context(_security_group(buy=D("0"), sell=D("100")))
+    )
+
+    line = result.settlements[0]
+    assert line.buy_deliverable_quantity == D("0")
+    assert line.buy_non_deliverable_quantity == D("0")
+    assert line.total == D("0.00")
+    assert result.client_level_total == D("0")
+
 
 def test_physical_stamp_duty_handles_equal_receivable_and_deliverable_quantities() -> None:
     result = _model().calculate(
@@ -179,6 +190,29 @@ def test_component_rounding_is_half_up_to_paise_before_client_rounding() -> None
 
     assert result.settlements[0].delivery_stamp_duty == D("0.50")
     assert result.client_level_total == D("1")
+ 
+
+@pytest.mark.parametrize(
+    ("price", "expected_component", "expected_client_total"),
+    [
+        (D("3266.67"), D("0.49"), D("0")),
+        (D("3333.33"), D("0.50"), D("1")),
+    ],
+    ids=["49-paise-rounds-down", "50-paise-rounds-up"],
+)
+def test_client_rupee_rounding_uses_50_paise_threshold(
+    price: Decimal,
+    expected_component: Decimal,
+    expected_client_total: Decimal,
+) -> None:
+    settlement = _security_group(buy=D("1"), sell=D("0"), price=price)
+    model = _model(_entry(rates=_rates(non_delivery=D("0"))))
+
+    result = model.calculate(_context(settlement))
+
+    assert result.settlements[0].delivery_stamp_duty == expected_component
+    assert result.client_level_total == expected_client_total
+
 
 
 def test_sikkim_is_not_collected_by_ncl_and_is_not_a_zero_rate() -> None:
@@ -249,13 +283,21 @@ def test_proprietary_client_code_cannot_differ_from_member_code() -> None:
         _context(is_proprietary=True)
 
 
-def test_missing_component_rate_is_not_converted_to_zero() -> None:
-    model = _model(_entry(rates=_rates(delivery=None)))
+@pytest.mark.parametrize(
+    ("rates", "message"),
+    [
+        (_rates(delivery=None), "delivery stamp-duty rate is unavailable"),
+        (_rates(non_delivery=None), "non-delivery stamp-duty rate is unavailable"),
+    ],
+    ids=["missing-delivery-rate", "missing-non-delivery-rate"],
+)
+def test_missing_component_rate_is_not_converted_to_zero(
+    rates: IndiaPhysicalSettlementStampDutyRates,
+    message: str,
+) -> None:
+    model = _model(_entry(rates=rates))
 
-    with pytest.raises(
-        IndiaPhysicalSettlementRuleUnavailable,
-        match="delivery stamp-duty rate is unavailable",
-    ):
+    with pytest.raises(IndiaPhysicalSettlementRuleUnavailable, match=message):
         model.calculate(_context())
 
 
@@ -303,6 +345,23 @@ def test_duplicate_settlement_ids_are_rejected() -> None:
     settlement = _security_group()
     with pytest.raises(ValueError, match="settlement_id values must be unique"):
         _context(settlement, settlement)
+
+def test_same_security_cannot_be_split_into_multiple_unaggregated_groups() -> None:
+    first = _security_group("GROUP-1", buy=D("60"), sell=D("0"))
+    second = _security_group("GROUP-2", buy=D("40"), sell=D("0"))
+    with pytest.raises(
+        IndiaPhysicalSettlementInputUnavailable,
+        match="one BQTY/SQTY group per client/security/settlement day",
+    ):
+        _context(first, second)
+
+
+def test_non_nse_security_fails_closed() -> None:
+    with pytest.raises(
+        IndiaPhysicalSettlementRuleUnavailable,
+        match="only NSE physical-settlement securities",
+    ):
+        _security_group(security="BSE:RELIANCE")
 
 
 def test_empty_settlement_group_is_rejected() -> None:
