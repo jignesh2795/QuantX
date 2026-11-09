@@ -69,10 +69,11 @@ def _security_group(
     sell: Decimal = D("40"),
     price: Decimal = D("500"),
     security: str = "RELIANCE",
+    venue: str = "NSE",
 ) -> IndiaPhysicalSettlementSecuritySettlementInput:
     return IndiaPhysicalSettlementSecuritySettlementInput(
         settlement_id=settlement_id,
-        security_id=InstrumentId("NSE", security),
+        security_id=InstrumentId(venue, security),
         buy_quantity=buy,
         sell_quantity=sell,
         final_settlement_price=price,
@@ -361,7 +362,7 @@ def test_non_nse_security_fails_closed() -> None:
         IndiaPhysicalSettlementRuleUnavailable,
         match="only NSE physical-settlement securities",
     ):
-        _security_group(security="BSE:RELIANCE")
+        _security_group(venue="BSE")
 
 
 def test_empty_settlement_group_is_rejected() -> None:

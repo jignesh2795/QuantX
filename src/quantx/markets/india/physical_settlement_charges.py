@@ -255,7 +255,7 @@ class IndiaPhysicalSettlementStampDutyClientContext:
             isinstance(item, IndiaPhysicalSettlementSecuritySettlementInput)
             for item in self.settlements
         ):
-            raise TypeError("settlements must contain physical settlement contract inputs")
+            raise TypeError("settlements must contain physical security settlement inputs")
         settlement_ids = [item.settlement_id for item in self.settlements]
         if len(settlement_ids) != len(set(settlement_ids)):
             raise ValueError("settlement_id values must be unique per client settlement day")
@@ -310,7 +310,9 @@ class IndiaPhysicalSettlementStampDutyResult:
         ):
             raise TypeError("collection_disposition has an unsupported type")
         _require_text(self.jurisdiction_state_ut, "jurisdiction_state_ut")
-        if not isinstance(self.jurisdiction_source, IndiaPhysicalSettlementJurisdictionSource):
+        if not isinstance(
+            self.jurisdiction_source, IndiaPhysicalSettlementJurisdictionSource
+        ):
             raise TypeError("jurisdiction_source has an unsupported type")
         if self.jurisdiction_state_ut != self.jurisdiction_state_ut.strip().upper():
             raise ValueError("jurisdiction_state_ut must be normalized")
@@ -329,8 +331,7 @@ class IndiaPhysicalSettlementStampDutyResult:
             self.collection_disposition
             is IndiaPhysicalSettlementCollectionDisposition.COLLECTED_BY_NCL
         ):
-            if self.schedule_version is None or not self.schedule_version.strip():
-                raise ValueError("collected result requires a schedule version")
+            _require_text(self.schedule_version, "schedule_version")
             if not self.settlements or self.client_level_total is None:
                 raise ValueError("collected result requires settlement lines and client total")
             _validate_decimal(self.client_level_total, "client_level_total", allow_none=False)
@@ -380,7 +381,10 @@ class IndiaPhysicalSettlementStampDutyModel:
             f"model:{self.model_id}:{self.model_version}",
             f"settlement_date:{context.settlement_date.isoformat()}",
             f"client_code_source:{context.client_code_source_ref}",
-            f"client_code_kind:{'TRADING_MEMBER_CODE' if context.is_proprietary else 'CLIENT_CODE'}",
+            (
+                "client_code_kind:"
+                f"{'TRADING_MEMBER_CODE' if context.is_proprietary else 'CLIENT_CODE'}"
+            ),
             f"jurisdiction:{jurisdiction}:{jurisdiction_source.value}",
         ]
         if jurisdiction_source is IndiaPhysicalSettlementJurisdictionSource.CLIENT_CODE:
@@ -423,13 +427,13 @@ class IndiaPhysicalSettlementStampDutyModel:
 
         lines: list[IndiaPhysicalSettlementStampDutyLine] = []
         for settlement in context.settlements:
-            buy_deliverable_quantity = max(
-                settlement.buy_quantity - settlement.sell_quantity, _ZERO
-            )
-            buy_non_deliverable_quantity = min(
-                settlement.buy_quantity, settlement.sell_quantity
-            )
             try:
+                buy_deliverable_quantity = max(
+                    settlement.buy_quantity - settlement.sell_quantity, _ZERO
+                )
+                buy_non_deliverable_quantity = min(
+                    settlement.buy_quantity, settlement.sell_quantity
+                )
                 buy_deliverable_value = (
                     buy_deliverable_quantity * settlement.final_settlement_price
                 )
@@ -437,7 +441,9 @@ class IndiaPhysicalSettlementStampDutyModel:
                     buy_non_deliverable_quantity * settlement.final_settlement_price
                 )
                 delivery_duty = _round_paise(buy_deliverable_value * delivery_rate)
-                non_delivery_duty = _round_paise(buy_non_deliverable_value * non_delivery_rate)
+                non_delivery_duty = _round_paise(
+                    buy_non_deliverable_value * non_delivery_rate
+                )
             except DecimalException as exc:
                 raise IndiaPhysicalSettlementInputUnavailable(
                     "physical stamp-duty arithmetic is outside Decimal limits"
@@ -460,7 +466,10 @@ class IndiaPhysicalSettlementStampDutyModel:
             base_provenance.extend(
                 (
                     f"settlement:{settlement.settlement_id}:security:{settlement.security_id}",
-                    f"obligation_source:{settlement.settlement_id}:{settlement.obligation_source_ref}",
+                    (
+                        f"obligation_source:{settlement.settlement_id}:"
+                        f"{settlement.obligation_source_ref}"
+                    ),
                     (
                         "final_settlement_price:"
                         f"{settlement.settlement_id}:"
@@ -474,8 +483,13 @@ class IndiaPhysicalSettlementStampDutyModel:
                 )
             )
 
-        total_before_client_rounding = sum((line.total for line in lines), _ZERO)
-        client_total = _round_client_rupee(total_before_client_rounding)
+        try:
+            total_before_client_rounding = sum((line.total for line in lines), _ZERO)
+            client_total = _round_client_rupee(total_before_client_rounding)
+        except DecimalException as exc:
+            raise IndiaPhysicalSettlementInputUnavailable(
+                "client-level stamp-duty aggregation is outside Decimal limits"
+            ) from exc
         for name, source_ref, rule_version in rates.component_sources:
             base_provenance.append(f"component:{name}:{rule_version}:{source_ref}")
         base_provenance.extend(
@@ -483,7 +497,10 @@ class IndiaPhysicalSettlementStampDutyModel:
                 f"schedule:{entry.version}",
                 f"effective_interval:{entry.effective_from.isoformat()}.."
                 f"{entry.effective_to.isoformat() if entry.effective_to else 'open'}",
-                "rounding:ROUND_HALF_UP_to_INR_paise_per_component_per_contract_delivery_settlement",
+                (
+                    "rounding:ROUND_HALF_UP_to_INR_paise_per_component_"
+                    "per_client_security_delivery_settlement"
+                ),
                 "rounding:ROUND_HALF_UP_to_nearest_INR_rupee_at_client_level_50_paise_up",
                 "collection_disposition:COLLECTED_BY_NCL",
             )
