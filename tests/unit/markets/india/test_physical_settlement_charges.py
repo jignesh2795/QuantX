@@ -7,15 +7,15 @@ import pytest
 from quantx.domain.value_objects import InstrumentId
 from quantx.markets.india.physical_settlement_charges import (
     IndiaPhysicalSettlementCollectionDisposition,
-    IndiaPhysicalSettlementSecuritySettlementInput,
     IndiaPhysicalSettlementInputUnavailable,
     IndiaPhysicalSettlementJurisdictionSource,
+    IndiaPhysicalSettlementRuleUnavailable,
+    IndiaPhysicalSettlementSecuritySettlementInput,
     IndiaPhysicalSettlementStampDutyClientContext,
     IndiaPhysicalSettlementStampDutyModel,
     IndiaPhysicalSettlementStampDutyRates,
     IndiaPhysicalSettlementStampDutySchedule,
     IndiaPhysicalSettlementStampDutyScheduleEntry,
-    IndiaPhysicalSettlementRuleUnavailable,
 )
 
 D = Decimal
@@ -145,6 +145,7 @@ def test_physical_stamp_duty_handles_non_delivery_only() -> None:
     assert line.non_delivery_stamp_duty == D("0.60")
     assert result.client_level_total == D("1")
 
+
 def test_seller_without_security_receivable_has_zero_stamp_duty() -> None:
     result = _model().calculate(
         _context(_security_group(buy=D("0"), sell=D("100")))
@@ -170,9 +171,15 @@ def test_physical_stamp_duty_handles_equal_receivable_and_deliverable_quantities
     assert result.client_level_total == D("2")
 
 
-def test_client_rounding_occurs_after_summing_each_contract_delivery_settlement() -> None:
+def test_client_rounding_occurs_after_summing_each_security_delivery_settlement() -> None:
     first = _security_group("NCL-DELIVERY-001", buy=D("1"), sell=D("0"), price=D("1666.67"))
-    second = _security_group("NCL-DELIVERY-002", buy=D("1"), sell=D("0"), price=D("166.67"))
+    second = _security_group(
+        "NCL-DELIVERY-002",
+        buy=D("1"),
+        sell=D("0"),
+        price=D("1666.67"),
+        security="INFY",
+    )
 
     result = _model().calculate(_context(first, second))
 
@@ -191,7 +198,7 @@ def test_component_rounding_is_half_up_to_paise_before_client_rounding() -> None
 
     assert result.settlements[0].delivery_stamp_duty == D("0.50")
     assert result.client_level_total == D("1")
- 
+
 
 @pytest.mark.parametrize(
     ("price", "expected_component", "expected_client_total"),
@@ -213,7 +220,6 @@ def test_client_rupee_rounding_uses_50_paise_threshold(
 
     assert result.settlements[0].delivery_stamp_duty == expected_component
     assert result.client_level_total == expected_client_total
-
 
 
 def test_sikkim_is_not_collected_by_ncl_and_is_not_a_zero_rate() -> None:
