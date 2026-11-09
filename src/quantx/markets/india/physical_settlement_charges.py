@@ -16,7 +16,6 @@ from zoneinfo import ZoneInfo
 
 from quantx.domain.value_objects import InstrumentId
 
-INR = "INR"
 _ZERO = Decimal("0")
 _PAISE = Decimal("0.01")
 _RUPEE = Decimal("1")
@@ -332,8 +331,10 @@ class IndiaPhysicalSettlementStampDutyResult:
             is IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_APPLIES
         ):
             _require_text(self.schedule_version, "schedule_version")
+            if self.jurisdiction_state_ut == "SIKKIM":
+                raise ValueError("Sikkim must use the NCL-excluded disposition")
             if not self.settlements or self.client_level_total is None:
-                raise ValueError("collected result requires settlement lines and client total")
+                raise ValueError("NCL-applicable result requires settlement lines and client total")
             _validate_decimal(self.client_level_total, "client_level_total", allow_none=False)
             expected_total = _round_client_rupee(
                 sum((item.total for item in self.settlements), _ZERO)
@@ -341,6 +342,8 @@ class IndiaPhysicalSettlementStampDutyResult:
             if self.client_level_total != expected_total:
                 raise ValueError("client_level_total does not match the rounded settlement lines")
         else:
+            if self.jurisdiction_state_ut != "SIKKIM":
+                raise ValueError("NCL-excluded disposition is only valid for Sikkim")
             if (
                 self.schedule_version is not None
                 or self.settlements

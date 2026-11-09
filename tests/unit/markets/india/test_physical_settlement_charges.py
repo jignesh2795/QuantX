@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -237,6 +238,23 @@ def test_sikkim_is_not_collected_by_ncl_and_is_not_a_zero_rate() -> None:
     assert result.schedule_version is None
     assert result.settlements == ()
     assert "collection_disposition:NCL_COLLECTION_EXCLUDED_FOR_SIKKIM" in result.provenance
+
+
+def test_result_rejects_sikkim_with_ncl_collection_applicable_disposition() -> None:
+    result = _model().calculate(_context())
+    with pytest.raises(ValueError, match="Sikkim must use the NCL-excluded disposition"):
+        replace(result, jurisdiction_state_ut="SIKKIM")
+
+
+def test_result_rejects_ncl_exclusion_for_non_sikkim_jurisdiction() -> None:
+    result = _model().calculate(
+        _context(
+            client_state_ut="SIKKIM",
+            client_state_source_ref="synthetic://kyc/client-state-sikkim",
+        )
+    )
+    with pytest.raises(ValueError, match="NCL-excluded disposition is only valid for Sikkim"):
+        replace(result, jurisdiction_state_ut="MAHARASHTRA")
 
 
 def test_trading_member_state_is_used_only_when_client_state_is_unavailable() -> None:
