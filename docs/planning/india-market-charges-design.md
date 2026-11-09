@@ -1,7 +1,7 @@
 # QX-12 / #200 — India Market Charges: Source Inventory and Design
 
 **Implementation branch:** `feat/issue200-india-charge-contract-v1` (PR #329)
-**Phase:** design and contract implementation. The contract-only calculator and synthetic tests are implemented in `quantx.markets.india.charges`; exact-HEAD validation remains pending after the initial candidate failed. No production tariff schedule or execution wiring is included. Source research and tariff-applicability gates below remain design/research inputs until independently verified.
+**Phase:** contract implementation and exact-HEAD validation complete for the current contract-only slice. The published PR head `58f3edffb5c46297837cfc99d8d19bf56a43ec0a` passed both canonical locked local validation configurations and both release gates, based on the retained operator report. No production tariff schedule or execution wiring is included. Source research and tariff-applicability gates below remain design/research inputs until independently verified.
 **Scope:** effective-dated Indian equity delivery, intraday, futures, and options transaction charges.
 **Related (tracked separately, not reopened):** #267 risk-evidence authority, #266 daily-loss semantics, #196/#197.
 
@@ -118,9 +118,7 @@ outflow. It re-splits the existing total into transaction charges + IPFT
 contribution. Pre-March-1-2026: cash Rs 297 txn + Rs 10 IPFT = Rs 307 total.
 Post-March-1-2026: cash Rs 306.99 txn + Rs 0.01 IPFT = Rs 307 total.
 Same for futures (Rs 183.00 = 182.99 + 0.01) and options (₹3,552.99 + ₹0.01 =
-₹3,553.00). The design reproduces components separately with correct effective
-dates; T21 is specified to assert that the aggregate total remains unchanged across
-March 1, 2026 for all three covered segments; no test has been run in this design phase.
+₹3,553.00). The schedule contract supports independently versioned transaction-charge and IPFT components. However, the current synthetic test set does not yet verify T21's March 1, 2026 aggregate-preservation scenario across cash, futures and options. Keep that acceptance case open for a dedicated source-backed test; this contract-only PR does not embed production tariff data.
 
 **Exact component values (P4):** equity options = ₹3,552.99 per crore of
 premium turnover per side (transaction charges) + ₹0.01 per crore (IPFT) =
@@ -187,7 +185,7 @@ The original gap assessment predates the first contract-only implementation slic
 4. **Production tariff schedule/loader — NOT IMPLEMENTED.** No production rates or effective-dated production schedule are embedded in this slice. Stamp-duty applicability and GST effective-date evidence remain unresolved gates in §4.
 5. **Paper/research execution integration — NOT IMPLEMENTED.** Existing execution still uses the generic configured `PercentageBpsChargeModel`; the India model is not automatically selected or wired into execution.
 
-The universal `execution/charges.py` contract remains unchanged.
+The public `quantx.execution.charges` compatibility import path and generic percentage model remain available, but canonical ownership of the four neutral charge contracts moved to `quantx.ports.charges`. The execution module now re-exports those same objects by identity.
 
 ## 4. Unresolved / unsupported cases (do not guess)
 
@@ -201,7 +199,7 @@ The universal `execution/charges.py` contract remains unchanged.
 | GST effective-date rule for production schedule | UNRESOLVED for production schedule | The 18% rate is identified, but the applicable notification/effective date for the modeled service/components is not bound to a complete effective-dated rule. No production GST entry is complete until evidence is added. |
 | GST calculation base | RESOLVED as explicit caller policy, not a universal hard-coded rule | §2.5 requires bill-specific treatment for STT/stamp recoveries, caller-supplied brokerage/DP/other taxable inputs, and client pass-through decisions for member fees. Missing inputs make GST incomplete. |
 | Exchange charges before Oct 1, 2024 | UNSUPPORTED (slab-wise) | Volume-dependent slabs; cannot be represented as a single rate. Fail closed for dates before Oct 1, 2024. |
-| March 2026 transaction-charge interpretation | RESOLVED (design) | P4 keeps total member outflow unchanged; re-splits into txn charges + IPFT. Components are specified separately; acceptance test T21 will assert aggregate preservation. Applicability: cash + equity derivatives only; no runtime test result is claimed. |
+| March 2026 transaction-charge interpretation | RESOLVED (source interpretation); runtime acceptance test pending | P4 keeps total member outflow unchanged and re-splits it into transaction charges + IPFT. T21 remains unimplemented in the current synthetic test set; do not claim the aggregate-preservation scenario as tested. Applicability: cash + equity derivatives only. |
 | Brokerage rates | OUT OF SCOPE | Broker-specific, not regulated. |
 | DP charges | OUT OF SCOPE | DP/broker-specific. |
 | Currency/commodity derivatives charges | PARTIAL | Stamp duty rates listed (S1); exchange transaction charges for currency/commodity not in P3/P4. Mark unsupported until primary source added. |
@@ -220,7 +218,7 @@ Reuse the vendor- and market-neutral charge contracts in `quantx.ports.charges`.
 1. **`IndiaTradeSide`** enum: `BUY`, `SELL`, representing the client's side of one transaction.
 2. **Assignment boundary:** `OPTION_ASSIGNMENT` is intentionally unsupported in the first slice. It must raise `IndiaChargeRuleUnavailable`; do not infer assignment from `OPTION_EXERCISE` or a normal SELL trade. Add a distinct event only after source-backed payer, turnover-basis and component rules are specified.
 3. **`IndiaChargeProduct`** enum: `EQUITY_DELIVERY`, `EQUITY_INTRADAY`, `EQUITY_FUTURES`, `EQUITY_OPTIONS`. These names constrain the first schedule to NSE equity products; fund units, currency/commodity derivatives, BSE and MCX are not aliases.
-4. **`IndiaChargeEvent`** enum: `TRADE`, `OPTION_EXERCISE`. Exercise is a separate event, not a Boolean variation of an ordinary option trade.
+4. **`IndiaChargeEvent`** enum: `TRADE`, `OPTION_EXERCISE`, `OPTION_ASSIGNMENT`. Exercise is a separate event, not a Boolean variation of an ordinary option trade. `OPTION_ASSIGNMENT` is represented explicitly but remains unsupported and fails closed.
 5. **`IndiaOptionType`** enum: `CALL`, `PUT`.
 6. **`IndiaRecoveryTaxTreatment`** enum: `EXCLUDE_AS_QUALIFIED_PURE_AGENT`, `INCLUDE_IN_TAXABLE_VALUE`. Missing treatment makes a complete GST result unavailable.
 7. **`IndiaChargeIncidence`** enum: `CLIENT_PASSTHROUGH`, `BROKER_ABSORBED`, `NOT_APPLICABLE`.
@@ -372,7 +370,7 @@ The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T1
   `markets/india/rule_data.py`, `india/domain.py`, `research/provenance.py`,
   `research/point_in_time.py`, `tests/unit/execution/test_charges.py`,
   `docs/architecture/52-transaction-cost-and-charges.md` — all read.
-- **Runtime/test/CI evidence:** the initial exact-HEAD validation at `2746bb4c307e462da2f67f1528fa387be8217267` was reported FAIL by the local validation operator: both locked full-suite runs had 17 failures; changed-file Ruff lint/format failed; strict mypy passed; package coverage was UNKNOWN because pytest aborted; both release gates correctly failed closed. The failures included the `markets → execution` dependency/cycle, broken synthetic test fixtures, and Ruff findings. This record applies only to that pre-remediation SHA. The remediation candidate requires a fresh exact-HEAD validation; no post-remediation test or coverage result is claimed here.
+- **Runtime/test/release evidence:** the local operator reported exact-HEAD validation PASS at `58f3edffb5c46297837cfc99d8d19bf56a43ec0a` in both locked configurations. Default pytest: 3,662 passed, 3 skipped; Dhan-extra pytest: 3,665 passed. Changed-file Ruff lint/format and strict mypy passed in both configurations. Measured line/branch coverage (identical in both): `quantx.domain` 88.83% / 75.00%; `quantx.execution` 89.38% / 75.57%; `quantx.persistence` 93.16% / 81.48%. Focused diagnostics: 75 passed. Both canonical producer records and both release gates passed (10/10 each); skill integrity, trigger-assets, validation-gate and release-gate self-tests passed. The operator retained the JSON evidence and transcript at `%LOCALAPPDATA%\\Temp\\quantx-validation\\issue200-ruff-remediation-651c7e56\\`. These local execution results are operator-reported; the published PR HEAD, ancestry and seven-path scope were independently verified through GitHub. No GitHub Actions or paid CI was used or is claimed.
 - **Source research:** web search + primary-source review (P1–P8 above); S1–S4 are secondary cross-checks/guidance and do not establish every primary rate or effective date.
   Rates marked UNRESOLVED are not verified and must not be used in
   implementation until resolved.
