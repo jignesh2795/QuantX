@@ -614,9 +614,7 @@ def test_t21_march_1_exchange_ipft_split_preserves_published_total_per_side(
         "trade_side": side,
         "product": product,
         "transaction_value": (
-            D("123456789")
-            if product is IndiaChargeProduct.EQUITY_OPTIONS
-            else crore
+            D("123456789") if product is IndiaChargeProduct.EQUITY_OPTIONS else crore
         ),
         "premium_value": crore if product is IndiaChargeProduct.EQUITY_OPTIONS else None,
         "pass_through_policy": _policy(
@@ -633,9 +631,7 @@ def test_t21_march_1_exchange_ipft_split_preserves_published_total_per_side(
             effective_at=datetime(2026, 2, 28, 23, 59, 59, tzinfo=IST),
         )
     )
-    at_boundary = model.calculate(
-        _context(**context_values, effective_at=boundary)
-    )
+    at_boundary = model.calculate(_context(**context_values, effective_at=boundary))
 
     before_amounts = _amounts(before)
     boundary_amounts = _amounts(at_boundary)
