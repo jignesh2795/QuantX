@@ -539,6 +539,14 @@ def test_gst_rejects_tax_treatment_that_includes_a_non_client_recovery() -> None
             id="cash-market",
         ),
         pytest.param(
+            IndiaChargeProduct.EQUITY_INTRADAY,
+            D("297.00"),
+            D("10.00"),
+            D("306.99"),
+            D("0.01"),
+            id="cash-intraday",
+        ),
+        pytest.param(
             IndiaChargeProduct.EQUITY_FUTURES,
             D("173.00"),
             D("10.00"),
@@ -638,6 +646,7 @@ def test_t21_march_1_exchange_ipft_split_preserves_member_outflow_each_side(
 
     expected_total = {
         IndiaChargeProduct.EQUITY_DELIVERY: D("307.00"),
+        IndiaChargeProduct.EQUITY_INTRADAY: D("307.00"),
         IndiaChargeProduct.EQUITY_FUTURES: D("183.00"),
         IndiaChargeProduct.EQUITY_OPTIONS: D("3553.00"),
     }[product]
