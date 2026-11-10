@@ -59,6 +59,8 @@ Never say tests pass without exact command/results. When validation is requested
 - After cleanup, verify with `git worktree list --porcelain` that the task-created temporary worktree is gone. `git worktree prune` is for stale administrative records whose worktree directories are already absent; it does not replace removing a live worktree. Inspect `git worktree prune --dry-run` before pruning.
 - If a worktree must remain for an explicit follow-up, report it as ACTIVE with its path, purpose, branch/SHA, and cleanup owner/condition. Do not silently leave a completed task's temporary worktree behind. If safe cleanup is blocked, report the exact path and reason instead of forcing removal.
 
-## Current bounded migration
+## Market-module migration — completed
 
-The market-module migration mainline is an in-progress bounded slice. Keep #267 open and fail-closed; do not claim completion or LIVE readiness.
+The bounded market-module migration was completed by PR #309. The canonical India implementation is under `src/quantx/markets/india/`; `src/quantx/india/` remains a deprecated compatibility shim. India is the only implemented market. The digital-assets package is an interface-only placeholder and does not establish crypto venue support.
+
+Preserve the shipped boundaries: the universal core remains market-neutral; research, backtest, and paper select behavior through market context; LIVE execution remains India-only. This completion does not authorize additional market implementations, FX/multi-currency, new LIVE venues, or a broader execution rewrite.

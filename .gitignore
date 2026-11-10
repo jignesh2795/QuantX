@@ -17,9 +17,20 @@ env/
 node_modules/
 dist/
 build/
-*.egg-info/
+*.egg-info
 *.log
 *.sqlite
 *.sqlite3
 *.db
 .terraform/
+
+# Local-only coding-agent and generated workspace state.
+/_opencode/
+/worktrees/
+/evidence/
+/analysis_outputs/
+/.cloud-attachments/
+/.hermes/
+/_wt_list.txt
+/scripts/opencode-nous*
+/.kilo/plans/
