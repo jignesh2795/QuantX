@@ -11,9 +11,9 @@
 
 The numbered architecture records are grouped by topic and numeric range. The current repository contains **50 numbered top-level records** (10 core, 14 domain/execution, 26 advanced); gaps and the two distinct `40-` filenames are intentional historical numbering. The `adr/` directory and `control-and-safety-path.md` are indexed separately.
 
-- [Core architecture (00–09)](architecture/README.md#core-00-09)
-- [Domain and execution (10–29)](architecture/README.md#domain-and-execution-10-29)
-- [Advanced architecture (30–56)](architecture/README.md#advanced-30-56)
+- [Core architecture (00-09)](architecture/README.md#core-00-09)
+- [Domain and execution (10-29)](architecture/README.md#domain-and-execution-10-29)
+- [Advanced architecture (30-56)](architecture/README.md#advanced-30-56)
 - [Full architecture index and reading order](architecture/README.md)
 - [Current package map](architecture/41-current-package-map.md)
 - [Global market separation](architecture/32-global-market-separation.md)

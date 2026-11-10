@@ -24,7 +24,7 @@ This directory contains the architecture record for QuantX.
 - **Testing:** [11-testing-and-contracts.md](11-testing-and-contracts.md).
 - **Deployment:** [12-deployment-model.md](12-deployment-model.md).
 
-## Core (00–09)
+## Core (00-09)
 
 1. [00-overview.md](00-overview.md)
 2. [01-principles.md](01-principles.md)
@@ -37,7 +37,7 @@ This directory contains the architecture record for QuantX.
 9. [08-strategy-ir.md](08-strategy-ir.md)
 10. [09-storage-and-message-bus.md](09-storage-and-message-bus.md)
 
-## Domain and execution (10–29)
+## Domain and execution (10-29)
 
 1. [10-security-and-permissions.md](10-security-and-permissions.md)
 2. [11-testing-and-contracts.md](11-testing-and-contracts.md)
@@ -54,7 +54,7 @@ This directory contains the architecture record for QuantX.
 13. [22-branch-instructions.md](22-branch-instructions.md)
 14. [28-v0.1-acceptance-criteria.md](28-v0.1-acceptance-criteria.md)
 
-## Advanced (30–56)
+## Advanced (30-56)
 
 1. [32-global-market-separation.md](32-global-market-separation.md)
 2. [33-capital-source-and-broker-constraints.md](33-capital-source-and-broker-constraints.md)
