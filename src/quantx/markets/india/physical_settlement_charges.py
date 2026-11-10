@@ -175,14 +175,25 @@ class IndiaPhysicalSettlementSecuritySettlementInput:
             raise IndiaPhysicalSettlementRuleUnavailable(
                 "only NSE physical-settlement securities are supported"
             )
-        _validate_decimal(self.security_receivable_quantity, "security_receivable_quantity", allow_none=False)
-        _validate_decimal(self.security_deliverable_quantity, "security_deliverable_quantity", allow_none=False)
+        _validate_decimal(
+            self.security_receivable_quantity,
+            "security_receivable_quantity",
+            allow_none=False,
+        )
+        _validate_decimal(
+            self.security_deliverable_quantity,
+            "security_deliverable_quantity",
+            allow_none=False,
+        )
         _validate_decimal(
             self.final_settlement_price, "final_settlement_price", allow_none=False
         )
         if self.final_settlement_price <= _ZERO:
             raise ValueError("final_settlement_price must be positive")
-        if self.security_receivable_quantity == _ZERO and self.security_deliverable_quantity == _ZERO:
+        if (
+            self.security_receivable_quantity == _ZERO
+            and self.security_deliverable_quantity == _ZERO
+        ):
             raise ValueError("at least one clearing settlement quantity must be positive")
         _require_text(
             self.final_settlement_price_source_ref, "final_settlement_price_source_ref"
@@ -432,10 +443,13 @@ class IndiaPhysicalSettlementStampDutyModel:
         for settlement in context.settlements:
             try:
                 deliverable_quantity = max(
-                    settlement.security_receivable_quantity - settlement.security_deliverable_quantity, _ZERO
+                    settlement.security_receivable_quantity
+                    - settlement.security_deliverable_quantity,
+                    _ZERO,
                 )
                 non_deliverable_quantity = min(
-                    settlement.security_receivable_quantity, settlement.security_deliverable_quantity
+                    settlement.security_receivable_quantity,
+                    settlement.security_deliverable_quantity,
                 )
                 deliverable_value = (
                     deliverable_quantity * settlement.final_settlement_price

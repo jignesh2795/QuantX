@@ -75,8 +75,8 @@ def _security_group(
     return IndiaPhysicalSettlementSecuritySettlementInput(
         settlement_id=settlement_id,
         security_id=InstrumentId(venue, security),
-        security_receivable_quantity=buy,
-        security_deliverable_quantity=sell,
+        security_receivable_quantity=security_receivable,
+        security_deliverable_quantity=security_deliverable,
         final_settlement_price=price,
         final_settlement_price_source_ref="synthetic://ncl/final-settlement-price",
         final_settlement_price_method_version="synthetic-price-v1",
