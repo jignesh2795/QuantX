@@ -7,8 +7,9 @@ stability tiers and the pre-1.0 compatibility policy.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Final, Mapping
+from typing import Final
 
 from quantx.domain.clock import Clock, SimulatedClock, SystemClock
 from quantx.domain.deployment import (
