@@ -8,15 +8,15 @@ It is not built for one fixed type of user or one fixed workflow.
 
 QuantX provides a stable, domain-driven foundation for algorithmic trading systems.
 
-The core is intentionally minimal and market-aware (with strong initial support for Indian markets), while remaining open enough that different people can build very different systems on top of it.
+The universal core is intentionally market-neutral. Market-specific behavior is isolated behind market modules and broker/data adapters. India is the first and only fully implemented market today; digital assets and other regions remain future work rather than current support.
 
 ## Design Stance
 
 - **Infrastructure first** — QuantX is an engine and set of contracts, not a finished product for a single audience.
 - **Composition over opinion** — Different use cases should be expressed through plugins, adapters, or separate projects, not by forcing everything into the core.
-- **Same semantics everywhere** — Backtest, paper, and live should share the same domain model and execution meaning as far as practical.
+- **Same semantics where implemented** — Research, backtest, and paper share explicit domain and market-context contracts. LIVE remains a separate, constrained India-only boundary.
 - **Correctness over features** — Execution integrity, recovery, and clear failure modes take priority over rapid feature expansion.
-- **Indian markets as the starting point** — The domain model and early adapters prioritize NSE/BSE/NFO/MCX realities, while the core stays venue-neutral enough for later expansion.
+- **India as the first implementation** — The initial market module prioritizes NSE/BSE/F&O realities while keeping the universal core independent of Indian market rules.
 
 ## What Belongs in the Core
 
@@ -26,6 +26,7 @@ The core is intentionally minimal and market-aware (with strong initial support 
 - Deterministic research and simulation contracts
 - Persistence and recovery foundations
 - Capability and compatibility checks
+- Market context and portable market-module contracts
 
 ## What Belongs Outside the Core
 

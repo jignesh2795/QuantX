@@ -5,12 +5,34 @@ build-backend = "hatchling.build"
 [project]
 name = "quantx"
 version = "0.1.0.dev0"
-description = "Modular, event-driven trading platform for Indian markets."
+description = "Market-neutral trading infrastructure with an India-first market implementation."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "QuantX Contributors" }]
+keywords = [
+  "algorithmic-trading",
+  "backtesting",
+  "india-markets",
+  "market-neutral",
+  "paper-trading",
+  "trading-infrastructure",
+]
+classifiers = [
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business :: Financial :: Investment",
+]
 dependencies = ["tzdata>=2024.1"]
+
+[project.urls]
+Homepage = "https://github.com/jignesh2795/QuantX"
+Repository = "https://github.com/jignesh2795/QuantX"
+Issues = "https://github.com/jignesh2795/QuantX/issues"
+Documentation = "https://github.com/jignesh2795/QuantX/tree/main/docs"
 
 [project.optional-dependencies]
 dhan = [
