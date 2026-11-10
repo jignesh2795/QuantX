@@ -1,12 +1,14 @@
 # Contributing to QuantX
 
-Thank you for considering a contribution to QuantX. This guide is the human entry point for making a focused, reviewable change. It complements rather than replaces the project’s implementation and architecture documentation.
+Thank you for considering a contribution to QuantX. This guide is the human entry point for making a focused, reviewable change. It complements rather than replaces the project's implementation and architecture documentation.
+
+QuantX has a market-neutral universal core and an India-first implementation. India is the only fully implemented market; digital assets is a placeholder, not a supported crypto market. See the [project overview](README.md) and [architecture map](docs/architecture/README.md).
+
+Before contributing, read the [Code of Conduct](CODE_OF_CONDUCT.md) and [Security Policy](SECURITY.md). Do not publish credentials, access tokens, broker account identifiers, personal data, or unredacted financial records in issues or pull requests.
 
 ## Before you start
 
-QuantX is a modular, event-driven trading platform for Indian markets. Read the [project overview](README.md) and, before changing behavior, locate the relevant boundary in [the architecture documentation](docs/architecture/README.md).
-
-Use the repository’s pinned toolchain:
+Use the repository's pinned toolchain:
 
 - Python **3.12** (the version is recorded in `.python-version`).
 - [uv](https://docs.astral.sh/uv/) for interpreter management, dependency synchronization, and running project tools.
@@ -79,27 +81,7 @@ For the complete candidate gate, use both locked dependency configurations, in o
 3. Dhan-enabled configuration: `uv sync --dev --extra dhan --locked`.
 4. Run the validation producer immediately after that sync.
 
-Use a distinct evidence file for each configuration. Run the first producer immediately after the default sync, then run the second immediately after the Dhan-extra sync. Replace the placeholders with the immutable candidate and base SHAs:
-
-**Default configuration:**
-
-```powershell
-python .opencode/skills/quantx-validation-gate/scripts/run_validation.py `
-  --expected-head <candidate-sha> `
-  --base <base-sha> `
-  --output "$env:TEMP\quantx-validation\<task>\validation-default.json"
-```
-
-**Dhan-extra configuration:**
-
-```powershell
-python .opencode/skills/quantx-validation-gate/scripts/run_validation.py `
-  --expected-head <candidate-sha> `
-  --base <base-sha> `
-  --output "$env:TEMP\quantx-validation\<task>\validation-dhan.json"
-```
-
-Keep both evidence files. Do not reuse one output path: the producer overwrites an existing file at that path. Each producer run checks the full pytest suite, Ruff lint and format for changed Python files, strict mypy over the `quantx` package, `git diff --check`, and tracked-worktree cleanliness. Inspect each evidence record and run the corresponding release checker as documented in the [local release-validation playbook](docs/implementation/local-release-validation-playbook.md). That playbook also defines the skill-integrity/self-tests, evidence retention, and PASS/FAIL/UNKNOWN rules. Do not treat a diagnostic focused run as a release candidate.
+Use a distinct evidence file for each configuration. Do not reuse one output path: the producer overwrites an existing file at that path. Each producer run checks the full pytest suite, Ruff lint and format for changed Python files, strict mypy over the `quantx` package, `git diff --check`, and tracked-worktree cleanliness. Inspect each evidence record and run the corresponding release checker as documented in the [local release-validation playbook](docs/implementation/local-release-validation-playbook.md). That playbook also defines the skill-integrity/self-tests, evidence retention, and PASS/FAIL/UNKNOWN rules. Do not treat a diagnostic focused run as a release candidate.
 
 The underlying checks can also be run individually:
 
@@ -111,9 +93,9 @@ git diff --check
 git status --porcelain
 ```
 
-Ruff’s candidate gate is scoped to changed Python files against the stated base; it is not a claim that every historical repository file is lint-clean. Mypy uses the project’s strict configuration. The Dhan-disabled configuration may report optional SDK-dependent tests as skipped; report the exact count and reasons explicitly. A missing, skipped, timed-out, or SHA-mismatched mandatory check is not a PASS.
+Ruff's candidate gate is scoped to changed Python files against the stated base; it is not a claim that every historical repository file is lint-clean. Mypy uses the project's strict configuration. The Dhan-disabled configuration may report optional SDK-dependent tests as skipped; report the exact count and reasons explicitly. A missing, skipped, timed-out, or SHA-mismatched mandatory check is not a PASS.
 
-For a documentation-only contribution, still run the full suite and the documentation-relevant checks from the playbook where the environment is available. Report what was actually run; never infer that tests or static checks passed because no production code changed.
+For a documentation-only contribution, run the full suite and the documentation-relevant checks from the playbook where the environment is available. Report what was actually run; never infer that tests or static checks passed because no production code changed.
 
 ## Pull-request evidence
 
@@ -127,11 +109,11 @@ A useful pull request should make review reproducible. Include:
 - `git diff --check` and clean-worktree result.
 - Any unavailable checks, environment limitations, unresolved risks, or acceptance criteria not met.
 
-Keep local evidence separate from hosted checks. A local PASS means only that the recorded commands passed for the stated local commit and environment. It does not mean GitHub Actions ran or passed. Do not describe Actions as a passing gate unless there is an actual, independently observed result; this project’s contributor validation path is local-first.
+Keep local evidence separate from hosted checks. A local PASS means only that the recorded commands passed for the stated local commit and environment. It does not mean GitHub Actions ran or passed. Do not describe Actions as a passing gate unless there is an actual, independently observed result; this project's contributor validation path is local-first.
 
 ## Engineering and safety assumptions
 
-Contributions must preserve the project’s core invariants:
+Contributions must preserve the project's core invariants:
 
 - **Fail closed:** missing, contradictory, stale, or unknown evidence must not be promoted to PASS or silently treated as zero. Unknown conditions remain explicit and block unsafe progression.
 - **Deterministic replay:** event ordering and replay-sensitive behavior must remain deterministic. Tests should exercise stable outcomes rather than depend on wall-clock timing or external services.
