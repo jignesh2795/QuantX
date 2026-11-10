@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal, DecimalException, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, DecimalException
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 

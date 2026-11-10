@@ -20,6 +20,11 @@ from quantx.markets.india.physical_settlement_charges import (
 )
 
 D = Decimal
+_DEFAULT_DELIVERY_RATE = D("0.00015")
+_DEFAULT_NON_DELIVERY_RATE = D("0.00003")
+_DEFAULT_SECURITY_RECEIVABLE = D("100")
+_DEFAULT_SECURITY_DELIVERABLE = D("40")
+_DEFAULT_SETTLEMENT_PRICE = D("500")
 IST = ZoneInfo("Asia/Kolkata")
 START = datetime(2026, 1, 1, tzinfo=IST)
 SPLIT = datetime(2026, 12, 7, tzinfo=IST)
@@ -27,8 +32,8 @@ SPLIT = datetime(2026, 12, 7, tzinfo=IST)
 
 def _rates(
     *,
-    delivery: Decimal | None = D("0.00015"),
-    non_delivery: Decimal | None = D("0.00003"),
+    delivery: Decimal | None = _DEFAULT_DELIVERY_RATE,
+    non_delivery: Decimal | None = _DEFAULT_NON_DELIVERY_RATE,
 ) -> IndiaPhysicalSettlementStampDutyRates:
     return IndiaPhysicalSettlementStampDutyRates(
         delivery_stamp_duty_rate=delivery,
@@ -66,9 +71,9 @@ def _entry(
 def _security_group(
     settlement_id: str = "NCL-DELIVERY-001",
     *,
-    security_receivable: Decimal = D("100"),
-    security_deliverable: Decimal = D("40"),
-    price: Decimal = D("500"),
+    security_receivable: Decimal = _DEFAULT_SECURITY_RECEIVABLE,
+    security_deliverable: Decimal = _DEFAULT_SECURITY_DELIVERABLE,
+    price: Decimal = _DEFAULT_SETTLEMENT_PRICE,
     security: str = "RELIANCE",
     venue: str = "NSE",
 ) -> IndiaPhysicalSettlementSecuritySettlementInput:
