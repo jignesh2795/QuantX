@@ -15,21 +15,20 @@ Maintainers will identify affected revisions and any fixed revision in a securit
 
 Please do not disclose suspected vulnerabilities in a public issue, pull request, discussion, or commit.
 
-GitHub Private Vulnerability Reporting is a repository setting separate from this `SECURITY.md` file. A policy file alone does not enable private submissions. The current enablement state for this repository has not been independently verified; this policy does not claim that a private reporting channel is active.
+GitHub Private Vulnerability Reporting is a repository setting separate from this `SECURITY.md` file. The repository owner reports that the setting was enabled on 2026-11-10. This owner-reported change has not been independently read back through GitHub's private-reporting status endpoint in this workflow. The reporter-facing form and notification routing also remain to be verified; do not treat the private channel as fully operational until those checks are complete.
 
-### Required maintainer setup before broad public contribution
+### Post-enablement verification before broad public contribution
 
 A repository owner or administrator must:
 
-1. Open repository **Settings → Security and quality → Advanced Security**.
-2. Find **Private vulnerability reporting** and enable it if it is not already enabled.
-3. Verify that the repository exposes **Report a vulnerability** from its Security/Advisories area.
-4. Verify that repository administrators/security managers receive the relevant notifications, and ensure notification preferences are configured.
-5. Update this policy only after the private reporting path has been confirmed available.
+1. Open the repository's **Security and quality → Advisories** area and verify that **Report a vulnerability** is exposed to non-admin reporters. An administrator may be routed to create a draft security advisory instead of submitting a report.
+2. Verify that repository administrators/security managers receive private-report notifications. GitHub documents notifications for administrators/security managers who watch the repository for all activity or subscribe to **Security alerts**, with repository notifications enabled.
+3. Check the account's notification preferences at [GitHub notification settings](https://github.com/settings/notifications). For email delivery, enable email notifications for watched repositories.
+4. Keep this policy and Issue #190's status accurate; claim an operational private reporting path only after the reporter-facing form and notification route have been verified.
 
-See GitHub's official [repository configuration instructions](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository) and its [private reporting guide](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/report-privately).
+See GitHub's official [repository configuration instructions](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository), its [private reporting guide](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/report-privately), and the [REST API status endpoint documentation](https://docs.github.com/en/rest/repos/repos#check-if-private-vulnerability-reporting-is-enabled-for-a-repository).
 
-Until that setup is verified, do not send exploit details, proof-of-concept code, or sensitive evidence through public GitHub issues or pull requests. This repository does not publish a dedicated security email address or another verified private contact route. Do not invent or assume one. If the GitHub private channel cannot be enabled, maintainers must establish and publish a monitored private contact route before broad public contributor recruitment.
+Until the reporter-facing form and notification route are verified, do not send exploit details, proof-of-concept code, or sensitive evidence through public GitHub issues or pull requests. This repository does not publish a dedicated security email address or another verified private contact route. Do not invent or assume one. If GitHub's private channel is unavailable or notification delivery cannot be established, maintainers must establish and publish a monitored private contact route before broad public contributor recruitment.
 
 When a verified private route is available, include the affected revision, impact, prerequisites, and a minimal reproduction where safe. Allow maintainers to coordinate investigation before public disclosure.
 
