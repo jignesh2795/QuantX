@@ -24,6 +24,7 @@ The PR #309 market-module migration is complete. The legacy `quantx.india` packa
 
 - **Project presentation and onboarding:** in progress in draft [PR #330](https://github.com/jignesh2795/QuantX/pull/330). The scope is repository hygiene, community health, README/package identity, documentation navigation, and preserving the detailed status history.
 - **QX-12 / Issue #200 India charges:** separate India-specific engineering work. [PR #329](https://github.com/jignesh2795/QuantX/pull/329) is ready for review at candidate `5ba5d0a9655c42af2df3fd85e95c126d2c4cfd6b`; issue #200 remains open. Its contract slice does not supply production tariffs, clearing-report ingestion, final settlement-price selection, physical STT, or execution integration.
+- **Issue #190 security reporting:** a truthful `SECURITY.md` policy is included in PR #330. The repository's GitHub Private Vulnerability Reporting setting and notification path are not verified; issue #190 remains open until a maintainer verifies/enables that setting or establishes another monitored private route.
 - **Issue #202:** read-only dead-module and Dhan-transport audit remains a separate engineering work item.
 - **Issues #266 and #267:** remain blocked on missing source evidence. #266 lacks a coherent set of required Dhan fixtures; #267 lacks an authoritative source for all required LIVE risk fields.
 - **Issue #199 public API:** a curated `quantx.api` surface remains separately tracked and deferred; no stable public API module is claimed.
