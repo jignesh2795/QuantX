@@ -23,6 +23,9 @@ from tests.unit.architecture._import_graph import (
 
 _ALLOWED_RUNTIME: dict[str, frozenset[str]] = {
     "domain": frozenset(),
+    # The explicit public facade may re-export canonical domain contracts and
+    # vendor-neutral ports, but it must not depend on application/adapters.
+    "api": frozenset({"domain", "ports"}),
     "ports": frozenset({"domain"}),
     "execution": frozenset({"domain", "markets", "ports"}),
     "integrations": frozenset({"domain", "execution", "ports"}),
