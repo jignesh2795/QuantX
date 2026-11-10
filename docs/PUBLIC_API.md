@@ -1,120 +1,138 @@
 # QuantX public Python API
 
-## Purpose
+## Supported import boundary
 
-`quantx.api` is the deliberately small import boundary for application authors.
-It re-exports canonical domain objects; it does not introduce wrapper classes or
-a second implementation of any contract.
-
-Use the names in `quantx.api.__all__` for new application code. Internal
-package paths remain useful to QuantX maintainers, but they are not the
-compatibility boundary for downstream consumers.
-
-## Current public surface
-
-The exact exported-name snapshot is:
+`quantx.api` is the curated public Python import surface. Consumers should
+import public contracts from this module rather than depending on internal
+package paths:
 
 ```python
 from quantx.api import (
-    AssetClass,
-    Contract,
-    Instrument,
+    Candle,
     InstrumentId,
     MarketContext,
+    MarketDataPort,
     MarketFamily,
     MarketRegion,
     Money,
-    OptionType,
+    Quote,
+    TradeIntent,
 )
 ```
 
-The corresponding `quantx.api.__api_stability__` metadata classifies each
-export. The module's snapshot test keeps the documented list and runtime
-`__all__` aligned.
+The exact export list is `quantx.api.__all__`. A snapshot test locks this list.
+The package root, `quantx`, continues to expose only `__version__`; importing
+the public API is explicit and does not eagerly import application services,
+broker plugins, the optional Dhan SDK, or perform network access.
 
-### Stability tiers
+The surface is deliberately curated rather than a convenience re-export of
+every domain class. It contains market-neutral identity, instrument and market
+context values; order-intent vocabulary; deterministic time abstractions;
+market-data observations and ports; and the validated Money value object.
+It does not publish application composition or broker submission authority.
+`FixedClock` remains internal because it is a test helper.
+`ExecutionMode.LIVE` describes a requested execution context; it does not
+grant permission, establish account authority, or establish broker readiness.
 
-| Tier | Meaning | Current membership |
+## Stability tiers
+
+| Tier | Meaning | Current status |
 |---|---|---|
-| Stable | Compatibility is part of the supported public contract and breaking changes follow the stable deprecation policy. | None. |
-| Provisional | Intended for downstream use, but names or semantics may change before 1.0. | Every name in `quantx.api.__all__`. |
-| Internal | Any import not listed in `quantx.api.__all__`, including implementation modules, application services, execution internals, adapters and plugins. | All other QuantX imports. |
+| Stable | Explicitly designated for compatibility guarantees under the stable release policy. | No symbols are designated stable yet. |
+| Provisional | Intentionally public, but subject to compatibility changes while QuantX is pre-1.0. | Every name in `quantx.api.__all__`. |
+| Internal | Implementation detail with no public compatibility promise. | Every symbol not listed in `quantx.api.__all__`, including direct submodule imports. |
 
-QuantX is currently `0.1.0.dev0`. No export is labelled stable at this
-pre-1.0 stage. The market taxonomy values describe classifications; they do
-not assert that every region, family, venue or asset class is implemented.
-India remains the only fully implemented market, and the digital-assets
-module remains a placeholder.
+A symbol does not become stable merely because it is exported, documented, or
+used by an in-repository plugin. Stable designation requires an explicit
+release decision and documentation update. Runtime metadata in
+`quantx.api.__api_stability__` classifies every exported name as
+`provisional`; the mapping is immutable and must match `__all__`.
 
-## Compatibility and deprecation policy
+## Pre-1.0 compatibility policy
 
-### Before 1.0
+The package currently declares version `0.1.0.dev0` and Python
+`>=3.12,<3.13`. Until a 1.0 release:
 
-- The public API is provisional. A pre-1.0 release may contain incompatible
-  changes to provisional names or behavior.
-- An intentional incompatible change to `quantx.api` should be recorded in
-  the changelog with a concise migration note.
-- Where feasible, a deprecated provisional name should emit
-  `DeprecationWarning` and its removal target should be documented. There is
-  no fixed pre-1.0 deprecation window.
-- Security, data-integrity or correctness fixes may require an earlier
-  incompatible correction; such changes should still be described in the
-  release notes where disclosure is safe.
+- All `quantx.api` exports are provisional.
+- A breaking change to a provisional symbol may occur in a later 0.y release;
+  pre-1.0 releases do not promise the compatibility guarantees of SemVer 1.0.
+- When practical, a removal or rename will first be documented as deprecated
+  and called out in release notes or migration notes. This is a best-effort
+  policy, not a guarantee that every pre-1.0 breaking change has a full
+  deprecation cycle.
+- Correctness, data-integrity and security fixes may require immediate
+  incompatible corrections. Such changes should be explained in the relevant
+  release notes.
+- The exact public export snapshot and import-boundary tests must be updated
+  deliberately when the public surface changes.
 
-### Stable API policy
+For a future 1.x stable designation, stable symbols will be kept backward
+compatible within the major version. A stable symbol should be deprecated in
+a minor release, documented with a replacement where available, and retained
+through at least the next minor release before removal in a major release.
+Security or data-integrity fixes may require an exception, with the reason
+documented.
 
-No stable imports are promised today. Before any name is promoted to stable,
-its semantics, supported inputs, failure behavior and compatibility tests
-must be explicitly reviewed and documented. Once a stable API is declared,
-removal or incompatible change requires a documented deprecation period and
-migration path; the period must be stated when the stable guarantee is
-introduced rather than assumed retroactively.
+## Current provisional surface
 
-### Internal imports
+The exact names are maintained in `quantx.api.__all__` and grouped here by
+responsibility:
 
-Imports outside `quantx.api.__all__` are internal, even when a package
-`__init__.py` happens to re-export them. Internal names may be moved,
-renamed or removed without a public deprecation window. Downstream code
-should not infer public status from current importability.
+- **Identity and market context:** `AccountId`, `BrokerConnectionId`,
+  `InstrumentId`, `PortfolioId`, `ProductCode`,
+  `StrategyDeploymentId`, `AssetClass`, `Contract`, `Instrument`,
+  `MarketContext`, `MarketFamily`, `MarketRegion`, and `OptionType`.
+- **Money:** `Money`, whose constructor requires a finite `Decimal` amount
+  and whose addition/subtraction requires matching currencies. It does not
+  provide currency conversion or imply multi-currency portfolio support.
+- **Order intent and execution context:** `ExecutionContext`,
+  `ExecutionMode`, `OrderSide`, `OrderType`, `PositionEffect`,
+  `TimeInForce`, and `TradeIntent`.
+- **Market data:** `Candle`, `Quote`, `MarketDataPort`, and
+  `MarketDataStore`.
+- **Time:** `Clock`, `SimulatedClock`, and `SystemClock`.
 
-## Design constraints
+The context and asset taxonomy is broader than implemented market support.
+India remains the only fully implemented market; digital assets is a
+placeholder. An enum value or caller-provided `MarketContext` is not evidence
+that a venue, instrument family, data source or execution path is supported.
 
-- The facade points directly to canonical domain classes. It does not copy,
-  subclass or wrap them.
-- Imports are limited to domain leaf modules. Importing `quantx.api` must not
-  load the application composition root, the Dhan plugin/SDK, or perform
-  network I/O.
-- The public module does not expose application composition, production/LIVE
-  builders, broker adapters, risk services, or execution lifecycle internals.
-  Those APIs have separate safety and compatibility concerns.
-- `Quantity` is not exported in this first snapshot. Its current runtime
-  constructor does not enforce the finite-`Decimal` contract expected of a
-  general public quantity type; it should be reviewed independently before
-  being promoted.
-- `MarketContext`, `MarketRegion`, `MarketFamily` and `AssetClass` are
-  classification contracts, not a registry of supported venues or a claim
-  that all represented markets are operational.
+For deterministic replay or repeated strategy evaluation, callers should
+supply an explicit deterministic `TradeIntent.intent_id`; its default UUID
+factory is not a replay-stability guarantee.
 
-## Example
+## Deliberate exclusions
 
-```python
-from decimal import Decimal
+The public API does not currently export:
 
-from quantx.api import Money
+- `Quantity`: its current runtime constructor does not enforce the finite
+  `Decimal` and exact numeric-type contract expected of a general public
+  quantity value. Review and strengthen that value object separately before
+  exposing it.
+- Strategy authoring/runtime symbols whose public semantics have not yet been
+  explicitly designated.
+- Risk-evidence authority, LIVE execution composition, broker submission
+  ports, execution receipts, persistence implementations, or vendor SDK
+  types. In particular, this API does not imply that LIVE trading is
+  supported or ready; issue #267 remains open and public LIVE dispatch remains
+  fail-closed.
+- Market-specific implementation modules. Market rules remain behind the
+  market-module boundary and are not promoted into the universal core API.
 
-notional = Money(Decimal("1250.00"), "INR")
-```
+These exclusions prevent an early public import surface from becoming a
+blanket promise about unfinished semantics or internal implementation
+details.
 
-Money values require finite `Decimal` amounts. Arithmetic between different
-currencies fails rather than performing an implicit conversion. This does
-not provide FX conversion or multi-currency portfolio support.
+## Compatibility and validation
 
-## Change control
+Public imports are required to work without optional Dhan dependencies and
+without network access. The API module imports only domain contracts and the
+vendor-neutral market-data ports; it does not import application composition,
+integrations or broker plugins. Static import-boundary assertions and an
+isolated fresh-process smoke test lock that requirement.
 
-The exact `__all__` list is locked by
-`tests/unit/test_api.py::test_public_api_exports_match_documented_snapshot`.
-Changing that list requires updating this document and reviewing the
-compatibility implications in the same change. The public-API import test
-also runs in a fresh interpreter with network socket entry points blocked
-and asserts that neither the optional Dhan SDK/plugin nor the application
-composition package is imported.
+The export snapshot and import-boundary tests live in
+`tests/unit/test_api.py`. The tests also check canonical object identity,
+immutable stability metadata and the Money invariants. This policy describes
+the current source contract; it does not claim a published package release or
+a 1.0 stability guarantee.
