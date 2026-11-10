@@ -2,11 +2,11 @@
 
 All notable changes to QuantX are recorded here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and project versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) where applicable.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The package version is recorded in `pyproject.toml`.
 
 This changelog starts tracking the current development line; it is not a complete reconstruction of all historical repository changes.
 
-## [Unreleased]
+## [0.1.0.dev0] - Unreleased
 
 ### Added
 

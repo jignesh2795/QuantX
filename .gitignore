@@ -17,7 +17,7 @@ env/
 node_modules/
 dist/
 build/
-*.egg-info
+*.egg-info/
 *.log
 *.sqlite
 *.sqlite3
