@@ -173,7 +173,12 @@ def test_physical_stamp_duty_handles_equal_receivable_and_deliverable_quantities
 
 
 def test_client_rounding_occurs_after_summing_each_security_delivery_settlement() -> None:
-    first = _security_group("NCL-DELIVERY-001", security_receivable=D("1"), security_deliverable=D("0"), price=D("1666.67"))
+    first = _security_group(
+        "NCL-DELIVERY-001",
+        security_receivable=D("1"),
+        security_deliverable=D("0"),
+        price=D("1666.67"),
+    )
     second = _security_group(
         "NCL-DELIVERY-002",
         security_receivable=D("1"),
@@ -192,7 +197,11 @@ def test_client_rounding_occurs_after_summing_each_security_delivery_settlement(
 
 
 def test_component_rounding_is_half_up_to_paise_before_client_rounding() -> None:
-    settlement = _security_group(security_receivable=D("1"), security_deliverable=D("0"), price=D("3333.33"))
+    settlement = _security_group(
+        security_receivable=D("1"),
+        security_deliverable=D("0"),
+        price=D("3333.33"),
+    )
     model = _model(_entry(rates=_rates(non_delivery=D("0"))))
 
     result = model.calculate(_context(settlement))
@@ -214,7 +223,11 @@ def test_client_rupee_rounding_uses_50_paise_threshold(
     expected_component: Decimal,
     expected_client_total: Decimal,
 ) -> None:
-    settlement = _security_group(security_receivable=D("1"), security_deliverable=D("0"), price=price)
+    settlement = _security_group(
+        security_receivable=D("1"),
+        security_deliverable=D("0"),
+        price=price,
+    )
     model = _model(_entry(rates=_rates(non_delivery=D("0"))))
 
     result = model.calculate(_context(settlement))
