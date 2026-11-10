@@ -66,8 +66,8 @@ def _entry(
 def _security_group(
     settlement_id: str = "NCL-DELIVERY-001",
     *,
-    buy: Decimal = D("100"),
-    sell: Decimal = D("40"),
+    security_receivable: Decimal = D("100"),
+    security_deliverable: Decimal = D("40"),
     price: Decimal = D("500"),
     security: str = "RELIANCE",
     venue: str = "NSE",
@@ -75,8 +75,8 @@ def _security_group(
     return IndiaPhysicalSettlementSecuritySettlementInput(
         settlement_id=settlement_id,
         security_id=InstrumentId(venue, security),
-        buy_quantity=buy,
-        sell_quantity=sell,
+        security_receivable_quantity=buy,
+        security_deliverable_quantity=sell,
         final_settlement_price=price,
         final_settlement_price_source_ref="synthetic://ncl/final-settlement-price",
         final_settlement_price_method_version="synthetic-price-v1",
@@ -121,10 +121,10 @@ def test_physical_stamp_duty_computes_delivery_and_non_delivery_components() -> 
     )
     assert result.jurisdiction_state_ut == "MAHARASHTRA"
     assert result.jurisdiction_source is IndiaPhysicalSettlementJurisdictionSource.CLIENT_CODE
-    assert result.settlements[0].buy_deliverable_quantity == D("60")
-    assert result.settlements[0].buy_non_deliverable_quantity == D("40")
-    assert result.settlements[0].buy_deliverable_value == D("30000")
-    assert result.settlements[0].buy_non_deliverable_value == D("20000")
+    assert result.settlements[0].deliverable_quantity == D("60")
+    assert result.settlements[0].non_deliverable_quantity == D("40")
+    assert result.settlements[0].deliverable_value == D("30000")
+    assert result.settlements[0].non_deliverable_value == D("20000")
     assert result.settlements[0].delivery_stamp_duty == D("4.50")
     assert result.settlements[0].non_delivery_stamp_duty == D("0.60")
     assert result.settlements[0].total == D("5.10")
@@ -136,12 +136,12 @@ def test_physical_stamp_duty_computes_delivery_and_non_delivery_components() -> 
 
 def test_physical_stamp_duty_handles_non_delivery_only() -> None:
     result = _model().calculate(
-        _context(_security_group(buy=D("40"), sell=D("100")))
+        _context(_security_group(security_receivable=D("40"), security_deliverable=D("100")))
     )
 
     line = result.settlements[0]
-    assert line.buy_deliverable_quantity == D("0")
-    assert line.buy_non_deliverable_quantity == D("40")
+    assert line.deliverable_quantity == D("0")
+    assert line.non_deliverable_quantity == D("40")
     assert line.delivery_stamp_duty == D("0.00")
     assert line.non_delivery_stamp_duty == D("0.60")
     assert result.client_level_total == D("1")
@@ -149,35 +149,35 @@ def test_physical_stamp_duty_handles_non_delivery_only() -> None:
 
 def test_seller_without_security_receivable_has_zero_stamp_duty() -> None:
     result = _model().calculate(
-        _context(_security_group(buy=D("0"), sell=D("100")))
+        _context(_security_group(security_receivable=D("0"), security_deliverable=D("100")))
     )
 
     line = result.settlements[0]
-    assert line.buy_deliverable_quantity == D("0")
-    assert line.buy_non_deliverable_quantity == D("0")
+    assert line.deliverable_quantity == D("0")
+    assert line.non_deliverable_quantity == D("0")
     assert line.total == D("0.00")
     assert result.client_level_total == D("0")
 
 
 def test_physical_stamp_duty_handles_equal_receivable_and_deliverable_quantities() -> None:
     result = _model().calculate(
-        _context(_security_group(buy=D("100"), sell=D("100")))
+        _context(_security_group(security_receivable=D("100"), security_deliverable=D("100")))
     )
 
     line = result.settlements[0]
-    assert line.buy_deliverable_quantity == D("0")
-    assert line.buy_non_deliverable_quantity == D("100")
+    assert line.deliverable_quantity == D("0")
+    assert line.non_deliverable_quantity == D("100")
     assert line.delivery_stamp_duty == D("0.00")
     assert line.non_delivery_stamp_duty == D("1.50")
     assert result.client_level_total == D("2")
 
 
 def test_client_rounding_occurs_after_summing_each_security_delivery_settlement() -> None:
-    first = _security_group("NCL-DELIVERY-001", buy=D("1"), sell=D("0"), price=D("1666.67"))
+    first = _security_group("NCL-DELIVERY-001", security_receivable=D("1"), security_deliverable=D("0"), price=D("1666.67"))
     second = _security_group(
         "NCL-DELIVERY-002",
-        buy=D("1"),
-        sell=D("0"),
+        security_receivable=D("1"),
+        security_deliverable=D("0"),
         price=D("1666.67"),
         security="INFY",
     )
@@ -192,7 +192,7 @@ def test_client_rounding_occurs_after_summing_each_security_delivery_settlement(
 
 
 def test_component_rounding_is_half_up_to_paise_before_client_rounding() -> None:
-    settlement = _security_group(buy=D("1"), sell=D("0"), price=D("3333.33"))
+    settlement = _security_group(security_receivable=D("1"), security_deliverable=D("0"), price=D("3333.33"))
     model = _model(_entry(rates=_rates(non_delivery=D("0"))))
 
     result = model.calculate(_context(settlement))
@@ -214,7 +214,7 @@ def test_client_rupee_rounding_uses_50_paise_threshold(
     expected_component: Decimal,
     expected_client_total: Decimal,
 ) -> None:
-    settlement = _security_group(buy=D("1"), sell=D("0"), price=price)
+    settlement = _security_group(security_receivable=D("1"), security_deliverable=D("0"), price=price)
     model = _model(_entry(rates=_rates(non_delivery=D("0"))))
 
     result = model.calculate(_context(settlement))
@@ -346,8 +346,8 @@ def test_settlement_requires_price_and_obligation_provenance() -> None:
         IndiaPhysicalSettlementSecuritySettlementInput(
             settlement_id="NCL-DELIVERY-001",
             security_id=InstrumentId("NSE", "RELIANCE"),
-            buy_quantity=D("100"),
-            sell_quantity=D("40"),
+            security_receivable_quantity=D("100"),
+            security_deliverable_quantity=D("40"),
             final_settlement_price=D("500"),
             final_settlement_price_source_ref="",
             final_settlement_price_method_version="synthetic-price-v1",
@@ -357,8 +357,8 @@ def test_settlement_requires_price_and_obligation_provenance() -> None:
         IndiaPhysicalSettlementSecuritySettlementInput(
             settlement_id="NCL-DELIVERY-001",
             security_id=InstrumentId("NSE", "RELIANCE"),
-            buy_quantity=D("100"),
-            sell_quantity=D("40"),
+            security_receivable_quantity=D("100"),
+            security_deliverable_quantity=D("40"),
             final_settlement_price=D("500"),
             final_settlement_price_source_ref="synthetic://ncl/price",
             final_settlement_price_method_version="synthetic-price-v1",
@@ -372,8 +372,8 @@ def test_duplicate_settlement_ids_are_rejected() -> None:
         _context(settlement, settlement)
 
 def test_same_security_cannot_be_split_into_multiple_unaggregated_groups() -> None:
-    first = _security_group("GROUP-1", buy=D("60"), sell=D("0"))
-    second = _security_group("GROUP-2", buy=D("40"), sell=D("0"))
+    first = _security_group("GROUP-1", security_receivable=D("60"), security_deliverable=D("0"))
+    second = _security_group("GROUP-2", security_receivable=D("40"), security_deliverable=D("0"))
     with pytest.raises(
         IndiaPhysicalSettlementInputUnavailable,
         match="one BQTY/SQTY group per client/security/settlement day",
@@ -430,12 +430,12 @@ def test_contract_decimal_inputs_reject_non_finite_or_negative_values(
     invalid: Decimal,
 ) -> None:
     with pytest.raises(ValueError):
-        _security_group(buy=invalid)
+        _security_group(security_receivable=invalid)
 
 
 def test_contract_decimal_inputs_reject_non_decimal_values() -> None:
-    with pytest.raises(TypeError, match="buy_quantity must be a Decimal"):
-        _security_group(buy=100)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="security_receivable_quantity must be a Decimal"):
+        _security_group(security_receivable=100)  # type: ignore[arg-type]
 
 
 def test_client_settlement_date_must_be_aware() -> None:

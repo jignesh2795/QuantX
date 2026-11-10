@@ -160,8 +160,8 @@ class IndiaPhysicalSettlementSecuritySettlementInput:
 
     settlement_id: str
     security_id: InstrumentId
-    buy_quantity: Decimal
-    sell_quantity: Decimal
+    security_receivable_quantity: Decimal
+    security_deliverable_quantity: Decimal
     final_settlement_price: Decimal
     final_settlement_price_source_ref: str
     final_settlement_price_method_version: str
@@ -175,14 +175,14 @@ class IndiaPhysicalSettlementSecuritySettlementInput:
             raise IndiaPhysicalSettlementRuleUnavailable(
                 "only NSE physical-settlement securities are supported"
             )
-        _validate_decimal(self.buy_quantity, "buy_quantity", allow_none=False)
-        _validate_decimal(self.sell_quantity, "sell_quantity", allow_none=False)
+        _validate_decimal(self.security_receivable_quantity, "security_receivable_quantity", allow_none=False)
+        _validate_decimal(self.security_deliverable_quantity, "security_deliverable_quantity", allow_none=False)
         _validate_decimal(
             self.final_settlement_price, "final_settlement_price", allow_none=False
         )
         if self.final_settlement_price <= _ZERO:
             raise ValueError("final_settlement_price must be positive")
-        if self.buy_quantity == _ZERO and self.sell_quantity == _ZERO:
+        if self.security_receivable_quantity == _ZERO and self.security_deliverable_quantity == _ZERO:
             raise ValueError("at least one clearing settlement quantity must be positive")
         _require_text(
             self.final_settlement_price_source_ref, "final_settlement_price_source_ref"
@@ -272,13 +272,13 @@ class IndiaPhysicalSettlementStampDutyLine:
 
     settlement_id: str
     security_id: InstrumentId
-    buy_quantity: Decimal
-    sell_quantity: Decimal
-    buy_deliverable_quantity: Decimal
-    buy_non_deliverable_quantity: Decimal
+    security_receivable_quantity: Decimal
+    security_deliverable_quantity: Decimal
+    deliverable_quantity: Decimal
+    non_deliverable_quantity: Decimal
     final_settlement_price: Decimal
-    buy_deliverable_value: Decimal
-    buy_non_deliverable_value: Decimal
+    deliverable_value: Decimal
+    non_deliverable_value: Decimal
     delivery_stamp_duty: Decimal
     non_delivery_stamp_duty: Decimal
 
@@ -431,21 +431,21 @@ class IndiaPhysicalSettlementStampDutyModel:
         lines: list[IndiaPhysicalSettlementStampDutyLine] = []
         for settlement in context.settlements:
             try:
-                buy_deliverable_quantity = max(
-                    settlement.buy_quantity - settlement.sell_quantity, _ZERO
+                deliverable_quantity = max(
+                    settlement.security_receivable_quantity - settlement.security_deliverable_quantity, _ZERO
                 )
-                buy_non_deliverable_quantity = min(
-                    settlement.buy_quantity, settlement.sell_quantity
+                non_deliverable_quantity = min(
+                    settlement.security_receivable_quantity, settlement.security_deliverable_quantity
                 )
-                buy_deliverable_value = (
-                    buy_deliverable_quantity * settlement.final_settlement_price
+                deliverable_value = (
+                    deliverable_quantity * settlement.final_settlement_price
                 )
-                buy_non_deliverable_value = (
-                    buy_non_deliverable_quantity * settlement.final_settlement_price
+                non_deliverable_value = (
+                    non_deliverable_quantity * settlement.final_settlement_price
                 )
-                delivery_duty = _round_paise(buy_deliverable_value * delivery_rate)
+                delivery_duty = _round_paise(deliverable_value * delivery_rate)
                 non_delivery_duty = _round_paise(
-                    buy_non_deliverable_value * non_delivery_rate
+                    non_deliverable_value * non_delivery_rate
                 )
             except DecimalException as exc:
                 raise IndiaPhysicalSettlementInputUnavailable(
@@ -455,13 +455,13 @@ class IndiaPhysicalSettlementStampDutyModel:
                 IndiaPhysicalSettlementStampDutyLine(
                     settlement_id=settlement.settlement_id,
                     security_id=settlement.security_id,
-                    buy_quantity=settlement.buy_quantity,
-                    sell_quantity=settlement.sell_quantity,
-                    buy_deliverable_quantity=buy_deliverable_quantity,
-                    buy_non_deliverable_quantity=buy_non_deliverable_quantity,
+                    security_receivable_quantity=settlement.security_receivable_quantity,
+                    security_deliverable_quantity=settlement.security_deliverable_quantity,
+                    deliverable_quantity=deliverable_quantity,
+                    non_deliverable_quantity=non_deliverable_quantity,
                     final_settlement_price=settlement.final_settlement_price,
-                    buy_deliverable_value=buy_deliverable_value,
-                    buy_non_deliverable_value=buy_non_deliverable_value,
+                    deliverable_value=deliverable_value,
+                    non_deliverable_value=non_deliverable_value,
                     delivery_stamp_duty=delivery_duty,
                     non_delivery_stamp_duty=non_delivery_duty,
                 )
