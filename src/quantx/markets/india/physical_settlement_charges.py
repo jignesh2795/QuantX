@@ -133,9 +133,7 @@ class IndiaPhysicalSettlementStampDutySchedule:
 
     def select(self, effective_at: datetime) -> IndiaPhysicalSettlementStampDutyScheduleEntry:
         if not isinstance(effective_at, datetime) or not _is_aware(effective_at):
-            raise IndiaPhysicalSettlementRuleUnavailable(
-                "settlement_date must be timezone-aware"
-            )
+            raise IndiaPhysicalSettlementRuleUnavailable("settlement_date must be timezone-aware")
         normalized = effective_at.astimezone(_IST)
         for entry in self.entries:
             start = entry.effective_from.astimezone(_IST)
@@ -185,9 +183,7 @@ class IndiaPhysicalSettlementSecuritySettlementInput:
             "security_deliverable_quantity",
             allow_none=False,
         )
-        _validate_decimal(
-            self.final_settlement_price, "final_settlement_price", allow_none=False
-        )
+        _validate_decimal(self.final_settlement_price, "final_settlement_price", allow_none=False)
         if self.final_settlement_price <= _ZERO:
             raise ValueError("final_settlement_price must be positive")
         if (
@@ -195,9 +191,7 @@ class IndiaPhysicalSettlementSecuritySettlementInput:
             and self.security_deliverable_quantity == _ZERO
         ):
             raise ValueError("at least one clearing settlement quantity must be positive")
-        _require_text(
-            self.final_settlement_price_source_ref, "final_settlement_price_source_ref"
-        )
+        _require_text(self.final_settlement_price_source_ref, "final_settlement_price_source_ref")
         _require_text(
             self.final_settlement_price_method_version,
             "final_settlement_price_method_version",
@@ -226,12 +220,8 @@ class IndiaPhysicalSettlementStampDutyClientContext:
     settlements: tuple[IndiaPhysicalSettlementSecuritySettlementInput, ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.settlement_date, datetime) or not _is_aware(
-            self.settlement_date
-        ):
-            raise IndiaPhysicalSettlementInputUnavailable(
-                "settlement_date must be timezone-aware"
-            )
+        if not isinstance(self.settlement_date, datetime) or not _is_aware(self.settlement_date):
+            raise IndiaPhysicalSettlementInputUnavailable("settlement_date must be timezone-aware")
         _require_text(self.client_code, "client_code")
         _require_text(self.trading_member_code, "trading_member_code")
         _require_text(self.client_code_source_ref, "client_code_source_ref")
@@ -320,21 +310,20 @@ class IndiaPhysicalSettlementStampDutyResult:
         ):
             raise TypeError("collection_disposition has an unsupported type")
         _require_text(self.jurisdiction_state_ut, "jurisdiction_state_ut")
-        if not isinstance(
-            self.jurisdiction_source, IndiaPhysicalSettlementJurisdictionSource
-        ):
+        if not isinstance(self.jurisdiction_source, IndiaPhysicalSettlementJurisdictionSource):
             raise TypeError("jurisdiction_source has an unsupported type")
         if self.jurisdiction_state_ut != self.jurisdiction_state_ut.strip().upper():
             raise ValueError("jurisdiction_state_ut must be normalized")
         if not isinstance(self.settlements, tuple):
             raise TypeError("settlements must be an immutable tuple")
         if not all(
-            isinstance(item, IndiaPhysicalSettlementStampDutyLine)
-            for item in self.settlements
+            isinstance(item, IndiaPhysicalSettlementStampDutyLine) for item in self.settlements
         ):
             raise TypeError("settlements must contain physical stamp-duty lines")
-        if not isinstance(self.provenance, tuple) or not self.provenance or not all(
-            isinstance(item, str) and item.strip() for item in self.provenance
+        if (
+            not isinstance(self.provenance, tuple)
+            or not self.provenance
+            or not all(isinstance(item, str) and item.strip() for item in self.provenance)
         ):
             raise ValueError("provenance must contain non-empty strings")
         if (
@@ -411,9 +400,7 @@ class IndiaPhysicalSettlementStampDutyModel:
             )
 
         if jurisdiction == "SIKKIM":
-            base_provenance.append(
-                "collection_disposition:NCL_COLLECTION_EXCLUDED_FOR_SIKKIM"
-            )
+            base_provenance.append("collection_disposition:NCL_COLLECTION_EXCLUDED_FOR_SIKKIM")
             return IndiaPhysicalSettlementStampDutyResult(
                 collection_disposition=(
                     IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_EXCLUDED_FOR_SIKKIM
@@ -431,9 +418,7 @@ class IndiaPhysicalSettlementStampDutyModel:
         delivery_rate = rates.delivery_stamp_duty_rate
         non_delivery_rate = rates.non_delivery_stamp_duty_rate
         if delivery_rate is None:
-            raise IndiaPhysicalSettlementRuleUnavailable(
-                "delivery stamp-duty rate is unavailable"
-            )
+            raise IndiaPhysicalSettlementRuleUnavailable("delivery stamp-duty rate is unavailable")
         if non_delivery_rate is None:
             raise IndiaPhysicalSettlementRuleUnavailable(
                 "non-delivery stamp-duty rate is unavailable"
@@ -451,16 +436,10 @@ class IndiaPhysicalSettlementStampDutyModel:
                     settlement.security_receivable_quantity,
                     settlement.security_deliverable_quantity,
                 )
-                deliverable_value = (
-                    deliverable_quantity * settlement.final_settlement_price
-                )
-                non_deliverable_value = (
-                    non_deliverable_quantity * settlement.final_settlement_price
-                )
+                deliverable_value = deliverable_quantity * settlement.final_settlement_price
+                non_deliverable_value = non_deliverable_quantity * settlement.final_settlement_price
                 delivery_duty = _round_paise(deliverable_value * delivery_rate)
-                non_delivery_duty = _round_paise(
-                    non_deliverable_value * non_delivery_rate
-                )
+                non_delivery_duty = _round_paise(non_deliverable_value * non_delivery_rate)
             except DecimalException as exc:
                 raise IndiaPhysicalSettlementInputUnavailable(
                     "physical stamp-duty arithmetic is outside Decimal limits"
@@ -564,9 +543,7 @@ def _validate_state_and_source(
     _require_text(source_ref, source_name)
 
 
-def _validate_decimal(
-    value: Decimal | None, name: str, *, allow_none: bool = True
-) -> None:
+def _validate_decimal(value: Decimal | None, name: str, *, allow_none: bool = True) -> None:
     if value is None:
         if allow_none:
             return

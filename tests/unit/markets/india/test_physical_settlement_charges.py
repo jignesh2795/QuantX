@@ -389,6 +389,7 @@ def test_duplicate_settlement_ids_are_rejected() -> None:
     with pytest.raises(ValueError, match="settlement_id values must be unique"):
         _context(settlement, settlement)
 
+
 def test_same_security_cannot_be_split_into_multiple_unaggregated_groups() -> None:
     first = _security_group("GROUP-1", security_receivable=D("60"), security_deliverable=D("0"))
     second = _security_group("GROUP-2", security_receivable=D("40"), security_deliverable=D("0"))
@@ -416,16 +417,12 @@ def test_empty_settlement_group_is_rejected() -> None:
 
 
 def test_missing_effective_schedule_coverage_fails_closed() -> None:
-    model = _model(
-        _entry(effective_from=START, effective_to=SPLIT)
-    )
+    model = _model(_entry(effective_from=START, effective_to=SPLIT))
     with pytest.raises(
         IndiaPhysicalSettlementRuleUnavailable,
         match="no physical stamp schedule covers",
     ):
-        model.calculate(
-            _context(settlement_date=datetime(2027, 1, 1, tzinfo=IST))
-        )
+        model.calculate(_context(settlement_date=datetime(2027, 1, 1, tzinfo=IST)))
 
 
 def test_overlapping_schedule_intervals_are_rejected() -> None:
