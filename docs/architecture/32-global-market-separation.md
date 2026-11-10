@@ -75,6 +75,12 @@ These market packages should be capability modules, not dependencies of the univ
 - market-data normalization details
 - regulatory configuration specific to that market
 
+### Capability seam discipline
+
+The shipped `MarketModule` structural contract stays deliberately small: `region`, `market_contexts`, `market_pack_id`, and `rule_version`. `MarketModuleBase` is an optional convenience base, not a registry requirement.
+
+Do not add marker-only protocols or `None` fields for future fee, margin, session-rule, symbol-normalization, corporate-action, or market-data-normalization capabilities merely to reserve extension points. Add a concrete capability contract when an implemented market has a real behavior, an identified caller, defined semantics, and regression tests. A placeholder package or protocol alone does not imply market support.
+
 ### Broker adapters own
 
 - authentication
