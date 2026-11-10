@@ -16,4 +16,4 @@ This changelog starts tracking the current development line; it is not a complet
 ### Notes
 
 - No additional market implementation, FX/multi-currency support, or new LIVE venue is implied by the market-module architecture.
-- Historical implementation and validation records remain in `docs/STATUS.md` until the planned status/history documentation split is completed.
+- Historical implementation and validation records are preserved in [`docs/STATUS_HISTORY.md`](docs/STATUS_HISTORY.md); [`docs/STATUS.md`](docs/STATUS.md) is the concise current-state snapshot.
