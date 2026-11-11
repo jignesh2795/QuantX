@@ -1,11 +1,8 @@
 # QX-12 / #200 — India Market Charges: Source Inventory and Design
 
-**Implementation branches:** `feat/issue200-india-charge-contract-v1` (PR #329); T21 follow-up `feat/issue200-t21-march-2026-boundary-test-v1`; physical-settlement contract `feat/issue200-physical-settlement-stamp-duty-contract-v1`, with formatting remediation on `fix/issue200-physical-settlement-format-v1`.
-**Phase:** The per-trade India charge contract is implemented; T21 and the physical-settlement stamp-duty contract have passed operator-reported exact-SHA validation on their historical candidates. P13 (`NCL/CMPT/73997`) Part B Items 6/21, P15 (`NCL/CMPT/77212`) Annexure A, the predecessor SOPs and the BSE joint SOP Annexure A are now reported as downloaded and inspected by the operator. The research state below has been updated, but the acquired binary-source contents remain operator-reported in this record. No production schedule, clearing parser, final-settlement-price resolver, physical-settlement STT calculator or execution wiring is included; the unresolved legal, valuation, row-level reconciliation and worked-example gates remain blocking.
-**Scope:** effective-dated Indian equity delivery, intraday, futures, and options transaction charges.
-**Related (tracked separately, not reopened):** #267 risk-evidence authority, #266 daily-loss semantics, #196/#197.
-
----
+**Implementation branch:** `integration/issue200-current-main-v1` (core per-trade charge contract).
+**Phase:** The per-trade India charge contract and T21 schedule-boundary tests are implemented. Production tariff activation and execution integration remain deferred pending authoritative rate/effective-date and worked-example approval. Physical-delivery settlement research is retained below as a future, non-blocking research register; its calculator, State/UT resolver and clearing-specific tests are excluded from Issue #200.
+**Scope:** NSE India per-trade charges for cash-equity delivery, intraday, futures and options trades, plus explicitly modeled option exercise where supported. Physical delivery of stock derivatives and clearing-member back-office reconciliation are excluded.
 
 ## 1. Source inventory
 
@@ -190,7 +187,7 @@ The original gap assessment predates the first contract-only implementation slic
 3. **Synthetic calculation tests — implemented in the current candidate.** `tests/unit/markets/india/test_charges.py` covers arithmetic, premium and exercise bases, schedule boundaries, provenance, incidence, GST inputs, rounding and unsupported cases. Synthetic fixtures do not prove tariff correctness.
 4. **Production tariff schedule/loader — NOT IMPLEMENTED.** No production rates or effective-dated production schedule are embedded. Standard statutory and exchange rates have source references, and P13/P15 current-source acquisition is now operator-reported complete. Production schedule approval remains blocked by unresolved commencement/effective-date questions, STT event/base interaction, final-settlement-price wording, clearing reconciliation and golden worked examples.
 5. **Paper/research execution integration — NOT IMPLEMENTED.** Existing execution still uses the generic configured `PercentageBpsChargeModel`; the India model is not automatically selected or wired into execution.
-6. **Physical-settlement stamp-duty calculation contract — IMPLEMENTED AND EXACT-SHA VALIDATED (historical code-only candidate).** `src/quantx/markets/india/physical_settlement_charges.py` consumes clearing-recognized, pre-aggregated BQTY/SQTY per client/security/settlement day and an explicit sourced final settlement price/method. It calculates paise-rounded delivery/non-delivery components and the nearest-rupee client total using explicitly injected rates; it handles State/UT fallback and Sikkim NCL non-collection. It does not infer assignments, parse F_SD03/F_SD04, derive/fallback the final settlement price, calculate physical STT, embed production rates or wire into execution. The earlier P13/P15 'unread' note is superseded by operator-reported document acquisition/inspection. No production schedule or calculator activation is approved.
+6. **Physical-settlement clearing/tax calculator — DEFERRED; not part of Issue #200.** A historical contract-only experiment exists on a separate feature branch, but its code and dedicated tests are excluded from the current-main per-trade charge candidate. Do not add State/UT domicile resolution, client/security/day clearing aggregation, F_SD03/F_SD04 ingestion, physical-delivery STT, or F&O physical-settlement stamp-duty calculation to this issue. Preserve the source research as a future reference only; a separate milestone is justified only when QuantX deliberately supports carrying stock derivatives through physical delivery.
 
 The public `quantx.execution.charges` compatibility import path and generic percentage model remain available, but canonical ownership of the four neutral charge contracts moved to `quantx.ports.charges`. The execution module now re-exports those same objects by identity.
 
@@ -211,8 +208,8 @@ The public `quantx.execution.charges` compatibility import path and generic perc
 | DP charges | OUT OF SCOPE | DP/broker-specific. |
 | Currency/commodity derivatives charges | PARTIAL | Stamp duty rates listed (S1); exchange transaction charges for currency/commodity not in P3/P4. Mark unsupported until primary source added. |
 | Option exercise STT / SEBI bases | RESOLVED as separate bases; assignment unsupported | P10 states option-exercise STT is based on intrinsic value; P9 Regulation 41 uses premium turnover plus additional notional value when exercised or assigned. The calculator already requires separate exercise notional for SEBI and keeps assignment unsupported. Never substitute one basis for the other. |
-| Physically settled stock-derivative STT | SOURCE RULE RESOLVED; contract support missing | P10 states that delivery-based equity STT also applies to physically settled stock futures and options and is payable by both receiver/purchaser and giver/seller. P2 supplies the current delivery-based rate (0.10%). The contract still lacks a separate settlement event/amount/side and must not return a complete all-in physical-settlement result. |
-| Physical-settlement stamp-duty rule | Methodology and current-version text reported inspected; synthetic calculation contract implemented | P13 Item 21 acquisition/inspection is operator-reported; the code remains caller-driven with synthetic rates and explicit price/obligation evidence. No clearing parser, member-level reconciliation, production schedule or execution wiring. |
+| Physically settled stock-derivative STT | DEFERRED / OUT OF SCOPE | This is a separate share-transfer tax event, not an ordinary order/fill charge. No physical-delivery STT calculator or complete physical-settlement result is part of Issue #200. |
+| Physical-settlement stamp-duty rule | DEFERRED / OUT OF SCOPE | NCL clearing aggregation, State/UT domicile resolution, Sikkim collection disposition, F_SD03/F_SD04 reconciliation and delivery-specific rounding do not belong to the per-trade charge calculator. Research is retained in §8 for a possible later milestone. |
 | BSE-specific charges | NOT RESEARCHED | This phase covers NSE only; exchange identity must be an explicit context field so BSE cannot accidentally use NSE rates. |
 | MCX/NCDEX commodity charges | NOT RESEARCHED | Out of scope for this phase. |
 
@@ -294,20 +291,19 @@ The first implementation slice is the contract plus synthetic test schedules onl
 - Rounding mode: `ROUND_HALF_UP` to paise per component per trade. Total is the sum of rounded component amounts, not a re-rounding of the unrounded aggregate. This is a QuantX simulation convention, not a verified exchange/statutory rule; an authoritative rule overrides it.
 - **GST:** calculate only with complete explicit billing inputs, pass-through policy, and STT/stamp recovery treatments. Qualified pure-agent exclusions apply only when the caller establishes the relevant conditions.
 - **Pass-through:** every member-level exchange/IPFT/SEBI fee is explicitly classified as client-pass-through, broker-absorbed or not applicable; no retail-client billing behavior is inferred from a member-outflow circular.
-- **Aggregation:** the ordinary India charge calculator is per trade/fill; client-level daily aggregation is out of scope there. The separate physical-settlement stamp module is client/security/settlement-day aggregated and uses the NCL-specific component-to-paise then client-to-rupee rounding sequence. Do not apply the ordinary per-trade charge rounding policy to physical settlement.
+- **Aggregation:** the India charge calculator in this issue is per trade/fill. Client/security/settlement-day clearing aggregation is outside this calculator and is deferred; do not approximate it by applying ordinary per-trade rounding to settlement obligations.
 
 ## 6. Implementation sequence
 
-1. **Research/design** — source inventory, unresolved applicability gates and contract specification in this document.
-2. **Per-trade India charge contract + T21 synthetic tests — implemented and accepted.** The India calculator and tests live at `src/quantx/markets/india/charges.py` and `tests/unit/markets/india/test_charges.py`; T21 passed exact-SHA operator-reported default and Dhan canonical validation at `ca0ceb606c867c3f98309223e9c7a170b42deb9b`.
-3. **Physical-settlement stamp-duty calculation contract — implemented and exact-SHA validated (code-only candidate `5fcb69920a25050e4eb5e7d72991af7fdf5f4867`).** The separate `src/quantx/markets/india/physical_settlement_charges.py` consumes clearing-aggregated security settlement inputs, explicit final-settlement-price source/method provenance, client State/UT evidence and injected effective-dated delivery/non-delivery rates. Its tests use synthetic fixtures only. Operator-reported validation passed the focused suite (76), default full suite (3,697 passed / 3 skipped), Dhan-extra full suite (3,700 passed), changed-file Ruff, strict mypy, package coverage floors and both release gates. It does not ingest NCL files, derive settlement assignments, calculate final prices, compute physical STT or contain production tariffs. This validation does not extend to the documentation synchronization commit.
-4. **Production schedules and clearing/price adapters — future slice.** Remain blocked until the Section 99/Rule 3 taxable-value mapping, P15 ambiguous fallback wording, actual F_SD03/F_SD04 row semantics and authorized member samples are reconciled, and authoritative worked examples are available. P13/P15 document retrieval itself is no longer the blocker according to the operator report.
-5. **Paper/research integration — future slice.** Wire only when supported production schedules and the complete physical-settlement lifecycle are accepted. India contexts must fail closed; never fall back silently to `PercentageBpsChargeModel`.
-6. **India skill documentation** — update only after the applicable implementation and validation slices are accepted.
+1. **Research/design** — retain the primary-source inventory, rate/effective-date questions and per-trade contract specification in this document.
+2. **Per-trade India charge contract + T21 synthetic tests — implemented.** The India calculator and tests live at `src/quantx/markets/india/charges.py` and `tests/unit/markets/india/test_charges.py`. Synthetic fixtures establish calculator behavior, not production tariff approval.
+3. **Production schedule — future slice.** Activate only rates with complete authoritative source, publication/effective-date, product/segment/side, calculation-basis and worked-example evidence. Preserve UNKNOWN for the 30 March / 1 April 2026 legal commencement boundary until resolved by a competent authority.
+4. **Broker reconciliation and paper/research integration — future slice.** Compare calculated estimates with authoritative broker contract notes/charge records, model only evidenced client incidence, then integrate through the existing charge port. No production broker call or LIVE action is part of this issue.
+5. **Physical-delivery settlement — explicitly deferred.** The research register in §8 is non-blocking and supplies no implementation requirement for this issue.
 
-Do not bundle production schedule/loader or execution wiring into the contract-only slice. `execution/charges.py` now serves as an identity-preserving compatibility facade for neutral charge contracts and retains the generic percentage model; do not add India tariff or accounting/risk behavior there.
+Do not bundle production schedule/loader, broker-specific assumptions, clearing-report ingestion, physical-settlement tax calculations or execution wiring into the contract-only slice. `execution/charges.py` remains an identity-preserving compatibility facade for neutral charge contracts and retains the generic percentage model; do not add India tariff or accounting/risk behavior there.
 
-## 7. Acceptance matrix
+## 7. Acceptance matrix — per-trade charges
 
 **Test-fixture rule:** T1–T21 and the new physical-settlement stamp-duty contract tests use synthetic fixtures where necessary; they do not prove tariff approval or clearing-feed correctness. Physical-stamp tests use synthetic rates, price and obligation sources. No production schedule or clearing reconciliation claim is implied.
 
@@ -334,7 +330,6 @@ Do not bundle production schedule/loader or execution wiring into the contract-o
 | T19 | `ChargeBreakdown.total` | Equals exact sum of rounded components |
 | T20 | Provenance | Contains schedule version/interval, each component source/version and billing/pass-through policy references |
 | T21 | Schedule-selection boundary before/at Mar 1, 2026 00:00 IST for cash delivery/intraday, futures and options premium, BUY and SELL | Implemented in follow-up branch and operator-reported PASS at exact SHA `ca0ceb606c867c3f98309223e9c7a170b42deb9b`: eight cases verify component splits and preserved published per-side member-fee totals. Pass-through is explicit and synthetic only; not universal broker billing policy. |
-| T22 | Physical-settlement stamp-duty treatment | A complete production schedule for physically settled stock derivatives is rejected until the separate underlying-delivery stamp-duty treatment is sourced. Standard Article 56A derivative rates are supported; do not infer an extra 0.015% or silently assume none. |
 | T23 | Brokerage, DP, other-taxable-service amount, pass-through policy or GST treatment missing | `IndiaChargeInputUnavailable`; no supposedly complete GST amount |
 | T24 | GST treatment excludes STT/stamp only with a supplied qualified-pure-agent decision | Base follows explicit policy; absent policy refuses; test exclusion and inclusion paths |
 | T25 | Same underlying trade with client BUY vs SELL | Stamp duty charged only on client BUY; SELL has explicit source-backed zero for client liability |
@@ -346,6 +341,20 @@ Do not bundle production schedule/loader or execution wiring into the contract-o
 | T31 | A component is `BROKER_ABSORBED` | Client-facing amount is zero, it is excluded from client GST base, and evidence of the underlying component/source plus incidence remains in provenance |
 | T32 | `OPTION_ASSIGNMENT` event in first-slice model | `IndiaChargeRuleUnavailable`; cannot be treated as an ordinary trade or `OPTION_EXERCISE` without separate sourced rules |
 | T33 | Attempt to mutate the caller's original rates mapping after schedule-entry construction | Schedule selection/results remain unchanged because the entry owns an immutable validated representation |
+
+The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T18/T21 are schedule-selection boundary tests, not simulated executions on a non-trading session.
+
+## 8. Deferred physical-settlement research — not Issue #200 acceptance criteria
+
+The following records preserve prior source analysis for a possible later stock-F&O physical-delivery capability. They are **not implementation requirements, acceptance tests, or blockers** for Issue #200. The current issue deliberately does not implement a State/UT domicile engine, client/security/day obligation aggregation, physical-delivery STT or stamp-duty calculators, clearing-file ingestion, F_SD03/F_SD04 reconciliation, settlement-price derivation, or corrections/auction workflows.
+
+Revisit this work only if QuantX explicitly decides to support carrying stock derivatives through physical delivery and the feature has a concrete product/risk requirement. Until then, unsupported delivery exposure must be controlled by the strategy/expiry risk boundary; do not build a parallel clearing back office.
+
+The T22 and T34–T46 identifiers are retained to preserve links to the previous research register. They are not part of the per-trade acceptance matrix above.
+
+| Reference | Deferred research/guard | Future evidence required |
+|---|---|---|
+| T22 | Physical-settlement stamp-duty treatment | A complete production schedule for physically settled stock derivatives is rejected until the separate underlying-delivery stamp-duty treatment is sourced. Standard Article 56A derivative rates are supported; do not infer an extra 0.015% or silently assume none. |
 | T34 | Physical settlement of NSE stock futures and options | Apply additional delivery-based equity STT (0.10% as source-verified for the current regime) separately from ordinary derivative trade STT and option-exercise STT; both purchaser/receiver and seller/giver are liable. Require authoritative delivery-settlement value and explicit receiver/giver role; never infer role from the original derivative trade BUY/SELL side. The current contract lacks this event and input set. |
 | T35 | Physical-settlement stamp-duty calculation | At one client/security/settlement-day group, aggregate all eligible equity-futures/options security-receivable positions as BQTY and security-deliverable positions as SQTY. Compute BDQTY=max(BQTY−SQTY,0) and BNDQTY=min(BQTY,SQTY); value at sourced final settlement price; apply injected delivery/non-delivery rates separately; round each component to paise; then round client total to nearest rupee (50 paise up). The synthetic calculation contract and tests passed operator-reported exact-SHA validation at code-only candidate `5fcb69920a25050e4eb5e7d72991af7fdf5f4867`. It does not ingest clearing files, use production rates, calculate final price or physical STT; F&O physical duty stays separate from Capital Market transaction duty. |
 | T36 | SEBI fee effective-date/source transition at January 7, 2026 | Use P8 for the historical 1992-regulation period and P9 from January 7, 2026; retain ₹10/crore equity-derivatives rate and premium-plus-exercise/assignment-notional option turnover basis. Assignment remains unsupported by the current India calculator. |
@@ -360,10 +369,9 @@ Do not bundle production schedule/loader or execution wiring into the contract-o
 | T45 | Physical-settlement STT separation | The stamp-duty-only candidate must not calculate physical-settlement STT or claim a complete all-in result. Physical STT is a separate 0.10% event for receiver and giver; exact settlement-value basis and authoritative input schema remain to be resolved before implementation. |
 | T46 | Physical-settlement BQTY/SQTY completeness boundary | Require one pre-aggregated group per client/security/settlement day, covering all clearing-recognized futures/options security-receivable and security-deliverable positions. Reject duplicate security groups in one context; do not infer completeness or assignments from local Position rows. |
 
-The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T18/T21 are schedule-selection boundary tests, not simulated executions on a non-trading session.
+## 9. Out of scope (do not implement in this slice)
 
-## 8. Out of scope (do not implement in this slice)
-
+- Physical-delivery F&O clearing/tax subsystem: State/UT resolver, NCL file ingestion, physical STT/stamp-duty calculators, settlement-price logic, reconciliation and correction/auction workflows.
 - New accounting engine or replacing `execution/charges.py`.
 - Hardcoding unverified rates in production code.
 - Brokerage, DP charges (broker-specific).
@@ -375,7 +383,7 @@ The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T1
 
 ---
 
-## 9. Unresolved questions
+## 10. Unresolved questions
 
 1. Who owns and validates the caller-supplied GST/billing policy, including pure-agent treatment and the components billed to the client? This is an explicit input contract, not a legal determination by QuantX.
 2. Should schedule data be loaded from a Python module or versioned JSON/YAML? (Proposed: Python module, consistent with `markets/india/rule_data.py`.)
@@ -387,13 +395,13 @@ The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T1
 
 ---
 
-## 10. Evidence status
+## 11. Evidence status
 
 - **Structural inspection:** `execution/charges.py`, `india/execution_rules.py`,
   `markets/india/rule_data.py`, `india/domain.py`, `research/provenance.py`,
   `research/point_in_time.py`, `tests/unit/execution/test_charges.py`,
   `docs/architecture/52-transaction-cost-and-charges.md` — all read.
-- **Runtime/test/release evidence:** the local operator reported exact-HEAD validation PASS at `58f3edffb5c46297837cfc99d8d19bf56a43ec0a` in both locked configurations. Default pytest: 3,662 passed, 3 skipped; Dhan-extra pytest: 3,665 passed. Changed-file Ruff lint/format and strict mypy passed in both configurations. Measured line/branch coverage (identical in both): `quantx.domain` 88.83% / 75.00%; `quantx.execution` 89.38% / 75.57%; `quantx.persistence` 93.16% / 81.48%. Focused diagnostics: 75 passed. Both canonical producer records and both release gates passed (10/10 each); skill integrity, trigger-assets, validation-gate and release-gate self-tests passed. The operator retained the JSON evidence and transcript at `%LOCALAPPDATA%\\Temp\\quantx-validation\\issue200-ruff-remediation-651c7e56\\`. These local execution results are operator-reported; the published PR HEAD, ancestry and seven-path scope were independently verified through GitHub. No GitHub Actions or paid CI was used or is claimed.
+- **Per-trade runtime/test evidence:** T1–T21 and T23–T33 plus the T21 follow-up were historically validated by the operator on earlier exact candidates. Those reports are historical and do not replace exact-head validation of the current-main PR candidate. The physical-settlement experiment had a separate historical validation report, but that code/tests are now excluded from this issue and no such result is an acceptance claim for Issue #200. No GitHub Actions or paid CI is used or claimed.
 - **Source research:** P1–P15 primary-source retrieval is complete per the operator's 10–11 November reports, including P13 Item 6/21, P15 Annexure A, predecessors 73370/76951 and BSE 20261030-51 Annexure A. The report records source hashes and page-by-page review; this workspace has not independently opened all binary attachments. UDiFF Annexure B/C schemas and samples are reported audited, with field definition alignment but low/medium-confidence join candidates and unresolved sample anomaly. P15 fallback wording and statutory/tax interpretations remain open. S1–S5 are cross-checks/administrative guidance; S6 is the official UDiFF page and attachments.
-- **Status boundary:** standard rate references and the contract-only India charge models are source-labelled and caller-configured; no production defaults or execution integration exist. T21 and physical stamp-duty calculations passed operator-reported historical exact-SHA validation, but current-main validation is required after rebase. Operator reports P13/P15 source retrieval complete; remaining blockers are statutory effective-date/legal interpretation, exercised-option plus physical-delivery STT, exact delivery taxable-value mapping, FOPHY sample anomaly and authorized row-level clearing joins, P15 scenario wording/rounding, exceptions and authoritative worked examples. Clearing ingestion and production activation remain blocked.
+- **Status boundary:** the current scope is the source-labelled, caller-configured per-trade India charge contract; no production defaults or execution integration exist. Operator reports P13/P15 retrieval/inspection complete, but the local source bundle has not been independently authenticated here. For Issue #200, production activation blockers are statutory/effective-date interpretation, applicable per-trade rate schedules, billing/pass-through policy evidence and authoritative ordinary-trade worked examples. Physical-delivery taxable-value mapping, FOPHY clearing joins, State/UT resolution, P15 settlement-price methodology, corrections/shortage/auction and physical-delivery worked examples remain preserved as deferred research, not blockers for this issue.
 - **Non-claims:** this source review does not create a production tariff loader, prove broker-specific pass-through, or authorize any paper/research/live execution integration. Rates and bases marked UNRESOLVED remain unavailable to production calculation.
