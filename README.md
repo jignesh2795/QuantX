@@ -1,105 +1,65 @@
 # QuantX
 
-Open-source, modular, event-driven trading infrastructure and platform for Indian markets.
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Ruff](https://img.shields.io/badge/Code%20style-Ruff-261230.svg)](https://docs.astral.sh/ruff/)
 
-## Status
+**Open-source, event-driven trading infrastructure with a market-neutral core and an India-first implementation.**
 
-V0.1 acceptance is complete for the declared programmatic local-first library scope under ADR-008; the CLI remains explicitly deferred. M4.1 deterministic strategy-to-paper rehearsal merged on 2026-10-14 via PR #218. QX-04, QX-05, QX-07, QX-08 and QX-09 are recorded as merged/completed. Issue #267 remains open; LIVE dispatch stays blocked. See `docs/STATUS.md` for exact-SHA evidence.
+QuantX is a local-first Python trading library built around deterministic domain contracts, explicit market context, ports-and-adapters, and fail-closed execution boundaries.
 
-## Design direction
+## What it is
 
-QuantX is being designed as a modular monolith first, with a distributed-ready architecture. The core is event-driven and domain-driven, with ports-and-adapters, capability-based broker/data integrations, and a plugin-first ecosystem.
+- A modular monolith for trading, research, backtesting, and paper execution.
+- A vendor-neutral core with market-specific behavior isolated under `quantx.markets`.
+- An India market module as the **only fully implemented market**.
+- A plugin boundary for broker and market-data integrations.
 
-The initial product focus is Indian markets, including equities, futures and options, while keeping the universal trading core market-neutral enough to support additional venues later.
+Digital assets is an interface-only placeholder, not a supported crypto implementation. Other regions remain future work. QuantX does not currently provide multi-currency or FX conversion.
 
-## Current planning baseline
+## Architecture at a glance
 
-- QuantumTrade v1.6: engineering reference for event-driven trading, execution, safety and session/API design.
-- OpenAlgo: Indian broker/platform and control-plane reference.
-- Hummingbot: connector and plugin architecture reference.
-- NautilusTrader: event-driven, deterministic and adapter-oriented architecture reference.
-- Freqtrade, Jesse, LEAN and vectorbt: strategy and research workflow references.
-
-## Planned architectural principles
-
-1. Modular monolith first; distributed-ready later.
-2. Minimal, stable core with plugins and adapters around it.
-3. Event-driven trading lifecycle.
-4. Domain-driven contracts for orders, fills, positions, portfolios, risk and execution.
-5. Broker and market-data integrations are adapters, not core dependencies.
-6. Capability-based compatibility checks.
-7. Backtest, sandbox, paper and live share the same trading semantics.
-8. F&O is represented in the domain model from the beginning.
-9. UI and AI consume the engine through stable APIs instead of defining the core.
-10. Local-first deployment with optional distributed operation.
-
-## Documentation map
-
-The canonical documentation entry points are:
-
-- `docs/STATUS.md` — current implementation and validation baseline.
-- `docs/architecture/README.md` — architecture records and current canonical boundaries.
-- `docs/implementation/README.md` — implementation discipline and build sequence.
-- `docs/roadmap/README.md` — future milestones and decision gates.
-- `docs/decisions/README.md` — durable architecture decisions.
-- `docs/research/README.md` — external-project research and technology evaluation.
-
-The project follows research → compare → decide → document → build.
-
-## Windows development with uv
-
-QuantX uses **uv** as its canonical Python environment and dependency manager. The project is pinned to Python 3.12 via `.python-version`; uv can install the pinned interpreter when it is not already available. uv supports Windows and project environments directly.
-
-Install uv on Windows, for example with WinGet:
-
-```powershell
-winget install --id=astral-sh.uv -e
+```text
+Research / Backtest / Paper
+           │ MarketContext
+           ▼
+    Universal QuantX Core
+       ├── Market modules
+       │     ├── India (implemented)
+       │     └── Digital assets (placeholder)
+       └── Broker and data plugins (separate adapter boundary)
 ```
 
-From the repository root:
+Research, backtest, and paper are designed to select market behavior from explicit context. LIVE execution remains India-only and is currently blocked by the project's risk-evidence gate.
 
-```powershell
-.\scripts\setup.ps1
-uv run pytest -q
-```
+## Get started
 
-Or run the setup steps directly:
+Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
-```powershell
+```bash
 uv python install
-uv sync --dev
-uv lock
-uv run pytest -q
+uv sync --dev --locked
+uv run python examples/paper_smoke.py
 ```
 
-The Dhan SDK is an optional extra. The suite passes without it (the one
-SDK-dependent test skips itself), but install it if you work on the Dhan
-plugin:
+Run the focused paper-execution tests with `uv run pytest tests/unit/execution/paper`. See [Getting Started](docs/GETTING_STARTED.md) for the complete local workflow.
 
-```powershell
-uv sync --dev --extra dhan
-```
+## Current status
 
-To keep changed-file Ruff errors out of pushes, enable the repo's hook:
+The declared v0.1 programmatic local-first library scope is acceptance-complete. The CLI is deferred. The strategy-platform M4 runtime-parity milestone is complete. Production LIVE readiness is **not** claimed; LIVE dispatch remains blocked. See [current status](docs/STATUS.md) and the [status history](docs/STATUS_HISTORY.md).
 
-```powershell
-git config core.hooksPath scripts/hooks
-```
+## Documentation
 
-Useful local checks:
+- [Get started in five minutes](docs/GETTING_STARTED.md)
+- [Architecture map](docs/architecture/README.md)
+- [Implementation guide](docs/implementation/README.md)
+- [Roadmap](docs/roadmap/README.md)
+- [Architecture decisions](docs/decisions/README.md)
+- [Research and technology evaluation](docs/research/README.md)
+- [Runnable local examples](examples/README.md)
 
-```powershell
-uv run pytest tests/unit/execution/paper -q
-uv run python .opencode/skills/quantx-validation-gate/scripts/package_coverage.py
-uv run python scripts/test_execution.py
-uv run python scripts/test_fast.py
-uv run python scripts/test_all.py
-```
+## Contributing and security
 
-The package coverage command runs the full suite with branch measurement and
-enforces the recorded line/branch floors for `quantx.domain`,
-`quantx.execution` and `quantx.persistence`. See
-`docs/implementation/package-coverage-floors.md` for the baseline, thresholds
-and revision policy.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Security reporting instructions are in [SECURITY.md](SECURITY.md).
 
-After dependency changes, regenerate the lockfile with `uv lock` and commit `uv.lock` so the environment is reproducible. uv's project workflow uses `uv sync` and `uv run`, with development dependencies defined in the `dev` dependency group.
+QuantX is local-first and contributor-driven. GitHub Actions is not part of the current validation workflow; contributors should report exact local commands and results as described in the repository guides.

@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible defect in QuantX.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before submitting, search existing issues. Do not include broker credentials, API keys, access tokens, account identifiers, personal data, or unredacted financial records.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and why you believe it is a defect.
+      placeholder: A clear, concise description of the problem.
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: QuantX revision
+      description: Branch, tag, or commit SHA where the behavior was observed.
+      placeholder: main @ full commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, and relevant dependency configuration.
+      placeholder: Windows 11, Python 3.12, default or Dhan extra
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest deterministic sequence that reproduces the issue.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and redacted output
+      description: Include relevant error messages with secrets and private data removed.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety and privacy
+      options:
+        - label: I have removed credentials, tokens, account identifiers, personal data, and sensitive financial records.
+          required: true
+        - label: This report does not ask maintainers to place real broker orders or perform LIVE/production actions.
+          required: true

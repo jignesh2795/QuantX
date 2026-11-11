@@ -75,6 +75,12 @@ These market packages should be capability modules, not dependencies of the univ
 - market-data normalization details
 - regulatory configuration specific to that market
 
+### Capability seam discipline
+
+The shipped `MarketModule` structural contract stays deliberately small: `region`, `market_contexts`, `market_pack_id`, and `rule_version`. `MarketModuleBase` is an optional convenience base, not a registry requirement.
+
+Do not add marker-only protocols or `None` fields for future fee, margin, session-rule, symbol-normalization, corporate-action, or market-data-normalization capabilities merely to reserve extension points. Add a concrete capability contract when an implemented market has a real behavior, an identified caller, defined semantics, and regression tests. A placeholder package or protocol alone does not imply market support.
+
 ### Broker adapters own
 
 - authentication
@@ -83,7 +89,7 @@ These market packages should be capability modules, not dependencies of the univ
 - broker-specific symbol mappings
 - broker-specific execution and reconciliation behavior
 
-## Market context versus broker
+### Market context versus broker
 
 A market and a broker are deliberately separate concepts.
 
@@ -105,17 +111,10 @@ The broker adapter must not become the definition of the market.
 
 ## Cross-market portfolios
 
-The portfolio layer may eventually contain positions across multiple markets, but each position retains its market context. Currency conversion, valuation and risk aggregation are explicit policies rather than implicit assumptions.
+The portfolio layer may eventually contain positions across multiple markets, but each position retains its market context. Currency conversion, valuation and risk aggregation are explicit policies rather than implicit assumptions. Currency conversion is not part of the current implementation.
 
-## v0.1
-
-India is the first complete market module. Other market packages may initially contain only interfaces, capability metadata, or placeholders until implemented. This keeps global separation in the architecture without forcing premature multi-market implementation.
 ## Current implementation status
 
-The universal core now has a `quantx.markets` package with caller-populated
-`MarketRegistry`, common market-neutral contracts, an India module, and a
-minimal digital-assets placeholder. `quantx.india` remains a deprecated
-compatibility shim that re-exports `quantx.markets.india` and does not confer
-trusted-check identity. `application/live_execution.py` remains unchanged.
-This is a bounded migration slice, not a general authorization for future
-structural rewrites or new market implementations.
+The PR #309 market-module migration is complete. The universal core has a `quantx.markets` package with a caller-populated `MarketRegistry`, common market-neutral contracts, an India module, and a minimal digital-assets placeholder. `quantx.india` remains a deprecated compatibility shim that re-exports `quantx.markets.india` and does not confer trusted-check identity. `application/live_execution.py` remains unchanged.
+
+India is the only fully implemented market. The digital-assets placeholder does not establish crypto venue support. This completed migration is a bounded architecture milestone, not authorization for additional market implementations, multi-currency/FX, new LIVE venues, or a general structural rewrite.
