@@ -1,7 +1,7 @@
 # QX-12 / #200 — India Market Charges: Source Inventory and Design
 
-**Branch:** `docs/quantx-master-work-program-2026-10` (documentation-only reconciliation branch)
-**Phase:** research + design only. No production source code changed. This document is tracked by the current master programme at `docs/planning/quantx-work-program-2026-10.md`. Source research and design assertions are retained from the prior review branch; test/runtime evidence remains uncollected for this revision.
+**Implementation branches:** `feat/issue200-india-charge-contract-v1` (PR #329); T21 follow-up `feat/issue200-t21-march-2026-boundary-test-v1`; physical-settlement contract `feat/issue200-physical-settlement-stamp-duty-contract-v1`, with formatting remediation on `fix/issue200-physical-settlement-format-v1`.
+**Phase:** The per-trade India charge contract is implemented; T21 and the physical-settlement stamp-duty contract have passed operator-reported exact-SHA validation on their historical candidates. P13 (`NCL/CMPT/73997`) Part B Items 6/21, P15 (`NCL/CMPT/77212`) Annexure A, the predecessor SOPs and the BSE joint SOP Annexure A are now reported as downloaded and inspected by the operator. The research state below has been updated, but the acquired binary-source contents remain operator-reported in this record. No production schedule, clearing parser, final-settlement-price resolver, physical-settlement STT calculator or execution wiring is included; the unresolved legal, valuation, row-level reconciliation and worked-example gates remain blocking.
 **Scope:** effective-dated Indian equity delivery, intraday, futures, and options transaction charges.
 **Related (tracked separately, not reopened):** #267 risk-evidence authority, #266 daily-loss semantics, #196/#197.
 
@@ -21,20 +21,29 @@ S1–S3 are cross-checks, not originating authorities. S4 is official CBIC admin
 | P1 | NSE circular FATAX63809 (STT, Finance Act 2024) | https://nsearchives.nseindia.com/content/circulars/FATAX63809.pdf | dated September 9, 2024; effective October 1, 2024 | STT: options sell 0.0625→0.10%, futures 0.0125→0.02%; prior rates upto September 30, 2024 |
 | P2 | NSE circular FATAX73524 (STT, Finance Act 2026) | https://nsearchives.nseindia.com/content/circulars/FATAX73524.pdf | dated March 31, 2026; effective April 1, 2026 | STT: options sell 0.10→0.15%, options exercised 0.125→0.15%, futures 0.02→0.05% |
 | P3 | NSE circular FA64232 (transaction charges, SEBI circular SEBI/HO/MRD/TPD-1/P/CIR/2024/92) | https://nsearchives.nseindia.com/content/circulars/FA64232.pdf | dated September 27, 2024; effective October 1, 2024 | Uniform (non-slab) exchange transaction charges: cash Rs 2.97/lakh, futures Rs 1.73/lakh, options Rs 35.03/lakh each side |
-| P4 | NSE circular FA73061 (transaction charges + IPFT split) | https://nsearchives.nseindia.com/content/circulars/FA73061.pdf | dated February 27, 2026; effective March 1, 2026 | Revised split: cash Rs 306.99+0.01, futures Rs 182.99+0.01, options Rs 3552.99+0.01 per crore each side; total member outflow unchanged |
-| P5 | Indian Stamp Act 1899 as amended, including section 9A and Schedule I | https://www.indiacode.nic.in/bitstream/123456789/15510/1/a1899-2%20.pdf | section 9A inserted w.e.f. July 1, 2020; see current-applicability gate in §4 | Statutory stamp-duty framework and rates; current applicability still needs reconciliation for the intended release |
-| P6 | Notification No. 11/2017-Central Tax (Rate), as amended, with corresponding SGST/IGST notifications | https://cbic-gst.gov.in/hindi/pdf/central-tax-rate/Notification11-CGST.pdf and official notification lists | Principal notification dated June 28, 2017; current effective-dated applicability for the modeled service/components remains a production-data gate | Rate basis for taxable stockbroking services; close out relevant amendments and corresponding SGST/IGST applicability before publishing a production schedule |
+| P4 | NSE circular FA73061 (transaction charges + IPFT split) | https://nsearchives.nseindia.com/content/circulars/FA73061.pdf | dated February 27, 2026; effective March 1, 2026 | Revised split per crore each side: cash ₹306.99 transaction + ₹0.01 IPFT = ₹307; futures ₹182.99 + ₹0.01 = ₹183; options ₹3,552.99 + ₹0.01 = ₹3,553.00. The PDF table image was inspected because text extraction omits the options .99 decimals; total Trading Member outflow is unchanged |
+| P5 | Indian Stamp Act 1899 as amended, including section 9A and Schedule I | https://upload.indiacode.nic.in/showfile?actid=AC_CEN_2_2_00036_189902_1523339055436&filename=a1899-2.pdf&type=actfile | Article 56A inserted by Finance Act 2019, effective July 1, 2020; section 9A governs collection for exchange transactions | Primary statutory rates, instrument classes and buyer collection. The 0.015% delivery and 0.003% non-delivery categories are relevant to the physical-settlement method described in P13 Item 21; no production schedule is activated.
+| P6 | Notification No. 11/2017-Central Tax (Rate), as amended, with corresponding SGST/IGST notifications | https://cbic-gst.gov.in/hindi/pdf/central-tax-rate/Notification11-CGST.pdf; classification annexure: https://cbic-gst.gov.in/hindi/pdf/central-tax-rate/Notification11-CGST-Annexure.pdf | dated June 28, 2017; GST commencement July 1, 2017 | Financial and related services under Heading 9971: 9% CGST + 9% SGST / 18% IGST; SAC 997152 identifies brokerage and related securities services. Current CBIC rate table remains 9/9/18. Invoice-specific taxable-base and recovery treatment remain separate from the rate |
 | P7 | SEBI bulletin (historical STT) | https://www.sebi.gov.in/sebi_data/attachdocs/1334565322526.pdf | historical | Confirms Finance Act 2004 basis for STT |
-| P8 | SEBI (Payment of Fees) (Amendment) Regulations, 2019 — SEBI/L.A.D.-N.R.O./G.N./2019/03 | https://www.sebi.gov.in/legal/regulations/mar-2019/securities-and-exchange-board-of-india-payment-of-fees-amendment-regulations-2019-dated-march-22-2019_42511.html (official regulation page and notification link) | dated 22 March 2019; fee effective April 1, 2019 | SEBI turnover fees and separate equity-option exercise/assignment turnover basis |
+| P8 | SEBI (Payment of Fees) (Amendment) Regulations, 2019 — SEBI/L.A.D.-N.R.O./G.N./2019/03 | https://www.sebi.gov.in/legal/regulations/mar-2019/securities-and-exchange-board-of-india-payment-of-fees-amendment-regulations-2019-dated-march-22-2019_42511.html | dated 22 March 2019; historical fee basis effective April 1, 2019 | Historical ₹10/crore equity-derivatives turnover fee and option premium / exercise-assignment notional basis under the 1992 regulations; superseded as the current instrument by P9 from January 7, 2026 |
+| P9 | Securities and Exchange Board of India (Stock Brokers) Regulations, 2026 — Notification SEBI/LAD-NRO/GN/2026/291 | https://www.sebi.gov.in/legal/regulations/jan-2026/securities-and-exchange-board-of-india-stock-brokers-regulations-2026_98974.html; Gazette PDF: https://www.sebi.gov.in/sebi_data/attachdocs/jan-2026/1767852346757.pdf | notified and effective on publication in the Official Gazette, January 7, 2026 (SEBI listing dated January 8, 2026) | Current Regulation 41: equity derivatives 0.00010% of turnover (₹10/crore); option turnover is premium traded plus notional value where exercised or assigned. Regulation 51 repeals the 1992 Stock Brokers Regulations |
+| P10 | NSE Clearing — Securities Transaction Tax (STT) computation | https://www.nseclearing.in/clearing-settlement/equity-derivatives/securities-transaction-tax | Operational guidance page states updated August 1, 2025 | Confirms additional delivery-based equity STT also applies to physically settled stock futures and options, payable by both purchaser/receiver and seller/giver, in addition to ordinary derivative-trade STT and the option-exercise intrinsic-value rule |
+| P11 | SEBI (Payment of Fees) (Amendment) Regulations, 2020 — SEBI/LAD-NRO/GN/2020/011 | https://www.sebi.gov.in/sebi_data/attachdocs/may-2020/1589196249922.pdf | dated May 8, 2020; effective June 1, 2020 | Temporary 50% reduction in percentage-based fees for equity-derivatives turnover from June 1, 2020 through March 31, 2021; historical exception only, outside the current supported exchange-charge range |
+| P12 | NSE Clearing F&O Consolidated Circular 053/2024 — NCL/CMPT/61801 | https://avantiscdnprodstorage.blob.core.windows.net/legalupdatedocs/31619/NSE_issued_the_Consolidated_Circular_on_FO_Segment_of_NCL_Apr292024.pdf | dated April 29, 2024 | Primary PDF reviewed: Item 5.4.3 permits cross-segment settlement-obligation netting only for common clearing-member/trading-member/client-UCC on the same security, but expressly keeps F&O physical and Capital Market stamp duty separate. Item 21.1 determines the applicable State/UT from the client code (member code is deemed the client code for proprietary transactions) and falls back to the trading-member State/UT only when client State/UT is unavailable; it also establishes trade-level futures/option bases and receiver-side physical stamp duty on final settlement price. Item 21.2.1.3 defines physical-settlement BQTY/SQTY netting, two-decimal component rounding; Item 21.2.2 applies nearest-rupee client-level rounding (50 paise and above up). Item 21.2.3/21.2.4 aggregate client totals to TM/CM. Item 21.3 identifies F_SD03 (TM delivery-settlement stamp-duty report) and F_SD04 (CM delivery-settlement stamp-duty report). NCL does not collect stamp duty in respect of Sikkim clients |
+| P13 | NSE Clearing F&O Consolidated Circular 050/2026 — NCL/CMPT/73997 | https://www.nseindia.com/static/resources/consolidated-master-circulars | dated April 30, 2026 | Operator-reported download and inspection of the official ZIP and Part B Items 6 and 21. The report states that delivery-based equity STT also applies to physically settled stock derivatives and that Item 21 covers client-code/State-UT fallback, BQTY/SQTY aggregation, delivery/non-delivery rates, rounding and F_SD03/F_SD04 reports. Binary source/cell-level findings remain operator-reported until independently inspected.
+| P14 | SEBI Circular HO/47/11/11(3)2025-MRD-POD2/I/23843/2026 — Review of CAS, market timings and derivatives settlement methodology | https://www.sebi.gov.in/sebi_data/attachdocs/oct-2026/1792079571420.pdf | dated October 15, 2026; effective December 7, 2026 (with separate February 8, 2027 order-transition provisions) | Revised derivative expiry settlement-price methodology. Stock derivatives use underlying stock VWAP across exchanges over the last 30 minutes of CTS; index derivatives use an index value derived from constituent-stock VWAPs. P15 Annexure A is now reported inspected and describes operational branches/fallbacks, but contains unresolved cross-reference/rounding wording; do not implement price derivation or fallback until those ambiguities are closed.
+| P15 | NSE Clearing circular NCL/CMPT/77212 — Updated SOP on Settlement Price computation | https://www.archive.nseclearing.in/content/circulars/CMPT77212.zip | dated October 30, 2026 | Operator-reported official ZIP retrieval: 254,391 bytes; SHA-256 `AD0B8A92C451F1B1DB30962175451DE4719E9A24A396FCDC2C7AAB7702DA173F`. Annexure A is reported inspected. §2.2.1 sets stock-derivative settlement-price branches (multi-exchange last-30-minute VWAP, one-exchange price, intraday LTP/simple average, previous settlement if no trade); wording in the no-last-30-minute-trade branch (“point 1 and 2”) and scenario-3 rounding are ambiguous. §2.2.2 does not explicitly specify the index constituent-VWAP formula. Keep unresolved cases blocked.
 
 ### 1.2 Supporting sources and administrative guidance
 
 | # | Source | URL | Use |
 |---|---|---|---|
-| S1 | NSE — "SEBI Turnover Fees, STT and Other levies" (info page) | https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies | Cross-checks STT table, stamp duty table, SEBI turnover fee and GST rate. Last page update October 3, 2023; stamp-duty current applicability remains subject to the primary-source gate in §4. SEBI fee effective date is sourced to P8. |
-| S2 | NSE — "Securities Transaction Tax" (computation page) | https://www.nseindia.com/static/products-services/equity-derivatives-securities-transaction-tax | Cross-checks STT computation basis (premium, traded price, intrinsic value on exercise). |
+| S1 | NSE — "SEBI Turnover Fees, STT and Other levies" (info page) | https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies | Current cross-check page (updated April 17, 2026) for STT, stamp duty and SEBI fee tables; secondary to P1/P2/P5/P8/P9/P10 for originating authority. |
+| S2 | NSE — "Securities Transaction Tax" (computation page) | https://www.nseindia.com/static/products-services/equity-derivatives-securities-transaction-tax | Cross-checks STT computation basis (premium, traded price, intrinsic value on exercise) and the currently published delivery-rate table; P10 is the operational source for additional physically-settled stock-derivative STT. |
 | S3 | IBKR India fee schedule | https://brokerage.ibkr.com/en/accounts/fees/indiaStockExchangeFees.php | Cross-checks NSE charges, STT, stamp duty, SEBI fee, IPFT, GST applicability. Not an originating authority. |
 | S4 | CBIC — stock-broking services FAQ and GST valuation rules | https://cbic-gst.gov.in/sectoral-faq.html and https://cbic-gst.gov.in/valuation-rules.html | Official guidance on Rule 33 pure-agent treatment and fallback GST valuation under Section 15 and Rule 27; not a substitute for bill-specific treatment. |
+| S5 | Searchable third-party transcription of NCL/CMPT/73997 Part B / Item 21 | https://www.scribd.com/document/1048030393/PART-B | Corroborates the physical-settlement stamp-duty language found in P12 (State/UT fallback, buy/sell position aggregation, final-settlement-price values and rounding). It is not an authenticated NCL source and cannot close P13 by itself. |
+| S6 | NSE Clearing UDiFF Annexures B/C | https://www.nseclearing.in/udiff | Annexure B `.xlsx` and Annexure C `.zip`; official page reports last update 14 May 2026 | Official published schemas/sample files. Operator reports 38 StampDuty and 49 STTCTT field definitions aligned across P13 Part E and Annexure B by field ID/name/type-size. Annexure C's FOPHY sample has a duplicate `TtlSellTrfVal` header and lacks a distinct `TtlSellTradgVol`; treat this as a sample anomaly, not a schema change. Row-level values/cardinality/joins remain unvalidated.
 
 Secondary/derived (not authoritative, used only for cross-checks): broker blogs
 (stolo.in, choiceindia.com, smctradeonline.com, fyers.in). These are never the
@@ -48,7 +57,7 @@ All rates are percentages of the stated basis. "Buyer/Seller" is the liable part
 Effective dates are those stated by the cited source. Where a source does not
 state an effective date, it is marked UNRESOLVED rather than invented.
 
-### 2.1 Securities Transaction Tax (STT) — sources P1, P2, S2
+### 2.1 Securities Transaction Tax (STT) — sources P1, P2, P10, S1/S2
 
 Basis: transaction value (VWAP for delivery-based equity); traded value for intraday/futures; premium traded for ordinary option trades; intrinsic value for exercised options. For exercise, intrinsic value is option-kind-specific and non-negative: CALL uses max(settlement_price - strike, 0) x quantity; PUT uses max(strike - settlement_price, 0) x quantity. Option type and quantity must be explicit. This differs from the SEBI exercise turnover basis in §2.3.
 
@@ -69,15 +78,13 @@ Effective-date regimes (all verified against primary circulars):
 | Equity options | Exercise | 0.125% | 0.125% | 0.15% | Purchaser | intrinsic value (settlement price − strike) × qty |
 | Equity options | Buy | 0% | 0% | 0% | — | — |
 
-Verified: P1 (Oct 1, 2024 effective, prior column), P2 (Apr 1, 2026 effective).
-Regime A rates are stated in P1's "upto September 30, 2024" column; the start
-date of that regime is not verified (P1 references earlier circulars
-2/2016, 2/2018, 1/2019, 2/2019, 1/2020, 2/2023). Coverage before the
-unverified start date remains UNRESOLVED — fail closed.
+Verified: P1 (effective October 1, 2024) and P2 (effective April 1, 2026). Regime A rates are stated in P1's "upto September 30, 2024" column; the beginning of that prior regime is not verified, so dates before the earliest fully supported schedule remain UNRESOLVED — fail closed.
 
-### 2.2 Stamp duty — primary statute P5; S1 is a secondary cross-check
+**Additional STT on physical settlement of stock derivatives (P10/P12):** NSE Clearing states that STT at the rate applicable to delivery-based equity transactions also applies when stock futures or stock options are physically settled. Both purchaser/receiver and seller/giver are liable. The current delivery-based equity rate is 0.10% for both sides. This is distinct from (a) ordinary sell-side STT on futures/options trades and (b) option-exercise STT on intrinsic value. P12 Item 5.4.1 defines settlement roles from positions: long futures and long exercised calls receive securities; short futures and short assigned calls deliver; long exercised puts deliver; short assigned puts receive. Each settlement side must be explicitly represented; the original derivative BUY/SELL label is not itself the delivery role. Keep the exact applicable STT delivery-value basis tied to the authoritative settlement price/obligation evidence; do not silently reuse trade notional or option intrinsic value.
 
-| Product | Rate | Liable party |
+### 2.2 Stamp duty — primary statute P5; S1 is a current cross-check
+
+| Product / transaction | Rate | Liable party |
 |---|---|---|
 | Equity delivery (transfer) | 0.015% | Buyer |
 | Equity intraday (non-delivery) | 0.003% | Buyer |
@@ -89,9 +96,11 @@ unverified start date remains UNRESOLVED — fail closed.
 | Government securities | 0% | — |
 | OFS / takeover / buyback / delisting (delivery) | 0.015% | Seller (offeror) |
 
-Primary statute P5 provides the statutory framework; S1 is only a secondary cross-check. Section 9A for stock-exchange/depository transactions was inserted with effect from July 1, 2020. The current applicability of every listed rate for the intended production release has not yet been reconciled against the current consolidated statute and amendments. Therefore stamp duty must remain unavailable in any complete production schedule until that primary-source review is recorded; do not ship S1-only rates as current verified production data.
+**Resolved for the standard in-scope NSE transaction classes:** Article 56A of Schedule I to the Indian Stamp Act specifies the rates above; section 9A provides that stamp duty on exchange transactions is collected from the buyer on the market value at settlement. The Article 56A amendment was made by the Finance Act 2019 and took effect July 1, 2020. NSE's current investor table continues to publish the same buyer-side rates. These are no longer an S1-only cross-check.
 
-### 2.3 SEBI turnover fee — source P8
+**Physical-settlement stamp duty — methodology and current-version source acquisition:** NSE Clearing's P12/P13 method uses client-code/State-UT determination, permitted member fallback, and per-client/security/day BQTY/SQTY aggregation: BDQTY = max(BQTY − SQTY, 0), BNDQTY = min(BQTY, SQTY). The sources identify delivery/non-delivery bases and separate paise-level component rounding with a nearest-rupee client total. P13 Item 21 is now reported inspected from the official ZIP, so the earlier 'current-version cross-check pending' status is superseded. The operator reports F_SD03/F_SD04 and the UDiFF StampDuty/STTCTT schemas; actual row-level member samples and cross-report join correctness remain unproven. This is not a flat additional 0.015% on all physically settled value and cannot be calculated from a single trade/fill context. The distinct physical-delivery STT leg and exercised-option intrinsic STT overlap still require tax/clearing interpretation.
+
+### 2.3 SEBI turnover fee — current source P9; historical source P8
 
 | Segment | Rate | Liable party |
 |---|---|---|
@@ -102,10 +111,7 @@ Primary statute P5 provides the statutory framework; S1 is only a secondary cros
 | Commodity derivatives | 0.0001% (Rs 10 per crore) | Stock broker |
 | Debt | 0.00002% (Rs 2 per crore) | Stock broker |
 
-Verified: P8 (SEBI notification SEBI/L.A.D.-N.R.O./G.N./2019/03 dated 22 March
-2019, effective April 1, 2019). This resolves the previous unresolved flag:
-the fee's effective date and rate are verified against the primary regulation.
-Effective date of the current ₹10/crore rate — RESOLVED (P8).
+Historical rule: P8 amended the 1992 Stock Brokers Regulations in March 2019 and established the ₹10/crore rate from April 1, 2019. P11 temporarily reduced percentage-based fees for equity-derivatives turnover to 50% from June 1, 2020 through March 31, 2021. That temporary period lies outside the current supported schedule history (the pre-October-1-2024 exchange-charge structure is slab-wise and unsupported), but it must be represented if the schedule is ever backdated into that interval. Current rule: P9, Regulation 41 of the SEBI (Stock Brokers) Regulations, 2026, retains the equity-derivatives fee at 0.00010% (₹10/crore); it includes trades executed and trades settled on contract expiry. For options, turnover comprises premium traded plus the additional notional value where the contract is exercised or assigned. P9 took effect on publication in the Official Gazette on January 7, 2026 and Regulation 51 repealed the 1992 regulations. SEBI fees are broker/clearing-member liabilities; client pass-through remains a separate caller-supplied billing assumption.
 
 **Turnover basis:** equity-option turnover uses premium traded, and when an option is exercised or assigned, turnover is additionally computed on the notional value of the exercised/assigned contract. The exercise event must therefore provide a separate rule-defined `exercise_notional_value`; do not calculate the SEBI exercise fee using STT intrinsic value or blindly reuse option premium. SEBI's legal fee payer is the stock broker. Client pass-through is a separate caller-supplied billing assumption, not established by this rate table.
 
@@ -118,9 +124,7 @@ outflow. It re-splits the existing total into transaction charges + IPFT
 contribution. Pre-March-1-2026: cash Rs 297 txn + Rs 10 IPFT = Rs 307 total.
 Post-March-1-2026: cash Rs 306.99 txn + Rs 0.01 IPFT = Rs 307 total.
 Same for futures (Rs 183.00 = 182.99 + 0.01) and options (₹3,552.99 + ₹0.01 =
-₹3,553.00). The design reproduces components separately with correct effective
-dates; T21 is specified to assert that the aggregate total remains unchanged across
-March 1, 2026 for all three covered segments; no test has been run in this design phase.
+₹3,553.00). The schedule contract supports independently versioned transaction-charge and IPFT components. The T21 synthetic boundary test passed at exact follow-up HEAD `ca0ceb606c867c3f98309223e9c7a170b42deb9b`: eight cases across cash delivery, cash intraday, futures and options premium, BUY and SELL. The operator reported default and Dhan canonical full suites and release gates PASS at that SHA. Pass-through in the fixture is explicit and synthetic only; it does not establish universal broker billing. This contract-only implementation embeds no production tariff data.
 
 **Exact component values (P4):** equity options = ₹3,552.99 per crore of
 premium turnover per side (transaction charges) + ₹0.01 per crore (IPFT) =
@@ -151,7 +155,7 @@ though it contributes to the NSE trading-member outflow. Whether transaction cha
 
 ### 2.5 GST — rate, taxable-base treatment, and inputs are separate
 
-**A. Rate.** The GST rate for stockbroking services is 18% (P6; corroborated by S1/S4). The exact effective-date rule for the intended production schedule has not been fully sourced in this phase. Until then, no production GST row may be considered a complete, currently verified effective-dated rule solely from the general rate statement.
+**A. Rate and classification.** Notification No. 11/2017-Central Tax (Rate) (P6), dated June 28, 2017, classifies financial and related services under Heading 9971 at 9% CGST plus 9% SGST, or 18% IGST. The notification's service-classification annexure identifies SAC 997152 as brokerage and related securities/commodities services. The current CBIC consolidated rate table continues to show 9% / 9% / 18% for the relevant Heading 9971 financial-services entry. For the standard stock-broking service, the 18% rate and July 1, 2017 GST commencement are RESOLVED. This does not determine the taxable base for each invoice or imply that every statutory/member-level charge is taxable.
 
 **B. Taxable-base treatment.** CBIC's stockbroking FAQ (S4) says recoveries of STT, stamp duty and other taxes are excluded from the value of supply only when the Rule 33 pure-agent conditions are met. Otherwise, valuation follows Section 15 and Rule 27. QuantX must not infer that pure-agent conditions hold from a component name.
 
@@ -177,20 +181,18 @@ configuration, not embedded in the India schedule.
 
 ---
 
-## 3. Identified gaps in current implementation
+## 3. Implementation status against the original design baseline
 
-1. `execution/charges.py` provides only `PercentageBpsChargeModel` — a single
-   configured percentage. No effective date, no side/product awareness, no
-   multi-component breakdown for Indian statutory charges.
-2. No India-specific charge module exists under `india/`.
-3. `ChargeCalculationContext` carries only transaction value and optional currency; it lacks exchange scope, explicit equity product, client trade side, event kind, separate premium/exercise bases, client pass-through policy and bill-specific GST inputs/treatment.
-4. No effective-dated schedule selection mechanism for charges (the venue-rule
-   snapshot pattern in `india/rule_data.py` is the reusable template).
-5. No charge-specific golden tests for statutory Indian charges.
-6. Paper/research execution uses `fee_bps` → `PercentageBpsChargeModel`; Indian
-   statutory charges are not applied anywhere today.
+The original gap assessment predates the first contract-only implementation slice. The current disposition is:
 
----
+1. **India-specific calculator contract — implemented in the current candidate.** `src/quantx/markets/india/charges.py` composes the existing market-neutral `ChargeModel` / `ChargeBreakdown` contract with India exchange, product, side, event, effective-time, pass-through, tax-treatment and provenance inputs.
+2. **Effective-dated selection and fail-closed rule behavior — implemented in the current candidate.** Immutable schedule entries select by timezone-aware Asia/Kolkata effective intervals; unsupported dates, products, sides, events and missing component rates/sources do not become zero.
+3. **Synthetic calculation tests — implemented in the current candidate.** `tests/unit/markets/india/test_charges.py` covers arithmetic, premium and exercise bases, schedule boundaries, provenance, incidence, GST inputs, rounding and unsupported cases. Synthetic fixtures do not prove tariff correctness.
+4. **Production tariff schedule/loader — NOT IMPLEMENTED.** No production rates or effective-dated production schedule are embedded. Standard statutory and exchange rates have source references, and P13/P15 current-source acquisition is now operator-reported complete. Production schedule approval remains blocked by unresolved commencement/effective-date questions, STT event/base interaction, final-settlement-price wording, clearing reconciliation and golden worked examples.
+5. **Paper/research execution integration — NOT IMPLEMENTED.** Existing execution still uses the generic configured `PercentageBpsChargeModel`; the India model is not automatically selected or wired into execution.
+6. **Physical-settlement stamp-duty calculation contract — IMPLEMENTED AND EXACT-SHA VALIDATED (historical code-only candidate).** `src/quantx/markets/india/physical_settlement_charges.py` consumes clearing-recognized, pre-aggregated BQTY/SQTY per client/security/settlement day and an explicit sourced final settlement price/method. It calculates paise-rounded delivery/non-delivery components and the nearest-rupee client total using explicitly injected rates; it handles State/UT fallback and Sikkim NCL non-collection. It does not infer assignments, parse F_SD03/F_SD04, derive/fallback the final settlement price, calculate physical STT, embed production rates or wire into execution. The earlier P13/P15 'unread' note is superseded by operator-reported document acquisition/inspection. No production schedule or calculator activation is approved.
+
+The public `quantx.execution.charges` compatibility import path and generic percentage model remain available, but canonical ownership of the four neutral charge contracts moved to `quantx.ports.charges`. The execution module now re-exports those same objects by identity.
 
 ## 4. Unresolved / unsupported cases (do not guess)
 
@@ -199,31 +201,33 @@ configuration, not embedded in the India schedule.
 | STT prior-regime effective date (when 0.02%/0.10%/0.125% began) | RESOLVED (partial) | P1 states these as the "upto September 30, 2024" column; the start date of that regime is not verified (P1 references earlier circulars 2/2016, 2/2018, 1/2019, 2/2019, 1/2020, 2/2023). Coverage before the unverified start date remains UNRESOLVED — fail closed. |
 | STT regime boundary October 1, 2024 | RESOLVED | P1 (effective October 1, 2024): futures 0.0125→0.02%, options sell 0.0625→0.10%, options exercised unchanged 0.125%. |
 | STT regime boundary April 1, 2026 | RESOLVED | P2 (effective April 1, 2026): futures 0.02→0.05%, options sell 0.10→0.15%, options exercised 0.125→0.15%. |
-| SEBI turnover fee effective date (current Rs 10/crore) | RESOLVED | SEBI notification SEBI/L.A.D.-N.R.O./G.N./2019/03 (22 March 2019), effective April 1, 2019 (P8). |
-| Stamp duty current applicability | UNRESOLVED for production schedule | P5 provides the statutory framework and July 1, 2020 commencement of section 9A, but current consolidated rate applicability for every in-scope instrument has not been fully reconciled. No complete production schedule may use these rates until the source review is recorded. |
-| GST effective-date rule for production schedule | UNRESOLVED for production schedule | The 18% rate is identified, but the applicable notification/effective date for the modeled service/components is not bound to a complete effective-dated rule. No production GST entry is complete until evidence is added. |
+| SEBI turnover fee (current ₹10/crore equity-derivatives rate) | RESOLVED for current rule; historical exception documented | P9 Regulation 41 retains 0.00010% / ₹10 per crore and states the option premium plus exercise/assignment notional basis. P9 took effect January 7, 2026 and repealed the 1992 regulations. P8 is the predecessor source, with P11's 50% temporary reduction applying June 1, 2020–March 31, 2021; that interval is outside the currently supported all-in schedule range. |
+| Standard stamp-duty rates for NSE equity delivery, intraday, futures and options | RESOLVED from July 1, 2020 | P5 Article 56A and section 9A establish the statutory schedule and buyer collection. NSE's current table cross-checks the same rates. This status does not resolve the separate physical-settlement derivative question below. |
+| Standard stock-broking GST rate and effective start | RESOLVED (18% from July 1, 2017) | P6 Notification 11/2017, the SAC 997152 classification annexure and the current CBIC rate table support 9% CGST + 9% SGST / 18% IGST for the financial-services entry. The taxable base remains invoice-specific and must follow Section 15 / Rule 27 and Rule 33 pure-agent conditions. |
 | GST calculation base | RESOLVED as explicit caller policy, not a universal hard-coded rule | §2.5 requires bill-specific treatment for STT/stamp recoveries, caller-supplied brokerage/DP/other taxable inputs, and client pass-through decisions for member fees. Missing inputs make GST incomplete. |
 | Exchange charges before Oct 1, 2024 | UNSUPPORTED (slab-wise) | Volume-dependent slabs; cannot be represented as a single rate. Fail closed for dates before Oct 1, 2024. |
-| March 2026 transaction-charge interpretation | RESOLVED (design) | P4 keeps total member outflow unchanged; re-splits into txn charges + IPFT. Components are specified separately; acceptance test T21 will assert aggregate preservation. Applicability: cash + equity derivatives only; no runtime test result is claimed. |
+| March 2026 transaction-charge interpretation | RESOLVED; synthetic runtime test accepted | P4 keeps the published Trading Member fee total unchanged and re-splits it into transaction charges + IPFT. T21 passed operator-reported default and Dhan exact-HEAD canonical producer/release gates at `ca0ceb606c867c3f98309223e9c7a170b42deb9b`: eight cases cover cash delivery/intraday, futures and options premium, BUY and SELL. Pass-through is synthetic only and is not a universal broker billing policy. Applicability: cash + equity derivatives only. |
 | Brokerage rates | OUT OF SCOPE | Broker-specific, not regulated. |
 | DP charges | OUT OF SCOPE | DP/broker-specific. |
 | Currency/commodity derivatives charges | PARTIAL | Stamp duty rates listed (S1); exchange transaction charges for currency/commodity not in P3/P4. Mark unsupported until primary source added. |
-| Options exercise bases | NEEDS INPUT / separate bases | Require CALL/PUT type, quantity, settlement price and strike for STT intrinsic value, plus a separate rule-defined exercise-notional basis for SEBI fees. Never reuse one basis for the other. |
+| Option exercise STT / SEBI bases | RESOLVED as separate bases; assignment unsupported | P10 states option-exercise STT is based on intrinsic value; P9 Regulation 41 uses premium turnover plus additional notional value when exercised or assigned. The calculator already requires separate exercise notional for SEBI and keeps assignment unsupported. Never substitute one basis for the other. |
+| Physically settled stock-derivative STT | SOURCE RULE RESOLVED; contract support missing | P10 states that delivery-based equity STT also applies to physically settled stock futures and options and is payable by both receiver/purchaser and giver/seller. P2 supplies the current delivery-based rate (0.10%). The contract still lacks a separate settlement event/amount/side and must not return a complete all-in physical-settlement result. |
+| Physical-settlement stamp-duty rule | Methodology and current-version text reported inspected; synthetic calculation contract implemented | P13 Item 21 acquisition/inspection is operator-reported; the code remains caller-driven with synthetic rates and explicit price/obligation evidence. No clearing parser, member-level reconciliation, production schedule or execution wiring. |
 | BSE-specific charges | NOT RESEARCHED | This phase covers NSE only; exchange identity must be an explicit context field so BSE cannot accidentally use NSE rates. |
 | MCX/NCDEX commodity charges | NOT RESEARCHED | Out of scope for this phase. |
 
 ---
 
-## 5. Proposed contract (design only — not implemented)
+## 5. Implemented contract
 
-### 5.1 New module: `src/quantx/india/charges.py`
+### 5.1 New module: `src/quantx/markets/india/charges.py`
 
-Reuse existing infrastructure; do not modify `execution/charges.py`.
+Reuse the vendor- and market-neutral charge contracts in `quantx.ports.charges`. Preserve the existing `quantx.execution.charges` import path as an identity-preserving compatibility facade; keep the generic percentage model execution-owned.
 
 1. **`IndiaTradeSide`** enum: `BUY`, `SELL`, representing the client's side of one transaction.
-2. **Assignment boundary:** `OPTION_ASSIGNMENT` is intentionally unsupported in the first slice. It must raise `IndiaChargeRuleUnavailable`; do not infer assignment from `OPTION_EXERCISE` or a normal SELL trade. Add a distinct event only after source-backed payer, turnover-basis and component rules are specified.
+2. **Assignment boundary:** `OPTION_ASSIGNMENT` is represented explicitly in the event enum but remains unsupported in the first slice. It raises `IndiaChargeRuleUnavailable`; do not infer assignment from `OPTION_EXERCISE` or a normal SELL trade. Support it only after source-backed payer, turnover-basis and component rules are specified.
 3. **`IndiaChargeProduct`** enum: `EQUITY_DELIVERY`, `EQUITY_INTRADAY`, `EQUITY_FUTURES`, `EQUITY_OPTIONS`. These names constrain the first schedule to NSE equity products; fund units, currency/commodity derivatives, BSE and MCX are not aliases.
-4. **`IndiaChargeEvent`** enum: `TRADE`, `OPTION_EXERCISE`. Exercise is a separate event, not a Boolean variation of an ordinary option trade.
+4. **`IndiaChargeEvent`** enum: `TRADE`, `OPTION_EXERCISE`, `OPTION_ASSIGNMENT`. Exercise is a separate event, not a Boolean variation of an ordinary option trade. `OPTION_ASSIGNMENT` is represented explicitly but remains unsupported and fails closed.
 5. **`IndiaOptionType`** enum: `CALL`, `PUT`.
 6. **`IndiaRecoveryTaxTreatment`** enum: `EXCLUDE_AS_QUALIFIED_PURE_AGENT`, `INCLUDE_IN_TAXABLE_VALUE`. Missing treatment makes a complete GST result unavailable.
 7. **`IndiaChargeIncidence`** enum: `CLIENT_PASSTHROUGH`, `BROKER_ABSORBED`, `NOT_APPLICABLE`.
@@ -277,7 +281,7 @@ Reuse existing infrastructure; do not modify `execution/charges.py`.
 
 ### 5.5 What stays in the universal core
 
-`execution/charges.py` is NOT modified. The India module imports `ChargeModel`, `ChargeBreakdown`, `ChargeComponent` and `ChargeCalculationContext` from the universal core and adds India-specific logic on top. This preserves the no-Indian-tariffs-in-universal-core boundary (ADR-010, doc 52).
+`ports/charges.py` owns the neutral `ChargeModel`, `ChargeBreakdown`, `ChargeComponent` and `ChargeCalculationContext` contracts. `execution/charges.py` re-exports those same objects for compatibility and retains `PercentageBpsChargeModel`; the India module imports directly from `ports.charges`. No India-specific tariff or rule is added to the neutral port layer.
 
 The first implementation slice is the contract plus synthetic test schedules only. No unverified production rates are embedded as defaults. A caller must explicitly select the India model; a missing India rule never falls back silently to a generic percentage model.
 
@@ -290,22 +294,22 @@ The first implementation slice is the contract plus synthetic test schedules onl
 - Rounding mode: `ROUND_HALF_UP` to paise per component per trade. Total is the sum of rounded component amounts, not a re-rounding of the unrounded aggregate. This is a QuantX simulation convention, not a verified exchange/statutory rule; an authoritative rule overrides it.
 - **GST:** calculate only with complete explicit billing inputs, pass-through policy, and STT/stamp recovery treatments. Qualified pure-agent exclusions apply only when the caller establishes the relevant conditions.
 - **Pass-through:** every member-level exchange/IPFT/SEBI fee is explicitly classified as client-pass-through, broker-absorbed or not applicable; no retail-client billing behavior is inferred from a member-outflow circular.
-- **Aggregation:** per trade/fill. Client-level daily aggregation/accrual is out of scope.
+- **Aggregation:** the ordinary India charge calculator is per trade/fill; client-level daily aggregation is out of scope there. The separate physical-settlement stamp module is client/security/settlement-day aggregated and uses the NCL-specific component-to-paise then client-to-rupee rounding sequence. Do not apply the ordinary per-trade charge rounding policy to physical settlement.
 
 ## 6. Implementation sequence
 
-1. **This document** — research/design; corrections in this branch remain docs-only.
-2. Create `src/quantx/india/charges.py` with the contract above. No hardcoded production rates; rates are supplied schedule data.
-3. Add unit tests at `tests/unit/india/test_market_charges.py` using clearly named synthetic schedule fixtures for arithmetic, effective dates, provenance, event-specific bases, rounding and fail-closed behavior. Synthetic fixtures do not prove tariff correctness.
-4. In a separate slice, add versioned schedule data and a loader. Populate a component/date/product only after its rate, basis, liability, effective date and source are verified. Stamp-duty and GST production entries remain unavailable until source gates in §4 are closed.
-5. In a separate slice, wire into paper/research execution only when the India model is explicitly selected and a complete supported schedule exists. For an India context, missing/unverified rules raise `IndiaChargeRuleUnavailable`; never fall back silently to `PercentageBpsChargeModel`. The generic model may be explicitly selected for a clearly labelled generic simulation, not used as an India-rule fallback.
-6. Update docs/architecture/52-transaction-cost-and-charges.md and the India skill only after implementation is accepted and verified.
+1. **Research/design** — source inventory, unresolved applicability gates and contract specification in this document.
+2. **Per-trade India charge contract + T21 synthetic tests — implemented and accepted.** The India calculator and tests live at `src/quantx/markets/india/charges.py` and `tests/unit/markets/india/test_charges.py`; T21 passed exact-SHA operator-reported default and Dhan canonical validation at `ca0ceb606c867c3f98309223e9c7a170b42deb9b`.
+3. **Physical-settlement stamp-duty calculation contract — implemented and exact-SHA validated (code-only candidate `5fcb69920a25050e4eb5e7d72991af7fdf5f4867`).** The separate `src/quantx/markets/india/physical_settlement_charges.py` consumes clearing-aggregated security settlement inputs, explicit final-settlement-price source/method provenance, client State/UT evidence and injected effective-dated delivery/non-delivery rates. Its tests use synthetic fixtures only. Operator-reported validation passed the focused suite (76), default full suite (3,697 passed / 3 skipped), Dhan-extra full suite (3,700 passed), changed-file Ruff, strict mypy, package coverage floors and both release gates. It does not ingest NCL files, derive settlement assignments, calculate final prices, compute physical STT or contain production tariffs. This validation does not extend to the documentation synchronization commit.
+4. **Production schedules and clearing/price adapters — future slice.** Remain blocked until the Section 99/Rule 3 taxable-value mapping, P15 ambiguous fallback wording, actual F_SD03/F_SD04 row semantics and authorized member samples are reconciled, and authoritative worked examples are available. P13/P15 document retrieval itself is no longer the blocker according to the operator report.
+5. **Paper/research integration — future slice.** Wire only when supported production schedules and the complete physical-settlement lifecycle are accepted. India contexts must fail closed; never fall back silently to `PercentageBpsChargeModel`.
+6. **India skill documentation** — update only after the applicable implementation and validation slices are accepted.
 
-Do not bundle steps 2–6 into one change. Each is a separate, reviewable slice. Do not change production source, roadmap or `docs/STATUS.md` in this design-reconciliation commit.
+Do not bundle production schedule/loader or execution wiring into the contract-only slice. `execution/charges.py` now serves as an identity-preserving compatibility facade for neutral charge contracts and retains the generic percentage model; do not add India tariff or accounting/risk behavior there.
 
 ## 7. Acceptance matrix
 
-**Test-fixture rule:** T1–T21 are calculation/schedule-selection mechanics using synthetic fixtures where necessary; they do not prove every rate is approved for production. Source-verified tariff golden tests must separately use only component/date combinations approved in §4. Until stamp-duty and GST effective-date gates are closed, no production all-in schedule may claim those components are supported for those dates.
+**Test-fixture rule:** T1–T21 and the new physical-settlement stamp-duty contract tests use synthetic fixtures where necessary; they do not prove tariff approval or clearing-feed correctness. Physical-stamp tests use synthetic rates, price and obligation sources. No production schedule or clearing reconciliation claim is implied.
 
 | # | Test | Expected |
 |---|---|---|
@@ -329,8 +333,8 @@ Do not bundle steps 2–6 into one change. Each is a separate, reviewable slice.
 | T18 | Schedule instant one second before Apr 1, 2026 00:00 IST | Prior interval selected; effective-to exclusive |
 | T19 | `ChargeBreakdown.total` | Equals exact sum of rounded components |
 | T20 | Provenance | Contains schedule version/interval, each component source/version and billing/pass-through policy references |
-| T21 | Schedule-selection boundary before/at Mar 1, 2026 00:00 IST with client-pass-through policy explicitly enabled for exchange/IPFT; not claims of trading sessions | Scheduled exchange+IPFT total stays unchanged: cash 306.99+0.01=307, futures 182.99+0.01=183, options 3,552.99+0.01=3,553 per crore; split changes |
-| T22 | Stamp-duty current applicability remains unresolved | A complete production schedule is rejected; S1-only rates are not accepted as current verified production rules |
+| T21 | Schedule-selection boundary before/at Mar 1, 2026 00:00 IST for cash delivery/intraday, futures and options premium, BUY and SELL | Implemented in follow-up branch and operator-reported PASS at exact SHA `ca0ceb606c867c3f98309223e9c7a170b42deb9b`: eight cases verify component splits and preserved published per-side member-fee totals. Pass-through is explicit and synthetic only; not universal broker billing policy. |
+| T22 | Physical-settlement stamp-duty treatment | A complete production schedule for physically settled stock derivatives is rejected until the separate underlying-delivery stamp-duty treatment is sourced. Standard Article 56A derivative rates are supported; do not infer an extra 0.015% or silently assume none. |
 | T23 | Brokerage, DP, other-taxable-service amount, pass-through policy or GST treatment missing | `IndiaChargeInputUnavailable`; no supposedly complete GST amount |
 | T24 | GST treatment excludes STT/stamp only with a supplied qualified-pure-agent decision | Base follows explicit policy; absent policy refuses; test exclusion and inclusion paths |
 | T25 | Same underlying trade with client BUY vs SELL | Stamp duty charged only on client BUY; SELL has explicit source-backed zero for client liability |
@@ -342,6 +346,19 @@ Do not bundle steps 2–6 into one change. Each is a separate, reviewable slice.
 | T31 | A component is `BROKER_ABSORBED` | Client-facing amount is zero, it is excluded from client GST base, and evidence of the underlying component/source plus incidence remains in provenance |
 | T32 | `OPTION_ASSIGNMENT` event in first-slice model | `IndiaChargeRuleUnavailable`; cannot be treated as an ordinary trade or `OPTION_EXERCISE` without separate sourced rules |
 | T33 | Attempt to mutate the caller's original rates mapping after schedule-entry construction | Schedule selection/results remain unchanged because the entry owns an immutable validated representation |
+| T34 | Physical settlement of NSE stock futures and options | Apply additional delivery-based equity STT (0.10% as source-verified for the current regime) separately from ordinary derivative trade STT and option-exercise STT; both purchaser/receiver and seller/giver are liable. Require authoritative delivery-settlement value and explicit receiver/giver role; never infer role from the original derivative trade BUY/SELL side. The current contract lacks this event and input set. |
+| T35 | Physical-settlement stamp-duty calculation | At one client/security/settlement-day group, aggregate all eligible equity-futures/options security-receivable positions as BQTY and security-deliverable positions as SQTY. Compute BDQTY=max(BQTY−SQTY,0) and BNDQTY=min(BQTY,SQTY); value at sourced final settlement price; apply injected delivery/non-delivery rates separately; round each component to paise; then round client total to nearest rupee (50 paise up). The synthetic calculation contract and tests passed operator-reported exact-SHA validation at code-only candidate `5fcb69920a25050e4eb5e7d72991af7fdf5f4867`. It does not ingest clearing files, use production rates, calculate final price or physical STT; F&O physical duty stays separate from Capital Market transaction duty. |
+| T36 | SEBI fee effective-date/source transition at January 7, 2026 | Use P8 for the historical 1992-regulation period and P9 from January 7, 2026; retain ₹10/crore equity-derivatives rate and premium-plus-exercise/assignment-notional option turnover basis. Assignment remains unsupported by the current India calculator. |
+| T37 | GST stock-broking classification and rate | Confirm SAC 997152 / Heading 9971 and 9% CGST + 9% SGST (or 18% IGST) from July 1, 2017; test taxable-base inclusion/exclusion independently under the explicit caller policy and Rule 33 conditions. |
+| T38 | Current-version clearing rule verification | P13 NCL/CMPT/73997 Part B Items 6/21 and its Part E UDiFF format are reported downloaded and inspected. The operator reports the physical-STT delivery leg, stamp-duty aggregation, rounding and report names; the cross-version document acquisition gate is complete. Row-level FOPHY STT/Obligation/StampDuty joins, actual member samples and the combined exercise/delivery STT amount remain UNKNOWN. |
+| T39 | Physical-settlement stamp-duty jurisdiction and rounding | Resolve client State/UT from the client code; use trading-member State/UT only when client State/UT is unavailable. Preserve the resolution source. Sikkim means NCL does not collect the duty; do not convert this into a legal zero rate. Verify separate paise component and nearest-rupee client rounding. |
+| T40 | Physical-settlement jurisdiction resolution | Resolve client State/UT from the client code placed/modified within the permitted client-code window. For proprietary transactions, the trading-member code is the client code. If client State/UT is unavailable, use the Trading Member's State/UT as the prescribed fallback and record which path resolved it. Missing both is unsupported. For Sikkim, represent NCL no-collection separately from calculated duty/rate; never silently return zero as if no duty were legally due. |
+| T41 | Cross-segment physical-obligation netting vs stamp-duty computation | Where the same security has common CM/TM/client UCC across F&O and Capital Market, settlement obligations may be netted; when clearing member/CC differs, they are not. In either case, calculate F&O physical stamp duty and Capital Market transaction stamp duty separately. |
+| T42 | Effective-dated final-settlement-price provenance | Require official final settlement price, security, expiry/settlement date, source/version and applicable methodology. P15 Annexure A is reported inspected: stock settlement uses the stated CTS 15:00–15:30 branch rules; the no-last-30-minute-trade reference (“point 1 and 2”), scenario-3 rounding, §2.2.2 index method mapping, and unusual-event handling are unresolved. P14's December 7, 2026 transition remains effective-dated; no fallback is inferred. |
+| T43 | Settlement-role mapping for physical STT | Use clearing-obligation semantics from P12 Item 5.4.1: long futures and long exercised calls are security-receivable; short futures and short assigned calls are security-deliverable; long exercised puts are security-deliverable; short assigned puts are security-receivable. Quantity is market lot × contracts. Apply physical STT to both receiver and giver; physical stamp duty is receiver-side. A raw derivative BUY/SELL side is not a substitute for the settlement-role result. |
+| T44 | Clearing report reconciliation | Reconcile client-level physical stamp duty and its TM/CM roll-ups with NCL F_SD03 (TM delivery-settlement stamp-duty file) and F_SD04 (CM delivery-settlement stamp-duty file). Do not claim production calculation fidelity until report schema, source lineage and lawful sample evidence are available. |
+| T45 | Physical-settlement STT separation | The stamp-duty-only candidate must not calculate physical-settlement STT or claim a complete all-in result. Physical STT is a separate 0.10% event for receiver and giver; exact settlement-value basis and authoritative input schema remain to be resolved before implementation. |
+| T46 | Physical-settlement BQTY/SQTY completeness boundary | Require one pre-aggregated group per client/security/settlement day, covering all clearing-recognized futures/options security-receivable and security-deliverable positions. Reject duplicate security groups in one context; do not infer completeness or assignments from local Position rows. |
 
 The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T18/T21 are schedule-selection boundary tests, not simulated executions on a non-trading session.
 
@@ -361,7 +378,7 @@ The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T1
 ## 9. Unresolved questions
 
 1. Who owns and validates the caller-supplied GST/billing policy, including pure-agent treatment and the components billed to the client? This is an explicit input contract, not a legal determination by QuantX.
-2. Should schedule data be loaded from a Python module or versioned JSON/YAML? (Proposed: Python module, consistent with `india/rule_data.py`.)
+2. Should schedule data be loaded from a Python module or versioned JSON/YAML? (Proposed: Python module, consistent with `markets/india/rule_data.py`.)
 3. Keep IPFT separate for auditability, even though it participates in the published NSE member outflow.
 4. BSE support remains separate scope; NSE first.
 5. Pre-Oct-1-2024 slab-wise exchange charges remain unsupported until a separate volume-tiered design is justified.
@@ -373,10 +390,10 @@ The former Sunday-dated T2/T5 examples are changed to real trading dates. T17/T1
 ## 10. Evidence status
 
 - **Structural inspection:** `execution/charges.py`, `india/execution_rules.py`,
-  `india/rule_data.py`, `india/domain.py`, `research/provenance.py`,
+  `markets/india/rule_data.py`, `india/domain.py`, `research/provenance.py`,
   `research/point_in_time.py`, `tests/unit/execution/test_charges.py`,
   `docs/architecture/52-transaction-cost-and-charges.md` — all read.
-- **Runtime/test/CI evidence:** none collected for this design revision. No tests run and no production source code changed; the branch contains documentation only. The previously reported skill-library integrity checks are unrelated to this revision and do not validate tariff calculations.
-- **Source research:** web search + primary-source review (P1–P8 above); S1–S4 are secondary cross-checks/guidance and do not establish every primary rate or effective date.
-  Rates marked UNRESOLVED are not verified and must not be used in
-  implementation until resolved.
+- **Runtime/test/release evidence:** the local operator reported exact-HEAD validation PASS at `58f3edffb5c46297837cfc99d8d19bf56a43ec0a` in both locked configurations. Default pytest: 3,662 passed, 3 skipped; Dhan-extra pytest: 3,665 passed. Changed-file Ruff lint/format and strict mypy passed in both configurations. Measured line/branch coverage (identical in both): `quantx.domain` 88.83% / 75.00%; `quantx.execution` 89.38% / 75.57%; `quantx.persistence` 93.16% / 81.48%. Focused diagnostics: 75 passed. Both canonical producer records and both release gates passed (10/10 each); skill integrity, trigger-assets, validation-gate and release-gate self-tests passed. The operator retained the JSON evidence and transcript at `%LOCALAPPDATA%\\Temp\\quantx-validation\\issue200-ruff-remediation-651c7e56\\`. These local execution results are operator-reported; the published PR HEAD, ancestry and seven-path scope were independently verified through GitHub. No GitHub Actions or paid CI was used or is claimed.
+- **Source research:** P1–P15 primary-source retrieval is complete per the operator's 10–11 November reports, including P13 Item 6/21, P15 Annexure A, predecessors 73370/76951 and BSE 20261030-51 Annexure A. The report records source hashes and page-by-page review; this workspace has not independently opened all binary attachments. UDiFF Annexure B/C schemas and samples are reported audited, with field definition alignment but low/medium-confidence join candidates and unresolved sample anomaly. P15 fallback wording and statutory/tax interpretations remain open. S1–S5 are cross-checks/administrative guidance; S6 is the official UDiFF page and attachments.
+- **Status boundary:** standard rate references and the contract-only India charge models are source-labelled and caller-configured; no production defaults or execution integration exist. T21 and physical stamp-duty calculations passed operator-reported historical exact-SHA validation, but current-main validation is required after rebase. Operator reports P13/P15 source retrieval complete; remaining blockers are statutory effective-date/legal interpretation, exercised-option plus physical-delivery STT, exact delivery taxable-value mapping, FOPHY sample anomaly and authorized row-level clearing joins, P15 scenario wording/rounding, exceptions and authoritative worked examples. Clearing ingestion and production activation remain blocked.
+- **Non-claims:** this source review does not create a production tariff loader, prove broker-specific pass-through, or authorize any paper/research/live execution integration. Rates and bases marked UNRESOLVED remain unavailable to production calculation.
