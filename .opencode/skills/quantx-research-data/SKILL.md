@@ -18,7 +18,7 @@ description: Use when working on QuantX historical data — ingestion, datasets,
 | Provenance / integrity | `research/provenance.py`, `research/integrity.py`, `research/artifacts.py` |
 | Point-in-time | `research/point_in_time.py` (+ `docs/architecture/40-point-in-time-market-rules.md`) |
 | Replay | `research/replay.py`, `research/event_replay.py`, `research/lifecycle.py` |
-| Calendar / rules | `research/calendar.py`, `market_rules.py`, `broker_rules.py`, `research_policy.py` |
+| Calendar / venue rules | `research/calendar.py`, `market_rules.py`, `broker_rules.py` |
 | Rolls / adjustments | `research/rolls.py`, `research/adjustments.py` |
 | Experiments / results | `research/experiments.py`, `research/result.py` |
 | Orchestration / storage | `research/orchestrator.py`, `research/storage.py` |
