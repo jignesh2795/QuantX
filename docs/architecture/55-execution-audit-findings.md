@@ -8,8 +8,8 @@ The execution package is intentionally not split into folders merely for visual 
 
 ### Canonical modules
 
-- `ports.py`: execution port for already-approved requests.
-- `market_ports.py`: execution port that explicitly requires a point-in-time `MarketSnapshot`.
+- `ports.py`: canonical execution port contracts for approved requests and point-in-time market-data-aware execution.
+
 - `market_data.py`: observable market snapshot contract.
 - `models.py`: deterministic fill/slippage model contracts.
 - `paper.py`: paper/shadow/replay execution engine.
@@ -20,15 +20,19 @@ The execution package is intentionally not split into folders merely for visual 
 - `order_lifecycle.py`: order state machine.
 - `idempotency/`, `preconditions/`, `receipts/`, `transactions/`: dedicated execution safety/orchestration boundaries.
 
-## `ports.py` vs `market_ports.py`
+### Compatibility shims
 
-These are intentionally different contracts, not duplicates.
+- `market_ports.py`: temporary compatibility-only re-export of `MarketDataExecutionPort` from `execution.ports`. It defines no second protocol. New imports must use `execution.ports`; retain the shim until an external-consumer check and a deprecation-window or major-version decision support removal.
+
+## `ExecutionPort` vs `MarketDataExecutionPort`
+
+These are intentionally different contracts, not duplicate abstractions. Both canonical protocols are declared in `execution.ports`; `execution.market_ports` is only a compatibility import path.
 
 `ExecutionPort.execute(request)` represents an execution implementation that owns or obtains its required execution inputs.
 
 `MarketDataExecutionPort.execute(request, snapshot=...)` explicitly requires a caller-supplied point-in-time market snapshot. This is useful for deterministic replay/paper components and prevents hidden market-data access.
 
-Do not merge these merely to reduce file count.
+Keep the two protocol contracts distinct, but maintain only one canonical declaration for `MarketDataExecutionPort`.
 
 ## `paper.py` vs `paper_session.py`
 
