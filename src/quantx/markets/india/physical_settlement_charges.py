@@ -41,6 +41,73 @@ class IndiaPhysicalSettlementJurisdictionSource(StrEnum):
     TRADING_MEMBER_FALLBACK = "TRADING_MEMBER_FALLBACK"
 
 
+class IndiaStateUT(StrEnum):
+    """Canonical current Indian State/UT names used for clearing jurisdiction."""
+
+    ANDAMAN_AND_NICOBAR_ISLANDS = "ANDAMAN AND NICOBAR ISLANDS"
+    ANDHRA_PRADESH = "ANDHRA PRADESH"
+    ARUNACHAL_PRADESH = "ARUNACHAL PRADESH"
+    ASSAM = "ASSAM"
+    BIHAR = "BIHAR"
+    CHANDIGARH = "CHANDIGARH"
+    CHHATTISGARH = "CHHATTISGARH"
+    DADRA_AND_NAGAR_HAVELI_AND_DAMAN_AND_DIU = (
+        "DADRA AND NAGAR HAVELI AND DAMAN AND DIU"
+    )
+    DELHI = "DELHI"
+    GOA = "GOA"
+    GUJARAT = "GUJARAT"
+    HARYANA = "HARYANA"
+    HIMACHAL_PRADESH = "HIMACHAL PRADESH"
+    JAMMU_AND_KASHMIR = "JAMMU AND KASHMIR"
+    JHARKHAND = "JHARKHAND"
+    KARNATAKA = "KARNATAKA"
+    KERALA = "KERALA"
+    LADAKH = "LADAKH"
+    LAKSHADWEEP = "LAKSHADWEEP"
+    MADHYA_PRADESH = "MADHYA PRADESH"
+    MAHARASHTRA = "MAHARASHTRA"
+    MANIPUR = "MANIPUR"
+    MEGHALAYA = "MEGHALAYA"
+    MIZORAM = "MIZORAM"
+    NAGALAND = "NAGALAND"
+    ODISHA = "ODISHA"
+    PUDUCHERRY = "PUDUCHERRY"
+    PUNJAB = "PUNJAB"
+    RAJASTHAN = "RAJASTHAN"
+    SIKKIM = "SIKKIM"
+    TAMIL_NADU = "TAMIL NADU"
+    TELANGANA = "TELANGANA"
+    TRIPURA = "TRIPURA"
+    UTTAR_PRADESH = "UTTAR PRADESH"
+    UTTARAKHAND = "UTTARAKHAND"
+    WEST_BENGAL = "WEST BENGAL"
+
+
+_STATE_UT_ALIASES = {
+    "CHATTISGARH": IndiaStateUT.CHHATTISGARH.value,
+    "CHHATISGARH": IndiaStateUT.CHHATTISGARH.value,
+    "KERALAM": IndiaStateUT.KERALA.value,
+    "NCT OF DELHI": IndiaStateUT.DELHI.value,
+    "NATIONAL CAPITAL TERRITORY OF DELHI": IndiaStateUT.DELHI.value,
+    "PONDICHERRY": IndiaStateUT.PUDUCHERRY.value,
+}
+
+
+def _normalize_state_ut(value: str, name: str) -> str:
+    """Normalize a recognized current Indian State/UT; reject unknowns closed."""
+    if not isinstance(value, str):
+        raise IndiaPhysicalSettlementInputUnavailable(f"{name} must be a string")
+    normalized = " ".join(value.strip().upper().replace("&", " AND ").split())
+    normalized = _STATE_UT_ALIASES.get(normalized, normalized)
+    try:
+        return IndiaStateUT(normalized).value
+    except ValueError as exc:
+        raise IndiaPhysicalSettlementInputUnavailable(
+            f"{name} is not a recognized Indian State/UT"
+        ) from exc
+
+
 @dataclass(frozen=True, slots=True)
 class IndiaPhysicalSettlementStampDutyRates:
     """Explicitly sourced delivery and non-delivery stamp-duty rates.
@@ -231,17 +298,25 @@ class IndiaPhysicalSettlementStampDutyClientContext:
             raise IndiaPhysicalSettlementInputUnavailable(
                 "proprietary settlement must use the trading-member code as client code"
             )
-        _validate_state_and_source(
-            self.client_state_ut,
-            self.client_state_source_ref,
+        object.__setattr__(
+            self,
             "client_state_ut",
-            "client_state_source_ref",
+            _validate_state_and_source(
+                self.client_state_ut,
+                self.client_state_source_ref,
+                "client_state_ut",
+                "client_state_source_ref",
+            ),
         )
-        _validate_state_and_source(
-            self.trading_member_state_ut,
-            self.trading_member_state_source_ref,
+        object.__setattr__(
+            self,
             "trading_member_state_ut",
-            "trading_member_state_source_ref",
+            _validate_state_and_source(
+                self.trading_member_state_ut,
+                self.trading_member_state_source_ref,
+                "trading_member_state_ut",
+                "trading_member_state_source_ref",
+            ),
         )
         if self.client_state_ut is None and self.trading_member_state_ut is None:
             raise IndiaPhysicalSettlementInputUnavailable(
@@ -309,7 +384,11 @@ class IndiaPhysicalSettlementStampDutyResult:
             self.collection_disposition, IndiaPhysicalSettlementCollectionDisposition
         ):
             raise TypeError("collection_disposition has an unsupported type")
-        _require_text(self.jurisdiction_state_ut, "jurisdiction_state_ut")
+        normalized_jurisdiction = _normalize_state_ut(
+            self.jurisdiction_state_ut, "jurisdiction_state_ut"
+        )
+        if self.jurisdiction_state_ut != normalized_jurisdiction:
+            raise ValueError("jurisdiction_state_ut must be a canonical State/UT name")
         if not isinstance(self.jurisdiction_source, IndiaPhysicalSettlementJurisdictionSource):
             raise TypeError("jurisdiction_source has an unsupported type")
         if self.jurisdiction_state_ut != self.jurisdiction_state_ut.strip().upper():
@@ -534,13 +613,13 @@ def _validate_state_and_source(
     source_ref: str | None,
     state_name: str,
     source_name: str,
-) -> None:
+) -> str | None:
     if state is None:
         if source_ref is not None:
             raise ValueError(f"{source_name} requires {state_name}")
-        return
-    _require_text(state, state_name)
+        return None
     _require_text(source_ref, source_name)
+    return _normalize_state_ut(state, state_name)
 
 
 def _validate_decimal(value: Decimal | None, name: str, *, allow_none: bool = True) -> None:
@@ -604,6 +683,7 @@ __all__ = [
     "IndiaPhysicalSettlementSecuritySettlementInput",
     "IndiaPhysicalSettlementInputUnavailable",
     "IndiaPhysicalSettlementJurisdictionSource",
+    "IndiaStateUT",
     "IndiaPhysicalSettlementStampDutyClientContext",
     "IndiaPhysicalSettlementStampDutyLine",
     "IndiaPhysicalSettlementStampDutyModel",

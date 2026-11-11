@@ -14,6 +14,7 @@ from quantx.markets.india.physical_settlement_charges import (
     IndiaPhysicalSettlementSecuritySettlementInput,
     IndiaPhysicalSettlementStampDutyClientContext,
     IndiaPhysicalSettlementStampDutyModel,
+    IndiaStateUT,
     IndiaPhysicalSettlementStampDutyRates,
     IndiaPhysicalSettlementStampDutySchedule,
     IndiaPhysicalSettlementStampDutyScheduleEntry,
@@ -478,3 +479,82 @@ def test_state_source_cannot_be_claimed_without_state() -> None:
 def test_result_does_not_expose_raw_client_code() -> None:
     result = _model().calculate(_context())
     assert "CLIENT-001" not in "|".join(result.provenance)
+
+
+@pytest.mark.parametrize("state", tuple(IndiaStateUT))
+def test_current_state_ut_catalog_accepts_all_36_jurisdictions(state: IndiaStateUT) -> None:
+    context = _context(
+        client_state_ut=state.value,
+        client_state_source_ref="synthetic://kyc/client-state",
+    )
+
+    result = _model().calculate(context)
+
+    assert result.jurisdiction_state_ut == state.value
+    if state is IndiaStateUT.SIKKIM:
+        assert result.collection_disposition is (
+            IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_EXCLUDED_FOR_SIKKIM
+        )
+        assert result.client_level_total is None
+    else:
+        assert result.collection_disposition is (
+            IndiaPhysicalSettlementCollectionDisposition.NCL_COLLECTION_APPLIES
+        )
+
+
+@pytest.mark.parametrize(
+    ("supplied", "expected"),
+    [
+        ("Keralam", "KERALA"),
+        ("Pondicherry", "PUDUCHERRY"),
+        ("National Capital Territory of Delhi", "DELHI"),
+        ("Dadra & Nagar Haveli and Daman & Diu", "DADRA AND NAGAR HAVELI AND DAMAN AND DIU"),
+        ("Chattisgarh", "CHHATTISGARH"),
+    ],
+)
+def test_documented_state_ut_aliases_normalize_to_canonical_values(
+    supplied: str,
+    expected: str,
+) -> None:
+    context = _context(
+        client_state_ut=supplied,
+        client_state_source_ref="synthetic://kyc/client-state",
+    )
+
+    result = _model().calculate(context)
+
+    assert context.client_state_ut == expected
+    assert result.jurisdiction_state_ut == expected
+
+
+def test_unrecognized_client_state_fails_closed_even_when_member_fallback_is_valid() -> None:
+    with pytest.raises(
+        IndiaPhysicalSettlementInputUnavailable,
+        match="client_state_ut is not a recognized Indian State/UT",
+    ):
+        _context(
+            client_state_ut="NOT A REAL STATE",
+            client_state_source_ref="synthetic://kyc/client-state",
+        )
+
+
+def test_unrecognized_member_fallback_state_fails_closed() -> None:
+    with pytest.raises(
+        IndiaPhysicalSettlementInputUnavailable,
+        match="trading_member_state_ut is not a recognized Indian State/UT",
+    ):
+        _context(
+            client_state_ut=None,
+            client_state_source_ref=None,
+            trading_member_state_ut="UNKNOWN TERRITORY",
+        )
+
+
+def test_result_rejects_unrecognized_jurisdiction_state() -> None:
+    result = _model().calculate(_context())
+
+    with pytest.raises(
+        IndiaPhysicalSettlementInputUnavailable,
+        match="jurisdiction_state_ut is not a recognized Indian State/UT",
+    ):
+        replace(result, jurisdiction_state_ut="UNKNOWN TERRITORY")

@@ -296,6 +296,8 @@ The first implementation slice is the contract plus synthetic test schedules onl
 - **Pass-through:** every member-level exchange/IPFT/SEBI fee is explicitly classified as client-pass-through, broker-absorbed or not applicable; no retail-client billing behavior is inferred from a member-outflow circular.
 - **Aggregation:** the ordinary India charge calculator is per trade/fill; client-level daily aggregation is out of scope there. The separate physical-settlement stamp module is client/security/settlement-day aggregated and uses the NCL-specific component-to-paise then client-to-rupee rounding sequence. Do not apply the ordinary per-trade charge rounding policy to physical settlement.
 
+- **Physical-settlement jurisdiction input:** accept only the 36 current Indian States/UTs listed in the Government of India directory ([IGOD State/UT directory](https://igod.gov.in/sg/states)); normalize documented spelling/name variants to one canonical value and reject every unknown value. Preserve a source reference for both client State/UT and the trading-member fallback. OpenAlgo's Dhan adapter and QuantX's own Dhan profile contract establish the authenticated `dhanClientId`/client identity, not a State/UT. Do not infer jurisdiction from a Dhan client ID, client name/UCC, broker account, IP address, or a missing profile field. Use the trading-member State/UT only when the client State/UT is genuinely unavailable.
+
 ## 6. Implementation sequence
 
 1. **Research/design** — source inventory, unresolved applicability gates and contract specification in this document.
