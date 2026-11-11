@@ -4,7 +4,7 @@
 
 **Snapshot date:** 2026-11-11
 
-**Baseline reviewed for this reconciliation:** `main` at `a4b955b1c64c973dc97bd17cf5bbf10578001fc1` (PR #330 project-presentation/onboarding merge).
+**Baseline reviewed for this reconciliation:** `main` at `4f4646c55751bf1c6c8208bde1ede9b8336772c7` (PR #328 module-disposition merge).
 
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, strategy/research delivery, and release-readiness work in one progressable plan.
 
@@ -12,9 +12,9 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline used for this programme update: `a4b955b1c64c973dc97bd17cf5bbf10578001fc1`.
-- PR #309 market-module migration is merged; PR #330 completed the approved project-presentation/onboarding plan and is squash-merged at `a4b955b1c64c973dc97bd17cf5bbf10578001fc1` from exact locally validated candidate `5cfc0999f4dbd214832facf7753c37595568979f`. Its operator-supplied local report records default and Dhan-extra full validation/release gates PASS; it is not GitHub Actions or production evidence.
-- PR #327 completed the Dhan transport coverage contribution for #202 (merged at `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`). PR #328 contains the module-disposition portion at candidate `cd4c10b59db26f14dffc31d5fb0749700fc0fdd0`, validated against the previous base `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`; the base has advanced by the documentation-only PR #330 merge, so exact-current-base reconciliation/revalidation remains required before merge.
+- Latest `main` baseline used for this programme update: `4f4646c55751bf1c6c8208bde1ede9b8336772c7`.
+- PR #309 market-module migration is merged; PR #330 completed the project-presentation/onboarding plan at `a4b955b1c64c973dc97bd17cf5bbf10578001fc1` from locally validated candidate `5cfc0999f4dbd214832facf7753c37595568979f`.
+- **Wave C2 / Issue #202 is complete.** PR #327 merged at `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`; PR #328 merged at `4f4646c55751bf1c6c8208bde1ede9b8336772c7` from validated current-base candidate `888f4b1ad5841b54f8f09b872c2d70a31558ed00`. Measured Dhan transport coverage improved from baseline 535/678 lines (76.06%) and 148/220 branches (67.27%) to final 618/678 lines (88.08%) and 173/220 branches (78.64%). The #202 85% line threshold is met; branch coverage is separately reported with no branch threshold specified. The module-disposition changes remove the unused research policy scaffold and retain the execution market-port compatibility shim with an explicit deprecation/removal condition. Issue #202 closed as completed after exact-head default/Dhan validation and release-gate evidence.
 - PR #295 is closed as superseded by #309. PR #306 is closed/superseded by the current public API candidate. PR #308 remains a stale documentation draft; do not reintroduce its snapshot as current policy.
 - PR #329 (#200) remains open with a contract-only slice; its market-rule research has unresolved primary-source acquisition/interpretation gaps. PR #331 (#199) remains open with a corrected provisional API candidate and exact-candidate local validation, but is a separate adoption/stability workstream and is not the next task.
 - PR #330 preserves the detailed status history in `docs/STATUS_HISTORY.md`; #190 is closed after owner-confirmed Private Vulnerability Reporting UI setup. The Code of Conduct continues to disclose that no dedicated confidential conduct contact route has been published.
@@ -84,7 +84,7 @@ QX-08 M1–M4 and its T1–T8/G1–G3 acceptance reconciliation remain complete.
 | Rank | Issue | Next required outcome |
 |---|---|---|
 | Completed | [#182 measured package-specific coverage floors](https://github.com/jignesh2795/QuantX/issues/182) | Domain, execution and persistence line/branch floors and the local validation/release gates are implemented; thresholds and methodology are recorded in `docs/implementation/package-coverage-floors.md`. |
-| C2 | [#202 dead-module and Dhan transport coverage audit](https://github.com/jignesh2795/QuantX/issues/202) | Re-measure usage and line/branch coverage first; remove or justify suspected unused seams; improve deterministic transport tests without network access or inferred submit/cancel outcomes. |
+| Completed | [#202 dead-module and Dhan transport coverage audit](https://github.com/jignesh2795/QuantX/issues/202) | PR #327 and PR #328 are merged; baseline/final Dhan line and branch coverage is recorded above; the line threshold is met; module removal/compatibility retention decisions are documented; issue closed 2026-11-11. |
 
 ### Wave D — India-market realism and public contract
 
@@ -180,7 +180,8 @@ The following remain later/deferred platform work and are not part of the single
 ### Remaining work and next priority
 
 - **#267 and #266 remain blocked.** #267 requires a credible alternative authoritative risk-evidence provider/source; keep the pre-collection/no-reservation/no-submit boundary. #266 remains blocked on the missing 0/7 required fixtures; preserve realized-only `daily_pnl`, current `max_drawdown` and the documented session-equity contract.
-- **Next actionable work: #202, Wave C2 — complete the exact-base evidence/merge gate.** Dhan transport coverage is merged in #327 and module disposition is implemented in #328. First measure the Dhan transport line/branch baseline at the exact #327 base `ce1f179a0f2f2aabb66d273c51bc49a005cd94ff`; do not reuse the reviewer-estimated 62%. Then bring PR #328 forward from its validated base `a620b3b13f2cd10c9fee19f61e3afd3121f345ff` to current main `a4b955b1c64c973dc97bd17cf5bbf10578001fc1` without rewriting user history, rerun the exact current-base default/Dhan validation and release gates, and complete the issue acceptance reconciliation. Do not expand this into a general architecture cleanup.
+- **Wave C2 / #202 is complete** in PRs #327/#328; preserve the measured baseline/final line and branch coverage and the compatibility-shim deprecation decision. Do not reopen or expand into general architecture cleanup without a new issue and evidence.
+- **Next actionable work: Wave D / #200 effective-dated India charges**, subject to its primary-source/legal gates. PR #329 is still contract-only; P13/SEBI evidence is operator-supplied, while P15, its predecessors and BSE joint-SOP attachments remain UNVERIFIED/BLOCKED under the latest retrieval report. No production rates or physical-settlement wiring until authoritative sources and interpretation are established.
 - **#200** remains the India charges-schedule workstream; PR #329 is contract-only. P13/SEBI local evidence is operator-supplied; P15, its predecessors and the BSE joint SOP are UNVERIFIED/BLOCKED under the latest retrieval report. No guessed production rate or physical-settlement implementation.
 - **#199** remains open in PR #331. The earlier draft PR #306 is superseded; do not revive it. Revalidate #331 against current main only if/when this public API work is selected.
 - **#190** is closed. The presentation plan is complete; the Code of Conduct's lack of a dedicated confidential contact route remains disclosed rather than fabricated.
