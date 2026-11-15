@@ -1,4 +1,4 @@
-"""Global Digital Assets market package."""
+"""Synthetic Global Digital Assets spot pack; no venue execution capability."""
 
 from __future__ import annotations
 
@@ -38,7 +38,6 @@ from .rules import (
     rule_for_symbol,
 )
 
-MARKET_IMPLEMENTED = True
 
 __all__ = [
     "BTC_USDT_SPOT_RULE",
@@ -57,7 +56,6 @@ __all__ = [
     "GLOBAL_DIGITAL_ASSETS_PRODUCT_SELECTION",
     "GLOBAL_DIGITAL_ASSETS_RULE_VERSION",
     "GlobalDigitalAssetsMarketModule",
-    "MARKET_IMPLEMENTED",
     "digital_assets_market_module",
     "market_status_for_rule",
     "normalize_symbol",
