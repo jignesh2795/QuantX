@@ -187,7 +187,9 @@ def test_quantity_price_and_reference_notional_validation() -> None:
     with pytest.raises(ValueError, match="price_tick"):
         rule.validate_limit_price(Decimal("100.001"))
 
-    assert rule.validate_reference_notional(Decimal("0.00001"), Decimal("500000")) == Decimal("5.00000")
+    assert rule.validate_reference_notional(
+        Decimal("0.00001"), Decimal("500000")
+    ) == Decimal("5.00000")
     with pytest.raises(ValueError, match="below min_notional"):
         rule.validate_reference_notional(Decimal("0.00001"), Decimal("499999"))
     assert rule.validate_reference_notional(Decimal("1"), Decimal("9000000")) == Decimal("9000000")
