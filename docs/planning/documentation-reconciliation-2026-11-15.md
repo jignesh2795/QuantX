@@ -59,7 +59,7 @@ Community/onboarding and skill-hardening work is already merged, including [PR #
 
 | Workstream | Current GitHub state | Correct interpretation |
 |---|---|---|
-| #200 India charges | [PR #334](https://github.com/jignesh2795/QuantX/pull/334) is **open, Draft**, branch integration/issue200-current-main-v1, HEAD acfc956eb0ef592327634a7ded52255bd86fec2a, base main at 37b6bc8...; 3 commits ahead / 0 behind. Issue #200 is open. | Current-main candidate for a bounded per-trade charge contract. It is not merged or production tariff activation. Its validation report is operator-reported, not reproduced by this audit. |
+| #200 India charges | [PR #334](https://github.com/jignesh2795/QuantX/pull/334) is **open, Ready for Review**, branch integration/issue200-current-main-v1, HEAD b7f44b72b45e60a5d59b52f8a947d27f67d8550b, base main at 37b6bc8...; 7 commits ahead / 0 behind, 9 changed paths. Issue #200 remains open. | Current-main candidate for a bounded per-trade charge contract. The operator reports exact-head PASS: focused 56 passed in each configuration; default 3,671 passed / 3 skipped; Dhan-extra 3,674 passed / 0 skipped; all 7 producer checks, Ruff/format, strict mypy, six package coverage floors, skill/self-tests and both 10/10 release gates PASS. The corrected focused tests ran under `uv run`; the system-Python 3.14 import failure is excluded. Evidence remains operator-reported and was not independently authenticated by this GitHub-side audit. It is not merged or production tariff activation. |
 | #199 curated public API | [PR #333](https://github.com/jignesh2795/QuantX/pull/333) is **open**, branch integration/issue199-current-main-v1, HEAD bc7f218e1279da028a1978c17fb3aa265c2318f0, base main at 37b6bc8... Issue #199 is open. | Current-main public API candidate; not merged. The supplied local validation report is operator-reported. |
 | Earlier #200 candidate | [PR #329](https://github.com/jignesh2795/QuantX/pull/329) is **closed without merge** (closed 2026-11-11), HEAD 5ba5d0a9655c42af2df3fd85e95c126d2c4cfd6b, based on older main a620b3b... | Its code and local validation evidence are branch/PR history, not main-branch functionality. |
 | Earlier #199 candidate | [PR #331](https://github.com/jignesh2795/QuantX/pull/331) is **closed without merge** (closed 2026-11-11), HEAD 71372da3845740e3a134d3735fbf1e4280f3c45f, based on older main a620b3b... | Superseded by PR #333; do not describe #331 as open or current. |
@@ -73,7 +73,7 @@ Current issue history reports official-source retrieval and inspection of P13/P1
 
 The remaining #200 questions are more specific than a missing-document gap. Issue history reports unresolved Section 99(c) / Rule 3 mapping for F&O-generated physical share delivery, authoritative taxable-value field lineage, sample-header anomalies, missing matched member-level FOPHY / obligation / StampDuty / delivery records, correction/reversal linkage and worked examples. PR #334 deliberately narrows its candidate to ordinary per-trade charge contracts and defers physical-delivery clearing calculations. Production tariff activation also remains blocked by authoritative effective-date/rate evidence, client-incidence and GST treatment, and ordinary-trade worked examples.
 
-**Important:** PR #334's exact-head default/Dhan-extra validation is reported by the operator as PASS. This audit did not run that validation and does not upgrade it to independently measured evidence. Issue #200 remains OPEN; PR #334 remains Draft.
+**Important:** PR #334's exact-head validation for `b7f44b72b45e60a5d59b52f8a947d27f67d8550b` is reported by the operator as PASS in both locked configurations and both release gates. The corrected focused tests used `uv run`; the initial system-Python 3.14 invocation is excluded. This audit did not run the validation or independently open/authenticate the local JSON/logs. Issue #200 remains OPEN; PR #334 is Ready for independent review, not merged.
 
 ## 5. Material branch-only documentation and proposals
 
@@ -91,7 +91,7 @@ The following branch contents were verified on GitHub. A branch name or committe
 
 Issue #200 has several additional implementation branches. The most relevant are:
 
-- integration/issue200-current-main-v1 — candidate used by Draft PR #334.
+- integration/issue200-current-main-v1 — current candidate used by Ready-for-Review PR #334 at `b7f44b72b45e60a5d59b52f8a947d27f67d8550b`.
 - fix/issue200-state-ut-validation-v1 at 63254cfe879d13a0c196b0aac05f1dd6cdf15fe2 — 2 commits ahead of current main, unsubmitted; includes physical-settlement-related files.
 - fix/issue200-physical-settlement-format-v1 at 5fcb69920a25050e4eb5e7d72991af7fdf5f4867 — 32 ahead / 14 behind; diverged from main.
 - feat/issue200-india-charge-contract-v1 at 5ba5d0a9655c42af2df3fd85e95c126d2c4cfd6b — closed PR #329 candidate, 34 ahead / 14 behind.
@@ -103,7 +103,7 @@ Other November 2–3 integration branches are divergent from current main. Prese
 The canonical status and roadmap pages are corrected so they no longer say PR #329 or PR #331 remains open. The updated records distinguish:
 
 - PR #329: closed without merge; candidate remains unmerged.
-- PR #334: current-main Draft candidate for per-trade charges.
+- PR #334: current-main per-trade charge candidate, Ready for independent review at `b7f44b72b45e60a5d59b52f8a947d27f67d8550b`; exact-head validation is operator-reported PASS.
 - PR #331: closed without merge and superseded.
 - PR #333: current-main public API candidate, open and not merged.
 
@@ -116,7 +116,7 @@ The global product vision, crypto roadmap and scope-restoration audit remain pro
 1. Keep main's existing identity: market-neutral core, India-first implementation, India as the only fully implemented market, and digital assets as a placeholder.
 2. Review the scope-restoration proposal against current product intent before adopting it. Its India-first direction is consistent with current README/VISION wording, but adoption should be explicit.
 3. Keep the global-architecture and crypto plans as unapproved planning references until a specific product decision authorizes a bounded next market.
-4. Review PR #334 against its stated per-trade acceptance boundary. Do not blend the separate physical-settlement branch family into it without a distinct acceptance decision.
+4. PR #334 is Ready for independent review against its stated per-trade acceptance boundary. Keep the separate physical-settlement branch family deferred; do not blend it into the candidate without a distinct acceptance decision.
 5. Review PR #333 against its public API acceptance criteria. PR #331 is historical/superseded.
 6. Keep S1 / ADR-013 open for independent review: exact-head validation at `d7e4e96...` is operator-reported PASS and final source review found no blocking issue. PR #337 is ready for review, but this is not merge approval. Preserve the non-claims and do not broaden LIVE eligibility.
 7. Continue to use one canonical current status and one cross-workstream work programme; retain older snapshots as history rather than current policy.
