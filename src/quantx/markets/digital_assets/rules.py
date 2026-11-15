@@ -31,7 +31,7 @@ def _require_decimal(value: object, name: str) -> Decimal:
     return value
 
 
-def _require_positive_decimal(value: Any, name: str) -> Decimal:
+def _require_positive_decimal(value: object, name: str) -> Decimal:
     value = _require_decimal(value, name)
     if value <= 0:
         raise ValueError(f"{name} must be positive")
