@@ -23,7 +23,7 @@ from .capabilities import supports_order
 from .clock import DigitalAssetTradingStatus
 
 
-def _require_decimal(value: Any, name: str) -> Decimal:
+def _require_decimal(value: object, name: str) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, Decimal):
         raise TypeError(f"{name} must be a Decimal")
     if not value.is_finite():
@@ -314,9 +314,7 @@ class DigitalAssetSpotRule:
             "effective_to": None
             if self.effective_to is None
             else self.effective_to.astimezone(UTC).isoformat(timespec="microseconds"),
-            "observed_at": self.observed_at.astimezone(UTC).isoformat(
-                timespec="microseconds"
-            ),
+            "observed_at": self.observed_at.astimezone(UTC).isoformat(timespec="microseconds"),
             "synthetic": self.synthetic,
         }
 
@@ -377,6 +375,7 @@ class DigitalAssetSpotRule:
             except ValueError as exc:
                 raise ValueError(f"{name} must be a valid ISO timestamp") from exc
             return _require_tz(parsed, name)
+
         return cls(
             instrument_id=InstrumentId.from_payload(payload["instrument_id"]),
             canonical_symbol=_require_string(payload["canonical_symbol"], "canonical_symbol"),
@@ -413,7 +412,6 @@ class DigitalAssetSpotRule:
             observed_at=_parse_dt(payload["observed_at"], "observed_at"),  # type: ignore[arg-type]
             synthetic=payload["synthetic"],
         )
-
 
 
 def _rule(

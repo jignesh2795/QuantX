@@ -63,7 +63,6 @@ def test_no_coercion() -> None:
         _minimal_order(client_order_id=value)
 
 
-
 def test_order_preserves_legacy_day_time_in_force_default() -> None:
     assert _minimal_order().time_in_force is TimeInForce.DAY
 

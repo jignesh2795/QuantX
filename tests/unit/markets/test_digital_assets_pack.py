@@ -103,9 +103,7 @@ def test_decimal_round_trip_exact() -> None:
 
 def test_invalid_constraints_rejected() -> None:
     with pytest.raises(ValueError):
-        DigitalAssetSpotRule.from_payload(
-            _mutate(BTC_USDT_SPOT_RULE.to_payload(), price_tick="0")
-        )
+        DigitalAssetSpotRule.from_payload(_mutate(BTC_USDT_SPOT_RULE.to_payload(), price_tick="0"))
     with pytest.raises(ValueError):
         DigitalAssetSpotRule.from_payload(
             _mutate(BTC_USDT_SPOT_RULE.to_payload(), quantity_min="10", quantity_max="1")
@@ -187,9 +185,9 @@ def test_quantity_price_and_reference_notional_validation() -> None:
     with pytest.raises(ValueError, match="price_tick"):
         rule.validate_limit_price(Decimal("100.001"))
 
-    assert rule.validate_reference_notional(
-        Decimal("0.00001"), Decimal("500000")
-    ) == Decimal("5.00000")
+    assert rule.validate_reference_notional(Decimal("0.00001"), Decimal("500000")) == Decimal(
+        "5.00000"
+    )
     with pytest.raises(ValueError, match="below min_notional"):
         rule.validate_reference_notional(Decimal("0.00001"), Decimal("499999"))
     assert rule.validate_reference_notional(Decimal("1"), Decimal("9000000")) == Decimal("9000000")
@@ -219,12 +217,11 @@ def test_synthetic_fixture_digest_covers_canonical_rule_payload() -> None:
         assert re.fullmatch(r"synthetic-local:sha256:[0-9a-f]{64}", digest)
         payload = rule.to_payload()
         payload.pop("source_payload_hash")
-        canonical = json.dumps(
-            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        assert (
+            digest
+            == "synthetic-local:sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         )
-        assert digest == "synthetic-local:sha256:" + hashlib.sha256(
-            canonical.encode("utf-8")
-        ).hexdigest()
 
 
 def test_synthetic_digest_changes_when_material_rule_changes() -> None:

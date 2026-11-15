@@ -364,7 +364,6 @@ def test_fill_requires_timestamp_when_present() -> None:
         raise AssertionError("missing fill timestamp was accepted")
 
 
-
 def test_absent_time_in_force_is_rejected_by_paper_executor() -> None:
     with pytest.raises(ValueError, match="explicit supported time-in-force"):
         make_executor().execute(

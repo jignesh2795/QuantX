@@ -148,7 +148,9 @@ class PendingExecutionContext:
                 "stop_price": (
                     None if self.order.stop_price is None else str(self.order.stop_price)
                 ),
-                "time_in_force": self.order.time_in_force.value,
+                "time_in_force": (
+                    None if self.order.time_in_force is None else self.order.time_in_force.value
+                ),
                 "status": self.order.status.value,
                 "created_at": self.order.created_at.isoformat(),
                 "intent_id": None if self.order.intent_id is None else str(self.order.intent_id),
@@ -259,7 +261,11 @@ class PendingExecutionContext:
                 stop_price=(
                     None if order_data["stop_price"] is None else Decimal(order_data["stop_price"])
                 ),
-                time_in_force=TimeInForce(order_data["time_in_force"]),
+                time_in_force=(
+                    None
+                    if order_data["time_in_force"] is None
+                    else TimeInForce(order_data["time_in_force"])
+                ),
                 client_order_id=UUID(order_data["client_order_id"]),
                 status=OrderStatus(order_data["status"]),
                 created_at=datetime.fromisoformat(order_data["created_at"]),

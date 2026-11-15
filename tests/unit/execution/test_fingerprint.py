@@ -371,7 +371,6 @@ def test_canonical_datetime_normalizes_offsets_and_rejects_naive_values() -> Non
         _canonical_datetime(datetime(2026, 1, 5, 10, 0))
 
 
-
 def test_absent_time_in_force_has_distinct_stable_fingerprint() -> None:
     absent_first = _request(time_in_force=None)
     absent_second = _request(time_in_force=None)

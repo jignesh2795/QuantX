@@ -498,6 +498,11 @@ class IndiaExecutionRuleEngine:
                 "time_in_force",
                 "INDIA_RULE_DATA_UNAVAILABLE: venue allowed time-in-force set is unknown",
             )
+        elif order.time_in_force is None:
+            reject(
+                "time_in_force",
+                "INDIA_TIF_INVALID: an explicit time-in-force is required",
+            )
         elif order.time_in_force not in venue_rules.allowed_time_in_force:
             reject(
                 "time_in_force",
