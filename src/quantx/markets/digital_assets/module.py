@@ -10,6 +10,7 @@ from __future__ import annotations
 from quantx.domain.instruments import MarketRegion
 from quantx.markets.common.module_base import MarketModuleBase
 
+from .clock import Continuous24x7Calendar
 from .constants import (
     GLOBAL_DIGITAL_ASSETS_MARKET,
     GLOBAL_DIGITAL_ASSETS_MARKET_PACK_ID,
@@ -28,6 +29,7 @@ def digital_assets_market_module() -> GlobalDigitalAssetsMarketModule:
         market_contexts=frozenset({GLOBAL_DIGITAL_ASSETS_MARKET}),
         market_pack_id=GLOBAL_DIGITAL_ASSETS_MARKET_PACK_ID,
         rule_version=GLOBAL_DIGITAL_ASSETS_RULE_VERSION,
+        calendar=Continuous24x7Calendar(),
     )
 
 
