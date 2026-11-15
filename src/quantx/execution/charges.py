@@ -31,6 +31,8 @@ class PercentageBpsChargeModel:
     def __post_init__(self) -> None:
         if not isinstance(self.rate_bps, Decimal):
             raise TypeError("rate_bps must be a Decimal")
+        if not self.rate_bps.is_finite():
+            raise ValueError("rate_bps must be finite")
         if self.rate_bps < 0:
             raise ValueError("rate_bps cannot be negative")
         if not self.component_name.strip():
