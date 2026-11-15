@@ -86,3 +86,12 @@ def test_zero_rate_is_explicitly_zero() -> None:
 
     assert result.total == Decimal("0")
     assert result.components[0] == ChargeComponent("modeled_fee", Decimal("0"))
+
+
+@pytest.mark.parametrize(
+    "rate_bps",
+    [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")],
+)
+def test_percentage_bps_charge_rejects_non_finite_rate(rate_bps: Decimal) -> None:
+    with pytest.raises(ValueError, match="rate_bps must be finite"):
+        PercentageBpsChargeModel(rate_bps=rate_bps)
