@@ -133,11 +133,25 @@ def test_default_registry_contains_india() -> None:
     assert registry.get_for_context(INDIA_CONTEXT) is not None
 
 
-def test_digital_assets_placeholder_not_implemented() -> None:
-    from quantx.markets.digital_assets import MARKET_IMPLEMENTED, digital_assets_market_module
+def test_digital_assets_pack_is_explicitly_registered_not_default_enabled() -> None:
+    from quantx.markets.digital_assets import (
+        DIGITAL_ASSET_SPOT_RULES,
+        digital_assets_market_module,
+    )
 
-    assert MARKET_IMPLEMENTED is False
-    assert digital_assets_market_module() is None
+    module = digital_assets_market_module()
+    assert module.region is MarketRegion.GLOBAL
+    assert module.market_contexts
+    assert all(rule.synthetic for rule in DIGITAL_ASSET_SPOT_RULES)
+
+    # The default application registry remains India-only. A caller may opt
+    # into the synthetic pack explicitly; this does not confer trading support.
+    default_registry = default_market_registry()
+    assert default_registry.get_for_context(next(iter(module.market_contexts))) is None
+
+    explicit_registry = MarketRegistry()
+    explicit_registry.register(module)
+    assert explicit_registry.get_for_context(next(iter(module.market_contexts))) is module
 
 
 def test_unsupported_market_error_is_value_error() -> None:

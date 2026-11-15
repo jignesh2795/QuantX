@@ -210,6 +210,18 @@ def test_reference_adapter_maps_rejection_without_inventing_a_fill() -> None:
     assert receipt.fills == ()
 
 
+def test_reference_adapter_rejects_absent_time_in_force_before_transport() -> None:
+    request = _request()
+    request = replace(request, order=replace(request.order, time_in_force=None))
+    transport = InMemoryReferenceBrokerTransport(fill_price=Decimal("100"))
+    adapter = _adapter(transport)
+
+    with pytest.raises(ValueError, match="explicit supported time-in-force"):
+        adapter.submit(request)
+
+    assert transport.requests == []
+
+
 def test_reference_adapter_rejects_market_mismatch() -> None:
     wrong_market = replace(
         _instrument(),

@@ -48,6 +48,8 @@ class PaperOrderExecutor:
     ) -> PaperExecutionOutcome:
         if observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
+        if order.time_in_force is None:
+            raise ValueError("paper execution requires an explicit supported time-in-force")
 
         lifecycle = OrderLifecycle(order.client_order_id)
         lifecycle.apply(

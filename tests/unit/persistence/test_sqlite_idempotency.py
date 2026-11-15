@@ -61,7 +61,11 @@ def _instrument() -> Instrument:
     )
 
 
-def _approved_request(client_order_id: UUID | None = None) -> ApprovedExecutionRequest:
+def _approved_request(
+    client_order_id: UUID | None = None,
+    *,
+    time_in_force: TimeInForce | None = TimeInForce.DAY,
+) -> ApprovedExecutionRequest:
     instrument = _instrument()
     from quantx.domain.deployment import (
         ExecutionContext,
@@ -85,7 +89,7 @@ def _approved_request(client_order_id: UUID | None = None) -> ApprovedExecutionR
         side=OrderSide.BUY,
         quantity=Decimal("2"),
         order_type=OrderType.MARKET,
-        time_in_force=TimeInForce.DAY,
+        time_in_force=time_in_force,
         required_margin=Decimal("0"),
         execution_context=context,
     )
@@ -103,8 +107,10 @@ def _approved_request(client_order_id: UUID | None = None) -> ApprovedExecutionR
 def _pending_context(
     client_order_id: UUID,
     fingerprint: str | None = None,
+    *,
+    time_in_force: TimeInForce | None = TimeInForce.DAY,
 ) -> PendingExecutionContext:
-    request = _approved_request(client_order_id)
+    request = _approved_request(client_order_id, time_in_force=time_in_force)
     # A pending context carries the canonical fingerprint of the request it
     # projects: the decode re-derives it and compares.
     return PendingExecutionContext.from_request(
@@ -333,6 +339,31 @@ def test_pending_context_survives_close_and_reopen(tmp_path) -> None:
     assert contexts[0].request_fingerprint == fingerprint
     assert len(records) == 1
     assert records[0].context is not None
+    assert records[0].error is None
+
+
+def test_pending_context_with_absent_time_in_force_survives_close_and_reopen(tmp_path) -> None:
+    path = tmp_path / "quantx.db"
+    client_order_id = uuid4()
+    context = _pending_context(client_order_id, time_in_force=None)
+    fingerprint = context.request_fingerprint
+
+    with SqliteDatabase(path) as database:
+        SqliteIdempotencyStore(database).reserve_or_get(client_order_id, fingerprint, context)
+
+    with SqliteDatabase(path) as reopened:
+        store = SqliteIdempotencyStore(reopened)
+        decision = store.check(client_order_id, fingerprint)
+        contexts = store.list_pending_contexts()
+        records = store.list_pending_recovery_records()
+
+    assert decision.pending_context is not None
+    assert decision.pending_context.order.time_in_force is None
+    assert len(contexts) == 1
+    assert contexts[0].order.time_in_force is None
+    assert len(records) == 1
+    assert records[0].context is not None
+    assert records[0].context.order.time_in_force is None
     assert records[0].error is None
 
 

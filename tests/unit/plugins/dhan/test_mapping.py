@@ -195,3 +195,22 @@ def test_product_mapping_is_adapter_wide_and_makes_no_instrument_specific_claim(
     assert "instrument/segment" not in message
     assert "configured map" in message
     assert dhan_product_type(ProductCode("CNC"), product_map={"CNC": "CNC"}) == "CNC"
+
+
+def test_absent_time_in_force_is_rejected_by_dhan_mapping() -> None:
+    with pytest.raises(ValueError, match="explicit DAY/IOC"):
+        dhan_time_in_force(None)
+
+    with pytest.raises(ValueError, match="explicit DAY/IOC"):
+        build_order_request(
+            instrument_ref=_ref(),
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=Decimal("1"),
+            limit_price=None,
+            stop_price=None,
+            time_in_force=None,
+            correlation_id="no-tif",
+            product_code=ProductCode("CNC"),
+            product_map={"CNC": "CNC"},
+        )

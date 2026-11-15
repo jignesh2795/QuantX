@@ -12,7 +12,7 @@ from quantx.domain.deployment import (
     PortfolioId,
     StrategyDeploymentId,
 )
-from quantx.domain.enums import OrderSide, OrderType, PositionEffect
+from quantx.domain.enums import OrderSide, OrderType, PositionEffect, TimeInForce
 from quantx.domain.execution_request import ApprovedExecutionRequest, build_order_from_intent
 from quantx.domain.instruments import MarketContext, MarketFamily, MarketRegion
 from quantx.domain.order_intents import TradeIntent
@@ -78,6 +78,7 @@ def _request(
     *,
     quantity: Decimal = Decimal("10"),
     order_type: OrderType = OrderType.MARKET,
+    time_in_force: TimeInForce | None = TimeInForce.DAY,
     limit_price: Decimal | None = None,
     stop_price: Decimal | None = None,
     side: OrderSide = OrderSide.BUY,
@@ -107,6 +108,7 @@ def _request(
         side=side,
         quantity=quantity,
         order_type=order_type,
+        time_in_force=time_in_force,
         limit_price=limit_price,
         stop_price=stop_price,
         product=product,
@@ -367,3 +369,14 @@ def test_canonical_datetime_normalizes_offsets_and_rejects_naive_values() -> Non
     assert _canonical_datetime(utc_cut) == _canonical_datetime(ist_cut)
     with pytest.raises(ValueError, match="timezone-aware"):
         _canonical_datetime(datetime(2026, 1, 5, 10, 0))
+
+
+def test_absent_time_in_force_has_distinct_stable_fingerprint() -> None:
+    absent_first = _request(time_in_force=None)
+    absent_second = _request(time_in_force=None)
+    legacy_day = _request(time_in_force=TimeInForce.DAY)
+
+    assert fingerprint_payload(absent_first)["time_in_force"] is None
+    assert request_fingerprint(absent_first) == request_fingerprint(absent_second)
+    assert request_fingerprint(absent_first) != request_fingerprint(legacy_day)
+    assert fingerprint_payload(legacy_day)["time_in_force"] == TimeInForce.DAY.value

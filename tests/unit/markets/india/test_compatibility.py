@@ -328,3 +328,12 @@ def test_snapshot_validation_rejects_blank_identity() -> None:
         _rules(provenance="")
     with pytest.raises(ValueError, match="effective_at must be timezone-aware"):
         _rules(effective_at=datetime(2026, 1, 1, 9, 0))
+
+
+def test_absent_time_in_force_is_rejected() -> None:
+    order = _order(time_in_force=None)
+    result = _compat(order=order)
+    assert result.decision is IndiaRuleDecision.REJECT
+    assert "INDIA_TIF_INVALID" in result.reason
+    tif_check = next(check for check in result.checks if check.name == "time_in_force")
+    assert tif_check.passed is False

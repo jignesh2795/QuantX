@@ -19,7 +19,7 @@ class TradeIntent:
     order_type: OrderType = OrderType.MARKET
     limit_price: Decimal | None = None
     stop_price: Decimal | None = None
-    time_in_force: TimeInForce = TimeInForce.DAY
+    time_in_force: TimeInForce | None = TimeInForce.DAY
     required_margin: Decimal = Decimal("0")
     estimated_order_value: Decimal | None = None
     required_capabilities: frozenset[str] = frozenset()
@@ -32,6 +32,8 @@ class TradeIntent:
     position_effect: PositionEffect | None = None
 
     def __post_init__(self) -> None:
+        if self.time_in_force is not None and not isinstance(self.time_in_force, TimeInForce):
+            raise ValueError("time_in_force must be a TimeInForce or None")
         if self.quantity <= 0:
             raise ValueError("intent quantity must be positive")
         if self.required_margin < 0:

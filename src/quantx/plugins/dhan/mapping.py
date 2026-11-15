@@ -37,7 +37,9 @@ def dhan_order_type(order_type: OrderType) -> str:
     raise ValueError(f"unsupported QuantX order type: {order_type}")
 
 
-def dhan_time_in_force(time_in_force: TimeInForce) -> str:
+def dhan_time_in_force(time_in_force: TimeInForce | None) -> str:
+    if time_in_force is None:
+        raise ValueError("Dhan requires an explicit DAY/IOC time-in-force")
     if time_in_force in {TimeInForce.DAY, TimeInForce.IOC}:
         return time_in_force.value
     raise ValueError(f"Dhan supports only DAY/IOC validity, got {time_in_force}")
@@ -120,7 +122,7 @@ def build_order_request(
     quantity: Decimal,
     limit_price: Decimal | None,
     stop_price: Decimal | None,
-    time_in_force: TimeInForce,
+    time_in_force: TimeInForce | None,
     correlation_id: str,
     product_code: ProductCode | None = None,
     product_map: Mapping[str, str] | None = None,
