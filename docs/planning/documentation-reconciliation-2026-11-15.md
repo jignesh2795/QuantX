@@ -1,9 +1,9 @@
 # QuantX Documentation and Branch Reconciliation
 
-**Audit date:** 2026-11-15  
-**Repository:** [jignesh2795/QuantX](https://github.com/jignesh2795/QuantX)  
-**Audited main HEAD:** 37b6bc8e511ff67b46b42ff00d8cc725d79a0404  
-**Audit branch:** docs/reconcile-quantx-documentation-2026-11-15  
+**Audit date:** 2026-11-15
+**Repository:** [jignesh2795/QuantX](https://github.com/jignesh2795/QuantX)
+**Audited main HEAD:** 37b6bc8e511ff67b46b42ff00d8cc725d79a0404
+**Audit branch:** docs/reconcile-quantx-documentation-2026-11-15
 **Mode:** GitHub-side inspection followed by documentation-only reconciliation on this branch.
 
 ## 1. Executive disposition
