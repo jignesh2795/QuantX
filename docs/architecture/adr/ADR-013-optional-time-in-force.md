@@ -48,13 +48,15 @@ New callers must pass `None` explicitly to represent absence. Dhan mapping
 and the existing generic paper executor reject `None` locally rather than
 translating it.
 
-The inspected persistence boundary stores execution receipts, not serialized
-`Order` or `TradeIntent` objects. The pending-execution identity is
-protected by the canonical request fingerprint. Encoding absence as JSON
-`null` in that fingerprint is distinct from the previous DAY string; no
-receipt schema migration is required by this change. If a future persisted
-order-intent format is introduced, it must round-trip `null` and preserve
-legacy missing-field interpretation as DAY.
+The idempotency store persists execution receipts and a separate, versioned
+`PendingExecutionContext` request projection sufficient for recovery. The
+projection serializes the relevant order fields as JSON rather than storing
+a raw `Order` or `TradeIntent` object. Its existing `time_in_force` field now
+writes JSON `null` for absence and restores that value as `None`; the legacy
+`DAY` value remains the string `"DAY"`. The canonical request fingerprint
+also includes `null`, distinct from the previous DAY string. The existing
+pending-context JSON version already supports this value, so no context or
+receipt schema-version migration is required.
 
 ## Consequences
 
