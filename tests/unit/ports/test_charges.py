@@ -1,5 +1,9 @@
 """Neutral transaction-charge contract ownership regressions."""
 
+from decimal import Decimal
+
+import pytest
+
 import quantx.execution.charges as execution_charges
 import quantx.ports.charges as canonical_charges
 
@@ -24,3 +28,21 @@ def test_percentage_basis_points_model_remains_execution_owned() -> None:
     assert model.__module__ == "quantx.execution.charges"
     assert "PercentageBpsChargeModel" in execution_charges.__all__
     assert not hasattr(canonical_charges, "PercentageBpsChargeModel")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")],
+)
+def test_neutral_charge_context_rejects_non_finite_transaction_value(value: Decimal) -> None:
+    with pytest.raises(ValueError, match="transaction_value must be finite"):
+        canonical_charges.ChargeCalculationContext(transaction_value=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")],
+)
+def test_neutral_charge_component_rejects_non_finite_amount(value: Decimal) -> None:
+    with pytest.raises(ValueError, match="charge component amount must be finite"):
+        canonical_charges.ChargeComponent("fee", value)
