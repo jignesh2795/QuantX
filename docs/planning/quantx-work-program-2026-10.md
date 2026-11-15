@@ -2,9 +2,9 @@
 
 **Status:** Active cross-workstream sequencing and reconciliation record
 
-**Snapshot date:** 2026-11-11
+**Snapshot date:** 2026-11-15
 
-**Baseline reviewed for this reconciliation:** `main` at `4f4646c55751bf1c6c8208bde1ede9b8336772c7` (PR #328 module-disposition merge).
+**Baseline reviewed for this reconciliation:** main at 37b6bc8e511ff67b46b42ff00d8cc725d79a0404 (PR #332 documentation reconciliation merge).
 
 **Purpose:** Keep prior architecture, safety, India-market realism, global-market research, strategy/research delivery, and release-readiness work in one progressable plan.
 
@@ -12,11 +12,11 @@ This is the canonical **active sequencing** document. GitHub issues remain the c
 
 ## 1. Repository snapshot and governance
 
-- Latest `main` baseline used for this programme update: `4f4646c55751bf1c6c8208bde1ede9b8336772c7`.
+- Latest main baseline used for this programme update: 37b6bc8e511ff67b46b42ff00d8cc725d79a0404. See the [2026-11-15 documentation and branch reconciliation](documentation-reconciliation-2026-11-15.md) for the current PR/branch inventory.
 - PR #309 market-module migration is merged; PR #330 completed the project-presentation/onboarding plan at `a4b955b1c64c973dc97bd17cf5bbf10578001fc1` from locally validated candidate `5cfc0999f4dbd214832facf7753c37595568979f`.
 - **Wave C2 / Issue #202 is complete.** PR #327 merged at `a620b3b13f2cd10c9fee19f61e3afd3121f345ff`; PR #328 merged at `4f4646c55751bf1c6c8208bde1ede9b8336772c7` from validated current-base candidate `888f4b1ad5841b54f8f09b872c2d70a31558ed00`. Measured Dhan transport coverage improved from baseline 535/678 lines (76.06%) and 148/220 branches (67.27%) to final 618/678 lines (88.08%) and 173/220 branches (78.64%). The #202 85% line threshold is met; branch coverage is separately reported with no branch threshold specified. The module-disposition changes remove the unused research policy scaffold and retain the execution market-port compatibility shim with an explicit deprecation/removal condition. Issue #202 closed as completed after exact-head default/Dhan validation and release-gate evidence.
 - PR #295 is closed as superseded by #309. PR #306 is closed/superseded by the current public API candidate. PR #308 remains a stale documentation draft; do not reintroduce its snapshot as current policy.
-- PR #329 (#200) remains open with a contract-only slice; its market-rule research has unresolved primary-source acquisition/interpretation gaps. PR #331 (#199) remains open with a corrected provisional API candidate and exact-candidate local validation, but is a separate adoption/stability workstream and is not the next task.
+- PR #329 (#200) was closed without merge on 2026-11-11. Current-main Draft PR #334 is the active per-trade charge candidate at acfc956eb0ef592327634a7ded52255bd86fec2a, based on 37b6bc8...; its local validation is operator-reported PASS. Issue #200 remains open. P13/P15/BSE and UDiFF retrieval/schema findings are now recorded in issue history as operator-reported; unresolved legal/effective-date, production rate, ordinary-trade worked-example, client-incidence/GST and FOPHY taxable-value/join gates remain. PR #331 (#199) was closed without merge as superseded; current-main PR #333 at bc7f218e1279da028a1978c17fb3aa265c2318f0 is open and remains a separate public API/stability workstream.
 - PR #330 preserves the detailed status history in `docs/STATUS_HISTORY.md`; #190 is closed after owner-confirmed Private Vulnerability Reporting UI setup. The Code of Conduct continues to disclose that no dedicated confidential conduct contact route has been published.
 - The parent M4 exit criterion is met; M4.5.1–M4.5.4 and issue #322 are complete. The market-module migration and presentation plan are complete within their approved scope.
 
@@ -90,9 +90,9 @@ QX-08 M1–M4 and its T1–T8/G1–G3 acceptance reconciliation remain complete.
 
 | Rank | Issue | Next required outcome |
 |---|---|---|
-| D1 | [#200 effective-dated India charges schedule](https://github.com/jignesh2795/QuantX/issues/200) | The contract-only PR #329 is open. Retain the current charge contract and synthetic fixtures; no production tariff activation or paper-execution wiring. P13 Item 21 and the SEBI 15-Oct-2026 circular are recorded in operator-supplied local research. The latest operator report marks P15 `NCL/CMPT/77212`, predecessors `73370` / `76951`, and BSE `20261030-51` attachments UNVERIFIED/BLOCKED because rendered-browser/DevTools capture was not obtained. Resolve legal/clearing uncertainties before production rules. |
+| D1 | [#200 effective-dated India charges schedule](https://github.com/jignesh2795/QuantX/issues/200) | Issue remains OPEN. Current-main Draft PR #334 (acfc956eb0ef592327634a7ded52255bd86fec2a) is the per-trade candidate, 3 commits ahead / 0 behind. Exact-head validation is operator-reported PASS. PR #329 was closed without merge. Issue history now contains operator-reported P13/P15/BSE and UDiFF retrieval/schema findings; remaining blockers include legal/effective-date interpretation, authoritative production-rate provenance, client-incidence/GST treatment, ordinary-trade worked examples, FOPHY taxable-value mapping and matched clearing-record evidence. Physical-settlement and clearing calculators are excluded from PR #334. No production tariff activation or execution wiring. |
 | Completed | [#201 finite Decimal-only Money](https://github.com/jignesh2795/QuantX/issues/201) | PR #310; validated candidate `24e3a3bc6205c6d8d5f7733d63c79a2ce94b0617`; squash merge `a2007f6a04859368608a42cd3898244382151a5a`. |
-| D3 — deferred | [#199 curated provisional public API](https://github.com/jignesh2795/QuantX/issues/199) | PR #331 contains the provisional `quantx.api` candidate at `71372da3845740e3a134d3735fbf1e4280f3c45f`. It has an operator-reported exact-candidate default/Dhan validation PASS against the prior base, but main advanced in PR #330. Revalidate against current main before any merge. Keep this separate from the immediate #202 work. |
+| D3 — deferred | [#199 curated provisional public API](https://github.com/jignesh2795/QuantX/issues/199) | PR #331 was closed without merge as superseded. Current-main PR #333 is open at bc7f218e1279da028a1978c17fb3aa265c2318f0, based on 37b6bc8...; validation is operator-reported. Keep this separate from #200. |
 
 The charges contract/design is available in `docs/planning/india-market-charges-design.md`; source and unresolved rule evidence are recorded in `docs/planning/risk-charges-evidence-reconciliation.md`. These documents are design/research inputs only. Do not treat a synthetic fixture, secondary transcription, or rate label as proof of regulatory authority.
 
@@ -113,7 +113,7 @@ Issue [#207](https://github.com/jignesh2795/QuantX/issues/207) remains the meta 
 
 The pinned-source comparison in [`docs/research/2026-11-global-architecture-comparison.md`](../research/2026-11-global-architecture-comparison.md) completes this research deliverable. It records source revisions, implementation/test paths, QuantX equivalents and adopt/adapt/defer/reject decisions for LEAN, NautilusTrader, Hummingbot, OpenAlgo, CCXT and official Indian broker SDKs.
 
-The comparison does **not** establish global-market, crypto or additional broker support. The market-module migration remains merged; India is still the only implemented market and the digital-assets module remains interface-only. The global architecture and crypto proposals remain unmerged design references. Do not merge them wholesale, split the repository or broaden India-only LIVE policy.
+The comparison does **not** establish global-market, crypto or additional broker support. The market-module migration remains merged; India is still the only implemented market and the digital-assets module remains interface-only. The global architecture proposal branch docs/global-architecture-proposal-2026-10, crypto proposal branch docs/crypto-market-extension-plan, and scope-restoration branch docs/quantx-scope-restoration-audit-v1 remain unmerged references. ADR-013 remains only on the S1 feature branch. Do not merge them wholesale, split the repository or broaden India-only LIVE policy.
 
 ### Research conclusion and next bounded vertical
 
@@ -139,7 +139,7 @@ The approved presentation/onboarding plan is **complete** through [PR #330](http
 | Community files, README and package metadata | **Completed within PR #330** — Code of Conduct, Security Policy, Changelog, CODEOWNERS, issue/PR templates, package URLs/metadata and navigation are present. | Do not invent personal author email or a dedicated confidential conduct contact route; the current documents disclose those limitations. |
 | Status history/navigation | **Completed within PR #330** — concise `docs/STATUS.md` plus preserved `docs/STATUS_HISTORY.md`. | Keep the concise status and this master programme current; do not create a new permanent doc for each batch. |
 | Security disclosure | **Completed for #190** — issue closed after owner-confirmed GitHub Private Vulnerability Reporting UI and notification checks. | No response SLA or API verification is claimed. |
-| Curated Python API | **Open / separate** — #199; PR #331 contains the current provisional API candidate. | Reconcile and validate against current main before any merge. This is not a blocker for the completed presentation plan. |
+| Curated Python API | **Open / separate** — #199; current-main PR #333 is the active candidate. PR #331 was closed without merge. | Review and validate PR #333 against its exact head; this is not a blocker for the completed presentation plan. |
 | CI presentation | GitHub Actions/paid CI remains unavailable by project policy. | No CI badge or green-CI claim. Continue exact-SHA local validation. |
 
 Issue #206 conformance tests and versioned schemas remain sequenced after #199's stability policy. #203 remains conditional on safe non-production sandbox access; #205 remains deferred until reliable Python 3.13 validation is available.
@@ -181,9 +181,9 @@ The following remain later/deferred platform work and are not part of the single
 
 - **#267 and #266 remain blocked.** #267 requires a credible alternative authoritative risk-evidence provider/source; keep the pre-collection/no-reservation/no-submit boundary. #266 remains blocked on the missing 0/7 required fixtures; preserve realized-only `daily_pnl`, current `max_drawdown` and the documented session-equity contract.
 - **Wave C2 / #202 is complete** in PRs #327/#328; preserve the measured baseline/final line and branch coverage and the compatibility-shim deprecation decision. Do not reopen or expand into general architecture cleanup without a new issue and evidence.
-- **Next actionable work: Wave D / #200 effective-dated India charges**, subject to its primary-source/legal gates. PR #329 is still contract-only; P13/SEBI evidence is operator-supplied, while P15, its predecessors and BSE joint-SOP attachments remain UNVERIFIED/BLOCKED under the latest retrieval report. No production rates or physical-settlement wiring until authoritative sources and interpretation are established.
-- **#200** remains the India charges-schedule workstream; PR #329 is contract-only. P13/SEBI local evidence is operator-supplied; P15, its predecessors and the BSE joint SOP are UNVERIFIED/BLOCKED under the latest retrieval report. No guessed production rate or physical-settlement implementation.
-- **#199** remains open in PR #331. The earlier draft PR #306 is superseded; do not revive it. Revalidate #331 against current main only if/when this public API work is selected.
+- **Next actionable work: Wave D / #200 effective-dated India charges**, currently represented by Draft PR #334 on current main. Its per-trade scope is bounded; production schedule/effective-date/legal, client-incidence/GST and ordinary-trade worked-example gates remain. The issue's official-source and UDiFF schema findings are operator-reported; FOPHY taxable-value mapping, matched clearing-record joins and correction/reversal behavior remain UNKNOWN. PR #329 was closed without merge and is not shipped functionality.
+- **#200** remains OPEN. Keep physical settlement, State/UT and clearing workflows deferred from PR #334; no production tariff activation or execution wiring is claimed.
+- **#199** remains OPEN in current-main PR #333. PR #331 was closed without merge as superseded; PR #306 is superseded and must not be revived.
 - **#190** is closed. The presentation plan is complete; the Code of Conduct's lack of a dedicated confidential contact route remains disclosed rather than fabricated.
 - **#203** remains conditional on safe broker sandbox access. **#205** remains deferred until reliable Python 3.13 validation infrastructure exists. Sequence #206 after #199's public API/stability policy.
 
