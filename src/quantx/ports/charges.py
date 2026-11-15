@@ -17,6 +17,8 @@ class ChargeCalculationContext:
     def __post_init__(self) -> None:
         if not isinstance(self.transaction_value, Decimal):
             raise TypeError("transaction_value must be a Decimal")
+        if not self.transaction_value.is_finite():
+            raise ValueError("transaction_value must be finite")
         if self.transaction_value < 0:
             raise ValueError("transaction_value cannot be negative")
         if self.currency is not None and not self.currency.strip():
@@ -35,6 +37,8 @@ class ChargeComponent:
             raise ValueError("charge component name must not be empty")
         if not isinstance(self.amount, Decimal):
             raise TypeError("charge component amount must be a Decimal")
+        if not self.amount.is_finite():
+            raise ValueError("charge component amount must be finite")
         if self.amount < 0:
             raise ValueError("charge component amount cannot be negative")
 
