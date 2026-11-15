@@ -91,7 +91,7 @@ def test_markets_india_dependencies_are_allowed() -> None:
 def test_digital_assets_is_minimal() -> None:
     path = SOURCE_ROOT / "markets" / "digital_assets" / "__init__.py"
     source = path.read_text(encoding="utf-8")
-    assert "MARKET_IMPLEMENTED = False" in source
+    assert "MARKET_IMPLEMENTED = True" in source
     assert "digital_assets_market_module" in source
     assert "quantx." not in source
 

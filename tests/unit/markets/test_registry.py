@@ -133,11 +133,13 @@ def test_default_registry_contains_india() -> None:
     assert registry.get_for_context(INDIA_CONTEXT) is not None
 
 
-def test_digital_assets_placeholder_not_implemented() -> None:
+def test_digital_assets_module_is_implemented() -> None:
     from quantx.markets.digital_assets import MARKET_IMPLEMENTED, digital_assets_market_module
 
-    assert MARKET_IMPLEMENTED is False
-    assert digital_assets_market_module() is None
+    assert MARKET_IMPLEMENTED is True
+    module = digital_assets_market_module()
+    assert module is not None
+    assert module.region.value == "GLOBAL"
 
 
 def test_unsupported_market_error_is_value_error() -> None:
