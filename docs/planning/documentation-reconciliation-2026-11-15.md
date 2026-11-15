@@ -85,7 +85,7 @@ The following branch contents were verified on GitHub. A branch name or committe
 | docs/crypto-market-extension-plan | 2b9e22440537d57dc98141f797d3980a74bf7851 | 3 ahead / 235 behind; diverged | Adds docs/planning/crypto-market-extension-plan.md and docs/roadmap/digital-assets-market-expansion.md; adjusts global-market and roadmap indexes. Planning proposal only. |
 | docs/quantx-scope-restoration-audit-v1 | 350b55dba172af69b3e08b585d89b2d19a3ab2e5 | 1 ahead / 0 behind | Adds docs/planning/quantx-product-scope-and-delivery-roadmap.md. Proposes an India-first product scope with a global-neutral architecture; not merged or formally adopted. |
 | docs/global-market-plan-reconciliation-2026-11-09 | f60a8cc249b20cc4fe1c25695da09dab48379a7f | 2 ahead / 14 behind; diverged | Reconciles older STATUS, global-market and work-programme wording. Older-base reconciliation branch, not a current-main update. |
-| feat/qtqx-s1-global-digital-assets-pack-v1 | ce01cbd63148a26785fe10eb48258f4e12a4b9a0 | 6 ahead / 0 behind | Adds ADR-013 and digital-assets market-pack code/tests. No PR is open. The latest supplied exact-SHA validation report for this HEAD recorded failures; it is not approved, merged or supported crypto functionality. |
+| [PR #337](https://github.com/jignesh2795/QuantX/pull/337) / `feat/qtqx-s1-global-digital-assets-pack-v1` | `dd7f4a152ebf90765148493174ea7bfe8e1a45da` | 10 ahead / 0 behind; open Draft PR | Adds ADR-013 and a synthetic Binance BTC/USDT + ETH/USDT Digital Assets spot pack, optional-TIF semantics and rule/calendar guards. It is a registration-compatible synthetic market module only: no exchange connectivity, account, broker transport, production rule authority or crypto trading capability. Earlier validation was bound to `2040f54...`; current head requires fresh exact-SHA validation. Do not represent this as shipped crypto support. |
 
 ### Issue-specific branch caution
 
@@ -109,7 +109,7 @@ The canonical status and roadmap pages are corrected so they no longer say PR #3
 
 The stale statement that P15 and companion source attachments were unavailable is replaced with the newer, carefully qualified Issue #200 / PR #334 evidence posture: retrieval and schema findings are operator-reported; unresolved interpretation and data gates remain open.
 
-The global product vision, crypto roadmap, scope-restoration audit and ADR-013 are indexed as branch-only references with explicit proposal/implementation status. None is silently promoted into accepted architecture or active implementation.
+The global product vision, crypto roadmap and scope-restoration audit remain proposal-only references. ADR-013 and the synthetic Digital Assets pack are now in open Draft PR #337; they are not merged or accepted on main. The PR does not establish venue connectivity or crypto trading support.
 
 ## 7. Recommended disposition
 
