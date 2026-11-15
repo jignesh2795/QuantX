@@ -13,13 +13,14 @@ The slice deliberately does not embed current broker tariffs, Indian statutory r
 
 ## Charge contract
 
-src/quantx/execution/charges.py defines:
+src/quantx/ports/charges.py owns the vendor- and market-neutral contracts:
 
 - ChargeCalculationContext: explicit transaction value and optional settlement currency;
 - ChargeComponent: one non-negative, Decimal-valued named component;
 - ChargeBreakdown: immutable components plus model identity/version/provenance;
-- ChargeModel: deterministic calculation port;
-- PercentageBpsChargeModel: generic configured percentage model.
+- ChargeModel: deterministic calculation port.
+
+src/quantx/execution/charges.py re-exports those same contract objects for compatibility and keeps PercentageBpsChargeModel, the generic configured percentage implementation used by paper/research execution. India-specific schedules import the neutral contracts directly from quantx.ports.charges; the neutral port layer contains no India tariffs.
 
 ChargeBreakdown.total is the authoritative aggregate of its components.
 
