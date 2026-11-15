@@ -59,7 +59,9 @@ def market_status_for_rule(
     try:
         normalized = DigitalAssetTradingStatus(rule_trading_status.strip().upper())
     except ValueError as exc:
-        raise ValueError(f"unsupported digital-asset trading status: {rule_trading_status!r}") from exc
+        raise ValueError(
+            f"unsupported digital-asset trading status: {rule_trading_status!r}"
+        ) from exc
     enabled = normalized is DigitalAssetTradingStatus.TRADING
     reason = "" if enabled else f"instrument trading status is {normalized.value}"
     return DigitalAssetMarketStatus(

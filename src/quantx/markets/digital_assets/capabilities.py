@@ -30,7 +30,8 @@ DIGITAL_ASSETS_SPOT_CAPABILITIES: frozenset[DigitalAssetOrderCapability] = froze
 
 
 def supports_order(order_type: OrderType, time_in_force: TimeInForce | None) -> bool:
-    return DigitalAssetOrderCapability(order_type, time_in_force) in DIGITAL_ASSETS_SPOT_CAPABILITIES
+    capability = DigitalAssetOrderCapability(order_type, time_in_force)
+    return capability in DIGITAL_ASSETS_SPOT_CAPABILITIES
 
 
 __all__ = [

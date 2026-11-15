@@ -16,11 +16,11 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from typing import Any
 
-from .capabilities import supports_order
-from .clock import DigitalAssetTradingStatus
-
 from quantx.domain.enums import OrderType, TimeInForce
 from quantx.domain.value_objects import InstrumentId
+
+from .capabilities import supports_order
+from .clock import DigitalAssetTradingStatus
 
 
 def _require_decimal(value: Any, name: str) -> Decimal:
@@ -161,7 +161,9 @@ class DigitalAssetSpotRule:
         try:
             trading_status = DigitalAssetTradingStatus(self.trading_status.upper())
         except ValueError as exc:
-            raise ValueError(f"unsupported digital-asset trading status: {self.trading_status!r}") from exc
+            raise ValueError(
+                f"unsupported digital-asset trading status: {self.trading_status!r}"
+            ) from exc
         object.__setattr__(self, "trading_status", trading_status.value)
 
         if not isinstance(self.supported_order_types, frozenset) or not self.supported_order_types:
@@ -364,6 +366,7 @@ class DigitalAssetSpotRule:
             raise ValueError("supported_time_in_force entries must be strings or null")
         if len(set(tifs)) != len(tifs):
             raise ValueError("supported_time_in_force must not contain duplicates")
+
         def _parse_dt(value: Any, name: str) -> datetime | None:
             if value is None:
                 return None
@@ -403,7 +406,9 @@ class DigitalAssetSpotRule:
             rule_source=_require_string(payload["rule_source"], "rule_source"),
             source_payload_hash=payload["source_payload_hash"],
             parser_version=_require_string(payload["parser_version"], "parser_version"),
-            effective_from=_parse_dt(payload["effective_from"], "effective_from"),  # type: ignore[arg-type]
+            effective_from=_parse_dt(  # type: ignore[arg-type]
+                payload["effective_from"], "effective_from"
+            ),
             effective_to=_parse_dt(payload["effective_to"], "effective_to"),
             observed_at=_parse_dt(payload["observed_at"], "observed_at"),  # type: ignore[arg-type]
             synthetic=payload["synthetic"],

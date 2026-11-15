@@ -98,6 +98,10 @@ class ReferenceBrokerAdapter:
             raise ValueError("reference broker does not know the requested instrument")
         if broker_instrument.market != request.execution_context.market:
             raise ValueError("reference broker instrument market does not match request market")
+        if request.order.time_in_force is None:
+            raise ValueError(
+                "reference broker requires an explicit supported time-in-force"
+            )
 
         wire_request = ReferenceOrderRequest(
             client_order_id=request.order.client_order_id,
