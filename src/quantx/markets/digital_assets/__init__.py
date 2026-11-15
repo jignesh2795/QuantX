@@ -1,4 +1,4 @@
-"""Synthetic Global Digital Assets spot pack; no venue execution capability."""
+"""Synthetic spot pack for Global Digital Assets; no venue execution capability."""
 
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ from .normalization import normalize_symbol, resolve_instrument_id
 from .rules import (
     BTC_USDT_SPOT_RULE,
     DIGITAL_ASSET_SPOT_RULES,
-    ETH_USDT_SPOT_RULE,
     DigitalAssetSpotRule,
+    ETH_USDT_SPOT_RULE,
     parse_decimal,
     rule_for_instrument,
     rule_for_symbol,
