@@ -31,13 +31,12 @@ from .normalization import normalize_symbol, resolve_instrument_id
 from .rules import (
     BTC_USDT_SPOT_RULE,
     DIGITAL_ASSET_SPOT_RULES,
-    DigitalAssetSpotRule,
     ETH_USDT_SPOT_RULE,
+    DigitalAssetSpotRule,
     parse_decimal,
     rule_for_instrument,
     rule_for_symbol,
 )
-
 
 __all__ = [
     "BTC_USDT_SPOT_RULE",
