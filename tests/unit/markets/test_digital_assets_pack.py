@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -99,6 +99,23 @@ def test_decimal_round_trip_exact() -> None:
     assert rebuilt == BTC_USDT_SPOT_RULE
     assert rebuilt.price_tick == Decimal("0.01")
     assert rebuilt.quantity_step == Decimal("0.00001")
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"canonical_symbol": "ETH/USDT"}, "canonical_symbol must match"),
+        ({"base_asset": "ETH"}, "canonical_symbol must match"),
+        ({"venue_symbol": "ETHUSDT"}, "venue_symbol must match"),
+        (
+            {"instrument_id": InstrumentId("BINANCE", "ETHUSDT")},
+            "venue_symbol must match",
+        ),
+    ],
+)
+def test_rule_identity_fields_must_be_coherent(changes, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        replace(BTC_USDT_SPOT_RULE, source_payload_hash="", **changes)
 
 
 def test_invalid_constraints_rejected() -> None:
@@ -330,6 +347,17 @@ def test_continuous_clock_independent_of_trading_status() -> None:
     ts = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
     classification = cal.classify(ts)
     assert classification.status.value == "OPEN"
+    assert classification.timezone == "UTC"
+    assert classification.timestamp.tzinfo is UTC
+
+    non_utc = datetime(2026, 7, 4, 7, 0, tzinfo=timezone(timedelta(hours=-5)))
+    normalized = cal.classify(non_utc)
+    assert normalized.timestamp == non_utc.astimezone(UTC)
+    assert normalized.timestamp.tzinfo is UTC
+
+    module = digital_assets_market_module()
+    assert isinstance(module.calendar, Continuous24x7Calendar)
+
     status = market_status_for_rule(DigitalAssetTradingStatus.HALTED)
     assert status.market_clock_open is True
     assert status.instrument_trading_enabled is False
