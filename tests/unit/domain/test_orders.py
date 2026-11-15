@@ -2,6 +2,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from quantx.domain.enums import TimeInForce
 from quantx.domain.orders import Order
 
 
@@ -60,3 +61,17 @@ def test_no_coercion() -> None:
     value = str(uuid4())
     with pytest.raises(ValueError):
         _minimal_order(client_order_id=value)
+
+
+
+def test_order_preserves_legacy_day_time_in_force_default() -> None:
+    assert _minimal_order().time_in_force is TimeInForce.DAY
+
+
+def test_order_accepts_explicit_absent_time_in_force() -> None:
+    assert _minimal_order(time_in_force=None).time_in_force is None
+
+
+def test_order_rejects_non_enum_time_in_force() -> None:
+    with pytest.raises(ValueError, match="TimeInForce or None"):
+        _minimal_order(time_in_force="GTC")

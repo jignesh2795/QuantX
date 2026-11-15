@@ -121,7 +121,11 @@ def fingerprint_payload(request: FingerprintableRequest) -> dict[str, object]:
         "quantity": request.order.quantity,
         "limit_price": request.order.limit_price,
         "stop_price": request.order.stop_price,
-        "time_in_force": request.order.time_in_force.value,
+        "time_in_force": (
+            None
+            if request.order.time_in_force is None
+            else request.order.time_in_force.value
+        ),
         "account_id": str(request.execution_context.account_id.value),
         "portfolio_id": str(request.execution_context.portfolio_id.value),
         "deployment_id": str(request.execution_context.deployment_id.value),

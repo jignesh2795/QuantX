@@ -9,6 +9,7 @@ from .capabilities import (
 from .clock import (
     Continuous24x7Calendar,
     DigitalAssetMarketStatus,
+    DigitalAssetTradingStatus,
     market_status_for_rule,
 )
 from .constants import (
@@ -46,6 +47,7 @@ __all__ = [
     "DIGITAL_ASSETS_SPOT_CAPABILITIES",
     "DIGITAL_ASSETS_SPOT_PRODUCT",
     "DigitalAssetMarketStatus",
+    "DigitalAssetTradingStatus",
     "DigitalAssetSpotRule",
     "ETH_USDT_SPOT_RULE",
     "GLOBAL_DIGITAL_ASSETS_MARKET",

@@ -26,7 +26,7 @@ class Order:
     quantity: Decimal
     limit_price: Decimal | None = None
     stop_price: Decimal | None = None
-    time_in_force: TimeInForce = TimeInForce.DAY
+    time_in_force: TimeInForce | None = TimeInForce.DAY
     client_order_id: UUID = field(default_factory=uuid4)
     status: OrderStatus = OrderStatus.CREATED
     created_at: datetime = field(default_factory=utc_now)
@@ -42,6 +42,8 @@ class Order:
             raise ValueError("client_order_id must be a UUID")
         if self.quantity <= 0:
             raise ValueError("order quantity must be positive")
+        if self.time_in_force is not None and not isinstance(self.time_in_force, TimeInForce):
+            raise ValueError("time_in_force must be a TimeInForce or None")
         if self.order_type in {OrderType.LIMIT, OrderType.STOP_LIMIT} and self.limit_price is None:
             raise ValueError("limit_price is required for limit orders")
         if self.order_type in {OrderType.STOP, OrderType.STOP_LIMIT} and self.stop_price is None:

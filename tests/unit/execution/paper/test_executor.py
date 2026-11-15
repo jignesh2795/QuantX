@@ -25,7 +25,7 @@ from quantx.execution.paper.profile import (
 def make_order(
     order_type=OrderType.MARKET,
     quantity=Decimal("2"),
-    time_in_force=TimeInForce.DAY,
+    time_in_force: TimeInForce | None = TimeInForce.DAY,
 ) -> Order:
     limit_price = Decimal("100") if order_type in {OrderType.LIMIT, OrderType.STOP_LIMIT} else None
     stop_price = Decimal("100") if order_type in {OrderType.STOP, OrderType.STOP_LIMIT} else None
@@ -362,3 +362,14 @@ def test_fill_requires_timestamp_when_present() -> None:
         assert "fill_at_ns is required" in str(exc)
     else:
         raise AssertionError("missing fill timestamp was accepted")
+
+
+
+def test_absent_time_in_force_is_rejected_by_paper_executor() -> None:
+    with pytest.raises(ValueError, match="explicit supported time-in-force"):
+        make_executor().execute(
+            make_order(time_in_force=None),
+            snapshot=MarketSnapshot(Decimal("99"), Decimal("100"), Decimal("99.5")),
+            submitted_at_ns=1_000_000_000,
+            observed_at=datetime.now(UTC),
+        )

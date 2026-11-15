@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import hashlib
+import json
+import re
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -17,6 +21,7 @@ from quantx.markets.digital_assets import (
 from quantx.markets.digital_assets.capabilities import supports_order
 from quantx.markets.digital_assets.clock import (
     Continuous24x7Calendar,
+    DigitalAssetTradingStatus,
     market_status_for_rule,
 )
 from quantx.markets.digital_assets.constants import (
@@ -105,6 +110,10 @@ def test_invalid_constraints_rejected() -> None:
         DigitalAssetSpotRule.from_payload(
             _mutate(BTC_USDT_SPOT_RULE.to_payload(), quantity_min="10", quantity_max="1")
         )
+    with pytest.raises(ValueError, match="quantity_min must align"):
+        DigitalAssetSpotRule.from_payload(
+            _mutate(BTC_USDT_SPOT_RULE.to_payload(), quantity_min="0.000011")
+        )
 
 
 def _mutate(payload, **overrides):
@@ -113,13 +122,133 @@ def _mutate(payload, **overrides):
     return result
 
 
-def test_expired_missing_incompatible_snapshots_fail_closed() -> None:
-    # missing payload field
+def test_missing_rule_snapshot_field_fails_closed() -> None:
     payload = BTC_USDT_SPOT_RULE.to_payload()
     del payload["source_payload_hash"]
     with pytest.raises(ValueError):
         DigitalAssetSpotRule.from_payload(payload)
-    # incompatible market pack identity is not on the rule, but verifier covers policy identity
+
+
+def test_rule_effective_and_observation_time_are_evaluated_separately() -> None:
+    rule = BTC_USDT_SPOT_RULE
+    before_effective = rule.effective_from - timedelta(microseconds=1)
+    before_observed = rule.observed_at - timedelta(microseconds=1)
+
+    assert rule.is_effective_at(before_effective) is False
+    assert rule.is_effective_at(rule.effective_from) is True
+    assert rule.is_observable_at(before_observed) is False
+    assert rule.is_observable_at(rule.observed_at) is True
+    assert rule.is_valid_at(before_observed) is False
+    assert rule.is_valid_at(rule.observed_at) is True
+    assert rule.is_effective_at(rule.observed_at + timedelta(days=365)) is True
+
+    assert rule.is_usable_at(
+        rule.observed_at,
+        market_pack_id=rule.market_pack_id,
+        rule_version=rule.rule_version,
+    )
+    assert not rule.is_usable_at(
+        rule.observed_at,
+        market_pack_id=rule.market_pack_id,
+        rule_version="incompatible-version",
+    )
+
+
+def test_rule_effective_end_is_exclusive() -> None:
+    effective_to = datetime(2026, 1, 2, tzinfo=UTC)
+    bounded = replace(BTC_USDT_SPOT_RULE, effective_to=effective_to, source_payload_hash="")
+    assert bounded.is_effective_at(effective_to - timedelta(microseconds=1))
+    assert not bounded.is_effective_at(effective_to)
+    assert not bounded.is_valid_at(effective_to)
+
+
+def test_rule_time_methods_reject_naive_instants() -> None:
+    naive = datetime(2026, 1, 1)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        BTC_USDT_SPOT_RULE.is_effective_at(naive)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        BTC_USDT_SPOT_RULE.is_observable_at(naive)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        BTC_USDT_SPOT_RULE.is_valid_at(naive)
+
+
+def test_quantity_price_and_reference_notional_validation() -> None:
+    rule = BTC_USDT_SPOT_RULE
+    assert rule.validate_quantity(Decimal("0.00001")) == Decimal("0.00001")
+    assert rule.validate_quantity(Decimal("1.23456")) == Decimal("1.23456")
+    with pytest.raises(ValueError, match="outside the rule bounds"):
+        rule.validate_quantity(Decimal("0.000001"))
+    with pytest.raises(ValueError, match="outside the rule bounds"):
+        rule.validate_quantity(Decimal("9000.00001"))
+    with pytest.raises(ValueError, match="quantity_step"):
+        rule.validate_quantity(Decimal("0.000015"))
+
+    assert rule.validate_limit_price(Decimal("100.01")) == Decimal("100.01")
+    with pytest.raises(ValueError, match="price_tick"):
+        rule.validate_limit_price(Decimal("100.001"))
+
+    assert rule.validate_reference_notional(Decimal("0.00001"), Decimal("500000")) == Decimal("5.00000")
+    with pytest.raises(ValueError, match="below min_notional"):
+        rule.validate_reference_notional(Decimal("0.00001"), Decimal("499999"))
+    assert rule.validate_reference_notional(Decimal("1"), Decimal("9000000")) == Decimal("9000000")
+    with pytest.raises(ValueError, match="exceeds max_notional"):
+        rule.validate_reference_notional(Decimal("1"), Decimal("9000000.01"))
+    with pytest.raises(ValueError, match="reference_price is required"):
+        rule.validate_reference_notional(Decimal("1"), None)
+    with pytest.raises(ValueError):
+        rule.validate_reference_notional(Decimal("1"), Decimal("0"))
+
+
+def test_decimal_validation_boundaries_reject_float_and_bool() -> None:
+    rule = BTC_USDT_SPOT_RULE
+    with pytest.raises(TypeError):
+        rule.validate_quantity(1.0)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        rule.validate_quantity(True)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        rule.validate_limit_price(1.0)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        rule.validate_reference_notional(Decimal("1"), 10.0)  # type: ignore[arg-type]
+
+
+def test_synthetic_fixture_digest_covers_canonical_rule_payload() -> None:
+    for rule in DIGITAL_ASSET_SPOT_RULES:
+        digest = rule.source_payload_hash
+        assert re.fullmatch(r"synthetic-local:sha256:[0-9a-f]{64}", digest)
+        payload = rule.to_payload()
+        payload.pop("source_payload_hash")
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        assert digest == "synthetic-local:sha256:" + hashlib.sha256(
+            canonical.encode("utf-8")
+        ).hexdigest()
+
+
+def test_synthetic_digest_changes_when_material_rule_changes() -> None:
+    changed = replace(BTC_USDT_SPOT_RULE, price_tick=Decimal("0.02"), source_payload_hash="")
+    assert changed.source_payload_hash != BTC_USDT_SPOT_RULE.source_payload_hash
+
+    payload = BTC_USDT_SPOT_RULE.to_payload()
+    payload["price_tick"] = "0.02"
+    with pytest.raises(ValueError, match="does not match the canonical rule payload"):
+        DigitalAssetSpotRule.from_payload(payload)
+
+
+def test_rule_payload_is_defensively_materialized() -> None:
+    payload = BTC_USDT_SPOT_RULE.to_payload()
+    payload["supported_time_in_force"].append("IOC")
+    payload["instrument_id"]["symbol"] = "CHANGED"
+    rebuilt = BTC_USDT_SPOT_RULE.to_payload()
+    assert "IOC" not in rebuilt["supported_time_in_force"]
+    assert rebuilt["instrument_id"]["symbol"] == "BTCUSDT"
+
+
+def test_unknown_trading_status_fails_closed() -> None:
+    with pytest.raises(ValueError, match="unsupported digital-asset trading status"):
+        replace(BTC_USDT_SPOT_RULE, trading_status="UNKNOWN_STATUS", source_payload_hash="")
+    with pytest.raises(ValueError, match="unsupported digital-asset trading status"):
+        market_status_for_rule("UNKNOWN_STATUS")
 
 
 def test_floats_and_bools_rejected() -> None:
@@ -180,10 +309,21 @@ def test_spot_position_effect_not_applicable() -> None:
 def test_order_tif_capability_matrix() -> None:
     from quantx.domain.enums import OrderType, TimeInForce
 
-    assert supports_order(OrderType.MARKET, TimeInForce.GTC) is True
+    assert supports_order(OrderType.MARKET, None) is True
     assert supports_order(OrderType.LIMIT, TimeInForce.GTC) is True
+    assert supports_order(OrderType.MARKET, TimeInForce.GTC) is False
+    assert supports_order(OrderType.MARKET, TimeInForce.DAY) is False
     assert supports_order(OrderType.MARKET, TimeInForce.IOC) is False
+    assert supports_order(OrderType.MARKET, TimeInForce.FOK) is False
+    assert supports_order(OrderType.LIMIT, None) is False
+    assert supports_order(OrderType.LIMIT, TimeInForce.DAY) is False
+    assert supports_order(OrderType.LIMIT, TimeInForce.IOC) is False
+    assert supports_order(OrderType.LIMIT, TimeInForce.FOK) is False
     assert supports_order(OrderType.STOP, TimeInForce.GTC) is False
+
+    assert BTC_USDT_SPOT_RULE.supports(OrderType.MARKET, None) is True
+    assert BTC_USDT_SPOT_RULE.supports(OrderType.MARKET, TimeInForce.GTC) is False
+    assert BTC_USDT_SPOT_RULE.supports(OrderType.LIMIT, TimeInForce.GTC) is True
 
 
 def test_continuous_clock_independent_of_trading_status() -> None:
@@ -191,7 +331,7 @@ def test_continuous_clock_independent_of_trading_status() -> None:
     ts = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
     classification = cal.classify(ts)
     assert classification.status.value == "OPEN"
-    status = market_status_for_rule("HALTED")
+    status = market_status_for_rule(DigitalAssetTradingStatus.HALTED)
     assert status.market_clock_open is True
     assert status.instrument_trading_enabled is False
     assert status.can_trade is False
@@ -212,7 +352,7 @@ def test_synthetic_provenance_present() -> None:
     for rule in DIGITAL_ASSET_SPOT_RULES:
         assert rule.synthetic is True
         assert "synthetic" in rule.rule_source.lower()
-        assert rule.source_payload_hash.startswith("synthetic-local:")
+        assert re.fullmatch(r"synthetic-local:sha256:[0-9a-f]{64}", rule.source_payload_hash)
 
 
 def test_rule_for_instrument() -> None:

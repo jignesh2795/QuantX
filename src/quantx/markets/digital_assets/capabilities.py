@@ -10,29 +10,27 @@ from quantx.domain.enums import OrderType, TimeInForce
 @dataclass(frozen=True, slots=True)
 class DigitalAssetOrderCapability:
     order_type: OrderType
-    time_in_force: TimeInForce
+    time_in_force: TimeInForce | None
 
     def __post_init__(self) -> None:
         if not isinstance(self.order_type, OrderType):
             raise TypeError("order_type must be an OrderType")
-        if not isinstance(self.time_in_force, TimeInForce):
-            raise TypeError("time_in_force must be a TimeInForce")
+        if self.time_in_force is not None and not isinstance(self.time_in_force, TimeInForce):
+            raise TypeError("time_in_force must be a TimeInForce or None")
 
 
-# Only combinations that the canonical contracts can represent honestly.
+# Absence is a real capability value, not an invented TimeInForce enum member.
+# These pairs must not be interpreted as a cross-product of supported sets.
 DIGITAL_ASSETS_SPOT_CAPABILITIES: frozenset[DigitalAssetOrderCapability] = frozenset(
     {
-        DigitalAssetOrderCapability(OrderType.MARKET, TimeInForce.GTC),
+        DigitalAssetOrderCapability(OrderType.MARKET, None),
         DigitalAssetOrderCapability(OrderType.LIMIT, TimeInForce.GTC),
     }
 )
 
 
-def supports_order(order_type: OrderType, time_in_force: TimeInForce) -> bool:
-    return any(
-        capability.order_type is order_type and capability.time_in_force is time_in_force
-        for capability in DIGITAL_ASSETS_SPOT_CAPABILITIES
-    )
+def supports_order(order_type: OrderType, time_in_force: TimeInForce | None) -> bool:
+    return DigitalAssetOrderCapability(order_type, time_in_force) in DIGITAL_ASSETS_SPOT_CAPABILITIES
 
 
 __all__ = [

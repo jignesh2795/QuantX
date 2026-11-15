@@ -17,6 +17,10 @@ normative rules themselves remain in `docs/architecture/`.
 - ADR-007 — [Modular-hybrid architecture](../architecture/adr/ADR-007-modular-hybrid-architecture.md)
 - ADR-008 — [v0.1 programmatic local-first library scope; CLI deferred](../architecture/adr/ADR-008-v0.1-programmatic-library-scope.md)
 - ADR-009 — [Canonical order lifecycle and evidence reduction](../architecture/adr/ADR-009-canonical-order-lifecycle.md)
+- ADR-010 — [Composed multi-leg order semantics](../architecture/adr/ADR-010-composed-multi-leg-order-semantics.md)
+- ADR-011 — [Order product and position effect are request semantics](../architecture/adr/ADR-011-order-product-position-effect.md)
+- ADR-012 — [Canonical derivative contract metadata and resolution](../architecture/adr/ADR-012-derivative-contract-metadata.md)
+- ADR-013 — [Optional time-in-force in canonical orders](../architecture/adr/ADR-013-optional-time-in-force.md)
 
 ## Decisions not yet written as ADRs
 

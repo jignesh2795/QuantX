@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 
 from quantx.markets.common.calendar import MarketCalendar, SessionClassification, SessionStatus
 
@@ -30,6 +31,13 @@ class Continuous24x7Calendar(MarketCalendar):
         return True
 
 
+class DigitalAssetTradingStatus(StrEnum):
+    """Normalized trading states supported by the initial spot rule contract."""
+
+    TRADING = "TRADING"
+    HALTED = "HALTED"
+
+
 @dataclass(frozen=True, slots=True)
 class DigitalAssetMarketStatus:
     """Separation of the continuous market clock from instrument trading status."""
@@ -43,10 +51,17 @@ class DigitalAssetMarketStatus:
         return self.market_clock_open and self.instrument_trading_enabled
 
 
-def market_status_for_rule(rule_trading_status: str) -> DigitalAssetMarketStatus:
-    normalized = rule_trading_status.strip().upper()
-    enabled = normalized == "TRADING"
-    reason = "" if enabled else f"instrument trading status is {normalized}"
+def market_status_for_rule(
+    rule_trading_status: str | DigitalAssetTradingStatus,
+) -> DigitalAssetMarketStatus:
+    if not isinstance(rule_trading_status, str):
+        raise TypeError("rule_trading_status must be a string or DigitalAssetTradingStatus")
+    try:
+        normalized = DigitalAssetTradingStatus(rule_trading_status.strip().upper())
+    except ValueError as exc:
+        raise ValueError(f"unsupported digital-asset trading status: {rule_trading_status!r}") from exc
+    enabled = normalized is DigitalAssetTradingStatus.TRADING
+    reason = "" if enabled else f"instrument trading status is {normalized.value}"
     return DigitalAssetMarketStatus(
         market_clock_open=True,
         instrument_trading_enabled=enabled,
@@ -56,6 +71,7 @@ def market_status_for_rule(rule_trading_status: str) -> DigitalAssetMarketStatus
 
 __all__ = [
     "Continuous24x7Calendar",
+    "DigitalAssetTradingStatus",
     "DigitalAssetMarketStatus",
     "market_status_for_rule",
 ]
