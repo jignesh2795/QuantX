@@ -133,6 +133,11 @@ class DigitalAssetSpotRule:
         object.__setattr__(self, "quote_asset", self.quote_asset.upper())
         if self.base_asset == self.quote_asset:
             raise ValueError("base_asset and quote_asset must differ")
+        expected_canonical_symbol = f"{self.base_asset}/{self.quote_asset}"
+        if self.canonical_symbol != expected_canonical_symbol:
+            raise ValueError("canonical_symbol must match base_asset/quote_asset")
+        if self.venue_symbol != self.instrument_id.symbol:
+            raise ValueError("venue_symbol must match instrument_id.symbol")
 
         _require_positive_decimal(self.price_tick, "price_tick")
         quantity_min = _require_positive_decimal(self.quantity_min, "quantity_min")
