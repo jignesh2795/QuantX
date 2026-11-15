@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from quantx.markets.common.calendar import MarketCalendar, SessionClassification, SessionStatus
@@ -17,8 +17,10 @@ class Continuous24x7Calendar(MarketCalendar):
     def classify(self, timestamp: datetime) -> SessionClassification:
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
+        # Classification advertises UTC; normalize the carried instant too.
+        instant = timestamp.astimezone(UTC)
         return SessionClassification(
-            timestamp=timestamp,
+            timestamp=instant,
             status=SessionStatus.OPEN,
             timezone="UTC",
             calendar_version=self.version,
