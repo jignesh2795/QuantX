@@ -1,10 +1,11 @@
 # QuantX Documentation and Branch Reconciliation
 
-**Audit date:** 2026-11-15
+**Original audit date:** 2026-11-15
+**Follow-up state/scope reconciliation:** 2026-11-16
 **Repository:** [jignesh2795/QuantX](https://github.com/jignesh2795/QuantX)
 **Audited main HEAD:** 37b6bc8e511ff67b46b42ff00d8cc725d79a0404
 **Audit branch:** docs/reconcile-quantx-documentation-2026-11-15
-**Mode:** GitHub-side inspection followed by documentation-only reconciliation on this branch.
+**Mode:** GitHub-side inspection followed by a documentation-only reconciliation on this branch; this 2026-11-16 follow-up corrects PR states and the subsequent #200 scope decision.
 
 ## 1. Executive disposition
 
@@ -15,8 +16,9 @@ The safe disposition is:
 1. Keep the existing canonical architecture, implementation, roadmap, status, research and governance documents; do not recreate them.
 2. Correct the stale PR #329 / #331 and India-charges evidence statements using current GitHub state.
 3. Record the global-market, crypto and scope-restoration proposals as unapproved references, not accepted architecture or active implementation.
-4. Treat PR #333 and PR #334 as current-main review candidates, not merged functionality.
-5. Keep the S1 / ADR-013 digital-assets branch separate from the current per-trade India charges work. No new market support or LIVE eligibility is implied.
+4. Keep PR #333 as the current-main public API review candidate; keep PR #334 Draft/parked and do not merge its broader India statutory model wholesale.
+5. Keep PR #337 Draft/deferred as a synthetic Digital Assets proposal; it is not accepted scope or shipped market support.
+6. For #200, follow the 2026-11-12 decision: implement only a caller-supplied per-fill cost schedule through the existing charge/receipt/accounting path. No production tariffs, daily STT aggregation, clearing, physical settlement or LIVE wiring.
 
 This reconciliation changes documentation on the audit branch only. It does not change implementation code, issues, existing PRs or main.
 
@@ -55,15 +57,17 @@ The pinned comparative review in docs/research/2026-11-global-architecture-compa
 
 Community/onboarding and skill-hardening work is already merged, including [PR #245](https://github.com/jignesh2795/QuantX/pull/245), [PR #330](https://github.com/jignesh2795/QuantX/pull/330) and [PR #332](https://github.com/jignesh2795/QuantX/pull/332). The documentation index already establishes the one-source-of-truth rule.
 
-## 4. Current PR and issue state — verified 2026-11-15
+## 4. Current PR and issue state — reverified 2026-11-16
 
 | Workstream | Current GitHub state | Correct interpretation |
 |---|---|---|
-| #200 India charges | [PR #334](https://github.com/jignesh2795/QuantX/pull/334) is **open, Ready for Review**, branch integration/issue200-current-main-v1, HEAD b7f44b72b45e60a5d59b52f8a947d27f67d8550b, base main at 37b6bc8...; 7 commits ahead / 0 behind, 9 changed paths. Issue #200 remains open. | Current-main candidate for a bounded per-trade charge contract. The operator reports exact-head PASS: focused 56 passed in each configuration; default 3,671 passed / 3 skipped; Dhan-extra 3,674 passed / 0 skipped; all 7 producer checks, Ruff/format, strict mypy, six package coverage floors, skill/self-tests and both 10/10 release gates PASS. The corrected focused tests ran under `uv run`; the system-Python 3.14 import failure is excluded. Evidence remains operator-reported and was not independently authenticated by this GitHub-side audit. It is not merged or production tariff activation. |
-| #199 curated public API | [PR #333](https://github.com/jignesh2795/QuantX/pull/333) is **open**, branch integration/issue199-current-main-v1, HEAD bc7f218e1279da028a1978c17fb3aa265c2318f0, base main at 37b6bc8... Issue #199 is open. | Current-main public API candidate; not merged. The supplied local validation report is operator-reported. |
+| #200 transaction costs | [PR #334](https://github.com/jignesh2795/QuantX/pull/334) remains **open, Draft / parked**, branch integration/issue200-current-main-v1, HEAD `b7f44b72b45e60a5d59b52f8a947d27f67d8550b`, base main at `37b6bc8...`; 7 ahead / 0 behind, 9 paths. Issue #200 remains open. | Its operator-reported exact-head PASS (56 focused tests in both configurations, default 3,671/3 skipped, Dhan 3,674/0, both 10/10 release gates) applies only to this broader India statutory schedule branch. The 2026-11-12 issue decision instead selects a generic caller-supplied per-fill schedule through the existing `ChargeModel` and receipt/accounting path. Preserve #334 as source/reference material; do not merge or reuse wholesale. |
+| #199 curated public API | [PR #333](https://github.com/jignesh2795/QuantX/pull/333) is **open, Ready for Review**, branch integration/issue199-current-main-v1, HEAD `bc7f218e1279da028a1978c17fb3aa265c2318f0`, base main at `37b6bc8...`. Issue #199 remains open. | Current-main public API candidate; not merged. The supplied local validation report is operator-reported. It remains separate from the #200 implementation. |
 | Earlier #200 candidate | [PR #329](https://github.com/jignesh2795/QuantX/pull/329) is **closed without merge** (closed 2026-11-11), HEAD 5ba5d0a9655c42af2df3fd85e95c126d2c4cfd6b, based on older main a620b3b... | Its code and local validation evidence are branch/PR history, not main-branch functionality. |
 | Earlier #199 candidate | [PR #331](https://github.com/jignesh2795/QuantX/pull/331) is **closed without merge** (closed 2026-11-11), HEAD 71372da3845740e3a134d3735fbf1e4280f3c45f, based on older main a620b3b... | Superseded by PR #333; do not describe #331 as open or current. |
 | Post-#307 status draft | [PR #308](https://github.com/jignesh2795/QuantX/pull/308) remains **open, Draft**, based on 93ae5d0..., HEAD d72b6826aa3950875805e56bf6fad75d7dea0a1b. | Stale relative to current main. Preserve its historical validation record, but do not use its old snapshot as current policy. |
+| Digital Assets S1 proposal | [PR #337](https://github.com/jignesh2795/QuantX/pull/337) remains **open, Draft**, HEAD `d7e4e96548e2423e1b64b75100bb87a099d9bb70`. | Synthetic/registration-compatible only; deferred, unmerged, and not implemented crypto support. |
+| Documentation reconciliation | [PR #336](https://github.com/jignesh2795/QuantX/pull/336) remains **open, Draft**, branch `docs/reconcile-quantx-documentation-2026-11-15`. | Documentation-only reconciliation; this follow-up needs exact-head local doc validation before PR #336 can be marked ready. |
 
 ### #200 source and scope correction
 
@@ -71,9 +75,9 @@ The previous main-branch status says the P15 / predecessor / BSE attachments wer
 
 Current issue history reports official-source retrieval and inspection of P13/P15, predecessor circulars, BSE material and UDiFF Annexure B/C. It also records UDiFF schema-discovery findings. These are **operator-reported research findings**; this audit did not obtain the operator's local binary files or independently reproduce their hashes and page-by-page inspection.
 
-The remaining #200 questions are more specific than a missing-document gap. Issue history reports unresolved Section 99(c) / Rule 3 mapping for F&O-generated physical share delivery, authoritative taxable-value field lineage, sample-header anomalies, missing matched member-level FOPHY / obligation / StampDuty / delivery records, correction/reversal linkage and worked examples. PR #334 deliberately narrows its candidate to ordinary per-trade charge contracts and defers physical-delivery clearing calculations. Production tariff activation also remains blocked by authoritative effective-date/rate evidence, client-incidence and GST treatment, and ordinary-trade worked examples.
+The later #200 scope decision is narrower than the statutory/clearing research register. The accepted implementation direction is a modelled caller-configured per-fill schedule: named side-aware lines, turnover/units/order/dependent-charge bases, explicit currency precision, final fill-total rounding once, deterministic identity and provenance, applied through the existing receipt/cash/net-P&L path. The FOPHY/Rule 3/physical-settlement and clearing research remains preserved but is outside this implementation. No exchange-final STT or broker tariff is claimed.
 
-**Important:** PR #334's exact-head validation for `b7f44b72b45e60a5d59b52f8a947d27f67d8550b` is reported by the operator as PASS in both locked configurations and both release gates. The corrected focused tests used `uv run`; the initial system-Python 3.14 invocation is excluded. This audit did not run the validation or independently open/authenticate the local JSON/logs. Issue #200 remains OPEN; PR #334 is Ready for independent review, not merged.
+**Evidence qualification:** PR #334's exact-head validation at `b7f44b72b45e60a5d59b52f8a947d27f67d8550b` remains operator-reported PASS in both locked configurations and release gates; it was not rerun here and does not establish acceptance of the selected per-fill schedule. Issue #200 remains OPEN; PR #334 is Draft/parked and unmerged.
 
 ## 5. Material branch-only documentation and proposals
 
@@ -85,48 +89,48 @@ The following branch contents were verified on GitHub. A branch name or committe
 | docs/crypto-market-extension-plan | 2b9e22440537d57dc98141f797d3980a74bf7851 | 3 ahead / 235 behind; diverged | Adds docs/planning/crypto-market-extension-plan.md and docs/roadmap/digital-assets-market-expansion.md; adjusts global-market and roadmap indexes. Planning proposal only. |
 | docs/quantx-scope-restoration-audit-v1 | 350b55dba172af69b3e08b585d89b2d19a3ab2e5 | 1 ahead / 0 behind | Adds docs/planning/quantx-product-scope-and-delivery-roadmap.md. Proposes an India-first product scope with a global-neutral architecture; not merged or formally adopted. |
 | docs/global-market-plan-reconciliation-2026-11-09 | f60a8cc249b20cc4fe1c25695da09dab48379a7f | 2 ahead / 14 behind; diverged | Reconciles older STATUS, global-market and work-programme wording. Older-base reconciliation branch, not a current-main update. |
-| [PR #337](https://github.com/jignesh2795/QuantX/pull/337) / `feat/qtqx-s1-global-digital-assets-pack-v1` | `d7e4e96548e2423e1b64b75100bb87a099d9bb70` | 16 ahead / 0 behind; open, ready for review | Adds ADR-013 and a synthetic BTC/USDT + ETH/USDT Digital Assets spot pack, optional-TIF semantics and rule/calendar guards. It is registration-compatible only: no exchange connectivity, account, broker transport, production rule authority or crypto trading capability. The operator's exact-head report records 179 focused tests, default 3,662 passed / 3 skipped, Dhan-extra 3,665 passed / 0 skipped, Ruff check/format, mypy and all six coverage floors PASS, plus both 10/10 release checks PASS. Final source review found no blocking defect, including in the clarified ADR persistence description. Validation results remain operator-reported local evidence; no LIVE or production claims are implied. The PR was marked ready for independent review, not merged. Do not represent this as shipped crypto support. |
+| [PR #337](https://github.com/jignesh2795/QuantX/pull/337) / `feat/qtqx-s1-global-digital-assets-pack-v1` | `d7e4e96548e2423e1b64b75100bb87a099d9bb70` | 16 ahead / 0 behind; open, Draft / deferred | Adds ADR-013 and synthetic BTC/USDT + ETH/USDT Digital Assets fixtures, optional-TIF semantics and rule/calendar guards. It has no exchange connectivity, account, broker transport, production rule authority or crypto trading capability. Earlier validation is operator-reported and branch-specific. The proposal remains unmerged and is not accepted implementation scope. |
 
 ### Issue-specific branch caution
 
 Issue #200 has several additional implementation branches. The most relevant are:
 
-- integration/issue200-current-main-v1 — current candidate used by Ready-for-Review PR #334 at `b7f44b72b45e60a5d59b52f8a947d27f67d8550b`.
+- integration/issue200-current-main-v1 — preserved as Draft/parked PR #334 at `b7f44b72b45e60a5d59b52f8a947d27f67d8550b`; it is not the selected next implementation.
 - fix/issue200-state-ut-validation-v1 at 63254cfe879d13a0c196b0aac05f1dd6cdf15fe2 — 2 commits ahead of current main, unsubmitted; includes physical-settlement-related files.
 - fix/issue200-physical-settlement-format-v1 at 5fcb69920a25050e4eb5e7d72991af7fdf5f4867 — 32 ahead / 14 behind; diverged from main.
 - feat/issue200-india-charge-contract-v1 at 5ba5d0a9655c42af2df3fd85e95c126d2c4cfd6b — closed PR #329 candidate, 34 ahead / 14 behind.
 
-Other November 2–3 integration branches are divergent from current main. Preserve them as evidence/salvage sources only; do not merge or cherry-pick them wholesale. PR #334's declared scope is the current review candidate for #200.
+Other November 2–3 integration branches are divergent from current main. Preserve them as evidence/salvage sources only; do not merge or cherry-pick them wholesale. PR #334 remains parked; the #200 per-fill schedule must be developed through the canonical charge seam, not by reviving the statutory candidate wholesale.
 
 ## 6. Reconciliation changes on this branch
 
 The canonical status and roadmap pages are corrected so they no longer say PR #329 or PR #331 remains open. The updated records distinguish:
 
 - PR #329: closed without merge; candidate remains unmerged.
-- PR #334: current-main per-trade charge candidate, Ready for independent review at `b7f44b72b45e60a5d59b52f8a947d27f67d8550b`; exact-head validation is operator-reported PASS.
+- PR #334: current-main statutory India charge candidate, Draft/parked at `b7f44b72b45e60a5d59b52f8a947d27f67d8550b`; its exact-head validation PASS is operator-reported but does not represent the selected per-fill scope.
 - PR #331: closed without merge and superseded.
 - PR #333: current-main public API candidate, open and not merged.
 
-The stale statement that P15 and companion source attachments were unavailable is replaced with the newer, carefully qualified Issue #200 / PR #334 evidence posture: retrieval and schema findings are operator-reported; unresolved interpretation and data gates remain open.
+The stale statement that P15 and companion source attachments were unavailable is replaced with the newer, carefully qualified Issue #200 history: retrieval and schema findings are operator-reported. Those findings remain research provenance, not a reason to keep the broader statutory charge candidate as the active implementation.
 
-The global product vision, crypto roadmap and scope-restoration audit remain proposal-only references. ADR-013 and the synthetic Digital Assets pack are now in open Draft PR #337; they are not merged or accepted on main. The PR does not establish venue connectivity or crypto trading support.
+The global product vision, crypto roadmap and scope-restoration audit remain proposal-only references. ADR-013 and the synthetic Digital Assets pack remain in open Draft PR #337; they are not merged or accepted on main. The PR does not establish venue connectivity or crypto trading support.
 
 ## 7. Recommended disposition
 
 1. Keep main's existing identity: market-neutral core, India-first implementation, India as the only fully implemented market, and digital assets as a placeholder.
 2. Review the scope-restoration proposal against current product intent before adopting it. Its India-first direction is consistent with current README/VISION wording, but adoption should be explicit.
 3. Keep the global-architecture and crypto plans as unapproved planning references until a specific product decision authorizes a bounded next market.
-4. PR #334 is Ready for independent review against its stated per-trade acceptance boundary. Keep the separate physical-settlement branch family deferred; do not blend it into the candidate without a distinct acceptance decision.
+4. Keep PR #334 Draft/parked. Implement #200's caller-supplied per-fill schedule through the existing canonical charge pipeline; keep the separate physical-settlement branch family deferred.
 5. Review PR #333 against its public API acceptance criteria. PR #331 is historical/superseded.
-6. Keep S1 / ADR-013 open for independent review: exact-head validation at `d7e4e96...` is operator-reported PASS and final source review found no blocking issue. PR #337 is ready for review, but this is not merge approval. Preserve the non-claims and do not broaden LIVE eligibility.
+6. Keep S1 / ADR-013 and PR #337 Draft/deferred; its prior validation and source review do not promote the synthetic market pack into current India-first scope. Preserve the non-claims and do not broaden LIVE eligibility.
 7. Continue to use one canonical current status and one cross-workstream work programme; retain older snapshots as history rather than current policy.
 
 ## 8. Audit limitations and non-claims
 
 - Local unpushed worktrees, stashes, uncommitted files and operator-local evidence directories were not accessible to this GitHub-side audit.
 - Operator-reported test results and research attachment inspections were not rerun or cryptographically authenticated here.
-- No local tests, Ruff, mypy or release gates were run.
+- The earlier local documentation validation report applies to the pre-follow-up head `a71885f087d29639460ba94cf1110e73d4ab7843` only. This new documentation head requires fresh local `git diff --check`, link/Markdown/encoding and exact-SHA validation.
 - No GitHub Actions, paid CI, broker, exchange, sandbox, production or LIVE operation was performed.
-- No code, issue state, existing PR, release or repository setting was changed by this audit. Only the documentation reconciliation branch is changed.
+- No source code, issue state, release or repository setting was changed by this documentation follow-up. PR-state changes for #334, #336 and #337 were performed separately and read back; this commit only updates the existing documentation reconciliation branch.
 
-**Canonical takeaway:** most foundational documentation is already on main. The outstanding gap is chiefly stale status plus a small number of deliberately unmerged proposals and implementation candidates—not a need to recreate the documentation set.
+**Follow-up takeaway (2026-11-16):** the documentation inventory remains valid, but PR #334 and #337 are deliberately parked as Drafts. Issue #200's next implementation is the generic per-fill cost schedule already scoped in its history; do not expand into a statutory/clearing subsystem or create another parallel charge ledger.
