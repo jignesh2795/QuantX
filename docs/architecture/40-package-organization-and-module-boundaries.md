@@ -2,127 +2,27 @@
 
 ## Purpose
 
-QuantX uses small, purpose-specific packages rather than placing unrelated responsibilities in one folder. Directory structure is part of the architecture: a developer should be able to locate a concept without reading a large catch-all module.
+QuantX uses purpose-specific packages to keep ownership and dependency direction understandable. Package structure should describe responsibilities that exist in the implementation, not reserve folders for hypothetical future features.
 
 ## Rules
 
-1. One bounded responsibility per package.
-2. Interfaces/ports live separately from concrete adapters where practical.
-3. Market-specific code never lives in universal domain packages.
-4. India and global market integrations are separated from the beginning.
-5. Broker/account state is separate from execution mechanics.
-6. Research data, replay, provenance, and experiment management are separate packages.
-7. Tests mirror the source package hierarchy.
-8. Plugin implementations live outside the universal core.
-9. Compatibility shims are temporary and clearly named.
-10. Large modules should be split once a responsibility can be named independently.
+1. Keep one cohesive responsibility per package.
+2. Separate stable contracts from concrete adapters when that makes dependency direction clearer.
+3. Keep market-specific rules outside universal domain packages.
+4. Add a market implementation only when an approved, evidenced requirement exists; market-neutral contracts do not require scaffolding future markets.
+5. Keep broker/account integration state separate from execution mechanics.
+6. Separate research data, replay, provenance and experiment responsibilities where they have distinct contracts.
+7. Organize tests around the behavior and ownership they verify.
+8. Keep concrete optional integrations outside the universal core.
+9. Keep compatibility shims temporary, explicit and identity-preserving where compatibility requires them.
+10. Module size alone is not a reason to split. Split only when the proposed package owns a distinct invariant, test surface or stable integration boundary.
 
-## Target high-level structure
+## Package-map reference
 
-```text
-src/quantx/
-├── domain/                 # broker-neutral business objects and value objects
-│   ├── instruments/
-│   ├── markets/
-│   ├── accounts/
-│   └── orders/
-│
-├── application/            # use cases/orchestration
-│   ├── trading/
-│   ├── research/
-│   └── reconciliation/
-│
-├── execution/              # execution contracts and execution mechanics
-│   ├── ports/
-│   ├── models/
-│   ├── paper/
-│   ├── lifecycle/
-│   └── accounting/
-│
-├── portfolio/              # positions, balances, valuation, P&L
-│   ├── positions/
-│   ├── balances/
-│   ├── valuation/
-│   └── reconciliation/
-│
-├── risk/                   # pre-trade and portfolio risk
-│   ├── policies/
-│   ├── limits/
-│   └── checks/
-│
-├── research/               # historical/research system
-│   ├── datasets/
-│   ├── ingestion/
-│   ├── quality/
-│   ├── calendars/
-│   ├── lifecycle/
-│   ├── events/
-│   ├── adjustments/
-│   ├── replay/
-│   ├── provenance/
-│   ├── experiments/
-│   ├── artifacts/
-│   └── storage/
-│
-├── integrations/           # account/broker integration contracts
-│   ├── accounts/
-│   ├── brokers/
-│   ├── routing/
-│   ├── health/
-│   └── reconciliation/
-│
-├── plugins/                 # concrete replaceable integrations
-│   ├── india/
-│   │   ├── nse/
-│   │   ├── bse/
-│   │   └── mcx/
-│   ├── global/
-│   │   ├── nyse/
-│   │   ├── nasdaq/
-│   │   └── cme/
-│   └── crypto/
-│       ├── binance/
-│       └── delta/
-│
-├── ai/                     # AI/ML agents and model services
-│   ├── agents/
-│   ├── models/
-│   ├── features/
-│   └── inference/
-│
-└── infrastructure/         # technical implementations
-    ├── persistence/
-    ├── messaging/
-    ├── observability/
-    ├── configuration/
-    └── secrets/
-```
+Use [41-current-package-map.md](41-current-package-map.md) for the implemented package layout and the deliberately high-level long-term organization. Its target map is explanatory, not a requirement to create packages before an implemented use case needs them.
 
 ## Migration principle
 
-The current implementation may temporarily contain several concepts together because the work is incremental. New code should use the target boundaries. Existing files should be moved/split when they are next modified, rather than performing a risky repository-wide rename without tests.
+Prefer the smallest coherent structure that preserves clear ownership. Do not reorganize packages merely to make the tree symmetrical or to match a speculative target.
 
-For example:
-
-```text
-Current:
-src/quantx/execution/paper.py
-
-Target:
-src/quantx/execution/paper/engine.py
-src/quantx/execution/paper/fills.py
-src/quantx/execution/paper/slippage.py
-```
-
-Likewise:
-
-```text
-Current:
-src/quantx/research/quality.py
-
-Target:
-src/quantx/research/quality/gates.py
-src/quantx/research/quality/report.py
-```
-
-The intent is clarity, not directory depth for its own sake. A package is created when it gives a meaningful architectural boundary.
+When a real change exposes a responsibility that belongs behind an independent invariant, test surface or stable integration boundary, move or split only the affected code and migrate its consumers safely. Avoid repository-wide structural migrations without a demonstrated need and regression coverage.
