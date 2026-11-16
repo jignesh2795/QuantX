@@ -6,6 +6,7 @@
 
 - [STATUS.md](STATUS.md) — concise current implementation, workstreams, and safety disposition.
 - [STATUS_HISTORY.md](STATUS_HISTORY.md) — preserved historical status ledger and exact-SHA validation records.
+- [Documentation and branch reconciliation (2026-11-15)](planning/documentation-reconciliation-2026-11-15.md) — dated inventory of main documentation, branch-only proposals and current PR/issue dispositions.
 
 ## Architecture
 
