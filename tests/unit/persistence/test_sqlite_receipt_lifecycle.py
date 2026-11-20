@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -12,7 +13,12 @@ from quantx.domain.value_objects import InstrumentId
 from quantx.execution.receipts import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.persistence.sqlite.database import SqliteDatabase
-from quantx.persistence.sqlite.receipts import SqliteReceiptRepository, receipt_to_payload
+from quantx.persistence.sqlite.receipts import (
+    SqliteReceiptRepository,
+    _charge_from_dict,
+    receipt_from_payload,
+    receipt_to_payload,
+)
 
 
 def _receipt(
@@ -256,3 +262,128 @@ def test_sqlite_receipt_round_trips_raw_and_rounded_per_fill_charges(
     assert restored.per_fill_charges[0].total == Decimal("0.005")
     assert restored.per_fill_charges[0].rounded_total == Decimal("0.00")
     assert restored.fee == Decimal("0.00")
+
+
+def _valid_charge_payload() -> dict[str, object]:
+    return {
+        "components": [{"name": "fee", "amount": "1.00"}],
+        "currency": "INR",
+        "model_id": "m",
+        "model_version": "1",
+        "provenance": [],
+        "rounded_total": "1.00",
+    }
+
+
+def test_charge_from_dict_rejects_non_list_components() -> None:
+    payload = _valid_charge_payload()
+    payload["components"] = "not-a-list"
+    with pytest.raises(ValueError, match="must be a list"):
+        _charge_from_dict(payload)
+
+
+def test_charge_from_dict_rejects_non_dict_component_item() -> None:
+    payload = _valid_charge_payload()
+    payload["components"] = ["not-a-dict"]
+    with pytest.raises(ValueError, match="invalid item"):
+        _charge_from_dict(payload)
+
+
+def test_charge_from_dict_rejects_non_string_component_name() -> None:
+    payload = _valid_charge_payload()
+    payload["components"] = [{"name": 123, "amount": "1.00"}]
+    with pytest.raises(ValueError, match="string name and decimal amount"):
+        _charge_from_dict(payload)
+
+
+def test_charge_from_dict_rejects_non_string_component_amount() -> None:
+    payload = _valid_charge_payload()
+    payload["components"] = [{"name": "fee", "amount": 1.00}]
+    with pytest.raises(ValueError, match="string name and decimal amount"):
+        _charge_from_dict(payload)
+
+
+def test_charge_from_dict_rejects_invalid_currency_type() -> None:
+    payload = _valid_charge_payload()
+    payload["currency"] = 123
+    with pytest.raises(ValueError, match="string or None"):
+        _charge_from_dict(payload)
+
+
+def test_charge_from_dict_rejects_non_list_provenance() -> None:
+    payload = _valid_charge_payload()
+    payload["provenance"] = "not-a-list"
+    with pytest.raises(ValueError, match="list of strings"):
+        _charge_from_dict(payload)
+
+
+def test_charge_from_dict_rejects_non_string_provenance_item() -> None:
+    payload = _valid_charge_payload()
+    payload["provenance"] = [123]
+    with pytest.raises(ValueError, match="list of strings"):
+        _charge_from_dict(payload)
+
+
+def test_charge_from_dict_rejects_invalid_rounded_total_type() -> None:
+    payload = _valid_charge_payload()
+    payload["rounded_total"] = 123
+    with pytest.raises(ValueError, match="decimal string or None"):
+        _charge_from_dict(payload)
+
+
+def test_charge_from_dict_rejects_invalid_model_id_type() -> None:
+    payload = _valid_charge_payload()
+    payload["model_id"] = 123
+    with pytest.raises(ValueError, match="strings"):
+        _charge_from_dict(payload)
+
+
+def test_charge_from_dict_rejects_invalid_model_version_type() -> None:
+    payload = _valid_charge_payload()
+    payload["model_version"] = 123
+    with pytest.raises(ValueError, match="strings"):
+        _charge_from_dict(payload)
+
+
+def _tampered_receipt_payload(mutator) -> str:
+    from quantx.persistence.sqlite.receipts import receipt_to_payload
+
+    client_order_id = uuid4()
+    receipt = _receipt(
+        client_order_id,
+        correlation_id=str(client_order_id),
+        quantity=Decimal("2"),
+        filled=Decimal("2"),
+        status=OrderStatus.FILLED,
+        executed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    payload = json.loads(receipt_to_payload(receipt))
+    mutator(payload)
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def test_receipt_from_payload_rejects_non_dict_charges() -> None:
+    def mutate(payload: dict[str, object]) -> None:
+        payload["charges"] = 123
+
+    bad = _tampered_receipt_payload(mutate)
+    with pytest.raises(ValueError, match="object or None"):
+        receipt_from_payload(bad)
+
+
+def test_receipt_from_payload_rejects_non_list_per_fill_charges() -> None:
+    def mutate(payload: dict[str, object]) -> None:
+        payload["per_fill_charges"] = 123
+
+    bad = _tampered_receipt_payload(mutate)
+    with pytest.raises(ValueError, match="list of objects"):
+        receipt_from_payload(bad)
+
+
+def test_receipt_from_payload_rejects_non_dict_per_fill_charge_item() -> None:
+    def mutate(payload: dict[str, object]) -> None:
+        payload["per_fill_charges"] = [123]
+
+    bad = _tampered_receipt_payload(mutate)
+    with pytest.raises(ValueError, match="list of objects"):
+        receipt_from_payload(bad)
