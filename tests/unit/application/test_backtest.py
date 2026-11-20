@@ -3554,7 +3554,7 @@ def test_backtest_rejects_schedule_currency_mismatch_before_strategy_execution()
     )
     profile = PaperSimulationProfile(charge_model=CostScheduleChargeModel(schedule))
 
-    with pytest.raises(ValueError, match="starting-capital currency"):
+    with pytest.raises(ValueError, match="instrument and account currency"):
         _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
             series=_series(),
             strategy=StrategyEvaluationService(counting),
