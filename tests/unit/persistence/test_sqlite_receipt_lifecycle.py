@@ -215,3 +215,44 @@ def test_legacy_aggregate_charge_payload_shape_remains_unchanged() -> None:
     payload = json.loads(receipt_to_payload(receipt))
     assert "charges" not in payload
     assert "per_fill_charges" not in payload
+
+
+def test_sqlite_receipt_round_trips_raw_and_rounded_per_fill_charges(
+    tmp_path: Path,
+) -> None:
+    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+
+    client_id = uuid4()
+    original = _receipt(
+        client_id,
+        correlation_id=str(client_id),
+        quantity=Decimal("10"),
+        filled=Decimal("10"),
+        status=OrderStatus.FILLED,
+        executed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    breakdown = ChargeBreakdown(
+        currency="INR",
+        components=(ChargeComponent("brokerage", Decimal("0.005")),),
+        model_id="paper.cost_schedule.sha256:test",
+        model_version="1",
+        provenance=("source:caller-supplied-test", "rounding:ROUND_HALF_EVEN"),
+        rounded_total=Decimal("0.00"),
+    )
+    receipt = replace(
+        original,
+        fee=Decimal("0.00"),
+        per_fill_charges=(breakdown,),
+    )
+
+    database = SqliteDatabase(tmp_path / "execution.sqlite")
+    repository = SqliteReceiptRepository(database)
+    repository.save(receipt)
+    restored = repository.get(receipt.receipt_id)
+    database.close()
+
+    assert restored is not None
+    assert restored.per_fill_charges == (breakdown,)
+    assert restored.per_fill_charges[0].total == Decimal("0.005")
+    assert restored.per_fill_charges[0].rounded_total == Decimal("0.00")
+    assert restored.fee == Decimal("0.00")
