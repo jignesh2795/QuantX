@@ -110,7 +110,9 @@ class PaperExecutionEngine:
         if not isinstance(charge_model, CostScheduleChargeModel):
             return
         if instrument_currency is None:
-            raise ValueError("cost schedule currency preflight requires resolved instrument metadata")
+            raise ValueError(
+                "cost schedule currency preflight requires resolved instrument metadata"
+            )
         if instrument_currency != account_currency:
             raise ValueError("scheduled charge currency must match instrument and account currency")
         schedule_currency = charge_model.schedule.currency
