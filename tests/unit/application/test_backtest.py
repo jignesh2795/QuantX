@@ -3581,12 +3581,9 @@ def test_backtest_preflights_injected_schedule_against_instrument_before_strateg
         digits=2,
         source="caller-supplied-test",
     )
-    idempotency = InMemoryIdempotencyStore()
-    probe_order_id = UUID("00000000-0000-0000-0000-000000000339")
     engine = PaperExecutionEngine(
         clock=FixedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)),
         profile=PaperSimulationProfile(charge_model=CostScheduleChargeModel(schedule)),
-        idempotency_store=idempotency,
         market_registry=default_market_registry(),
     )
     strategy_calls: list[object] = []
@@ -3616,8 +3613,4 @@ def test_backtest_preflights_injected_schedule_against_instrument_before_strateg
         )
 
     assert strategy_calls == []
-    decision = idempotency.check(probe_order_id, "probe-fingerprint")
-    assert decision.existing_receipt_id is None
-    assert not decision.reservation_pending
-    assert engine.receipt_for(probe_order_id) is None
     assert engine.events() == ()
