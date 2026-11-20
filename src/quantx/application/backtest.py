@@ -655,6 +655,7 @@ class DeterministicBacktestService:
         if market_registry is None:
             raise UnsupportedMarketError("market_registry is required")
         series_items = (series,) if hasattr(series, "instrument") else tuple(series)
+        instrument_currencies: list[str | None] = []
         for item in series_items:
             instrument_id = getattr(item, "instrument", None)
             instrument = (
@@ -669,6 +670,9 @@ class DeterministicBacktestService:
                 raise UnsupportedMarketError(
                     f"unsupported market for backtest: {instrument.market!r}"
                 )
+            instrument_currencies.append(
+                None if instrument is None else instrument.currency
+            )
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
         if provenance is not None:
@@ -677,12 +681,6 @@ class DeterministicBacktestService:
         simulation_clock = None
         effective_slippage_bps: Decimal | None = None
         effective_profile = execution_profile or PaperSimulationProfile()
-        if isinstance(effective_profile.charge_model, CostScheduleChargeModel):
-            schedule_currency = effective_profile.charge_model.schedule.currency
-            if schedule_currency != financial_state.cash_balance.currency:
-                raise ValueError(
-                    "cost schedule currency must match backtest starting-capital currency"
-                )
         # ``None`` means "no authoritative identity available". An injected
         # execution engine stays ``None`` so provenance-aware validation fails
         # closed instead of recording an empty model list.
@@ -716,6 +714,14 @@ class DeterministicBacktestService:
                 profile=effective_profile,
                 fill_model=DataAdaptiveFillModel(candle_model=candle_model),
                 market_registry=market_registry,
+            )
+
+        # Validate the actual executor configuration, including an injected
+        # engine, before strategy execution or any idempotency/receipt effects.
+        for instrument_currency in instrument_currencies:
+            execution_engine.validate_cost_schedule_currency(
+                instrument_currency=instrument_currency,
+                account_currency=financial_state.cash_balance.currency,
             )
 
         effective_policy = policy_context or PolicyContext()
