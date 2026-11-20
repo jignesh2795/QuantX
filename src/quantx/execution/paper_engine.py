@@ -113,7 +113,9 @@ class PaperExecutionEngine:
             raise ValueError("scheduled charge currency must match instrument and account currency")
         schedule_currency = charge_model.schedule.currency
         if schedule_currency != instrument_currency or schedule_currency != account_currency:
-            raise ValueError("per-fill charge currency does not match instrument and account currency")
+            raise ValueError(
+                "per-fill charge currency does not match instrument and account currency"
+            )
 
     def execute(
         self,
