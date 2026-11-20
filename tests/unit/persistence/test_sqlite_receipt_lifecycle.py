@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -181,6 +182,35 @@ def test_legacy_receipt_payload_keeps_original_empty_charge_shape() -> None:
         filled=Decimal("10"),
         status=OrderStatus.FILLED,
         executed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    payload = json.loads(receipt_to_payload(receipt))
+    assert "charges" not in payload
+    assert "per_fill_charges" not in payload
+
+
+def test_legacy_aggregate_charge_payload_shape_remains_unchanged() -> None:
+    import json
+
+    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+
+    client_id = uuid4()
+    receipt = _receipt(
+        client_id,
+        correlation_id=str(client_id),
+        quantity=Decimal("10"),
+        filled=Decimal("10"),
+        status=OrderStatus.FILLED,
+        executed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    receipt = replace(
+        receipt,
+        fee=Decimal("1"),
+        charges=ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("legacy_fee", Decimal("1")),),
+            model_id="legacy.test",
+            model_version="1",
+        ),
     )
     payload = json.loads(receipt_to_payload(receipt))
     assert "charges" not in payload

@@ -139,8 +139,6 @@ def receipt_to_payload(receipt: ExecutionReceipt) -> str:
         "simulated": receipt.simulated,
         "source": receipt.source,
     }
-    if receipt.charges is not None:
-        payload["charges"] = _charge_to_dict(receipt.charges)
     if receipt.per_fill_charges:
         payload["per_fill_charges"] = [
             _charge_to_dict(item) for item in receipt.per_fill_charges

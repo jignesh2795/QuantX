@@ -127,14 +127,17 @@ capital currency before strategy evaluation.
 
 ## SQLite receipt persistence
 
-The canonical SQLite receipt payload persists both aggregate `ChargeBreakdown`
-values and per-fill breakdowns, including raw component amounts and
-`rounded_total`. Decimal values are serialized as decimal strings.
+The canonical SQLite receipt payload persists the new per-fill breakdowns,
+including raw component amounts and `rounded_total`. Decimal values are
+serialized as decimal strings. The pre-existing aggregate `charges` field keeps
+its prior persistence behavior and is not added to the payload writer by this
+change.
 
-Older payloads that do not contain these optional fields remain readable.
-Empty charge fields are omitted when serializing legacy receipts so immutable
-receipt payload comparison does not change merely because the schema gained
-optional charge detail.
+Older payloads that do not contain per-fill charge detail remain readable.
+Empty per-fill charge fields are omitted when serializing legacy receipts so
+immutable receipt payload comparison does not change merely because the schema
+gained optional charge detail. The reader remains tolerant of an optional
+aggregate charge object if one is encountered in a payload.
 
 ## Backtest provenance
 
