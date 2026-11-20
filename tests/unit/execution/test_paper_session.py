@@ -629,6 +629,7 @@ def test_cost_schedule_currency_mismatch_is_rejected_before_idempotency_and_retr
     assert completed.existing_receipt_id == result.execution.receipt_id
     assert not completed.reservation_pending
 
+
 def test_cost_schedule_currency_preflight_rejects_instrument_account_mismatch() -> None:
     import pytest
 
