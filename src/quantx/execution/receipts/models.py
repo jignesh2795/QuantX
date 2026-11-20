@@ -232,6 +232,10 @@ class ExecutionReceipt:
             raise ValueError("client_order_id must not be empty")
         if self.executed_at.tzinfo is None or self.executed_at.utcoffset() is None:
             raise ValueError("executed_at must be timezone-aware")
+        if not isinstance(self.fee, Decimal):
+            raise TypeError("fee must be a Decimal")
+        if not self.fee.is_finite():
+            raise ValueError("fee must be finite")
         if self.fee < 0:
             raise ValueError("fee cannot be negative")
         if self.charges is not None and self.charges.total != self.fee:

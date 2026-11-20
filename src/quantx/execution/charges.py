@@ -29,6 +29,8 @@ class ChargeCalculationContext:
 
     def __post_init__(self) -> None:
         _require_nonnegative_decimal(self.transaction_value, "transaction_value")
+        if self.currency is not None and not isinstance(self.currency, str):
+            raise TypeError("currency must be a string when provided")
         if self.currency is not None and not self.currency.strip():
             raise ValueError("currency must not be empty when provided")
         if self.side is not None and not isinstance(self.side, OrderSide):

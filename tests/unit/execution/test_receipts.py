@@ -365,3 +365,28 @@ def test_receipt_from_order_preserves_per_fill_charge_breakdown() -> None:
         per_fill_charges=(breakdown,),
     )
     assert receipt.per_fill_charges == (breakdown,)
+
+
+@pytest.mark.parametrize("fee", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])
+def test_receipt_rejects_non_finite_fees(fee: Decimal) -> None:
+    with pytest.raises(ValueError, match="fee must be finite"):
+        ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=uuid4(),
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=datetime.now(UTC),
+            fee=fee,
+        )
+
+
+def test_receipt_rejects_non_decimal_fee() -> None:
+    with pytest.raises(TypeError, match="fee must be a Decimal"):
+        ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=uuid4(),
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=datetime.now(UTC),
+            fee=1,  # type: ignore[arg-type]
+        )
