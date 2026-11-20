@@ -394,3 +394,300 @@ def test_partial_continuation_is_blocked_before_executor_on_projected_position_e
 
     result_after = accounting.get(instrument.instrument_id)
     assert result_after == result_before
+
+
+def test_paper_session_applies_each_rounded_per_fill_charge_without_equal_split() -> None:
+    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+    from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+
+    instrument = _instrument()
+    request = _request()
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    fills = (
+        Fill(
+            client_order_id=request.order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("5"),
+            price=Decimal("100"),
+            filled_at=timestamp,
+        ),
+        Fill(
+            client_order_id=request.order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("5"),
+            price=Decimal("100"),
+            filled_at=timestamp,
+        ),
+    )
+    per_fill = (
+        ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("brokerage", Decimal("0.005")),),
+            model_id="schedule.test",
+            model_version="1",
+            rounded_total=Decimal("0.00"),
+        ),
+        ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("brokerage", Decimal("0.015")),),
+            model_id="schedule.test",
+            model_version="1",
+            rounded_total=Decimal("0.02"),
+        ),
+    )
+    receipt = ExecutionReceipt(
+        request_id=__import__("uuid").uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.FILLED,
+        order_status=OrderStatus.FILLED,
+        executed_at=timestamp,
+        fills=fills,
+        fee=Decimal("0.02"),
+        per_fill_charges=per_fill,
+        order_quantity=Decimal("10"),
+    )
+
+    class _ReceiptAdapter:
+        def execute(self, request, *, snapshot):
+            return receipt
+
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(timestamp),
+    )
+    accounting = FillAccounting()
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        initial_cash=Money(Decimal("5000"), "INR"),
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=timestamp,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    result = session.execute_and_value(
+        request,
+        snapshot=snapshot,
+        execution_adapter=_ReceiptAdapter(),
+    )
+
+    assert result.accounting_entry.fees == Decimal("0.02")
+    assert tuple(entry.fee.amount for entry in result.cash_entries) == (
+        Decimal("0.00"),
+        Decimal("0.02"),
+    )
+    assert result.cash.amount == Decimal("3999.98")
+
+
+def test_paper_session_rejects_ambiguous_multi_fill_aggregate_fee_before_accounting() -> None:
+    from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+
+    instrument = _instrument()
+    request = _request()
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    fills = tuple(
+        Fill(
+            client_order_id=request.order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("5"),
+            price=Decimal("100"),
+            filled_at=timestamp,
+        )
+        for _ in range(2)
+    )
+    receipt = ExecutionReceipt(
+        request_id=__import__("uuid").uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.FILLED,
+        order_status=OrderStatus.FILLED,
+        executed_at=timestamp,
+        fills=fills,
+        fee=Decimal("2"),
+        order_quantity=Decimal("10"),
+    )
+
+    class _ReceiptAdapter:
+        def execute(self, request, *, snapshot):
+            return receipt
+
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(timestamp),
+    )
+    accounting = FillAccounting()
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        initial_cash=Money(Decimal("5000"), "INR"),
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=timestamp,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="cannot be allocated across multiple fills"):
+        session.execute_and_value(
+            request,
+            snapshot=snapshot,
+            execution_adapter=_ReceiptAdapter(),
+        )
+    assert accounting.snapshot() == ()
+
+
+def test_cost_schedule_currency_mismatch_is_rejected_before_idempotency_and_retryable() -> None:
+    import pytest
+
+    from quantx.execution.cash_ledger import CashLedger
+    from quantx.execution.charges import (
+        ChargeBase,
+        CostLine,
+        CostSchedule,
+        CostScheduleChargeModel,
+    )
+    from quantx.execution.idempotency import InMemoryIdempotencyStore, request_fingerprint
+
+    def _schedule(currency: str) -> CostScheduleChargeModel:
+        return CostScheduleChargeModel(
+            CostSchedule(
+                lines=(CostLine("brokerage", ChargeBase.ORDER, Decimal("1")),),
+                currency=currency,
+                digits=2,
+                source="caller-supplied-test",
+            )
+        )
+
+    instrument = _instrument()
+    request = _request()
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    idempotency = InMemoryIdempotencyStore()
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(timestamp),
+        profile=PaperSimulationProfile(charge_model=_schedule("USD")),
+        idempotency_store=idempotency,
+    )
+    accounting = FillAccounting()
+    cash_ledger = CashLedger(Money(Decimal("5000"), "INR"))
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        cash_ledger=cash_ledger,
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=timestamp,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    with pytest.raises(ValueError, match="per-fill charge currency does not match"):
+        session.execute_and_value(request, snapshot=snapshot)
+
+    decision = idempotency.check(
+        request.order.client_order_id,
+        request_fingerprint(request),
+    )
+    assert decision.existing_receipt_id is None
+    assert not decision.reservation_pending
+    assert engine.receipt_for(request.order.client_order_id) is None
+    assert engine.events() == ()
+    assert accounting.snapshot() == ()
+    assert cash_ledger.balance == Money(Decimal("5000"), "INR")
+    assert cash_ledger.entries() == ()
+
+    # Correcting only the schedule configuration must allow the same request
+    # and client-order id to execute because the failed preflight reserved nothing.
+    engine._profile = PaperSimulationProfile(charge_model=_schedule("INR"))
+    result = session.execute_and_value(request, snapshot=snapshot)
+
+    assert result.execution.per_fill_charges[0].currency == "INR"
+    assert result.execution.fee == Decimal("1.00")
+    assert result.accounting_entry.fees == Decimal("1.00")
+    assert result.cash == Money(Decimal("3999.00"), "INR")
+    assert cash_ledger.balance == Money(Decimal("3999.00"), "INR")
+    assert len(cash_ledger.entries()) == 1
+    assert len(engine.events()) == 2
+    completed = idempotency.check(
+        request.order.client_order_id,
+        request_fingerprint(request),
+    )
+    assert completed.existing_receipt_id == result.execution.receipt_id
+    assert not completed.reservation_pending
+
+
+def test_cost_schedule_currency_preflight_rejects_instrument_account_mismatch() -> None:
+    import pytest
+
+    from quantx.execution.cash_ledger import CashLedger
+    from quantx.execution.charges import (
+        ChargeBase,
+        CostLine,
+        CostSchedule,
+        CostScheduleChargeModel,
+    )
+    from quantx.execution.idempotency import InMemoryIdempotencyStore, request_fingerprint
+
+    instrument = _instrument()
+    request = _request()
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    idempotency = InMemoryIdempotencyStore()
+    schedule = CostScheduleChargeModel(
+        CostSchedule(
+            lines=(CostLine("brokerage", ChargeBase.ORDER, Decimal("1")),),
+            currency="INR",
+            digits=2,
+            source="caller-supplied-test",
+        )
+    )
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(timestamp),
+        profile=PaperSimulationProfile(charge_model=schedule),
+        idempotency_store=idempotency,
+    )
+    accounting = FillAccounting()
+    cash_ledger = CashLedger(Money(Decimal("5000"), "USD"))
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        cash_ledger=cash_ledger,
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=timestamp,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    with pytest.raises(ValueError, match="scheduled charge currency must match"):
+        session.execute_and_value(request, snapshot=snapshot)
+
+    decision = idempotency.check(
+        request.order.client_order_id,
+        request_fingerprint(request),
+    )
+    assert decision.existing_receipt_id is None
+    assert not decision.reservation_pending
+    assert engine.receipt_for(request.order.client_order_id) is None
+    assert engine.events() == ()
+    assert accounting.snapshot() == ()
+    assert cash_ledger.balance == Money(Decimal("5000"), "USD")
+    assert cash_ledger.entries() == ()

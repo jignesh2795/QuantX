@@ -50,7 +50,7 @@ from quantx.domain.product_selection import ProductSelectionPolicy, resolve_requ
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
-from quantx.execution.charges import PercentageBpsChargeModel
+from quantx.execution.charges import CostScheduleChargeModel, PercentageBpsChargeModel
 from quantx.execution.historical_account_state import (
     AccountStateCompleteness,
     HistoricalAccountStateSnapshot,
@@ -394,6 +394,12 @@ def _effective_run_configuration(
                 ("rate_bps", str(charge_model.rate_bps)),
             ),
         )
+    elif isinstance(charge_model, CostScheduleChargeModel):
+        charge_identity = SimulationModelIdentity(
+            model_id=charge_model.model_id,
+            model_version=charge_model.model_version,
+            parameters=charge_model.schedule.material_parameters,
+        )
     else:
         # A real charge model without an explicit canonical material-parameter
         # representation must never be recorded as "no charge model": doing so
@@ -649,6 +655,7 @@ class DeterministicBacktestService:
         if market_registry is None:
             raise UnsupportedMarketError("market_registry is required")
         series_items = (series,) if hasattr(series, "instrument") else tuple(series)
+        instrument_currencies: list[str | None] = []
         for item in series_items:
             instrument_id = getattr(item, "instrument", None)
             instrument = (
@@ -663,6 +670,9 @@ class DeterministicBacktestService:
                 raise UnsupportedMarketError(
                     f"unsupported market for backtest: {instrument.market!r}"
                 )
+            instrument_currencies.append(
+                None if instrument is None else instrument.currency
+            )
         replay = HistoricalReplay(series, allow_incomplete=allow_incomplete)
         frames = replay.frames()
         if provenance is not None:
@@ -704,6 +714,14 @@ class DeterministicBacktestService:
                 profile=effective_profile,
                 fill_model=DataAdaptiveFillModel(candle_model=candle_model),
                 market_registry=market_registry,
+            )
+
+        # Validate the actual executor configuration, including an injected
+        # engine, before strategy execution or any idempotency/receipt effects.
+        for instrument_currency in instrument_currencies:
+            execution_engine.validate_cost_schedule_currency(
+                instrument_currency=instrument_currency,
+                account_currency=financial_state.cash_balance.currency,
             )
 
         effective_policy = policy_context or PolicyContext()

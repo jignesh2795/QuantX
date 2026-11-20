@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, getcontext, localcontext
 from uuid import UUID, uuid4
 
 from quantx.domain.clock import Clock
@@ -23,7 +23,9 @@ from .charges import (
     ChargeBreakdown,
     ChargeCalculationContext,
     ChargeModel,
+    CostScheduleChargeModel,
     PercentageBpsChargeModel,
+    _decimal_exponent,
 )
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
 from .market_data import MarketSnapshot
@@ -92,6 +94,32 @@ class PaperExecutionEngine:
         touching engine state; the engine never rewrites it.
         """
         return self._clock
+
+    def validate_cost_schedule_currency(
+        self,
+        *,
+        instrument_currency: str | None,
+        account_currency: str,
+    ) -> None:
+        """Reject an incompatible configured schedule before reserving an execution.
+
+        PaperSession and backtests call this before margin reservation or execute(),
+        so a configuration error cannot consume an idempotency key or receipt.
+        """
+        charge_model = self._profile.charge_model
+        if not isinstance(charge_model, CostScheduleChargeModel):
+            return
+        if instrument_currency is None:
+            raise ValueError(
+                "cost schedule currency preflight requires resolved instrument metadata"
+            )
+        if instrument_currency != account_currency:
+            raise ValueError("scheduled charge currency must match instrument and account currency")
+        schedule_currency = charge_model.schedule.currency
+        if schedule_currency != instrument_currency or schedule_currency != account_currency:
+            raise ValueError(
+                "per-fill charge currency does not match instrument and account currency"
+            )
 
     def execute(
         self,
@@ -195,17 +223,46 @@ class PaperExecutionEngine:
             price=price,
             filled_at=executed_at,
         )
-        charges: ChargeBreakdown | None = None
+        aggregate_charges: ChargeBreakdown | None = None
+        per_fill_charges: tuple[ChargeBreakdown, ...] = ()
+        charge_result: ChargeBreakdown | None = None
         charge_model = self._profile.charge_model
         if charge_model is None and self._profile.fee_bps != Decimal("0"):
             charge_model = PercentageBpsChargeModel(self._profile.fee_bps)
-        if charge_model is not None:
-            charges = charge_model.calculate(
+        if isinstance(charge_model, CostScheduleChargeModel):
+            precision = (
+                len(fill.quantity.as_tuple().digits)
+                + len(fill.price.as_tuple().digits)
+                + abs(_decimal_exponent(fill.quantity))
+                + abs(_decimal_exponent(fill.price))
+                + 4
+            )
+            with localcontext() as decimal_context:
+                decimal_context.prec = max(getcontext().prec, precision)
+                transaction_value = fill.quantity * fill.price
+            charge_result = charge_model.calculate(
+                ChargeCalculationContext(
+                    transaction_value=transaction_value,
+                    currency=charge_model.schedule.currency,
+                    side=fill.side,
+                    unit_price=fill.price,
+                    quantity=fill.quantity,
+                )
+            )
+            if charge_result.rounded_total is None:
+                raise PaperExecutionError("cost schedule did not produce a rounded per-fill total")
+            per_fill_charges = (charge_result,)
+            fee = charge_result.rounded_total
+        elif charge_model is not None:
+            charge_result = charge_model.calculate(
                 ChargeCalculationContext(
                     transaction_value=fill.quantity * fill.price,
                 )
             )
-        fee = Decimal("0") if charges is None else charges.total
+            aggregate_charges = charge_result
+            fee = charge_result.total
+        else:
+            fee = Decimal("0")
         remaining_quantity = request.order.quantity - fill_quantity
         receipt = ExecutionReceipt(
             request_id=uuid4(),
@@ -241,19 +298,25 @@ class PaperExecutionEngine:
                 f"fee_bps={self._profile.fee_bps}",
                 *(
                     (
-                        f"charge_model_id={charges.model_id}",
-                        f"charge_model_version={charges.model_version}",
-                        *charges.provenance,
-                        f"charge_total={charges.total}",
+                        f"charge_model_id={charge_result.model_id}",
+                        f"charge_model_version={charge_result.model_version}",
+                        *charge_result.provenance,
+                        f"charge_total={fee}",
+                        *(
+                            (f"charge_unrounded_total={charge_result.total}",)
+                            if charge_result.rounded_total is not None
+                            else ()
+                        ),
                     )
-                    if charges is not None
+                    if charge_result is not None
                     else ()
                 ),
                 f"model_id={proposal.model_id}",
                 proposal.reason,
             ),
             fee=fee,
-            charges=charges,
+            charges=aggregate_charges,
+            per_fill_charges=per_fill_charges,
         )
         if self._receipt_repository is not None:
             self._receipt_repository.save(receipt)

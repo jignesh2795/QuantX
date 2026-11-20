@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
@@ -7,11 +8,12 @@ import pytest
 from quantx.domain.enums import OrderSide, OrderStatus, OrderType
 from quantx.domain.orders import Fill, Order
 from quantx.domain.value_objects import InstrumentId
+from quantx.execution.charges import ChargeBreakdown
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 
 
 def test_receipt_requires_charge_total_to_match_fee() -> None:
-    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+    from quantx.execution.charges import ChargeComponent
 
     with pytest.raises(ValueError, match="charges total must equal receipt fee"):
         ExecutionReceipt(
@@ -216,4 +218,175 @@ def test_receipt_from_order_requires_partial_quantity_for_partial() -> None:
             order_status=OrderStatus.PARTIALLY_FILLED,
             executed_at=datetime.now(UTC),
             fills=(_fill(order, quantity=order.quantity),),
+        )
+
+
+def _multi_fill_receipt(
+    *,
+    fee: Decimal = Decimal("0"),
+    per_fill_charges: tuple[ChargeBreakdown, ...] = (),
+    charges: ChargeBreakdown | None = None,
+) -> ExecutionReceipt:
+    client_id = uuid4()
+    fills = (
+        Fill(
+            client_order_id=client_id,
+            instrument=InstrumentId("NSE", "TCS"),
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            price=Decimal("100"),
+        ),
+        Fill(
+            client_order_id=client_id,
+            instrument=InstrumentId("NSE", "TCS"),
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            price=Decimal("101"),
+        ),
+    )
+    return ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=client_id,
+        outcome=ExecutionOutcome.FILLED,
+        order_status=OrderStatus.FILLED,
+        executed_at=datetime.now(UTC),
+        fills=fills,
+        fee=fee,
+        charges=charges,
+        per_fill_charges=per_fill_charges,
+        order_quantity=Decimal("2"),
+    )
+
+
+def test_receipt_retains_unrounded_per_fill_breakdowns_and_rounded_totals() -> None:
+    from quantx.execution.charges import ChargeComponent
+
+    breakdowns = (
+        ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("brokerage", Decimal("0.005")),),
+            model_id="schedule.test",
+            model_version="1",
+            rounded_total=Decimal("0.00"),
+        ),
+        ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("brokerage", Decimal("0.005")),),
+            model_id="schedule.test",
+            model_version="1",
+            rounded_total=Decimal("0.00"),
+        ),
+    )
+    receipt = _multi_fill_receipt(fee=Decimal("0.00"), per_fill_charges=breakdowns)
+
+    assert tuple(item.total for item in receipt.per_fill_charges) == (
+        Decimal("0.005"),
+        Decimal("0.005"),
+    )
+    assert receipt.resolve_per_fill_fees() == (Decimal("0.00"), Decimal("0.00"))
+    assert sum(item.total for item in receipt.per_fill_charges) == Decimal("0.010")
+
+
+def test_receipt_rejects_per_fill_charge_length_and_total_mismatch() -> None:
+    from quantx.execution.charges import ChargeComponent
+
+    one = ChargeBreakdown(
+        currency="INR",
+        components=(ChargeComponent("fee", Decimal("1")),),
+        model_id="schedule.test",
+        model_version="1",
+        rounded_total=Decimal("1"),
+    )
+    with pytest.raises(ValueError, match="length must match"):
+        _multi_fill_receipt(fee=Decimal("1"), per_fill_charges=(one,))
+    two = replace(one, rounded_total=Decimal("0.50"))
+    with pytest.raises(ValueError, match="must equal receipt fee"):
+        _multi_fill_receipt(fee=Decimal("0.50"), per_fill_charges=(one, two))
+
+
+def test_legacy_multi_fill_nonzero_aggregate_fee_fails_closed() -> None:
+    receipt = _multi_fill_receipt(fee=Decimal("2"))
+    with pytest.raises(ValueError, match="cannot be allocated across multiple fills"):
+        receipt.resolve_per_fill_fees()
+
+
+def test_legacy_multi_fill_zero_fee_resolves_to_zero_per_fill() -> None:
+    receipt = _multi_fill_receipt()
+    assert receipt.resolve_per_fill_fees() == (Decimal("0"), Decimal("0"))
+
+
+def test_legacy_single_fill_aggregate_fee_is_unambiguous() -> None:
+    receipt = _multi_fill_receipt()
+    single = replace(
+        receipt,
+        fills=receipt.fills[:1],
+        fee=Decimal("1"),
+        order_quantity=Decimal("1"),
+    )
+    assert single.resolve_per_fill_fees() == (Decimal("1"),)
+
+
+def test_cumulative_observation_fee_cannot_be_allocated_without_fills() -> None:
+    from quantx.execution.receipts.models import ExecutionEvidenceKind
+
+    receipt = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=uuid4(),
+        outcome=ExecutionOutcome.ACCEPTED,
+        order_status=OrderStatus.ACCEPTED,
+        executed_at=datetime.now(UTC),
+        fee=Decimal("1"),
+        evidence_kind=ExecutionEvidenceKind.CUMULATIVE_OBSERVATION,
+        observed_filled_quantity=Decimal("1"),
+    )
+    with pytest.raises(ValueError, match="cannot be allocated without fills"):
+        receipt.resolve_per_fill_fees()
+
+
+def test_receipt_from_order_preserves_per_fill_charge_breakdown() -> None:
+    from quantx.execution.charges import ChargeComponent
+
+    order = _order(quantity=Decimal("1"))
+    breakdown = ChargeBreakdown(
+        currency="INR",
+        components=(ChargeComponent("brokerage", Decimal("0.005")),),
+        model_id="schedule.test",
+        model_version="1",
+        rounded_total=Decimal("0.00"),
+    )
+    receipt = ExecutionReceipt.from_order(
+        order,
+        request_id=uuid4(),
+        outcome=ExecutionOutcome.FILLED,
+        order_status=OrderStatus.FILLED,
+        executed_at=datetime.now(UTC),
+        fills=(_fill(order, quantity=order.quantity),),
+        fee=Decimal("0.00"),
+        per_fill_charges=(breakdown,),
+    )
+    assert receipt.per_fill_charges == (breakdown,)
+
+
+@pytest.mark.parametrize("fee", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])
+def test_receipt_rejects_non_finite_fees(fee: Decimal) -> None:
+    with pytest.raises(ValueError, match="fee must be finite"):
+        ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=uuid4(),
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=datetime.now(UTC),
+            fee=fee,
+        )
+
+
+def test_receipt_rejects_non_decimal_fee() -> None:
+    with pytest.raises(TypeError, match="fee must be a Decimal"):
+        ExecutionReceipt(
+            request_id=uuid4(),
+            client_order_id=uuid4(),
+            outcome=ExecutionOutcome.ACCEPTED,
+            order_status=OrderStatus.ACCEPTED,
+            executed_at=datetime.now(UTC),
+            fee=1,  # type: ignore[arg-type]
         )

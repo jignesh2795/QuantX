@@ -6,6 +6,12 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
+from quantx.execution.charges import (
+    ChargeBreakdown,
+    ChargeCalculationContext,
+    ChargeComponent,
+)
+
 
 class SlippageModel(StrEnum):
     NONE = "NONE"
@@ -43,12 +49,44 @@ class ExecutionProfile:
             raise ValueError("profile_id must not be empty")
         if not self.version.strip():
             raise ValueError("version must not be empty")
-        if self.slippage_bps < 0:
-            raise ValueError("slippage_bps cannot be negative")
-        if self.fee_rate < 0:
-            raise ValueError("fee_rate cannot be negative")
+        for name, value in (("slippage_bps", self.slippage_bps), ("fee_rate", self.fee_rate)):
+            if not isinstance(value, Decimal):
+                raise TypeError(f"{name} must be a Decimal")
+            if not value.is_finite():
+                raise ValueError(f"{name} must be finite")
+            if value < 0:
+                raise ValueError(f"{name} cannot be negative")
         if self.latency_ms < 0:
             raise ValueError("latency_ms cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionProfileChargeAdapter:
+    """Adapt the legacy fractional fee profile to the canonical charge contract."""
+
+    profile: ExecutionProfile
+
+    @property
+    def model_id(self) -> str:
+        return f"paper.execution_profile.{self.profile.profile_id}"
+
+    @property
+    def model_version(self) -> str:
+        return self.profile.version
+
+    def calculate(self, context: ChargeCalculationContext) -> ChargeBreakdown:
+        amount = context.transaction_value * self.profile.fee_rate
+        return ChargeBreakdown(
+            currency=context.currency,
+            components=(ChargeComponent("legacy_fee", amount),),
+            model_id=self.model_id,
+            model_version=self.model_version,
+            provenance=(
+                "legacy_execution_profile",
+                f"profile_id:{self.profile.profile_id}",
+                f"fee_rate:{self.profile.fee_rate}",
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

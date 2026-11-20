@@ -204,20 +204,36 @@ class HistoricalAccountStateTracker:
         if existing is not None:
             return existing
 
+        per_fill_fees = receipt.resolve_per_fill_fees()
+        resolved_instruments = tuple(
+            self._instrument_registry.resolve(fill.instrument) for fill in receipt.fills
+        )
+        if receipt.per_fill_charges:
+            if any(item.currency != self._currency for item in receipt.per_fill_charges):
+                raise ValueError("per-fill charge currency does not match account currency")
+            if any(
+                instrument is None or instrument.currency != item.currency
+                for instrument, item in zip(
+                    resolved_instruments,
+                    receipt.per_fill_charges,
+                    strict=True,
+                )
+            ):
+                raise ValueError("per-fill charge currency does not match resolved instrument")
+
         self.observe_mark(snapshot)
-        if receipt.fee < 0:
-            raise ValueError("receipt fee cannot be negative")
-
-        per_fill_fee = receipt.fee / Decimal(len(receipt.fills)) if receipt.fills else Decimal("0")
-
-        for fill in receipt.fills:
+        for fill, per_fill_fee in zip(receipt.fills, per_fill_fees, strict=True):
             self._accounting.apply(fill, fee=per_fill_fee)
 
         self._fees += receipt.fee
 
         if receipt.fills and self._cash_available:
-            for fill in receipt.fills:
-                instrument = self._instrument_registry.resolve(fill.instrument)
+            for fill, per_fill_fee, instrument in zip(
+                receipt.fills,
+                per_fill_fees,
+                resolved_instruments,
+                strict=True,
+            ):
                 if instrument is None:
                     self._cash_available = False
                     self._issue = (
@@ -234,9 +250,6 @@ class HistoricalAccountStateTracker:
                     self._cash_available = False
                     self._issue = f"cash accounting unavailable: {exc}"
                     break
-        elif receipt.fee != 0:
-            self._cash_available = False
-            self._issue = "receipt fee cannot be allocated because the receipt has no fills"
 
         result = self._snapshot(receipt.executed_at)
         self._snapshots[receipt.receipt_id] = result

@@ -353,3 +353,63 @@ def test_tracker_records_future_mark_as_unavailable_evidence() -> None:
     assert evidence.selected_at == T0
     assert evidence.unavailable is True
     assert evidence.reason == "explicit mark is observed after snapshot timestamp"
+
+
+def test_historical_tracker_uses_actual_rounded_fee_for_each_fill() -> None:
+    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+
+    tracker, accounting = _tracker(cash="1000")
+    client_id = uuid4()
+    fills = (
+        Fill(
+            client_order_id=client_id,
+            instrument=INSTRUMENT,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            price=Decimal("100"),
+            filled_at=T0,
+        ),
+        Fill(
+            client_order_id=client_id,
+            instrument=INSTRUMENT,
+            side=OrderSide.BUY,
+            quantity=Decimal("1"),
+            price=Decimal("100"),
+            filled_at=T0,
+        ),
+    )
+    per_fill = (
+        ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("brokerage", Decimal("0.005")),),
+            model_id="schedule.test",
+            model_version="1",
+            rounded_total=Decimal("0.00"),
+        ),
+        ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("brokerage", Decimal("0.015")),),
+            model_id="schedule.test",
+            model_version="1",
+            rounded_total=Decimal("0.02"),
+        ),
+    )
+    receipt = ExecutionReceipt(
+        request_id=uuid4(),
+        client_order_id=client_id,
+        outcome=ExecutionOutcome.FILLED,
+        order_status=OrderStatus.FILLED,
+        executed_at=T0,
+        fills=fills,
+        fee=Decimal("0.02"),
+        per_fill_charges=per_fill,
+        order_id=client_id,
+        order_quantity=Decimal("2"),
+    )
+
+    result = tracker.record(receipt, snapshot=_snapshot())
+
+    assert result.fees == Money(Decimal("0.02"), "INR")
+    assert result.cash == Money(Decimal("799.98"), "INR")
+    assert accounting.get(INSTRUMENT) is not None
+    assert accounting.get(INSTRUMENT).fees == Decimal("0.02")
