@@ -628,3 +628,64 @@ def test_cost_schedule_currency_mismatch_is_rejected_before_idempotency_and_retr
     )
     assert completed.existing_receipt_id == result.execution.receipt_id
     assert not completed.reservation_pending
+
+def test_cost_schedule_currency_preflight_rejects_instrument_account_mismatch() -> None:
+    import pytest
+
+    from quantx.execution.cash_ledger import CashLedger
+    from quantx.execution.charges import (
+        ChargeBase,
+        CostLine,
+        CostSchedule,
+        CostScheduleChargeModel,
+    )
+    from quantx.execution.idempotency import InMemoryIdempotencyStore, request_fingerprint
+
+    instrument = _instrument()
+    request = _request()
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    idempotency = InMemoryIdempotencyStore()
+    schedule = CostScheduleChargeModel(
+        CostSchedule(
+            lines=(CostLine("brokerage", ChargeBase.ORDER, Decimal("1")),),
+            currency="INR",
+            digits=2,
+            source="caller-supplied-test",
+        )
+    )
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(timestamp),
+        profile=PaperSimulationProfile(charge_model=schedule),
+        idempotency_store=idempotency,
+    )
+    accounting = FillAccounting()
+    cash_ledger = CashLedger(Money(Decimal("5000"), "USD"))
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        cash_ledger=cash_ledger,
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=timestamp,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    with pytest.raises(ValueError, match="scheduled charge currency must match"):
+        session.execute_and_value(request, snapshot=snapshot)
+
+    decision = idempotency.check(
+        request.order.client_order_id,
+        request_fingerprint(request),
+    )
+    assert decision.existing_receipt_id is None
+    assert not decision.reservation_pending
+    assert engine.receipt_for(request.order.client_order_id) is None
+    assert engine.events() == ()
+    assert accounting.snapshot() == ()
+    assert cash_ledger.balance == Money(Decimal("5000"), "USD")
+    assert cash_ledger.entries() == ()
