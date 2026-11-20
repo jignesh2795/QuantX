@@ -547,6 +547,7 @@ def test_paper_session_rejects_ambiguous_multi_fill_aggregate_fee_before_account
         )
     assert accounting.snapshot() == ()
 
+
 def test_cost_schedule_currency_mismatch_is_rejected_before_idempotency_and_retryable() -> None:
     import pytest
 
