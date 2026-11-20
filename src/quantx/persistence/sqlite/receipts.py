@@ -10,6 +10,7 @@ from uuid import UUID
 from quantx.domain.enums import OrderSide, OrderStatus
 from quantx.domain.orders import Fill
 from quantx.domain.value_objects import AccountId, BrokerConnectionId, InstrumentId
+from quantx.execution.charges import ChargeBreakdown, ChargeComponent
 from quantx.execution.idempotency.fingerprint import _canonical_decimal
 from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.models import ExecutionEvidenceKind
@@ -38,6 +39,64 @@ def _client_order_id_from_str(value: str) -> UUID | str:
         return UUID(value)
     except ValueError:
         return value
+
+
+def _charge_to_dict(charges: ChargeBreakdown) -> dict[str, object]:
+    return {
+        "components": [
+            {"amount": _canonical_decimal(component.amount), "name": component.name}
+            for component in charges.components
+        ],
+        "currency": charges.currency,
+        "model_id": charges.model_id,
+        "model_version": charges.model_version,
+        "provenance": list(charges.provenance),
+        "rounded_total": (
+            _canonical_decimal(charges.rounded_total)
+            if charges.rounded_total is not None
+            else None
+        ),
+    }
+
+
+def _charge_from_dict(data: dict[str, object]) -> ChargeBreakdown:
+    raw_components = data["components"]
+    if not isinstance(raw_components, list):
+        raise ValueError("charge components payload must be a list")
+    components: list[ChargeComponent] = []
+    for item in raw_components:
+        if not isinstance(item, dict):
+            raise ValueError("charge components payload contains an invalid item")
+        name = item.get("name")
+        amount = item.get("amount")
+        if not isinstance(name, str) or not isinstance(amount, str):
+            raise ValueError("charge component payload requires string name and decimal amount")
+        components.append(ChargeComponent(name=name, amount=Decimal(amount)))
+    raw_currency = data["currency"]
+    raw_rounded_total = data.get("rounded_total")
+    raw_provenance = data["provenance"]
+    if raw_currency is not None and not isinstance(raw_currency, str):
+        raise ValueError("charge currency payload must be a string or None")
+    if not isinstance(raw_provenance, list) or any(
+        not isinstance(item, str) for item in raw_provenance
+    ):
+        raise ValueError("charge provenance payload must be a list of strings")
+    if raw_rounded_total is not None and not isinstance(raw_rounded_total, str):
+        raise ValueError("rounded charge total payload must be a decimal string or None")
+    model_id = data["model_id"]
+    model_version = data["model_version"]
+    if not isinstance(model_id, str) or not isinstance(model_version, str):
+        raise ValueError("charge model identity payload must contain strings")
+    return ChargeBreakdown(
+        currency=raw_currency,
+        components=tuple(components),
+        model_id=model_id,
+        model_version=model_version,
+        provenance=tuple(raw_provenance),
+        rounded_total=(
+            Decimal(raw_rounded_total) if raw_rounded_total is not None else None
+        ),
+    )
 
 
 def receipt_to_payload(receipt: ExecutionReceipt) -> str:
@@ -80,6 +139,12 @@ def receipt_to_payload(receipt: ExecutionReceipt) -> str:
         "simulated": receipt.simulated,
         "source": receipt.source,
     }
+    if receipt.charges is not None:
+        payload["charges"] = _charge_to_dict(receipt.charges)
+    if receipt.per_fill_charges:
+        payload["per_fill_charges"] = [
+            _charge_to_dict(item) for item in receipt.per_fill_charges
+        ]
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
@@ -112,6 +177,14 @@ def receipt_from_payload(payload: str) -> ExecutionReceipt:
         )
         for item in data["fills"]
     )
+    raw_charges = data.get("charges")
+    raw_per_fill_charges = data.get("per_fill_charges", [])
+    if raw_charges is not None and not isinstance(raw_charges, dict):
+        raise ValueError("receipt charges payload must be an object or None")
+    if not isinstance(raw_per_fill_charges, list) or any(
+        not isinstance(item, dict) for item in raw_per_fill_charges
+    ):
+        raise ValueError("receipt per-fill charges payload must be a list of objects")
     return ExecutionReceipt(
         request_id=UUID(data["request_id"]),
         client_order_id=_client_order_id_from_str(data["client_order_id"]),
@@ -126,6 +199,10 @@ def receipt_from_payload(payload: str) -> ExecutionReceipt:
         model_version=data["model_version"],
         assumptions=tuple(data["assumptions"]),
         fee=Decimal(data["fee"]),
+        charges=_charge_from_dict(raw_charges) if raw_charges is not None else None,
+        per_fill_charges=tuple(
+            _charge_from_dict(item) for item in raw_per_fill_charges
+        ),
         broker_order_id=data["broker_order_id"],
         raw_reference=data["raw_reference"],
         correlation_id=data["correlation_id"],

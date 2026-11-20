@@ -11,7 +11,7 @@ from quantx.domain.value_objects import InstrumentId
 from quantx.execution.receipts import ExecutionOutcome, ExecutionReceipt
 from quantx.execution.receipts.lifecycle import ExecutionLifecycle
 from quantx.persistence.sqlite.database import SqliteDatabase
-from quantx.persistence.sqlite.receipts import SqliteReceiptRepository
+from quantx.persistence.sqlite.receipts import SqliteReceiptRepository, receipt_to_payload
 
 
 def _receipt(
@@ -168,3 +168,20 @@ def test_unknown_receipt_rebuild_is_fail_closed() -> None:
     assert lifecycle.requires_reconciliation
     assert not lifecycle.can_continue
     assert not lifecycle.is_complete
+
+
+def test_legacy_receipt_payload_keeps_original_empty_charge_shape() -> None:
+    import json
+
+    client_id = uuid4()
+    receipt = _receipt(
+        client_id,
+        correlation_id=str(client_id),
+        quantity=Decimal("10"),
+        filled=Decimal("10"),
+        status=OrderStatus.FILLED,
+        executed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    payload = json.loads(receipt_to_payload(receipt))
+    assert "charges" not in payload
+    assert "per_fill_charges" not in payload

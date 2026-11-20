@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from quantx.execution.charges import ChargeCalculationContext
+
 from .profile import (
     ExecutionProfile,
+    ExecutionProfileChargeAdapter,
     LiquidityModel,
     OrderBookSnapshot,
     PartialFillPolicy,
@@ -88,7 +91,11 @@ class FillSimulator:
                 remaining_quantity=remaining,
             )
 
-        fee = price * fill_quantity * profile.fee_rate
+        fee = ExecutionProfileChargeAdapter(profile).calculate(
+            ChargeCalculationContext(
+                transaction_value=price * fill_quantity,
+            )
+        ).total
         return SimulatedFill(
             price=price,
             quantity=fill_quantity,

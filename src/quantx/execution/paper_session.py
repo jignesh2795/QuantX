@@ -237,14 +237,35 @@ class PaperSession:
                 self.release_margin(margin_reservation.reservation_id)
             raise ValueError("execution produced no fill")
 
-        applied_fee = receipt.fee if fee is None else fee
-        if applied_fee < 0:
-            raise ValueError("fee cannot be negative")
+        try:
+            per_fill_fees = receipt.resolve_per_fill_fees(fee)
+            if receipt.per_fill_charges:
+                if instrument.currency != cash_currency:
+                    raise ValueError(
+                        "scheduled charge currency must match instrument and account currency"
+                    )
+                if any(
+                    fill.instrument != instrument.instrument_id
+                    for fill in receipt.fills
+                ):
+                    raise ValueError(
+                        "scheduled receipt fills must match the approved instrument"
+                    )
+                if any(
+                    item.currency != instrument.currency or item.currency != cash_currency
+                    for item in receipt.per_fill_charges
+                ):
+                    raise ValueError(
+                        "per-fill charge currency does not match instrument and account currency"
+                    )
+        except Exception:
+            if margin_reservation is not None:
+                self.release_margin(margin_reservation.reservation_id)
+            raise
 
         last_entry: PositionLedgerEntry | None = None
         cash_entries: list[CashLedgerEntry] = []
-        per_fill_fee = applied_fee / Decimal(len(receipt.fills))
-        for fill in receipt.fills:
+        for fill, per_fill_fee in zip(receipt.fills, per_fill_fees, strict=True):
             last_entry = self._accounting.apply(fill, fee=per_fill_fee)
             if self._cash_ledger is not None:
                 cash_entries.append(

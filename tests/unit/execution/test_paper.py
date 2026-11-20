@@ -437,3 +437,44 @@ def test_paper_execution_requires_explicit_market_registry() -> None:
 
     with pytest.raises(UnsupportedMarketError, match="market_registry is required"):
         engine.execute(request, snapshot=snapshot)
+
+
+def test_paper_engine_records_rounded_per_fill_cost_schedule_result() -> None:
+    from quantx.execution.charges import (
+        ChargeBase,
+        ChargeSide,
+        CostLine,
+        CostSchedule,
+        CostScheduleChargeModel,
+    )
+
+    schedule = CostSchedule(
+        lines=(
+            CostLine(
+                "brokerage",
+                ChargeBase.TURNOVER,
+                Decimal("0.00025"),
+                side=ChargeSide.BUY,
+            ),
+        ),
+        currency="INR",
+        digits=2,
+        source="caller-supplied-test",
+    )
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        profile=PaperSimulationProfile(charge_model=CostScheduleChargeModel(schedule)),
+    )
+
+    receipt = engine.execute(_request(), snapshot=_snapshot(ask=Decimal("100")))
+
+    assert receipt.fee == Decimal("0.25")
+    assert receipt.charges is None
+    assert len(receipt.per_fill_charges) == 1
+    breakdown = receipt.per_fill_charges[0]
+    assert breakdown.currency == "INR"
+    assert breakdown.total == Decimal("0.25000")
+    assert breakdown.rounded_total == Decimal("0.25")
+    assert "charge_model_id=" + schedule.model_id in receipt.assumptions
+    assert "charge_total=0.25" in receipt.assumptions

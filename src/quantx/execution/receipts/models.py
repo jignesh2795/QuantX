@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from quantx.domain.enums import OrderStatus
 from quantx.domain.orders import Fill, Order
 from quantx.domain.value_objects import AccountId, BrokerConnectionId
-from quantx.execution.charges import ChargeBreakdown
+from quantx.execution.charges import ChargeBreakdown, sum_charge_amounts
 
 
 class ExecutionOutcome(StrEnum):
@@ -65,6 +65,7 @@ class ExecutionReceipt:
     evidence_kind: ExecutionEvidenceKind = ExecutionEvidenceKind.EXECUTION_DELTAS
     observed_filled_quantity: Decimal | None = None
     observed_average_price: Decimal | None = None
+    per_fill_charges: tuple[ChargeBreakdown, ...] = ()
 
     @classmethod
     def from_order(
@@ -93,6 +94,7 @@ class ExecutionReceipt:
         evidence_kind: ExecutionEvidenceKind = ExecutionEvidenceKind.EXECUTION_DELTAS,
         observed_filled_quantity: Decimal | None = None,
         observed_average_price: Decimal | None = None,
+        per_fill_charges: tuple[ChargeBreakdown, ...] = (),
     ) -> ExecutionReceipt:
         """Construct a receipt while binding fill evidence to the canonical order."""
         cls._validate_fills_against_order(order, fills, outcome, evidence_kind)
@@ -122,6 +124,7 @@ class ExecutionReceipt:
             evidence_kind=evidence_kind,
             observed_filled_quantity=observed_filled_quantity,
             observed_average_price=observed_average_price,
+            per_fill_charges=per_fill_charges,
         )
 
     @staticmethod
@@ -159,6 +162,52 @@ class ExecutionReceipt:
             if fills:
                 raise ValueError("cumulative observation receipts must not carry fills")
 
+    def resolve_per_fill_fees(self, fee_override: Decimal | None = None) -> tuple[Decimal, ...]:
+        """Resolve authoritative scalar fees without inventing multi-fill allocation.
+
+        Schedule receipts use each rounded per-fill total. Legacy aggregate-only
+        receipts are unambiguous for one fill or a zero-fee multi-fill receipt.
+        """
+        if fee_override is not None:
+            if not isinstance(fee_override, Decimal):
+                raise TypeError("fee_override must be a Decimal")
+            if not fee_override.is_finite() or fee_override < 0:
+                raise ValueError("fee_override must be finite and non-negative")
+
+        if self.evidence_kind is ExecutionEvidenceKind.CUMULATIVE_OBSERVATION:
+            if self.fee != 0 or (fee_override is not None and fee_override != 0):
+                raise ValueError("cumulative observation fees cannot be allocated without fills")
+            return ()
+
+        if not self.fills:
+            if self.fee != 0 or (fee_override is not None and fee_override != 0):
+                raise ValueError("receipt fee cannot be allocated because the receipt has no fills")
+            return ()
+
+        if self.per_fill_charges:
+            if fee_override is not None and fee_override != self.fee:
+                raise ValueError("fee_override cannot replace authoritative per-fill charges")
+            return tuple(
+                item.rounded_total
+                for item in self.per_fill_charges
+                if item.rounded_total is not None
+            )
+
+        if len(self.fills) == 1:
+            if (
+                fee_override is not None
+                and self.charges is not None
+                and fee_override != self.fee
+            ):
+                raise ValueError("fee_override cannot contradict the receipt charge breakdown")
+            return (self.fee if fee_override is None else fee_override,)
+
+        if self.fee != 0:
+            raise ValueError("non-zero aggregate fee cannot be allocated across multiple fills")
+        if fee_override is not None and fee_override != 0:
+            raise ValueError("non-zero fee_override cannot be allocated across multiple fills")
+        return (Decimal("0"),) * len(self.fills)
+
     @property
     def filled_quantity(self) -> Decimal:
         """Total quantity evidenced by this receipt's fills."""
@@ -175,6 +224,10 @@ class ExecutionReceipt:
         return remaining
 
     def __post_init__(self) -> None:
+        if not isinstance(self.per_fill_charges, tuple):
+            raise TypeError("per_fill_charges must be a tuple")
+        if any(not isinstance(item, ChargeBreakdown) for item in self.per_fill_charges):
+            raise TypeError("per_fill_charges must contain ChargeBreakdown values")
         if isinstance(self.client_order_id, str) and not self.client_order_id.strip():
             raise ValueError("client_order_id must not be empty")
         if self.executed_at.tzinfo is None or self.executed_at.utcoffset() is None:
@@ -183,6 +236,33 @@ class ExecutionReceipt:
             raise ValueError("fee cannot be negative")
         if self.charges is not None and self.charges.total != self.fee:
             raise ValueError("charges total must equal receipt fee")
+        if self.per_fill_charges:
+            if self.charges is not None:
+                raise ValueError("aggregate charges and per-fill charges cannot both be set")
+            if self.evidence_kind is not ExecutionEvidenceKind.EXECUTION_DELTAS:
+                raise ValueError("per-fill charges require execution-delta evidence")
+            if len(self.per_fill_charges) != len(self.fills):
+                raise ValueError("per_fill_charges length must match fills")
+            if any(item.rounded_total is None for item in self.per_fill_charges):
+                raise ValueError("per-fill charge breakdowns require a rounded_total")
+            if any(item.currency is None for item in self.per_fill_charges):
+                raise ValueError("per-fill charge breakdowns require an explicit currency")
+            identities = {
+                (item.model_id, item.model_version, item.currency)
+                for item in self.per_fill_charges
+            }
+            if len(identities) != 1:
+                raise ValueError(
+                    "per-fill charge breakdowns must share model and currency identity"
+                )
+            rounded_values = tuple(
+                item.rounded_total
+                for item in self.per_fill_charges
+                if item.rounded_total is not None
+            )
+            rounded_total = sum_charge_amounts(rounded_values)
+            if rounded_total != self.fee:
+                raise ValueError("per-fill rounded totals must equal receipt fee")
         if self.order_quantity is not None and self.order_quantity <= 0:
             raise ValueError("order_quantity must be positive when provided")
         if any(fill.client_order_id != self.client_order_id for fill in self.fills):

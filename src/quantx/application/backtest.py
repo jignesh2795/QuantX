@@ -50,7 +50,7 @@ from quantx.domain.product_selection import ProductSelectionPolicy, resolve_requ
 from quantx.domain.risk import PreTradeRiskEngine, RiskContext, RiskDecision, RiskResult
 from quantx.domain.strategy import SignalAction, StrategyResult
 from quantx.execution.accounting import FillAccounting, PositionLedgerEntry
-from quantx.execution.charges import PercentageBpsChargeModel
+from quantx.execution.charges import CostScheduleChargeModel, PercentageBpsChargeModel
 from quantx.execution.historical_account_state import (
     AccountStateCompleteness,
     HistoricalAccountStateSnapshot,
@@ -394,6 +394,12 @@ def _effective_run_configuration(
                 ("rate_bps", str(charge_model.rate_bps)),
             ),
         )
+    elif isinstance(charge_model, CostScheduleChargeModel):
+        charge_identity = SimulationModelIdentity(
+            model_id=charge_model.model_id,
+            model_version=charge_model.model_version,
+            parameters=charge_model.schedule.material_parameters,
+        )
     else:
         # A real charge model without an explicit canonical material-parameter
         # representation must never be recorded as "no charge model": doing so
@@ -671,6 +677,12 @@ class DeterministicBacktestService:
         simulation_clock = None
         effective_slippage_bps: Decimal | None = None
         effective_profile = execution_profile or PaperSimulationProfile()
+        if isinstance(effective_profile.charge_model, CostScheduleChargeModel):
+            schedule_currency = effective_profile.charge_model.schedule.currency
+            if schedule_currency != financial_state.cash_balance.currency:
+                raise ValueError(
+                    "cost schedule currency must match backtest starting-capital currency"
+                )
         # ``None`` means "no authoritative identity available". An injected
         # execution engine stays ``None`` so provenance-aware validation fails
         # closed instead of recording an empty model list.

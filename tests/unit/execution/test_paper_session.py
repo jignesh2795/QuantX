@@ -394,3 +394,155 @@ def test_partial_continuation_is_blocked_before_executor_on_projected_position_e
 
     result_after = accounting.get(instrument.instrument_id)
     assert result_after == result_before
+
+
+def test_paper_session_applies_each_rounded_per_fill_charge_without_equal_split() -> None:
+    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+    from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+
+    instrument = _instrument()
+    request = _request()
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    fills = (
+        Fill(
+            client_order_id=request.order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("5"),
+            price=Decimal("100"),
+            filled_at=timestamp,
+        ),
+        Fill(
+            client_order_id=request.order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("5"),
+            price=Decimal("100"),
+            filled_at=timestamp,
+        ),
+    )
+    per_fill = (
+        ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("brokerage", Decimal("0.005")),),
+            model_id="schedule.test",
+            model_version="1",
+            rounded_total=Decimal("0.00"),
+        ),
+        ChargeBreakdown(
+            currency="INR",
+            components=(ChargeComponent("brokerage", Decimal("0.015")),),
+            model_id="schedule.test",
+            model_version="1",
+            rounded_total=Decimal("0.02"),
+        ),
+    )
+    receipt = ExecutionReceipt(
+        request_id=__import__("uuid").uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.FILLED,
+        order_status=OrderStatus.FILLED,
+        executed_at=timestamp,
+        fills=fills,
+        fee=Decimal("0.02"),
+        per_fill_charges=per_fill,
+        order_quantity=Decimal("10"),
+    )
+
+    class _ReceiptAdapter:
+        def execute(self, request, *, snapshot):
+            return receipt
+
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(timestamp),
+    )
+    accounting = FillAccounting()
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        initial_cash=Money(Decimal("5000"), "INR"),
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=timestamp,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    result = session.execute_and_value(
+        request,
+        snapshot=snapshot,
+        execution_adapter=_ReceiptAdapter(),
+    )
+
+    assert result.accounting_entry.fees == Decimal("0.02")
+    assert tuple(entry.fee.amount for entry in result.cash_entries) == (
+        Decimal("0.00"),
+        Decimal("0.02"),
+    )
+    assert result.cash.amount == Decimal("3999.98")
+
+
+def test_paper_session_rejects_ambiguous_multi_fill_aggregate_fee_before_accounting() -> None:
+    from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
+
+    instrument = _instrument()
+    request = _request()
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    fills = tuple(
+        Fill(
+            client_order_id=request.order.client_order_id,
+            instrument=instrument.instrument_id,
+            side=OrderSide.BUY,
+            quantity=Decimal("5"),
+            price=Decimal("100"),
+            filled_at=timestamp,
+        )
+        for _ in range(2)
+    )
+    receipt = ExecutionReceipt(
+        request_id=__import__("uuid").uuid4(),
+        client_order_id=request.order.client_order_id,
+        outcome=ExecutionOutcome.FILLED,
+        order_status=OrderStatus.FILLED,
+        executed_at=timestamp,
+        fills=fills,
+        fee=Decimal("2"),
+        order_quantity=Decimal("10"),
+    )
+
+    class _ReceiptAdapter:
+        def execute(self, request, *, snapshot):
+            return receipt
+
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(timestamp),
+    )
+    accounting = FillAccounting()
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        initial_cash=Money(Decimal("5000"), "INR"),
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=timestamp,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="cannot be allocated across multiple fills"):
+        session.execute_and_value(
+            request,
+            snapshot=snapshot,
+            execution_adapter=_ReceiptAdapter(),
+        )
+    assert accounting.snapshot() == ()

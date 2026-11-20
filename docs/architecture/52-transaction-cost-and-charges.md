@@ -50,6 +50,67 @@ This is a generic quote-notional simulation model, not a statement about any bro
 
 Future models can use a richer explicitly supplied transaction-value basis without changing the receipt or accounting contract.
 
+## Caller-supplied per-fill cost schedules
+
+The canonical ChargeModel boundary also supports an immutable, explicitly supplied
+CostScheduleChargeModel. This is a generic paper/research model; it does not provide
+broker or statutory tariff presets.
+
+Each named CostLine has one Decimal rate whose unit is determined by its base:
+
+- TURNOVER: fraction multiplied by fill price and quantity.
+- UNITS: money per unit multiplied by fill quantity.
+- ORDER: money per fill, including every partial fill.
+- CHARGES: fraction multiplied by the sum of the referenced lines' raw, clamped amounts.
+
+Lines may select BUY, SELL, or BOTH. A line that does not apply to the fill side is
+omitted from that fill's component breakdown and contributes zero when referenced by
+a dependent CHARGES line. Dependency references are explicit, unique and validated
+at schedule construction; cycles are rejected using deterministic topological order.
+
+Minimum and maximum values clamp each applicable line's raw amount. Neither line
+amounts nor dependency sums are rounded. The final sum for one fill is rounded once
+using Decimal ROUND_HALF_EVEN at the schedule's explicit currency digits. This
+rounding mode is a new QuantX policy for this schedule model, not an inherited
+repository-wide currency convention.
+
+## Raw components and booked fill total
+
+ChargeBreakdown.total continues to mean the exact, unrounded sum of its components.
+It must not be redefined to mean the booked amount. Schedule results additionally
+carry rounded_total, the single rounded amount applied for that fill; applied_total
+selects rounded_total when present and otherwise retains the legacy exact total.
+
+A schedule-backed ExecutionReceipt stores one per_fill_charges breakdown for each
+fill. Its fee equals the sum of those rounded per-fill totals. The legacy aggregate
+charges field is left unset for these receipts because its established invariant
+continues to require charges.total == fee. This preserves both raw line evidence and
+the rounded fee actually applied to accounting.
+
+The receipt's resolve_per_fill_fees() method is the shared allocation contract used
+by PaperSession and HistoricalAccountStateTracker. It uses actual rounded per-fill
+totals, permits unambiguous one-fill legacy fees and zero-fee multi-fill receipts,
+and rejects a non-zero aggregate-only multi-fill fee. It never equal-splits an
+aggregate fee. Cumulative observation receipts have no fill allocation.
+
+Schedule currency is mandatory and must match the fill/account currency at the
+paper-session or backtest accounting boundary. QuantX validates digits in the
+technical range 0 through 18 to bound Decimal quantization work; this is not a
+currency registry or a claim about every currency's conventional precision.
+Backtests record all material schedule parameters in the existing
+ExecutionConfiguration.charge_model identity. The
+canonical parameter set includes currency, digits, rounding policy, source, model
+version, every line's name/base/side/rate/minimum/maximum and its dependency references.
+The schedule model ID is a deterministic hash of this canonical representation;
+the full parameters remain in provenance.
+
+The legacy ExecutionProfile.fee_rate path is retained. Its existing fractional
+turnover formula is routed through an ExecutionProfileChargeAdapter that implements
+the ChargeModel contract, preserving the legacy per-fill fee formula without
+introducing a second charge calculation engine or schedule implementation.
+
+Slippage remains separate from transaction-cost charges.
+
 ## Account and P&L integration
 
 The aggregate charge still flows through the existing paths:

@@ -3488,3 +3488,79 @@ def test_backtest_omitted_market_registry_fails_closed() -> None:
             strategy=lambda frame: None,
             financial_state=_financial_state(),
         )
+
+
+def test_backtest_accepts_cost_schedule_with_full_existing_charge_provenance() -> None:
+    from quantx.execution.charges import (
+        ChargeBase,
+        CostLine,
+        CostSchedule,
+        CostScheduleChargeModel,
+    )
+
+    instrument = _instrument()
+    schedule = CostSchedule(
+        lines=(CostLine("brokerage", ChargeBase.TURNOVER, Decimal("0.001")),),
+        currency="INR",
+        digits=2,
+        source="caller-supplied-test",
+    )
+    charge = CostScheduleChargeModel(schedule)
+    profile = PaperSimulationProfile(charge_model=charge)
+    identity = SimulationModelIdentity(
+        model_id=charge.model_id,
+        model_version=charge.model_version,
+        parameters=schedule.material_parameters,
+    )
+    declared = replace(
+        _effective_default_configuration(),
+        execution=replace(
+            _effective_default_configuration().execution,
+            charge_model=identity,
+        ),
+    )
+    supplied = _provenance_with(declared)
+
+    result = _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
+        series=_series(),
+        strategy=StrategyEvaluationService(_C12CountingStrategy()),
+        strategy_ir=_c12_strategy_ir(),
+        financial_state=_financial_state(),
+        execution_profile=profile,
+        provenance=supplied,
+        market_registry=default_market_registry(),
+    )
+
+    assert result.provenance is supplied
+    assert result.provenance.run_configuration is not None
+    assert result.provenance.run_configuration.execution.charge_model == identity
+
+
+def test_backtest_rejects_schedule_currency_mismatch_before_strategy_execution() -> None:
+    from quantx.execution.charges import (
+        ChargeBase,
+        CostLine,
+        CostSchedule,
+        CostScheduleChargeModel,
+    )
+
+    instrument = _instrument()
+    counting = _C12CountingStrategy()
+    schedule = CostSchedule(
+        lines=(CostLine("brokerage", ChargeBase.TURNOVER, Decimal("0.001")),),
+        currency="USD",
+        digits=2,
+        source="caller-supplied-test",
+    )
+    profile = PaperSimulationProfile(charge_model=CostScheduleChargeModel(schedule))
+
+    with pytest.raises(ValueError, match="starting-capital currency"):
+        _c12_service(InMemoryInstrumentRegistry((instrument,))).run(
+            series=_series(),
+            strategy=StrategyEvaluationService(counting),
+            strategy_ir=_c12_strategy_ir(),
+            financial_state=_financial_state(),
+            execution_profile=profile,
+            market_registry=default_market_registry(),
+        )
+    assert counting.calls == []
