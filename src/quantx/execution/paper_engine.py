@@ -25,6 +25,7 @@ from .charges import (
     ChargeModel,
     CostScheduleChargeModel,
     PercentageBpsChargeModel,
+    _decimal_exponent,
 )
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore, request_fingerprint
 from .market_data import MarketSnapshot
@@ -206,8 +207,8 @@ class PaperExecutionEngine:
             precision = (
                 len(fill.quantity.as_tuple().digits)
                 + len(fill.price.as_tuple().digits)
-                + abs(fill.quantity.as_tuple().exponent)
-                + abs(fill.price.as_tuple().exponent)
+                + abs(_decimal_exponent(fill.quantity))
+                + abs(_decimal_exponent(fill.price))
                 + 4
             )
             with localcontext() as decimal_context:

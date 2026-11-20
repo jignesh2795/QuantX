@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, getcontext, localcontext
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation, getcontext, localcontext
 from enum import StrEnum
 from typing import Protocol
 
@@ -58,17 +58,33 @@ class ChargeComponent:
             raise ValueError("charge component amount cannot be negative")
 
 
+def _decimal_exponent(value: Decimal) -> int:
+    """Return a finite Decimal's exponent as an int with explicit narrowing."""
+    if not value.is_finite():
+        raise ValueError("decimal value must be finite")
+    decimal_tuple = value.as_tuple()
+    exponent = decimal_tuple.exponent
+    if isinstance(exponent, bool) or not isinstance(exponent, int):
+        raise ValueError("decimal exponent must be an integer")
+    return exponent
+
+
+def _decimal_precision_contribution(value: Decimal) -> int:
+    """Precision contribution of one finite Decimal to exact Decimal arithmetic."""
+    if not value.is_finite():
+        raise ValueError("decimal value must be finite")
+    decimal_tuple = value.as_tuple()
+    exponent = decimal_tuple.exponent
+    if isinstance(exponent, bool) or not isinstance(exponent, int):
+        raise ValueError("decimal exponent must be an integer")
+    return len(decimal_tuple.digits) + abs(exponent) + abs(value.adjusted()) + 2
+
+
 def sum_charge_amounts(values: tuple[Decimal, ...]) -> Decimal:
     """Sum charge amounts exactly without ambient Decimal-context truncation."""
     if not values:
         return Decimal("0")
-    precision = sum(
-        len(value.as_tuple().digits)
-        + abs(value.as_tuple().exponent)
-        + abs(value.adjusted())
-        + 2
-        for value in values
-    ) + len(values) * 4
+    precision = sum(_decimal_precision_contribution(value) for value in values) + len(values) * 4
     with localcontext() as context:
         context.prec = max(getcontext().prec, precision)
         return sum(values, Decimal("0"))
@@ -227,7 +243,7 @@ class CostSchedule:
             if missing:
                 raise ValueError(f"cost line {line.name!r} references unknown lines: {missing}")
         object.__setattr__(self, "lines", tuple(sorted(self.lines, key=lambda line: line.name)))
-        self.evaluation_order
+        _ = self.evaluation_order
 
     @property
     def evaluation_order(self) -> tuple[str, ...]:
@@ -341,24 +357,17 @@ class CostScheduleChargeModel:
                 precision_values.append(line.minimum)
             if line.maximum is not None:
                 precision_values.append(line.maximum)
-        exact_precision = sum(
-            len(value.as_tuple().digits)
-            + abs(value.as_tuple().exponent)
-            + abs(value.adjusted())
-            + 2
-            for value in precision_values
-        ) + (len(self.schedule.lines) + 1) * 8
+        exact_precision = (
+            sum(_decimal_precision_contribution(value) for value in precision_values)
+            + (len(self.schedule.lines) + 1) * 8
+        )
         with localcontext() as decimal_context:
             decimal_context.prec = max(getcontext().prec, exact_precision)
             if context.transaction_value != context.unit_price * context.quantity:
-                raise ValueError(
-                    "transaction_value must equal unit_price multiplied by quantity"
-                )
+                raise ValueError("transaction_value must equal unit_price multiplied by quantity")
             return self._calculate_with_precision(context)
 
-    def _calculate_with_precision(
-        self, context: ChargeCalculationContext
-    ) -> ChargeBreakdown:
+    def _calculate_with_precision(self, context: ChargeCalculationContext) -> ChargeBreakdown:
         assert context.side is not None
         assert context.unit_price is not None
         assert context.quantity is not None
@@ -367,9 +376,11 @@ class CostScheduleChargeModel:
         applicable: set[str] = set()
         for name in self.schedule.evaluation_order:
             line = by_name[name]
-            applies = line.side is ChargeSide.BOTH or (
-                line.side is ChargeSide.BUY and context.side is OrderSide.BUY
-            ) or (line.side is ChargeSide.SELL and context.side is OrderSide.SELL)
+            applies = (
+                line.side is ChargeSide.BOTH
+                or (line.side is ChargeSide.BUY and context.side is OrderSide.BUY)
+                or (line.side is ChargeSide.SELL and context.side is OrderSide.SELL)
+            )
             if not applies:
                 amounts[name] = Decimal("0")
                 continue

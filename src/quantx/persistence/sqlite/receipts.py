@@ -52,9 +52,7 @@ def _charge_to_dict(charges: ChargeBreakdown) -> dict[str, object]:
         "model_version": charges.model_version,
         "provenance": list(charges.provenance),
         "rounded_total": (
-            _canonical_decimal(charges.rounded_total)
-            if charges.rounded_total is not None
-            else None
+            _canonical_decimal(charges.rounded_total) if charges.rounded_total is not None else None
         ),
     }
 
@@ -93,9 +91,7 @@ def _charge_from_dict(data: dict[str, object]) -> ChargeBreakdown:
         model_id=model_id,
         model_version=model_version,
         provenance=tuple(raw_provenance),
-        rounded_total=(
-            Decimal(raw_rounded_total) if raw_rounded_total is not None else None
-        ),
+        rounded_total=(Decimal(raw_rounded_total) if raw_rounded_total is not None else None),
     )
 
 
@@ -140,9 +136,7 @@ def receipt_to_payload(receipt: ExecutionReceipt) -> str:
         "source": receipt.source,
     }
     if receipt.per_fill_charges:
-        payload["per_fill_charges"] = [
-            _charge_to_dict(item) for item in receipt.per_fill_charges
-        ]
+        payload["per_fill_charges"] = [_charge_to_dict(item) for item in receipt.per_fill_charges]
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
@@ -198,9 +192,7 @@ def receipt_from_payload(payload: str) -> ExecutionReceipt:
         assumptions=tuple(data["assumptions"]),
         fee=Decimal(data["fee"]),
         charges=_charge_from_dict(raw_charges) if raw_charges is not None else None,
-        per_fill_charges=tuple(
-            _charge_from_dict(item) for item in raw_per_fill_charges
-        ),
+        per_fill_charges=tuple(_charge_from_dict(item) for item in raw_per_fill_charges),
         broker_order_id=data["broker_order_id"],
         raw_reference=data["raw_reference"],
         correlation_id=data["correlation_id"],

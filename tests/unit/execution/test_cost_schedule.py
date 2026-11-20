@@ -1,4 +1,4 @@
-from decimal import Decimal, ROUND_HALF_EVEN, localcontext
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 
 import pytest
 
@@ -196,16 +196,12 @@ def test_cost_schedule_dependencies_are_evaluated_in_stable_topological_order() 
 @pytest.mark.parametrize(
     "lines",
     [
-        (
-            CostLine("a", ChargeBase.CHARGES, Decimal("0.1"), of=("missing",)),
-        ),
+        (CostLine("a", ChargeBase.CHARGES, Decimal("0.1"), of=("missing",)),),
         (
             CostLine("a", ChargeBase.CHARGES, Decimal("0.1"), of=("b",)),
             CostLine("b", ChargeBase.CHARGES, Decimal("0.1"), of=("a",)),
         ),
-        (
-            CostLine("a", ChargeBase.CHARGES, Decimal("0.1"), of=("a",)),
-        ),
+        (CostLine("a", ChargeBase.CHARGES, Decimal("0.1"), of=("a",)),),
     ],
 )
 def test_missing_or_cyclic_dependencies_are_rejected(lines: tuple[CostLine, ...]) -> None:

@@ -244,13 +244,8 @@ class PaperSession:
                     raise ValueError(
                         "scheduled charge currency must match instrument and account currency"
                     )
-                if any(
-                    fill.instrument != instrument.instrument_id
-                    for fill in receipt.fills
-                ):
-                    raise ValueError(
-                        "scheduled receipt fills must match the approved instrument"
-                    )
+                if any(fill.instrument != instrument.instrument_id for fill in receipt.fills):
+                    raise ValueError("scheduled receipt fills must match the approved instrument")
                 if any(
                     item.currency != instrument.currency or item.currency != cash_currency
                     for item in receipt.per_fill_charges

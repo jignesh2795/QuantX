@@ -194,11 +194,7 @@ class ExecutionReceipt:
             )
 
         if len(self.fills) == 1:
-            if (
-                fee_override is not None
-                and self.charges is not None
-                and fee_override != self.fee
-            ):
+            if fee_override is not None and self.charges is not None and fee_override != self.fee:
                 raise ValueError("fee_override cannot contradict the receipt charge breakdown")
             return (self.fee if fee_override is None else fee_override,)
 
@@ -252,8 +248,7 @@ class ExecutionReceipt:
             if any(item.currency is None for item in self.per_fill_charges):
                 raise ValueError("per-fill charge breakdowns require an explicit currency")
             identities = {
-                (item.model_id, item.model_version, item.currency)
-                for item in self.per_fill_charges
+                (item.model_id, item.model_version, item.currency) for item in self.per_fill_charges
             }
             if len(identities) != 1:
                 raise ValueError(

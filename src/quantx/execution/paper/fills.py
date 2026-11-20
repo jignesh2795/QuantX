@@ -91,11 +91,15 @@ class FillSimulator:
                 remaining_quantity=remaining,
             )
 
-        fee = ExecutionProfileChargeAdapter(profile).calculate(
-            ChargeCalculationContext(
-                transaction_value=price * fill_quantity,
+        fee = (
+            ExecutionProfileChargeAdapter(profile)
+            .calculate(
+                ChargeCalculationContext(
+                    transaction_value=price * fill_quantity,
+                )
             )
-        ).total
+            .total
+        )
         return SimulatedFill(
             price=price,
             quantity=fill_quantity,
