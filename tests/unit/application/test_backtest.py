@@ -3564,3 +3564,60 @@ def test_backtest_rejects_schedule_currency_mismatch_before_strategy_execution()
             market_registry=default_market_registry(),
         )
     assert counting.calls == []
+
+
+def test_backtest_preflights_injected_schedule_against_instrument_before_strategy() -> None:
+    from quantx.execution.charges import (
+        ChargeBase,
+        CostLine,
+        CostSchedule,
+        CostScheduleChargeModel,
+    )
+
+    instrument = replace(_instrument(), currency="USD")
+    schedule = CostSchedule(
+        lines=(CostLine("brokerage", ChargeBase.ORDER, Decimal("1")),),
+        currency="INR",
+        digits=2,
+        source="caller-supplied-test",
+    )
+    idempotency = InMemoryIdempotencyStore()
+    probe_order_id = UUID("00000000-0000-0000-0000-000000000339")
+    engine = PaperExecutionEngine(
+        clock=FixedClock(datetime(2026, 1, 1, 9, 15, tzinfo=UTC)),
+        profile=PaperSimulationProfile(charge_model=CostScheduleChargeModel(schedule)),
+        idempotency_store=idempotency,
+        market_registry=default_market_registry(),
+    )
+    strategy_calls: list[object] = []
+
+    def strategy(frame):
+        strategy_calls.append(frame)
+        return StrategyResult(
+            StrategySignal(
+                StrategyId("instrument-currency-preflight"),
+                "1",
+                frame.observation.instrument,
+                SignalAction.HOLD,
+                1.0,
+                generated_at=frame.observation.timestamp,
+            )
+        )
+
+    with pytest.raises(ValueError, match="instrument and account currency"):
+        _service(
+            instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+            execution_engine=engine,
+        ).run(
+            series=_series(),
+            strategy=strategy,
+            financial_state=_financial_state(),
+            market_registry=default_market_registry(),
+        )
+
+    assert strategy_calls == []
+    decision = idempotency.check(probe_order_id, "probe-fingerprint")
+    assert decision.existing_receipt_id is None
+    assert not decision.reservation_pending
+    assert engine.receipt_for(probe_order_id) is None
+    assert engine.events() == ()
