@@ -13,7 +13,7 @@ from quantx.execution.ports import ExecutionOutcome, ExecutionReceipt
 
 
 def test_receipt_requires_charge_total_to_match_fee() -> None:
-    from quantx.execution.charges import ChargeBreakdown, ChargeComponent
+    from quantx.execution.charges import ChargeComponent
 
     with pytest.raises(ValueError, match="charges total must equal receipt fee"):
         ExecutionReceipt(

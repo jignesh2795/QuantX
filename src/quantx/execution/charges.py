@@ -71,6 +71,7 @@ def sum_charge_amounts(values: tuple[Decimal, ...]) -> Decimal:
         context.prec = max(getcontext().prec, precision)
         return sum(values, Decimal("0"))
 
+
 @dataclass(frozen=True, slots=True)
 class ChargeBreakdown:
     """Immutable, auditable transaction-cost result."""
