@@ -322,3 +322,20 @@ def test_schedule_calculation_preserves_decimal_precision_beyond_default_context
         )
     assert result.total == expected
     assert result.rounded_total == expected_rounded
+
+
+def test_breakdown_total_sums_multiple_high_precision_components_exactly() -> None:
+    rates = (
+        Decimal("0.123456789012345678901234567890123456789"),
+        Decimal("0.987654321098765432109876543210987654321"),
+    )
+    with localcontext() as context:
+        context.prec = 100
+        expected = Decimal("100") * rates[0] + Decimal("100") * rates[1]
+
+    result = _model(
+        CostLine("first", ChargeBase.TURNOVER, rates[0]),
+        CostLine("second", ChargeBase.TURNOVER, rates[1]),
+    ).calculate(_context(price="100", quantity="1"))
+
+    assert result.total == expected
