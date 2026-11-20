@@ -95,6 +95,26 @@ class PaperExecutionEngine:
         """
         return self._clock
 
+    def validate_cost_schedule_currency(
+        self,
+        *,
+        instrument_currency: str,
+        account_currency: str,
+    ) -> None:
+        """Reject an incompatible configured schedule before reserving an execution.
+
+        PaperSession calls this before margin reservation and before execute(),
+        so a configuration error cannot consume a client-order idempotency key.
+        """
+        charge_model = self._profile.charge_model
+        if not isinstance(charge_model, CostScheduleChargeModel):
+            return
+        if instrument_currency != account_currency:
+            raise ValueError("scheduled charge currency must match instrument and account currency")
+        schedule_currency = charge_model.schedule.currency
+        if schedule_currency != instrument_currency or schedule_currency != account_currency:
+            raise ValueError("per-fill charge currency does not match instrument and account currency")
+
     def execute(
         self,
         request: ApprovedExecutionRequest,

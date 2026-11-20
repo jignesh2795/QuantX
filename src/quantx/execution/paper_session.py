@@ -162,6 +162,14 @@ class PaperSession:
         else:
             assert cash_ledger is not None
             cash_currency = cash_ledger.balance.currency
+
+        # Validate the configured schedule before margin reservation or the
+        # executor's idempotency reservation/receipt completion.
+        self._executor.validate_cost_schedule_currency(
+            instrument_currency=instrument.currency,
+            account_currency=cash_currency,
+        )
+
         margin_reservation = None
         required_margin = request.required_margin
         if self._margin_ledger is not None and self._position_margin_policy is not None:

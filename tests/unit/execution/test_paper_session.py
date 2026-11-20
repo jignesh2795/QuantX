@@ -546,3 +546,85 @@ def test_paper_session_rejects_ambiguous_multi_fill_aggregate_fee_before_account
             execution_adapter=_ReceiptAdapter(),
         )
     assert accounting.snapshot() == ()
+
+def test_cost_schedule_currency_mismatch_is_rejected_before_idempotency_and_retryable() -> None:
+    import pytest
+
+    from quantx.execution.cash_ledger import CashLedger
+    from quantx.execution.charges import (
+        ChargeBase,
+        CostLine,
+        CostSchedule,
+        CostScheduleChargeModel,
+    )
+    from quantx.execution.idempotency import InMemoryIdempotencyStore, request_fingerprint
+
+    def _schedule(currency: str) -> CostScheduleChargeModel:
+        return CostScheduleChargeModel(
+            CostSchedule(
+                lines=(CostLine("brokerage", ChargeBase.ORDER, Decimal("1")),),
+                currency=currency,
+                digits=2,
+                source="caller-supplied-test",
+            )
+        )
+
+    instrument = _instrument()
+    request = _request()
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    idempotency = InMemoryIdempotencyStore()
+    engine = PaperExecutionEngine(
+        market_registry=default_market_registry(),
+        clock=FixedClock(timestamp),
+        profile=PaperSimulationProfile(charge_model=_schedule("USD")),
+        idempotency_store=idempotency,
+    )
+    accounting = FillAccounting()
+    cash_ledger = CashLedger(Money(Decimal("5000"), "INR"))
+    session = PaperSession(
+        executor=engine,
+        instrument_registry=InMemoryInstrumentRegistry((instrument,)),
+        accounting=accounting,
+        cash_ledger=cash_ledger,
+    )
+    snapshot = QuoteSnapshot(
+        instrument=instrument.instrument_id,
+        timestamp=timestamp,
+        bid=Decimal("99"),
+        ask=Decimal("100"),
+        last=Decimal("100"),
+    )
+
+    with pytest.raises(ValueError, match="per-fill charge currency does not match"):
+        session.execute_and_value(request, snapshot=snapshot)
+
+    decision = idempotency.check(
+        request.order.client_order_id,
+        request_fingerprint(request),
+    )
+    assert decision.existing_receipt_id is None
+    assert not decision.reservation_pending
+    assert engine.receipt_for(request.order.client_order_id) is None
+    assert engine.events() == ()
+    assert accounting.snapshot() == ()
+    assert cash_ledger.balance == Money(Decimal("5000"), "INR")
+    assert cash_ledger.entries() == ()
+
+    # Correcting only the schedule configuration must allow the same request
+    # and client-order id to execute because the failed preflight reserved nothing.
+    engine._profile = PaperSimulationProfile(charge_model=_schedule("INR"))
+    result = session.execute_and_value(request, snapshot=snapshot)
+
+    assert result.execution.per_fill_charges[0].currency == "INR"
+    assert result.execution.fee == Decimal("1.00")
+    assert result.accounting_entry.fees == Decimal("1.00")
+    assert result.cash == Money(Decimal("3999.00"), "INR")
+    assert cash_ledger.balance == Money(Decimal("3999.00"), "INR")
+    assert len(cash_ledger.entries()) == 1
+    assert len(engine.events()) == 2
+    completed = idempotency.check(
+        request.order.client_order_id,
+        request_fingerprint(request),
+    )
+    assert completed.existing_receipt_id == result.execution.receipt_id
+    assert not completed.reservation_pending
