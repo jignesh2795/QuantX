@@ -98,17 +98,19 @@ class PaperExecutionEngine:
     def validate_cost_schedule_currency(
         self,
         *,
-        instrument_currency: str,
+        instrument_currency: str | None,
         account_currency: str,
     ) -> None:
         """Reject an incompatible configured schedule before reserving an execution.
 
-        PaperSession calls this before margin reservation and before execute(),
-        so a configuration error cannot consume a client-order idempotency key.
+        PaperSession and backtests call this before margin reservation or execute(),
+        so a configuration error cannot consume an idempotency key or receipt.
         """
         charge_model = self._profile.charge_model
         if not isinstance(charge_model, CostScheduleChargeModel):
             return
+        if instrument_currency is None:
+            raise ValueError("cost schedule currency preflight requires resolved instrument metadata")
         if instrument_currency != account_currency:
             raise ValueError("scheduled charge currency must match instrument and account currency")
         schedule_currency = charge_model.schedule.currency
